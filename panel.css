@@ -1,0 +1,23 @@
+*{box-sizing:border-box}html,body{height:100%;margin:0;font:13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--fg);background:var(--bg)}
+:root{--bg:#ffffff;--surface:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb;--hover:#f3f4f6;--row-hover:#f3f4f6;--selected:#eef2ff}
+@media (prefers-color-scheme: dark){:root{--bg:#111a2d;--surface:#17223a;--fg:#f5f7ff;--muted:#d6dbe6;--border:#2f3a52;--hover:#1d2946;--row-hover:#19243d;--selected:#293a5d}}
+html[data-theme="dark"]{--bg:#111a2d;--surface:#17223a;--fg:#f5f7ff;--muted:#d6dbe6;--border:#2f3a52;--hover:#1d2946;--row-hover:#19243d;--selected:#293a5d}
+html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb;--hover:#f3f4f6;--row-hover:#f3f4f6;--selected:#eef2ff}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:2}
+.topbar input{width:360px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg)}
+.topbar button{padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);cursor:pointer}
+.topbar button:hover{background:var(--hover)}
+.content{display:grid;grid-template-columns:minmax(240px,1fr) minmax(300px,1fr);height:calc(100vh - 72px)}
+.tableWrap{overflow:auto;border-right:1px solid var(--border)}
+.details{display:flex;flex-direction:column;min-width:300px;overflow:hidden}
+.details-header{padding:8px;border-bottom:1px solid var(--border);background:var(--surface);font-weight:600}
+.tabs{display:flex;gap:6px;padding:6px;border-bottom:1px solid var(--border)}
+.tab{padding:6px 10px;border-radius:8px;border:1px solid transparent;background:var(--bg);color:var(--fg)}
+.tab.active{border-color:var(--border);background:var(--surface)}
+.tabpanes{flex:1;overflow:auto;padding:8px}
+.grid{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
+.grid thead th{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);font-weight:600;text-align:left;padding:6px 8px;white-space:nowrap}
+.grid tbody td{border-bottom:1px solid var(--surface);padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grid tbody tr:hover{background:var(--row-hover)}.grid tbody tr.selected{background:var(--selected)}
+.statusbar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid var(--border);background:var(--surface)}.statusbar .spacer{flex:1}
+.kv{display:grid;grid-template-columns:220px 1fr;gap:4px 10px}.kv .key{color:var(--muted)}.kv .val{color:var(--fg);overflow-wrap:anywhere}
