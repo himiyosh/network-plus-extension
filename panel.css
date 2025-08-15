@@ -17,6 +17,8 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--fg:#111827;--muted:#6b
 .tab{padding:6px 10px;border-radius:8px;border:1px solid transparent;background:var(--bg);color:var(--fg)}
 .tab.active{border-color:var(--border);background:var(--surface)}
 .tabpanes{flex:1;overflow:auto;padding:8px}
+.pane{display:none;white-space:pre-wrap;word-break:break-all}
+.pane.active{display:block}
 .grid{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
 .grid thead th{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);font-weight:600;text-align:left;padding:6px 8px;white-space:nowrap}
 .grid tbody td{border-bottom:1px solid var(--surface);padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

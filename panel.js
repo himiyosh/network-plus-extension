@@ -98,7 +98,22 @@
     $("#pane-headers").textContent="Request Headers:\n"+headersHtml(row.requestHeaders)+"\n\nResponse Headers:\n"+headersHtml(row.responseHeaders);
     $("#pane-request").textContent=row.requestPostData? (row.requestPostData.text||JSON.stringify(row.requestPostData)) : "(no body)";
     $("#pane-timing").textContent=row.timingText||"";
-    // Lazy fetch response body could be added if needed
+    $("#pane-response").textContent = "(loading...)";
+    if(row._reqObj && typeof row._reqObj.getContent === 'function'){
+      row._reqObj.getContent(function(content, encoding){
+        var text = content || "(no response body)";
+        if(encoding === "base64"){
+          try {
+            text = atob(content);
+          } catch(e) {
+            text = "(could not decode base64 response)";
+          }
+        }
+        $("#pane-response").textContent = text;
+      });
+    } else {
+      $("#pane-response").textContent = "(response body not available)";
+    }
   }
 
   function exportCSV(){
