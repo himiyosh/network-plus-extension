@@ -165,9 +165,56 @@
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
     // Tabs
-    $all(".tab").forEach(function(tab){ tab.addEventListener("click", function(){ $all(".tab").forEach(function(t){t.classList.remove("active")}); $all(".pane").forEach(function(p){p.classList.remove("active")}); tab.classList.add("active"); $("#pane-"+tab.getAttribute("data-tab")).classList.add("active"); }); });
+    try {
+      $all(".tab").forEach(function(tab){
+        tab.addEventListener("click", function(e){
+          var target = e.currentTarget;
+          var tabName = target.getAttribute("data-tab");
+          console.log("Tab clicked:", tabName);
+
+          $all(".tab").forEach(function(t){t.classList.remove("active")});
+          $all(".pane").forEach(function(p){p.classList.remove("active")});
+
+          target.classList.add("active");
+          var pane = $("#pane-"+tabName);
+          if (pane) {
+            pane.classList.add("active");
+          } else {
+            console.error("Pane not found for tab:", tabName);
+          }
+        });
+      });
+    } catch (e) {
+      console.error("Error setting up tabs:", e);
+      setStatus("Error setting up tabs: " + e.message);
+    }
     // Render header now
     render();
+
+    // Resizer logic
+    var resizer = $("#resizer");
+    var tableWrap = $("#tableWrap");
+    var details = $("#details");
+    var isResizing = false;
+
+    resizer.addEventListener("mousedown", function(e) {
+      isResizing = true;
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", function() {
+        isResizing = false;
+        document.removeEventListener("mousemove", handleMouseMove);
+      });
+    });
+
+    function handleMouseMove(e) {
+      if (!isResizing) return;
+      var totalWidth = $("#content").offsetWidth;
+      var newDetailsWidth = totalWidth - e.clientX;
+      if (newDetailsWidth > 300 && newDetailsWidth < totalWidth - 240) {
+        details.style.flexBasis = newDetailsWidth + "px";
+        tableWrap.style.flexBasis = (totalWidth - newDetailsWidth - 5) + "px";
+      }
+    }
 
     // Network subscription
     if (chrome && chrome.devtools && chrome.devtools.network && chrome.devtools.network.onRequestFinished) {
