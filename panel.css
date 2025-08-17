@@ -37,3 +37,5 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--fg:#111827;--muted:#6b
 .grid tbody tr.method-PATCH .method-cell{color:var(--method-patch-fg);font-weight:600}
 .grid tbody tr.method-OPTIONS .method-cell{color:var(--method-options-fg);font-weight:500}
 .grid tbody tr.method-HEAD .method-cell{color:var(--method-head-fg);font-weight:500}
+.copy-btn{float:right;padding:2px 8px;margin-left:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer}
+.copy-btn:hover{background:var(--hover)}

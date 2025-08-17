@@ -97,10 +97,14 @@
     var tbody=$("#tbody"); tbody.innerHTML="";
     var rows=state.rows.filter(function(r){
       for(var colId in state.columnFilters){
-        var filterVal=(state.columnFilters[colId]||"").toLowerCase();
+        var filterVal = (state.columnFilters[colId]||"").toLowerCase();
         if(!filterVal) continue;
-        var rowVal=(r[colId]==null?"":String(r[colId])).toLowerCase();
-        if(rowVal.indexOf(filterVal)===-1) return false;
+        var rowVal = (r[colId]==null?"":String(r[colId])).toLowerCase();
+        var filterTokens = filterVal.split(',').map(function(t){ return t.trim(); }).filter(function(t){ return t; });
+        if (filterTokens.length > 0) {
+          var match = filterTokens.some(function(token){ return rowVal.indexOf(token) > -1; });
+          if (!match) return false;
+        }
       }
       return true;
     });
@@ -127,8 +131,8 @@
     state.selectedIndex=index; renderBody();
     var row=state.rows[index]; if(!row) return;
     $("#detailsTitle").textContent=(row.method||"")+" "+(row.url||"");
-    $("#pane-overview").innerHTML=[
-      '<div class="kv">',
+    // Overview
+    $("#pane-overview").innerHTML=['<div class="kv">',
       '<div class="key">ID</div><div class="val">'+row.id+'</div>',
       '<div class="key">URL</div><div class="val">'+(row.url||"")+'</div>',
       '<div class="key">Method</div><div class="val">'+(row.method||"")+'</div>',
@@ -140,27 +144,33 @@
       '<div class="key">Started</div><div class="val">'+(row.startedDateTime||"")+'</div>',
       '<div class="key">Duration</div><div class="val">'+fmtTime(row.duration)+'</div>',
       '<div class="key">Size</div><div class="val">'+fmtBytes(row.size)+'</div>',
-      '</div>'
-    ].join("\n");
-    function headersHtml(a){ var out=[]; if(a){ for(var i=0;i<a.length;i++){ var h=a[i]; out.push((h.name||"")+": "+String(h.value||"")); } } return out.join("\n"); }
-    $("#pane-headers").textContent="Request Headers:\n"+headersHtml(row.requestHeaders)+"\n\nResponse Headers:\n"+headersHtml(row.responseHeaders);
-    $("#pane-request").textContent=row.requestPostData? (row.requestPostData.text||JSON.stringify(row.requestPostData)) : "(no body)";
+      '</div>'].join("\n");
+    // Headers
+    function headersToKvGrid(title,headers){ if(!headers||headers.length===0)return""; var kv=headers.map(function(h){return'<div class="key">'+(h.name||"")+'</div><div class="val">'+(h.value||"")+'</div>';}).join(""); return '<strong>'+title+'</strong><div class="kv">'+kv+'</div>'; }
+    $("#pane-headers").innerHTML = headersToKvGrid("Request Headers",row.requestHeaders) + '<br>' + headersToKvGrid("Response Headers",row.responseHeaders);
+    // Request
+    var reqPane=$("#pane-request"); reqPane.innerHTML="";
+    var reqContent=row.requestPostData?(row.requestPostData.text||JSON.stringify(row.requestPostData)):"(no body)";
+    var copyBtnReq=document.createElement("button"); copyBtnReq.className="copy-btn"; copyBtnReq.textContent="Copy";
+    copyBtnReq.addEventListener("click",function(){navigator.clipboard.writeText(reqContent).catch(function(e){console.error(e);});});
+    var contentNodeReq=document.createElement("div"); contentNodeReq.textContent=reqContent;
+    reqPane.appendChild(copyBtnReq); reqPane.appendChild(contentNodeReq);
+    // Timing
     $("#pane-timing").textContent=row.timingText||"";
-    $("#pane-response").textContent = "(loading...)";
-    if(row._reqObj && typeof row._reqObj.getContent === 'function'){
-      row._reqObj.getContent(function(content, encoding){
-        var text = content || "(no response body)";
-        if(encoding === "base64"){
-          try {
-            text = atob(content);
-          } catch(e) {
-            text = "(could not decode base64 response)";
-          }
-        }
-        $("#pane-response").textContent = text;
+    // Response
+    var resPane=$("#pane-response"); resPane.innerHTML="(loading...)";
+    if(row._reqObj&&typeof row._reqObj.getContent==='function'){
+      row._reqObj.getContent(function(content,encoding){
+        var text=content||"(no response body)";
+        if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
+        resPane.innerHTML="";
+        var copyBtnRes=document.createElement("button"); copyBtnRes.className="copy-btn"; copyBtnRes.textContent="Copy";
+        copyBtnRes.addEventListener("click",function(){navigator.clipboard.writeText(text).catch(function(e){console.error(e);});});
+        var contentNodeRes=document.createElement("div"); contentNodeRes.textContent=text;
+        resPane.appendChild(copyBtnRes); resPane.appendChild(contentNodeRes);
       });
-    } else {
-      $("#pane-response").textContent = "(response body not available)";
+    }else{
+      resPane.textContent="(response body not available)";
     }
   }
 
