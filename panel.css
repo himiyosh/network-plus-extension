@@ -54,6 +54,12 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--content-bg:#ffffff;--f
 .filter-dropdown-content input, .columns-dropdown input{margin:0}
 .columns-dropdown{display:none;position:absolute;right:0;background-color:var(--surface);border:1px solid var(--border);border-radius:4px;box-shadow:0 4px 8px rgba(0,0,0,0.1);z-index:20;padding:8px;white-space:nowrap}
 .columns-dropdown.show{display:block}
+.columns-dropdown input[type="checkbox"] {
+    -webkit-appearance: checkbox;
+    appearance: checkbox;
+    opacity: 1;
+    display: inline-block;
+}
 .topbar.recording{border-top:2px solid #ef4444}
 .topbar.recording #pauseBtn{color:#ef4444}
 html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}

@@ -393,7 +393,10 @@
           item.classList.toggle("active");
         });
       });
-      $all(".accordion-item").forEach(function(item){ item.classList.add("active"); });
+      // Start with all sections open
+      $all(".accordion-item").forEach(function(item){
+        item.classList.add("active");
+      });
     } catch (e) {
       console.error("Error setting up accordion:", e);
       setStatus("Error setting up accordion: " + e.message);
