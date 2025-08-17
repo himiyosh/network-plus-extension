@@ -93,6 +93,7 @@
       if(row.method){ var method=row.method.toUpperCase(); if(['POST','PUT','DELETE','PATCH','OPTIONS','HEAD'].indexOf(method)>-1){ tr.classList.add('method-'+method); } }
       for(var j=0;j<state.columns.length;j++){ var c=state.columns[j]; if(!c.visible) continue;
         var td=document.createElement("td"); var v=row[c.id];
+        if(c.id==="method") td.classList.add("method-cell");
         if(c.id==="size") v=fmtBytes(row.size);
         if(c.id==="time") v=row.timeText||"";
         if(c.id==="duration") v=fmtTime(row.duration);
@@ -200,8 +201,6 @@
     // Theme init
     loadThemePref(function(pref){ applyTheme(pref); });
     var themeBtn=$("#themeBtn"); themeBtn.addEventListener("click", function(){ loadThemePref(function(cur){ var nxt=nextTheme(cur); saveThemePref(nxt); applyTheme(nxt); }); });
-    // Wide (50/50 fixed)
-    $("#wideBtn").addEventListener("click", function(){ var c=$("#content"); if(!c) return; if(c.classList.contains("wide")){ c.classList.remove("wide"); } else { c.classList.add("wide"); } });
     // Filter
     $("#filterInput").addEventListener("input", function(e){ state.filter=e.target.value||""; renderBody(); });
     // Clear / Pause
@@ -210,29 +209,20 @@
     // Export
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
-    // Tabs
+    // Accordion
     try {
-      $all(".tab").forEach(function(tab){
-        tab.addEventListener("click", function(e){
-          var target = e.currentTarget;
-          var tabName = target.getAttribute("data-tab");
-          console.log("Tab clicked:", tabName);
-
-          $all(".tab").forEach(function(t){t.classList.remove("active")});
-          $all(".pane").forEach(function(p){p.classList.remove("active")});
-
-          target.classList.add("active");
-          var pane = $("#pane-"+tabName);
-          if (pane) {
-            pane.classList.add("active");
-          } else {
-            console.error("Pane not found for tab:", tabName);
-          }
+      $all(".accordion-header").forEach(function(header){
+        header.addEventListener("click", function(e){
+          var item = e.currentTarget.parentElement;
+          item.classList.toggle("active");
         });
       });
+      // By default, open the first accordion item
+      var firstItem = $(".accordion-item");
+      if(firstItem) firstItem.classList.add("active");
     } catch (e) {
-      console.error("Error setting up tabs:", e);
-      setStatus("Error setting up tabs: " + e.message);
+      console.error("Error setting up accordion:", e);
+      setStatus("Error setting up accordion: " + e.message);
     }
     // Render header now
     render();
