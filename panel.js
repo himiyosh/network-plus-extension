@@ -84,8 +84,9 @@
           updateBtnText();
           renderBody();
         });
+      var labelText = document.createElement('span'); labelText.textContent = opt;
         label.appendChild(cb);
-        label.appendChild(document.createTextNode(opt));
+      label.appendChild(labelText);
         content.appendChild(label);
       });
     }
