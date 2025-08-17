@@ -348,13 +348,18 @@
         var cb = document.createElement("input");
         cb.type = "checkbox"; cb.checked = c.visible; cb.dataset.idx = i;
         cb.addEventListener("change", function(e){
+          e.stopPropagation();
           var idx = parseInt(e.target.dataset.idx, 10);
           state.columns[idx].visible = e.target.checked;
           saveColumnPrefs();
           render();
         });
-        label.appendChild(cb);
-        label.appendChild(document.createTextNode(" " + c.label));
+        var checkContainer = document.createElement('div'); checkContainer.className = "check-container";
+        var textContainer = document.createElement('div'); textContainer.className = "text-container";
+        checkContainer.appendChild(cb);
+        textContainer.textContent = c.label;
+        label.appendChild(checkContainer);
+        label.appendChild(textContainer);
         columnsDropdown.appendChild(label);
       });
     }
