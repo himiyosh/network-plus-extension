@@ -84,10 +84,13 @@
           updateBtnText();
           renderBody();
         });
-      var labelText = document.createElement('span'); labelText.textContent = opt;
-        label.appendChild(cb);
-      label.appendChild(labelText);
-        content.appendChild(label);
+      var checkContainer = document.createElement('div'); checkContainer.className = "check-container";
+      var textContainer = document.createElement('div'); textContainer.className = "text-container";
+      checkContainer.appendChild(cb);
+      textContainer.textContent = opt;
+      label.appendChild(checkContainer);
+      label.appendChild(textContainer);
+      content.appendChild(label);
       });
     }
 
