@@ -17,6 +17,7 @@
     {id:"time",label:"Time",width:160,visible:true},
     {id:"method",label:"Method",width:80,visible:true},
     {id:"status",label:"Status",width:70,visible:true},
+    {id:"type",label:"Type",width:150,visible:true},
     {id:"url",label:"URL",width:420,visible:true},
     {id:"path",label:"Path",width:260,visible:true},
     {id:"domain",label:"Domain",width:180,visible:true},
@@ -274,8 +275,14 @@
     // Clear / Pause
     $("#clearBtn").addEventListener("click", function(){ state.rows=[]; state.columnFilters={}; state.nextId=1; state.selectedIndex=-1; render(); setStatus("Cleared"); });
     var pauseBtn=$("#pauseBtn");
-    pauseBtn.addEventListener("click", function(){ state.paused=!state.paused; pauseBtn.innerHTML = state.paused?"▶️":"⏸️"; setStatus(state.paused?"Paused":"Resumed"); });
-    pauseBtn.innerHTML = state.paused?"▶️":"⏸️";
+    var topbar=$(".topbar");
+    function updateRecordState(){
+      pauseBtn.innerHTML = state.paused?"▶️":"⏸️";
+      if(!state.paused){ topbar.classList.add("recording"); }else{ topbar.classList.remove("recording"); }
+      setStatus(state.paused?"Paused":"Resumed");
+    }
+    pauseBtn.addEventListener("click", function(){ state.paused=!state.paused; updateRecordState(); });
+    updateRecordState();
     // Export
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
