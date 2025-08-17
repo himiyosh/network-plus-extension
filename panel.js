@@ -81,7 +81,7 @@
 
   function renderHeader(){
     var thead=$("#thead"); thead.innerHTML="";
-    var tr=document.createElement("tr"); // Titles
+    var tr=document.createElement("tr"); tr.className="title-row"; // Titles
     for(var i=0;i<state.columns.length;i++){
       var c=state.columns[i]; if(!c.visible) continue;
       var th=document.createElement("th"); th.style.width=(c.width||120)+"px"; th.textContent=c.label;

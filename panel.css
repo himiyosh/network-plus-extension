@@ -24,8 +24,8 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--content-bg:#ffffff;--f
 .indicator::before{content:'▸';display:inline-block;margin-right:6px;transition:transform 0.1s ease-in-out}
 .accordion-item.active .indicator::before{transform:rotate(90deg)}
 .grid{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
-.grid thead th{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);font-weight:600;text-align:left;padding:6px 8px;white-space:nowrap;z-index:2}
-.filter-row th{padding:2px 4px;background:var(--bg);position:sticky;top:26px;z-index:2}
+.title-row th{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);font-weight:600;text-align:left;padding:6px 8px;white-space:nowrap;z-index:2}
+.filter-row th{padding:2px 4px;background:var(--bg);position:sticky;top:28px;z-index:2}
 .filter-row input{width:100%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:4px;border-radius:4px}
 .grid tbody td{border-bottom:1px solid var(--surface);padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .grid tbody tr:hover{background:var(--row-hover)}.grid tbody tr.selected{background:var(--selected)}
