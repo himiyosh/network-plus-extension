@@ -80,7 +80,7 @@
   function createDropdownFilter(colId, isDynamic){
     var dropdown = document.createElement("div"); dropdown.className = "filter-dropdown";
     var btn = document.createElement("button"); btn.className = "filter-btn";
-    var content = document.createElement("div"); content.className = "filter-dropdown-content";
+    var content = document.createElement("div"); content.className = "filter-dropdown-content dropdown-content";
     var options = isDynamic ? {} : state.columnFilters[colId];
 
     function updateBtnText(){
@@ -120,12 +120,10 @@
     if(!isDynamic) populateContent();
 
     btn.addEventListener("click", function(e){
-      e.stopPropagation();
       if(isDynamic) populateContent();
-      // Close other dropdowns
-      $all(".filter-dropdown-content").forEach(function(d){ if(d !== content) d.classList.remove("show"); });
-      if ($(".columns-dropdown.show")) { $(".columns-dropdown.show").classList.remove("show"); }
-      content.classList.toggle("show");
+      var isShowing = content.classList.contains("show");
+      $all(".dropdown-content").forEach(function(d){ d.classList.remove("show"); });
+      if(!isShowing) content.classList.add("show");
     });
     updateBtnText();
     dropdown.appendChild(btn); dropdown.appendChild(content);
@@ -338,40 +336,54 @@
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
     // Columns Dropdown
-    var columnsBtn = $("#columnsBtn");
-    var columnsDropdown = document.createElement("div");
-    columnsDropdown.className = "columns-dropdown";
+    var columnsDropdownContainer = document.createElement("div");
+    columnsDropdownContainer.className = "filter-dropdown"; // Reuse for position:relative
+    var columnsBtn = document.createElement("button");
+    columnsBtn.textContent = "Columns";
+    columnsBtn.className = "dropdown-btn"; // For global click handler
+    var columnsDropdownContent = document.createElement("div");
+    columnsDropdownContent.className = "columns-dropdown dropdown-content";
+
     function renderColumnsDropdown() {
-      columnsDropdown.innerHTML = "";
-      state.columns.forEach(function(c, i){
+      columnsDropdownContent.innerHTML = "";
+      var allCols = DEFAULT_COLUMNS.map(function(c){return c;});
+      var currentColCfgs = {}; state.columns.forEach(function(c){ currentColCfgs[c.id] = c; });
+
+      allCols.forEach(function(defaultCol, i){
+        var current = currentColCfgs[defaultCol.id] || defaultCol;
         var label = document.createElement("label");
         var cb = document.createElement("input");
-        cb.type = "checkbox"; cb.checked = c.visible; cb.dataset.idx = i;
+        cb.type = "checkbox";
+        cb.checked = current.visible;
+        cb.dataset.id = current.id;
         cb.addEventListener("change", function(e){
-          e.stopPropagation();
-          var idx = parseInt(e.target.dataset.idx, 10);
-          state.columns[idx].visible = e.target.checked;
+          var colId = e.target.dataset.id;
+          var col = state.columns.find(function(c){return c.id === colId;});
+          if(col) col.visible = e.target.checked;
           saveColumnPrefs();
           render();
+          // Re-render dropdown to keep it open and reflect changes
+          renderColumnsDropdown();
         });
         var checkContainer = document.createElement('div'); checkContainer.className = "check-container";
         var textContainer = document.createElement('div'); textContainer.className = "text-container";
-        checkContainer.appendChild(cb);
-        textContainer.textContent = c.label;
-        label.appendChild(checkContainer);
-        label.appendChild(textContainer);
-        columnsDropdown.appendChild(label);
+        checkContainer.appendChild(cb); textContainer.textContent = current.label;
+        label.appendChild(checkContainer); label.appendChild(textContainer);
+        columnsDropdownContent.appendChild(label);
       });
     }
     columnsBtn.addEventListener("click", function(e){
-      e.stopPropagation();
-      renderColumnsDropdown();
-      // Need to close other dropdowns
-      $all(".filter-dropdown-content").forEach(function(d){ d.classList.remove("show"); });
-      columnsDropdown.classList.toggle("show");
+      var isShowing = columnsDropdownContent.classList.contains("show");
+      // Hide all other dropdowns
+      $all(".dropdown-content").forEach(function(d){ d.classList.remove("show"); });
+      if(!isShowing) {
+        renderColumnsDropdown();
+        columnsDropdownContent.classList.add("show");
+      }
     });
-    columnsBtn.parentElement.style.position = 'relative'; // for positioning context
-    columnsBtn.parentElement.appendChild(columnsDropdown);
+    columnsDropdownContainer.appendChild(columnsBtn);
+    columnsDropdownContainer.appendChild(columnsDropdownContent);
+    $(".topbar .right").appendChild(columnsDropdownContainer);
 
     // Accordion
     try {
@@ -381,24 +393,31 @@
           item.classList.toggle("active");
         });
       });
-      // By default, open all accordion items
       $all(".accordion-item").forEach(function(item){ item.classList.add("active"); });
     } catch (e) {
       console.error("Error setting up accordion:", e);
       setStatus("Error setting up accordion: " + e.message);
     }
-    // Render header now
-    render();
+    render(); // Initial render
 
+    // Global click handler to close dropdowns
     window.addEventListener('click', function(e) {
-      if (!e.target.matches('.filter-btn')) {
-        $all(".filter-dropdown-content").forEach(function(d){
-          if (d.classList.contains('show')) { d.classList.remove('show'); }
-        });
+      var target = e.target;
+
+      // If click is on a dropdown button, let its own handler manage it.
+      if (target.closest('.filter-btn') || target.closest('.dropdown-btn')) {
+        return;
       }
-      if (!e.target.matches('#columnsBtn')) {
-        if (columnsDropdown.classList.contains('show')) { columnsDropdown.classList.remove('show'); }
+
+      // If click is inside dropdown content, do nothing.
+      if (target.closest('.dropdown-content')) {
+        return;
       }
+
+      // Otherwise, click was outside. Close all dropdowns.
+      $all(".dropdown-content.show").forEach(function(d){
+        d.classList.remove('show');
+      });
     });
 
     // Resizer logic
