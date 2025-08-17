@@ -59,6 +59,25 @@
 
   function extractUrlParts(url){ try{ var u=new URL(url); return {domain:u.host, path:u.pathname+(u.search||"")}; }catch(e){ return {domain:"",path:url}; } }
 
+  function createCheckboxItem(text, checked, onChange) {
+    var label = document.createElement("label");
+    var cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = checked;
+    cb.addEventListener("change", onChange);
+
+    var checkContainer = document.createElement('div');
+    checkContainer.className = "check-container";
+    var textContainer = document.createElement('div');
+    textContainer.className = "text-container";
+
+    checkContainer.appendChild(cb);
+    textContainer.textContent = text;
+    label.appendChild(checkContainer);
+    label.appendChild(textContainer);
+    return label;
+  }
+
   function buildRowFromRequest(req){
     var r={ _reqObj:req,
       method:(req && req.request && req.request.method)||"", url:(req && req.request && req.request.url)||"", 
@@ -98,22 +117,13 @@
       if(currentKeys.length === 0 && isDynamic){ content.innerHTML = "<i>No options yet</i>"; return; }
 
       currentKeys.forEach(function(opt){
-        var label = document.createElement("label");
-        var cb = document.createElement("input"); cb.type = "checkbox";
-        cb.checked = state.columnFilters[colId][opt] !== false;
-        cb.dataset.option = opt;
-        cb.addEventListener("change", function(e){
-          state.columnFilters[colId][e.target.dataset.option] = e.target.checked;
+        var isChecked = state.columnFilters[colId][opt] !== false;
+        var item = createCheckboxItem(opt, isChecked, function(e){
+          state.columnFilters[colId][opt] = e.target.checked;
           updateBtnText();
           renderBody();
         });
-      var checkContainer = document.createElement('div'); checkContainer.className = "check-container";
-      var textContainer = document.createElement('div'); textContainer.className = "text-container";
-      checkContainer.appendChild(cb);
-      textContainer.textContent = opt;
-      label.appendChild(checkContainer);
-      label.appendChild(textContainer);
-      content.appendChild(label);
+        content.appendChild(item);
       });
     }
 
@@ -351,25 +361,15 @@
 
       allCols.forEach(function(defaultCol, i){
         var current = currentColCfgs[defaultCol.id] || defaultCol;
-        var label = document.createElement("label");
-        var cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = current.visible;
-        cb.dataset.id = current.id;
-        cb.addEventListener("change", function(e){
-          var colId = e.target.dataset.id;
-          var col = state.columns.find(function(c){return c.id === colId;});
+        var item = createCheckboxItem(current.label, current.visible, function(e) {
+          var col = state.columns.find(function(c){return c.id === current.id;});
           if(col) col.visible = e.target.checked;
           saveColumnPrefs();
           render();
           // Re-render dropdown to keep it open and reflect changes
           renderColumnsDropdown();
         });
-        var checkContainer = document.createElement('div'); checkContainer.className = "check-container";
-        var textContainer = document.createElement('div'); textContainer.className = "text-container";
-        checkContainer.appendChild(cb); textContainer.textContent = current.label;
-        label.appendChild(checkContainer); label.appendChild(textContainer);
-        columnsDropdownContent.appendChild(label);
+        columnsDropdownContent.appendChild(item);
       });
     }
     columnsBtn.addEventListener("click", function(e){
