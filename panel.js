@@ -241,9 +241,8 @@
           item.classList.toggle("active");
         });
       });
-      // By default, open the first accordion item
-      var firstItem = $(".accordion-item");
-      if(firstItem) firstItem.classList.add("active");
+      // By default, open all accordion items
+      $all(".accordion-item").forEach(function(item){ item.classList.add("active"); });
     } catch (e) {
       console.error("Error setting up accordion:", e);
       setStatus("Error setting up accordion: " + e.message);
