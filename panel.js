@@ -50,7 +50,37 @@
     var thead=$("#thead"); thead.innerHTML="";
     var tr=document.createElement("tr");
     for(var i=0;i<state.columns.length;i++){ var c=state.columns[i]; if(!c.visible) continue;
-      var th=document.createElement("th"); th.style.width=(c.width||120)+"px"; th.textContent=c.label; tr.appendChild(th);
+      var th=document.createElement("th"); th.style.width=(c.width||120)+"px"; th.textContent=c.label;
+
+      var resizer=document.createElement("div");
+      resizer.className="col-resizer";
+
+      (function(col, headerEl){
+        resizer.addEventListener("mousedown", function(e){
+          e.preventDefault();
+          var startX = e.clientX;
+          var startWidth = headerEl.offsetWidth;
+
+          function handleMouseMove(e){
+            var newWidth = startWidth + (e.clientX - startX);
+            if(newWidth > 20) { // min width 20px
+              col.width = newWidth;
+              headerEl.style.width = newWidth + "px";
+            }
+          }
+
+          function handleMouseUp(e){
+            document.removeEventListener("mousemove", handleMouseMove);
+            document.removeEventListener("mouseup", handleMouseUp);
+          }
+
+          document.addEventListener("mousemove", handleMouseMove);
+          document.addEventListener("mouseup", handleMouseUp);
+        });
+      })(c, th);
+
+      th.appendChild(resizer);
+      tr.appendChild(th);
     }
     thead.appendChild(tr);
   }
@@ -60,6 +90,7 @@
     var rows=state.rows.filter(function(r){ if(!f) return true; return (r.method||"").toLowerCase().indexOf(f)>=0 || String(r.status||"").indexOf(f)>=0 || (r.type||"").toLowerCase().indexOf(f)>=0 || (r.url||"").toLowerCase().indexOf(f)>=0 || (r.domain||"").toLowerCase().indexOf(f)>=0 || (r.path||"").toLowerCase().indexOf(f)>=0; });
     for(var i=0;i<rows.length;i++){ var row=rows[i]; var tr=document.createElement("tr"); (function(idx){ tr.addEventListener("click", function(){ selectRow(idx); }); })(i);
       if(i===state.selectedIndex) tr.classList.add("selected");
+      if(row.method){ var method=row.method.toUpperCase(); if(['POST','PUT','DELETE','PATCH','OPTIONS','HEAD'].indexOf(method)>-1){ tr.classList.add('method-'+method); } }
       for(var j=0;j<state.columns.length;j++){ var c=state.columns[j]; if(!c.visible) continue;
         var td=document.createElement("td"); var v=row[c.id];
         if(c.id==="size") v=fmtBytes(row.size);

@@ -1,8 +1,8 @@
 *{box-sizing:border-box}html,body{height:100%;margin:0;font:13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--fg);background:var(--bg)}
-:root{--bg:#ffffff;--surface:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb;--hover:#f3f4f6;--row-hover:#f3f4f6;--selected:#eef2ff}
-@media (prefers-color-scheme: dark){:root{--bg:#1f2937;--surface:#374151;--fg:#d1d5db;--muted:#9ca3af;--border:#4b5563;--hover:#4b5563;--row-hover:#374151;--selected:#4b5563}}
-html[data-theme="dark"]{--bg:#1f2937;--surface:#374151;--fg:#d1d5db;--muted:#9ca3af;--border:#4b5563;--hover:#4b5563;--row-hover:#374151;--selected:#4b5563}
-html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb;--hover:#f3f4f6;--row-hover:#f3f4f6;--selected:#eef2ff}
+:root{--bg:#ffffff;--surface:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb;--hover:#f3f4f6;--row-hover:#f3f4f6;--selected:#eef2ff;--method-post-fg:#4338ca;--method-put-fg:#16a34a;--method-delete-fg:#dc2626;--method-patch-fg:#7c3aed;--method-other-fg:#475569}
+@media (prefers-color-scheme: dark){:root{--bg:#1f2937;--surface:#374151;--fg:#d1d5db;--muted:#9ca3af;--border:#4b5563;--hover:#4b5563;--row-hover:#374151;--selected:#4b5563;--method-post-fg:#818cf8;--method-put-fg:#4ade80;--method-delete-fg:#f87171;--method-patch-fg:#a78bfa;--method-other-fg:#94a3b8}}
+html[data-theme="dark"]{--bg:#1f2937;--surface:#374151;--fg:#d1d5db;--muted:#9ca3af;--border:#4b5563;--hover:#4b5563;--row-hover:#374151;--selected:#4b5563;--method-post-fg:#818cf8;--method-put-fg:#4ade80;--method-delete-fg:#f87171;--method-patch-fg:#a78bfa;--method-other-fg:#94a3b8}
+html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb;--hover:#f3f4f6;--row-hover:#f3f4f6;--selected:#eef2ff;--method-post-fg:#4338ca;--method-put-fg:#16a34a;--method-delete-fg:#dc2626;--method-patch-fg:#7c3aed;--method-other-fg:#475569}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:2}
 .topbar input{width:360px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg)}
 .topbar button{padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);cursor:pointer}
@@ -25,3 +25,10 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--fg:#111827;--muted:#6b
 .grid tbody tr:hover{background:var(--row-hover)}.grid tbody tr.selected{background:var(--selected)}
 .statusbar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid var(--border);background:var(--surface)}.statusbar .spacer{flex:1}
 .kv{display:grid;grid-template-columns:220px 1fr;gap:4px 10px}.kv .key{color:var(--muted)}.kv .val{color:var(--fg);overflow-wrap:anywhere}
+.col-resizer{position:absolute;top:0;right:0;width:5px;height:100%;cursor:col-resize;z-index:1}
+.col-resizer:hover{background:var(--selected)}
+.grid tbody tr.method-POST td{color:var(--method-post-fg);font-weight:600}
+.grid tbody tr.method-PUT td{color:var(--method-put-fg);font-weight:600}
+.grid tbody tr.method-DELETE td{color:var(--method-delete-fg);font-weight:600}
+.grid tbody tr.method-PATCH td{color:var(--method-patch-fg);font-weight:600}
+.grid tbody tr.method-OPTIONS td,.grid tbody tr.method-HEAD td{color:var(--method-other-fg);font-weight:500}
