@@ -41,3 +41,9 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--content-bg:#ffffff;--f
 .grid tbody tr.method-HEAD .method-cell{color:var(--method-head-fg);font-weight:500}
 .copy-btn{float:right;padding:2px 8px;margin-left:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer}
 .copy-btn:hover{background:var(--hover)}
+.filter-btn{width:100%;text-align:left;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:4px;cursor:pointer}
+.filter-dropdown{position:relative}
+.filter-dropdown-content{display:none;position:absolute;background-color:var(--surface);border:1px solid var(--border);border-radius:4px;box-shadow:0 4px 8px rgba(0,0,0,0.1);z-index:10;padding:8px;min-width:160px}
+.filter-dropdown-content.show{display:block}
+.filter-dropdown-content label{display:block;color:var(--fg);padding:2px 0}
+.filter-dropdown-content input{margin-right:6px}

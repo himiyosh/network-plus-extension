@@ -24,7 +24,13 @@
     {id:"size",label:"Size",width:90,visible:true}
   ];
 
-  var state={ columns: DEFAULT_COLUMNS.slice(0), rows: [], selectedIndex:-1, columnFilters:{}, nextId:1, paused:false };
+  var state={ columns: DEFAULT_COLUMNS.slice(0), rows: [], selectedIndex:-1,
+    columnFilters:{
+      method:{"GET":true,"POST":true,"PUT":true,"DELETE":true,"PATCH":true,"HEAD":true,"OPTIONS":true},
+      status:{"10x":true,"20x":true,"30x":true,"40x":true,"50x":true,"Other":true}
+    },
+    nextId:1, paused:false
+  };
 
   function extractUrlParts(url){ try{ var u=new URL(url); return {domain:u.host, path:u.pathname+(u.search||"")}; }catch(e){ return {domain:"",path:url}; } }
 
@@ -46,6 +52,32 @@
     return r;
   }
 
+  function createDropdownFilter(colId, options){
+    var dropdown = document.createElement("div"); dropdown.className = "filter-dropdown";
+    var btn = document.createElement("button"); btn.className = "filter-btn";
+    var content = document.createElement("div"); content.className = "filter-dropdown-content";
+
+    var allTrue = true;
+    for(var opt in options){ if(!options[opt]) allTrue=false; }
+    btn.textContent = allTrue ? "All" : Object.keys(options).filter(function(k){return options[k];}).join(', ') || "None";
+
+    for(var option in options){
+      var label = document.createElement("label");
+      var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = options[option]; cb.dataset.option = option;
+      cb.addEventListener("change", function(e){
+        state.columnFilters[colId][e.target.dataset.option] = e.target.checked;
+        render();
+      });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(option));
+      content.appendChild(label);
+    }
+
+    btn.addEventListener("click", function(e){ e.stopPropagation(); content.classList.toggle("show"); });
+    dropdown.appendChild(btn); dropdown.appendChild(content);
+    return dropdown;
+  }
+
   function renderHeader(){
     var thead=$("#thead"); thead.innerHTML="";
     var tr=document.createElement("tr"); // Titles
@@ -58,16 +90,9 @@
           e.preventDefault();
           var startX = e.clientX;
           var startWidth = headerEl.offsetWidth;
-          function handleMouseMove(e){
-            var newWidth = startWidth + (e.clientX - startX);
-            if(newWidth > 20) { col.width = newWidth; headerEl.style.width = newWidth + "px"; }
-          }
-          function handleMouseUp(e){
-            document.removeEventListener("mousemove", handleMouseMove);
-            document.removeEventListener("mouseup", handleMouseUp);
-          }
-          document.addEventListener("mousemove", handleMouseMove);
-          document.addEventListener("mouseup", handleMouseUp);
+          function handleMouseMove(e){ var newWidth=startWidth+(e.clientX-startX); if(newWidth>20){col.width=newWidth;headerEl.style.width=newWidth+"px";} }
+          function handleMouseUp(e){ document.removeEventListener("mousemove",handleMouseMove); document.removeEventListener("mouseup",handleMouseUp); }
+          document.addEventListener("mousemove",handleMouseMove); document.addEventListener("mouseup",handleMouseUp);
         });
       })(c, th);
       th.appendChild(resizer);
@@ -79,15 +104,19 @@
     for(var i=0;i<state.columns.length;i++){
       var c=state.columns[i]; if(!c.visible) continue;
       var fth = document.createElement("th");
-      var fin = document.createElement("input");
-      fin.type = "text"; fin.placeholder = "Filter..."; fin.dataset.colId = c.id;
-      fin.value = state.columnFilters[c.id] || "";
-      fin.addEventListener("input", function(e){
-        var id = e.target.dataset.colId;
-        state.columnFilters[id] = e.target.value;
-        renderBody();
-      });
-      fth.appendChild(fin);
+      if(c.id === 'method'){
+        fth.appendChild(createDropdownFilter('method', state.columnFilters.method));
+      } else if (c.id === 'status'){
+        fth.appendChild(createDropdownFilter('status', state.columnFilters.status));
+      } else {
+        var fin = document.createElement("input");
+        fin.type = "text"; fin.placeholder = "Filter..."; fin.dataset.colId = c.id;
+        fin.value = state.columnFilters[c.id] || "";
+        fin.addEventListener("input", function(e){
+          var id = e.target.dataset.colId; state.columnFilters[id] = e.target.value; renderBody();
+        });
+        fth.appendChild(fin);
+      }
       ftr.appendChild(fth);
     }
     thead.appendChild(ftr);
@@ -97,13 +126,21 @@
     var tbody=$("#tbody"); tbody.innerHTML="";
     var rows=state.rows.filter(function(r){
       for(var colId in state.columnFilters){
-        var filterVal = (state.columnFilters[colId]||"").toLowerCase();
-        if(!filterVal) continue;
-        var rowVal = (r[colId]==null?"":String(r[colId])).toLowerCase();
-        var filterTokens = filterVal.split(',').map(function(t){ return t.trim(); }).filter(function(t){ return t; });
-        if (filterTokens.length > 0) {
-          var match = filterTokens.some(function(token){ return rowVal.indexOf(token) > -1; });
-          if (!match) return false;
+        if(colId === 'method'){
+          if(!state.columnFilters.method[r.method]) return false;
+        } else if (colId === 'status'){
+          var statusGroup = String(r.status).charAt(0) + "0x";
+          if(r.status < 100 || r.status >= 600) statusGroup = "Other";
+          if(!state.columnFilters.status[statusGroup]) return false;
+        } else {
+          var filterVal = (state.columnFilters[colId]||"").toLowerCase();
+          if(!filterVal) continue;
+          var rowVal = (r[colId]==null?"":String(r[colId])).toLowerCase();
+          var filterTokens = filterVal.split(',').map(function(t){ return t.trim(); }).filter(function(t){ return t; });
+          if (filterTokens.length > 0) {
+            var match = filterTokens.some(function(token){ return rowVal.indexOf(token) > -1; });
+            if (!match) return false;
+          }
         }
       }
       return true;
@@ -161,9 +198,16 @@
     var resPane=$("#pane-response"); resPane.innerHTML="(loading...)";
     if(row._reqObj&&typeof row._reqObj.getContent==='function'){
       row._reqObj.getContent(function(content,encoding){
+        resPane.innerHTML = "";
+        if(encoding==="base64" && row.type && row.type.startsWith('image/')){
+          var img=document.createElement('img');
+          img.src='data:'+row.type+';base64,'+content;
+          img.style.maxWidth='100%';
+          resPane.appendChild(img);
+          return;
+        }
         var text=content||"(no response body)";
         if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
-        resPane.innerHTML="";
         var copyBtnRes=document.createElement("button"); copyBtnRes.className="copy-btn"; copyBtnRes.textContent="Copy";
         copyBtnRes.addEventListener("click",function(){navigator.clipboard.writeText(text).catch(function(e){console.error(e);});});
         var contentNodeRes=document.createElement("div"); contentNodeRes.textContent=text;
@@ -229,7 +273,9 @@
     var themeBtn=$("#themeBtn"); themeBtn.addEventListener("click", function(){ loadThemePref(function(cur){ var nxt=nextTheme(cur); saveThemePref(nxt); applyTheme(nxt); }); });
     // Clear / Pause
     $("#clearBtn").addEventListener("click", function(){ state.rows=[]; state.columnFilters={}; state.nextId=1; state.selectedIndex=-1; render(); setStatus("Cleared"); });
-    $("#pauseBtn").addEventListener("click", function(){ state.paused=!state.paused; $("#pauseBtn").textContent = state.paused? "Resume":"Pause"; setStatus(state.paused? "Paused":"Resumed"); });
+    var pauseBtn=$("#pauseBtn");
+    pauseBtn.addEventListener("click", function(){ state.paused=!state.paused; pauseBtn.innerHTML = state.paused?"▶️":"⏸️"; setStatus(state.paused?"Paused":"Resumed"); });
+    pauseBtn.innerHTML = state.paused?"▶️":"⏸️";
     // Export
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
@@ -249,6 +295,14 @@
     }
     // Render header now
     render();
+
+    window.addEventListener('click', function(e) {
+      if (!e.target.matches('.filter-btn')) {
+        $all(".filter-dropdown-content").forEach(function(d){
+          if (d.classList.contains('show')) { d.classList.remove('show'); }
+        });
+      }
+    });
 
     // Resizer logic
     var resizer = $("#resizer");
