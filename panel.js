@@ -28,7 +28,8 @@
   var state={ columns: DEFAULT_COLUMNS.slice(0), rows: [], selectedIndex:-1,
     columnFilters:{
       method:{"GET":true,"POST":true,"PUT":true,"DELETE":true,"PATCH":true,"HEAD":true,"OPTIONS":true},
-      status:{"10x":true,"20x":true,"30x":true,"40x":true,"50x":true,"Other":true}
+      status:{},
+      type: ""
     },
     nextId:1, paused:false
   };
@@ -53,28 +54,51 @@
     return r;
   }
 
-  function createDropdownFilter(colId, options){
+  function createDropdownFilter(colId, isDynamic){
     var dropdown = document.createElement("div"); dropdown.className = "filter-dropdown";
     var btn = document.createElement("button"); btn.className = "filter-btn";
     var content = document.createElement("div"); content.className = "filter-dropdown-content";
+    var options = isDynamic ? {} : state.columnFilters[colId];
 
-    var allTrue = true;
-    for(var opt in options){ if(!options[opt]) allTrue=false; }
-    btn.textContent = allTrue ? "All" : Object.keys(options).filter(function(k){return options[k];}).join(', ') || "None";
-
-    for(var option in options){
-      var label = document.createElement("label");
-      var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = options[option]; cb.dataset.option = option;
-      cb.addEventListener("change", function(e){
-        state.columnFilters[colId][e.target.dataset.option] = e.target.checked;
-        render();
-      });
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode(option));
-      content.appendChild(label);
+    function updateBtnText(){
+      var allTrue = true;
+      var currentOpts = state.columnFilters[colId];
+      var dynamicKeys = isDynamic ? [...new Set(state.rows.map(function(r){return r[colId];}))] : Object.keys(options);
+      var hasFalse = dynamicKeys.some(function(k){ return currentOpts[k] === false; });
+      var enabled = dynamicKeys.filter(function(k){ return currentOpts[k] !== false; });
+      if(hasFalse){ btn.textContent = enabled.join(', ') || "None"; } else { btn.textContent = "All"; }
     }
 
-    btn.addEventListener("click", function(e){ e.stopPropagation(); content.classList.toggle("show"); });
+    function populateContent(){
+      content.innerHTML = "";
+      var currentKeys = isDynamic ? [...new Set(state.rows.map(function(r){return r[colId];}))].sort(function(a,b){return a-b;}) : Object.keys(options);
+      if(currentKeys.length === 0 && isDynamic){ content.innerHTML = "<i>No options yet</i>"; return; }
+
+      currentKeys.forEach(function(opt){
+        var label = document.createElement("label");
+        var cb = document.createElement("input"); cb.type = "checkbox";
+        cb.checked = state.columnFilters[colId][opt] !== false;
+        cb.dataset.option = opt;
+        cb.addEventListener("change", function(e){
+          state.columnFilters[colId][e.target.dataset.option] = e.target.checked;
+          updateBtnText();
+          renderBody();
+        });
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(opt));
+        content.appendChild(label);
+      });
+    }
+
+    if(!isDynamic) populateContent();
+
+    btn.addEventListener("click", function(e){
+      e.stopPropagation();
+      if(isDynamic) populateContent();
+      $all(".filter-dropdown-content").forEach(function(d){ if(d !== content) d.classList.remove("show"); });
+      content.classList.toggle("show");
+    });
+    updateBtnText();
     dropdown.appendChild(btn); dropdown.appendChild(content);
     return dropdown;
   }
@@ -106,9 +130,9 @@
       var c=state.columns[i]; if(!c.visible) continue;
       var fth = document.createElement("th");
       if(c.id === 'method'){
-        fth.appendChild(createDropdownFilter('method', state.columnFilters.method));
+        fth.appendChild(createDropdownFilter('method', false));
       } else if (c.id === 'status'){
-        fth.appendChild(createDropdownFilter('status', state.columnFilters.status));
+        fth.appendChild(createDropdownFilter('status', true));
       } else {
         var fin = document.createElement("input");
         fin.type = "text"; fin.placeholder = "Filter..."; fin.dataset.colId = c.id;
@@ -128,11 +152,9 @@
     var rows=state.rows.filter(function(r){
       for(var colId in state.columnFilters){
         if(colId === 'method'){
-          if(!state.columnFilters.method[r.method]) return false;
+          if(state.columnFilters.method[r.method] === false) return false;
         } else if (colId === 'status'){
-          var statusGroup = String(r.status).charAt(0) + "0x";
-          if(r.status < 100 || r.status >= 600) statusGroup = "Other";
-          if(!state.columnFilters.status[statusGroup]) return false;
+          if(Object.keys(state.columnFilters.status).length > 0 && state.columnFilters.status[r.status] === false) return false;
         } else {
           var filterVal = (state.columnFilters[colId]||"").toLowerCase();
           if(!filterVal) continue;
