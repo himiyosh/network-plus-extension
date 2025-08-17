@@ -25,6 +25,29 @@
     {id:"size",label:"Size",width:90,visible:true}
   ];
 
+  var COL_PREF_KEY = "networkPlus.cols";
+
+  function saveColumnPrefs(){
+    var prefs = state.columns.map(function(c){ return {id: c.id, visible: c.visible, width: c.width}; });
+    try { localStorage.setItem(COL_PREF_KEY, JSON.stringify(prefs)); } catch(e){}
+  }
+
+  function loadColumnPrefs(){
+    try {
+      var saved = localStorage.getItem(COL_PREF_KEY);
+      if (saved) {
+        var savedCols = JSON.parse(saved);
+        var savedMap = {}; savedCols.forEach(function(c){ savedMap[c.id] = c; });
+        var newCols = DEFAULT_COLUMNS.map(function(c){
+          var savedPref = savedMap[c.id];
+          return savedPref ? { ...c, visible: savedPref.visible, width: savedPref.width } : c;
+        });
+        state.columns = newCols;
+      }
+    } catch(e) {}
+  }
+  loadColumnPrefs();
+
   var state={ columns: DEFAULT_COLUMNS.slice(0), rows: [], selectedIndex:-1,
     columnFilters:{
       method:{"GET":true,"POST":true,"PUT":true,"DELETE":true,"PATCH":true,"HEAD":true,"OPTIONS":true},
@@ -99,7 +122,9 @@
     btn.addEventListener("click", function(e){
       e.stopPropagation();
       if(isDynamic) populateContent();
+      // Close other dropdowns
       $all(".filter-dropdown-content").forEach(function(d){ if(d !== content) d.classList.remove("show"); });
+      if ($(".columns-dropdown.show")) { $(".columns-dropdown.show").classList.remove("show"); }
       content.classList.toggle("show");
     });
     updateBtnText();
@@ -120,7 +145,7 @@
           var startX = e.clientX;
           var startWidth = headerEl.offsetWidth;
           function handleMouseMove(e){ var newWidth=startWidth+(e.clientX-startX); if(newWidth>20){col.width=newWidth;headerEl.style.width=newWidth+"px";} }
-          function handleMouseUp(e){ document.removeEventListener("mousemove",handleMouseMove); document.removeEventListener("mouseup",handleMouseUp); }
+          function handleMouseUp(e){ document.removeEventListener("mousemove",handleMouseMove); document.removeEventListener("mouseup",handleMouseUp); saveColumnPrefs(); }
           document.addEventListener("mousemove",handleMouseMove); document.addEventListener("mouseup",handleMouseUp);
         });
       })(c, th);
@@ -312,6 +337,37 @@
     // Export
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
+    // Columns Dropdown
+    var columnsBtn = $("#columnsBtn");
+    var columnsDropdown = document.createElement("div");
+    columnsDropdown.className = "columns-dropdown";
+    function renderColumnsDropdown() {
+      columnsDropdown.innerHTML = "";
+      state.columns.forEach(function(c, i){
+        var label = document.createElement("label");
+        var cb = document.createElement("input");
+        cb.type = "checkbox"; cb.checked = c.visible; cb.dataset.idx = i;
+        cb.addEventListener("change", function(e){
+          var idx = parseInt(e.target.dataset.idx, 10);
+          state.columns[idx].visible = e.target.checked;
+          saveColumnPrefs();
+          render();
+        });
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(" " + c.label));
+        columnsDropdown.appendChild(label);
+      });
+    }
+    columnsBtn.addEventListener("click", function(e){
+      e.stopPropagation();
+      renderColumnsDropdown();
+      // Need to close other dropdowns
+      $all(".filter-dropdown-content").forEach(function(d){ d.classList.remove("show"); });
+      columnsDropdown.classList.toggle("show");
+    });
+    columnsBtn.parentElement.style.position = 'relative'; // for positioning context
+    columnsBtn.parentElement.appendChild(columnsDropdown);
+
     // Accordion
     try {
       $all(".accordion-header").forEach(function(header){
@@ -334,6 +390,9 @@
         $all(".filter-dropdown-content").forEach(function(d){
           if (d.classList.contains('show')) { d.classList.remove('show'); }
         });
+      }
+      if (!e.target.matches('#columnsBtn')) {
+        if (columnsDropdown.classList.contains('show')) { columnsDropdown.classList.remove('show'); }
       }
     });
 
