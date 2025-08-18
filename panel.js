@@ -171,7 +171,50 @@
       th.appendChild(resizer);
       tr.appendChild(th);
     }
+    var settingsTh = document.createElement("th");
+    settingsTh.id = "settings-th";
+    tr.appendChild(settingsTh);
     thead.appendChild(tr);
+
+    // Columns Dropdown - create and append it here
+    var columnsDropdownContainer = document.createElement("div");
+    columnsDropdownContainer.className = "filter-dropdown"; // Reuse for position:relative
+    var columnsBtn = document.createElement("button");
+    columnsBtn.textContent = "Columns";
+    columnsBtn.className = "filter-btn"; // Unify class
+    var columnsDropdownContent = document.createElement("div");
+    columnsDropdownContent.className = "filter-dropdown-content dropdown-content"; // Unify class
+    columnsDropdownContent.style.right = "0"; // Keep it aligned to the right of its container
+
+    function renderColumnsDropdown() {
+      columnsDropdownContent.innerHTML = "";
+      var allCols = DEFAULT_COLUMNS.map(function(c){return c;});
+      var currentColCfgs = {}; state.columns.forEach(function(c){ currentColCfgs[c.id] = c; });
+
+      allCols.forEach(function(defaultCol, i){
+        var current = currentColCfgs[defaultCol.id] || defaultCol;
+        var item = createCheckboxItem(current.label, current.visible, function(e) {
+          var col = state.columns.find(function(c){return c.id === current.id;});
+          if(col) col.visible = e.target.checked;
+          saveColumnPrefs();
+          render();
+          renderColumnsDropdown();
+        });
+        columnsDropdownContent.appendChild(item);
+      });
+    }
+    columnsBtn.addEventListener("click", function(e){
+      var isShowing = columnsDropdownContent.classList.contains("show");
+      $all(".dropdown-content").forEach(function(d){ d.classList.remove("show"); });
+      if(!isShowing) {
+        renderColumnsDropdown();
+        columnsDropdownContent.classList.add("show");
+      }
+    });
+    columnsDropdownContainer.appendChild(columnsBtn);
+    columnsDropdownContainer.appendChild(columnsDropdownContent);
+    settingsTh.appendChild(columnsDropdownContainer);
+
     var ftr = document.createElement("tr"); // Filters
     ftr.className = "filter-row";
     for(var i=0;i<state.columns.length;i++){
@@ -366,46 +409,6 @@
     // Export
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
-    // Columns Dropdown
-    var columnsDropdownContainer = document.createElement("div");
-    columnsDropdownContainer.className = "filter-dropdown"; // Reuse for position:relative
-    var columnsBtn = document.createElement("button");
-    columnsBtn.textContent = "Columns";
-    columnsBtn.className = "dropdown-btn";
-    var columnsDropdownContent = document.createElement("div");
-    columnsDropdownContent.className = "columns-dropdown dropdown-content";
-
-    function renderColumnsDropdown() {
-      columnsDropdownContent.innerHTML = "";
-      var allCols = DEFAULT_COLUMNS.map(function(c){return c;});
-      var currentColCfgs = {}; state.columns.forEach(function(c){ currentColCfgs[c.id] = c; });
-
-      allCols.forEach(function(defaultCol, i){
-        var current = currentColCfgs[defaultCol.id] || defaultCol;
-        var item = createCheckboxItem(current.label, current.visible, function(e) {
-          var col = state.columns.find(function(c){return c.id === current.id;});
-          if(col) col.visible = e.target.checked;
-          saveColumnPrefs();
-          render();
-          // Re-render dropdown to keep it open and reflect changes
-          renderColumnsDropdown();
-        });
-        columnsDropdownContent.appendChild(item);
-      });
-    }
-    columnsBtn.addEventListener("click", function(e){
-      var isShowing = columnsDropdownContent.classList.contains("show");
-      // Hide all other dropdowns
-      $all(".dropdown-content").forEach(function(d){ d.classList.remove("show"); });
-      if(!isShowing) {
-        renderColumnsDropdown();
-        columnsDropdownContent.classList.add("show");
-      }
-    });
-    columnsDropdownContainer.appendChild(columnsBtn);
-    columnsDropdownContainer.appendChild(columnsDropdownContent);
-    $(".topbar .right").appendChild(columnsDropdownContainer);
-
     // Accordion
     try {
       $all(".accordion-header").forEach(function(header){
