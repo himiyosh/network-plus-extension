@@ -350,10 +350,9 @@
     columnsDropdownContainer.className = "filter-dropdown"; // Reuse for position:relative
     var columnsBtn = document.createElement("button");
     columnsBtn.textContent = "Columns";
-    columnsBtn.className = "filter-btn"; // Use the same class as other dropdown buttons
+    columnsBtn.className = "dropdown-btn";
     var columnsDropdownContent = document.createElement("div");
-    columnsDropdownContent.className = "filter-dropdown-content dropdown-content"; // Use the same class
-    columnsDropdownContent.style.right = "0"; // Align to the right of the container
+    columnsDropdownContent.className = "columns-dropdown dropdown-content";
 
     function renderColumnsDropdown() {
       columnsDropdownContent.innerHTML = "";
@@ -409,7 +408,7 @@
       var target = e.target;
 
       // If click is on a dropdown button, let its own handler manage it.
-      if (target.closest('.filter-btn')) {
+      if (target.closest('.filter-btn') || target.closest('.dropdown-btn')) {
         return;
       }
 
