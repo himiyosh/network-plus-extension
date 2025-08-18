@@ -17,7 +17,6 @@
     <div class="right">
       <button id="exportCsvBtn">Export CSV</button>
       <button id="exportHarBtn">Export HAR</button>
-      <button id="wideBtn">Wide</button>
       <button id="themeBtn">Theme: System</button>
     </div>
   </header>
@@ -31,19 +30,27 @@
     <div class="resizer" id="resizer"></div>
     <aside class="details" id="details">
       <div class="details-header"><div id="detailsTitle">Select a request…</div></div>
-      <div class="tabs">
-        <button class="tab active" data-tab="overview">Overview</button>
-        <button class="tab" data-tab="headers">Headers</button>
-        <button class="tab" data-tab="request">Request</button>
-        <button class="tab" data-tab="response">Response</button>
-        <button class="tab" data-tab="timing">Timing</button>
-      </div>
-      <div class="tabpanes">
-        <div class="pane active" id="pane-overview"></div>
-        <div class="pane" id="pane-headers"></div>
-        <div class="pane" id="pane-request"></div>
-        <div class="pane" id="pane-response"></div>
-        <div class="pane" id="pane-timing"></div>
+      <div class="accordion" id="detailsAccordion">
+        <div class="accordion-item">
+          <button class="accordion-header"><span class="indicator"></span>Overview</button>
+          <div class="accordion-content" id="pane-overview"></div>
+        </div>
+        <div class="accordion-item">
+          <button class="accordion-header"><span class="indicator"></span>Headers</button>
+          <div class="accordion-content" id="pane-headers"></div>
+        </div>
+        <div class="accordion-item">
+          <button class="accordion-header"><span class="indicator"></span>Request</button>
+          <div class="accordion-content" id="pane-request"></div>
+        </div>
+        <div class="accordion-item">
+          <button class="accordion-header"><span class="indicator"></span>Response</button>
+          <div class="accordion-content" id="pane-response"></div>
+        </div>
+        <div class="accordion-item">
+          <button class="accordion-header"><span class="indicator"></span>Timing</button>
+          <div class="accordion-content" id="pane-timing"></div>
+        </div>
       </div>
     </aside>
   </main>
