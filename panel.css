@@ -72,7 +72,7 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--content-bg:#ffffff;--f
     background: var(--hover);
 }
 
-.columns-dropdown{display:none;position:absolute;right:0;background-color:var(--surface);border:1px solid var(--border);border-radius:4px;box-shadow:0 4px 8px rgba(0,0,0,0.1);z-index:20;padding:8px;white-space:nowrap}
+.columns-dropdown{display:none;position:absolute;right:0;background-color:var(--surface);border:1px solid var(--border);border-radius:4px;box-shadow:0 4px 8px rgba(0,0,0,0.1);z-index:20;padding:8px;}
 .columns-dropdown.show{display:block}
 .columns-dropdown label{display:flex;width:100%;align-items:center;padding:2px 0;margin-bottom:2px;cursor:pointer}
 .columns-dropdown label:hover{background:var(--hover)}
