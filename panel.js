@@ -17,12 +17,12 @@
     {id:"time",label:"Time",width:160,visible:true},
     {id:"method",label:"Method",width:80,visible:true},
     {id:"status",label:"Status",width:70,visible:true},
-    {id:"type",label:"Type",width:150,visible:true},
-    {id:"url",label:"URL",width:420,visible:true},
-    {id:"path",label:"Path",width:260,visible:true},
     {id:"domain",label:"Domain",width:180,visible:true},
+    {id:"path",label:"Path",width:260,visible:true},
+    {id:"type",label:"Type",width:150,visible:true},
     {id:"duration",label:"Duration",width:110,visible:true},
-    {id:"size",label:"Size",width:90,visible:true}
+    {id:"size",label:"Size",width:90,visible:true},
+    {id:"url",label:"URL",width:420,visible:false}
   ];
 
   var COL_PREF_KEY = "networkPlus.cols";
@@ -58,6 +58,14 @@
   };
 
   function extractUrlParts(url){ try{ var u=new URL(url); return {domain:u.host, path:u.pathname+(u.search||"")}; }catch(e){ return {domain:"",path:url}; } }
+
+  function isBinaryMimeType(mimeType) {
+    if (!mimeType) return false;
+    var T = mimeType.split('/')[0];
+    if (T === 'text') return false;
+    if (mimeType.match(/json|javascript|xml|svg/)) return false;
+    return true;
+  }
 
   function createCheckboxItem(text, checked, onChange) {
     var label = document.createElement("label");
@@ -266,6 +274,10 @@
           resPane.appendChild(img);
           return;
         }
+        if (isBinaryMimeType(row.type)) {
+          resPane.textContent = "[Binary content ("+row.type+")]";
+          return;
+        }
         var text=content||"(no response body)";
         if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
         var copyBtnRes=document.createElement("button"); copyBtnRes.className="copy-btn"; copyBtnRes.textContent="Copy";
@@ -318,7 +330,7 @@
       entries.push(entry);
     }
     var now=new Date().toISOString();
-    return { log: { version:"1.2", creator:{ name:"Network+ for DevTools", version:"1.1.17" }, pages:[{ startedDateTime: now, id: pageref, title:"Network+", pageTimings:{} }], entries: entries } };
+    return { log: { version:"1.2", creator:{ name:"Network+ for DevTools", version:"1.2.0" }, pages:[{ startedDateTime: now, id: pageref, title:"Network+", pageTimings:{} }], entries: entries } };
   }
   function exportHAR(){
     var har = buildHarLogFromRows();
@@ -337,8 +349,14 @@
     var topbar=$(".topbar");
     function updateRecordState(){
       pauseBtn.innerHTML = state.paused?"▶️":"⏸️";
-      if(!state.paused){ topbar.classList.add("recording"); }else{ topbar.classList.remove("recording"); }
-      setStatus(state.paused?"Paused":"Resumed");
+      if (state.paused) {
+        topbar.classList.add("paused");
+        topbar.classList.remove("recording");
+      } else {
+        topbar.classList.add("recording");
+        topbar.classList.remove("paused");
+      }
+      setStatus(state.paused?"Paused":"Recording…");
     }
     pauseBtn.addEventListener("click", function(){ state.paused=!state.paused; updateRecordState(); });
     updateRecordState();

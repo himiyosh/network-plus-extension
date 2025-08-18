@@ -81,3 +81,6 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--content-bg:#ffffff;--f
 .topbar.recording{border-top:2px solid #ef4444}
 .topbar.recording #pauseBtn{color:#ef4444}
 html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
+.topbar.paused{border-top:2px solid #9ca3af}
+.topbar.paused #pauseBtn{color:#22c55e}
+html[data-theme="dark"] .topbar.paused #pauseBtn{color:#4ade80}

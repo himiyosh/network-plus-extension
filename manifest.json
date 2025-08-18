@@ -1,6 +1,6 @@
 {
   "name": "Network+ for DevTools",
-  "version": "1.1.17",
+  "version": "1.2.0",
   "manifest_version": 3,
   "devtools_page": "devtools.html",
   "description": "Stable Network+ panel with ID column, theme cycle, and proper CSV/HAR exports.",
