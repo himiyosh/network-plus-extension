@@ -62,14 +62,6 @@
 
   function extractUrlParts(url){ try{ var u=new URL(url); return {domain:u.host, path:u.pathname+(u.search||"")}; }catch(e){ return {domain:"",path:url}; } }
 
-  function isBinaryMimeType(mimeType) {
-    if (!mimeType) return false;
-    var T = mimeType.split('/')[0];
-    if (T === 'text') return false;
-    if (mimeType.match(/json|javascript|xml|svg/)) return false;
-    return true;
-  }
-
   function createCheckboxItem(text, checked, onChange) {
     var label = document.createElement("label");
     var cb = document.createElement("input");
@@ -171,49 +163,7 @@
       th.appendChild(resizer);
       tr.appendChild(th);
     }
-    var settingsTh = document.createElement("th");
-    settingsTh.id = "settings-th";
-    tr.appendChild(settingsTh);
     thead.appendChild(tr);
-
-    // Columns Dropdown - create and append it here
-    var columnsDropdownContainer = document.createElement("div");
-    columnsDropdownContainer.className = "filter-dropdown"; // Reuse for position:relative
-    var columnsBtn = document.createElement("button");
-    columnsBtn.textContent = "Columns";
-    columnsBtn.className = "filter-btn"; // Unify class
-    var columnsDropdownContent = document.createElement("div");
-    columnsDropdownContent.className = "filter-dropdown-content dropdown-content"; // Unify class
-    columnsDropdownContent.style.right = "0"; // Keep it aligned to the right of its container
-
-    function renderColumnsDropdown() {
-      columnsDropdownContent.innerHTML = "";
-      var allCols = DEFAULT_COLUMNS.map(function(c){return c;});
-      var currentColCfgs = {}; state.columns.forEach(function(c){ currentColCfgs[c.id] = c; });
-
-      allCols.forEach(function(defaultCol, i){
-        var current = currentColCfgs[defaultCol.id] || defaultCol;
-        var item = createCheckboxItem(current.label, current.visible, function(e) {
-          var col = state.columns.find(function(c){return c.id === current.id;});
-          if(col) col.visible = e.target.checked;
-          saveColumnPrefs();
-          render();
-          renderColumnsDropdown();
-        });
-        columnsDropdownContent.appendChild(item);
-      });
-    }
-    columnsBtn.addEventListener("click", function(e){
-      var isShowing = columnsDropdownContent.classList.contains("show");
-      $all(".dropdown-content").forEach(function(d){ d.classList.remove("show"); });
-      if(!isShowing) {
-        renderColumnsDropdown();
-        columnsDropdownContent.classList.add("show");
-      }
-    });
-    columnsDropdownContainer.appendChild(columnsBtn);
-    columnsDropdownContainer.appendChild(columnsDropdownContent);
-    settingsTh.appendChild(columnsDropdownContainer);
 
     var ftr = document.createElement("tr"); // Filters
     ftr.className = "filter-row";
@@ -313,23 +263,30 @@
     if(row._reqObj&&typeof row._reqObj.getContent==='function'){
       row._reqObj.getContent(function(content,encoding){
         resPane.innerHTML = "";
+        var text=content||"(no response body)";
+
         if(encoding==="base64" && row.type && row.type.startsWith('image/')){
           var img=document.createElement('img');
           img.src='data:'+row.type+';base64,'+content;
           img.style.maxWidth='100%';
           resPane.appendChild(img);
-          return;
+          // Also show the raw base64 string
+          var rawData = document.createElement('div');
+          rawData.textContent = text;
+          rawData.style.marginTop = '10px';
+          rawData.style.whiteSpace = 'pre-wrap';
+          rawData.style.wordBreak = 'break-all';
+          resPane.appendChild(rawData);
+        } else {
+          if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
+          var contentNodeRes=document.createElement("div");
+          contentNodeRes.textContent=text;
+          resPane.appendChild(contentNodeRes);
         }
-        if (isBinaryMimeType(row.type)) {
-          resPane.textContent = "[Binary content ("+row.type+")]";
-          return;
-        }
-        var text=content||"(no response body)";
-        if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
+
         var copyBtnRes=document.createElement("button"); copyBtnRes.className="copy-btn"; copyBtnRes.textContent="Copy";
         copyBtnRes.addEventListener("click",function(){navigator.clipboard.writeText(text).catch(function(e){console.error(e);});});
-        var contentNodeRes=document.createElement("div"); contentNodeRes.textContent=text;
-        resPane.appendChild(copyBtnRes); resPane.appendChild(contentNodeRes);
+        resPane.insertBefore(copyBtnRes, resPane.firstChild);
       });
     }else{
       resPane.textContent="(response body not available)";
@@ -409,6 +366,42 @@
     // Export
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
+    // Column Settings Context Menu
+    var columnsContextMenu = document.createElement("div");
+    columnsContextMenu.className = "dropdown-content"; // Reuse dropdown styling
+    columnsContextMenu.style.position = "absolute";
+    columnsContextMenu.style.display = "none";
+    document.body.appendChild(columnsContextMenu);
+
+    function renderColumnsContextMenu() {
+      columnsContextMenu.innerHTML = "";
+      var allCols = DEFAULT_COLUMNS.map(function(c){return c;});
+      var currentColCfgs = {}; state.columns.forEach(function(c){ currentColCfgs[c.id] = c; });
+
+      allCols.forEach(function(defaultCol, i){
+        var current = currentColCfgs[defaultCol.id] || defaultCol;
+        var item = createCheckboxItem(current.label, current.visible, function(e) {
+          var col = state.columns.find(function(c){return c.id === current.id;});
+          if(col) col.visible = e.target.checked;
+          saveColumnPrefs();
+          render();
+          // Re-render and show context menu again after table re-draw
+          renderColumnsContextMenu();
+          columnsContextMenu.style.display = "block";
+        });
+        columnsContextMenu.appendChild(item);
+      });
+    }
+
+    $("#thead").addEventListener("contextmenu", function(e) {
+      e.preventDefault();
+      $all(".dropdown-content").forEach(function(d){ d.style.display="none"; d.classList.remove("show"); });
+      renderColumnsContextMenu();
+      columnsContextMenu.style.left = e.pageX + "px";
+      columnsContextMenu.style.top = e.pageY + "px";
+      columnsContextMenu.style.display = "block";
+    });
+
     // Accordion
     try {
       $all(".accordion-header").forEach(function(header){
@@ -432,7 +425,7 @@
       var target = e.target;
 
       // If click is on a dropdown button, let its own handler manage it.
-      if (target.closest('.filter-btn') || target.closest('.dropdown-btn')) {
+      if (target.closest('.filter-btn')) {
         return;
       }
 
@@ -442,8 +435,9 @@
       }
 
       // Otherwise, click was outside. Close all dropdowns.
-      $all(".dropdown-content.show").forEach(function(d){
+      $all(".dropdown-content").forEach(function(d){
         d.classList.remove('show');
+        d.style.display = "none";
       });
     });
 
