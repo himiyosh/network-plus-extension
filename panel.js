@@ -17,16 +17,74 @@
     {id:"time",label:"Time",width:160,visible:true},
     {id:"method",label:"Method",width:80,visible:true},
     {id:"status",label:"Status",width:70,visible:true},
-    {id:"url",label:"URL",width:420,visible:true},
-    {id:"path",label:"Path",width:260,visible:true},
     {id:"domain",label:"Domain",width:180,visible:true},
+    {id:"path",label:"Path",width:260,visible:true},
+    {id:"type",label:"Type",width:150,visible:true},
     {id:"duration",label:"Duration",width:110,visible:true},
-    {id:"size",label:"Size",width:90,visible:true}
+    {id:"size",label:"Size",width:90,visible:true},
+    {id:"url",label:"URL",width:420,visible:false}
   ];
 
-  var state={ columns: DEFAULT_COLUMNS.slice(0), rows: [], selectedIndex:-1, filter:"", nextId:1, paused:false };
+  var COL_PREF_KEY = "networkPlus.cols";
+
+  function saveColumnPrefs(){
+    var prefs = state.columns.map(function(c){ return {id: c.id, visible: c.visible, width: c.width}; });
+    try { localStorage.setItem(COL_PREF_KEY, JSON.stringify(prefs)); } catch(e){}
+  }
+
+  function loadColumnPrefs(){
+    try {
+      var saved = localStorage.getItem(COL_PREF_KEY);
+      if (saved) {
+        var savedCols = JSON.parse(saved);
+        var savedMap = {}; savedCols.forEach(function(c){ savedMap[c.id] = c; });
+        var newCols = DEFAULT_COLUMNS.map(function(c){
+          var savedPref = savedMap[c.id];
+          return savedPref ? { ...c, visible: savedPref.visible, width: savedPref.width } : c;
+        });
+        state.columns = newCols;
+      }
+    } catch(e) {}
+  }
+  loadColumnPrefs();
+
+  var state={ columns: DEFAULT_COLUMNS.slice(0), rows: [], selectedIndex:-1,
+    columnFilters:{
+      method:{"GET":true,"POST":true,"PUT":true,"DELETE":true,"PATCH":true,"HEAD":true,"OPTIONS":true},
+      status:{},
+      type: ""
+    },
+    nextId:1, paused:false
+  };
 
   function extractUrlParts(url){ try{ var u=new URL(url); return {domain:u.host, path:u.pathname+(u.search||"")}; }catch(e){ return {domain:"",path:url}; } }
+
+  function isBinaryMimeType(mimeType) {
+    if (!mimeType) return false;
+    var T = mimeType.split('/')[0];
+    if (T === 'text') return false;
+    if (mimeType.match(/json|javascript|xml|svg/)) return false;
+    return true;
+  }
+
+  function createCheckboxItem(text, checked, onChange) {
+    var label = document.createElement("label");
+    var cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = checked;
+    cb.addEventListener("change", onChange);
+
+    var checkContainer = document.createElement('div');
+    checkContainer.className = "check-container";
+    var textContainer = document.createElement('div');
+    textContainer.className = "text-container";
+
+    checkContainer.appendChild(cb);
+    textContainer.textContent = text;
+    label.appendChild(checkContainer);
+    label.appendChild(textContainer);
+    return label;
+  }
 
   function buildRowFromRequest(req){
     var r={ _reqObj:req,
@@ -46,51 +104,118 @@
     return r;
   }
 
+  function createDropdownFilter(colId, isDynamic){
+    var dropdown = document.createElement("div"); dropdown.className = "filter-dropdown";
+    var btn = document.createElement("button"); btn.className = "filter-btn";
+    var content = document.createElement("div"); content.className = "filter-dropdown-content dropdown-content";
+    var options = isDynamic ? {} : state.columnFilters[colId];
+
+    function updateBtnText(){
+      var allTrue = true;
+      var currentOpts = state.columnFilters[colId];
+      var dynamicKeys = isDynamic ? [...new Set(state.rows.map(function(r){return r[colId];}))] : Object.keys(options);
+      var hasFalse = dynamicKeys.some(function(k){ return currentOpts[k] === false; });
+      var enabled = dynamicKeys.filter(function(k){ return currentOpts[k] !== false; });
+      if(hasFalse){ btn.textContent = enabled.join(', ') || "None"; } else { btn.textContent = "All"; }
+    }
+
+    function populateContent(){
+      content.innerHTML = "";
+      var currentKeys = isDynamic ? [...new Set(state.rows.map(function(r){return r[colId];}))].sort(function(a,b){return a-b;}) : Object.keys(options);
+      if(currentKeys.length === 0 && isDynamic){ content.innerHTML = "<i>No options yet</i>"; return; }
+
+      currentKeys.forEach(function(opt){
+        var isChecked = state.columnFilters[colId][opt] !== false;
+        var item = createCheckboxItem(opt, isChecked, function(e){
+          state.columnFilters[colId][opt] = e.target.checked;
+          updateBtnText();
+          renderBody();
+        });
+        content.appendChild(item);
+      });
+    }
+
+    if(!isDynamic) populateContent();
+
+    btn.addEventListener("click", function(e){
+      if(isDynamic) populateContent();
+      var isShowing = content.classList.contains("show");
+      $all(".dropdown-content").forEach(function(d){ d.classList.remove("show"); });
+      if(!isShowing) content.classList.add("show");
+    });
+    updateBtnText();
+    dropdown.appendChild(btn); dropdown.appendChild(content);
+    return dropdown;
+  }
+
   function renderHeader(){
     var thead=$("#thead"); thead.innerHTML="";
-    var tr=document.createElement("tr");
-    for(var i=0;i<state.columns.length;i++){ var c=state.columns[i]; if(!c.visible) continue;
+    var tr=document.createElement("tr"); tr.className="title-row"; // Titles
+    for(var i=0;i<state.columns.length;i++){
+      var c=state.columns[i]; if(!c.visible) continue;
       var th=document.createElement("th"); th.style.width=(c.width||120)+"px"; th.textContent=c.label;
-
-      var resizer=document.createElement("div");
-      resizer.className="col-resizer";
-
+      var resizer=document.createElement("div"); resizer.className="col-resizer";
       (function(col, headerEl){
         resizer.addEventListener("mousedown", function(e){
           e.preventDefault();
           var startX = e.clientX;
           var startWidth = headerEl.offsetWidth;
-
-          function handleMouseMove(e){
-            var newWidth = startWidth + (e.clientX - startX);
-            if(newWidth > 20) { // min width 20px
-              col.width = newWidth;
-              headerEl.style.width = newWidth + "px";
-            }
-          }
-
-          function handleMouseUp(e){
-            document.removeEventListener("mousemove", handleMouseMove);
-            document.removeEventListener("mouseup", handleMouseUp);
-          }
-
-          document.addEventListener("mousemove", handleMouseMove);
-          document.addEventListener("mouseup", handleMouseUp);
+          function handleMouseMove(e){ var newWidth=startWidth+(e.clientX-startX); if(newWidth>20){col.width=newWidth;headerEl.style.width=newWidth+"px";} }
+          function handleMouseUp(e){ document.removeEventListener("mousemove",handleMouseMove); document.removeEventListener("mouseup",handleMouseUp); saveColumnPrefs(); }
+          document.addEventListener("mousemove",handleMouseMove); document.addEventListener("mouseup",handleMouseUp);
         });
       })(c, th);
-
       th.appendChild(resizer);
       tr.appendChild(th);
     }
     thead.appendChild(tr);
+    var ftr = document.createElement("tr"); // Filters
+    ftr.className = "filter-row";
+    for(var i=0;i<state.columns.length;i++){
+      var c=state.columns[i]; if(!c.visible) continue;
+      var fth = document.createElement("th");
+      if(c.id === 'method'){
+        fth.appendChild(createDropdownFilter('method', false));
+      } else if (c.id === 'status'){
+        fth.appendChild(createDropdownFilter('status', true));
+      } else {
+        var fin = document.createElement("input");
+        fin.type = "text"; fin.placeholder = "Filter..."; fin.dataset.colId = c.id;
+        fin.value = state.columnFilters[c.id] || "";
+        fin.addEventListener("input", function(e){
+          var id = e.target.dataset.colId; state.columnFilters[id] = e.target.value; renderBody();
+        });
+        fth.appendChild(fin);
+      }
+      ftr.appendChild(fth);
+    }
+    thead.appendChild(ftr);
   }
 
   function renderBody(){
-    var tbody=$("#tbody"); tbody.innerHTML=""; var f=state.filter.trim().toLowerCase();
-    var rows=state.rows.filter(function(r){ if(!f) return true; return (r.method||"").toLowerCase().indexOf(f)>=0 || String(r.status||"").indexOf(f)>=0 || (r.type||"").toLowerCase().indexOf(f)>=0 || (r.url||"").toLowerCase().indexOf(f)>=0 || (r.domain||"").toLowerCase().indexOf(f)>=0 || (r.path||"").toLowerCase().indexOf(f)>=0; });
+    var tbody=$("#tbody"); tbody.innerHTML="";
+    var rows=state.rows.filter(function(r){
+      for(var colId in state.columnFilters){
+        if(colId === 'method'){
+          if(state.columnFilters.method[r.method] === false) return false;
+        } else if (colId === 'status'){
+          if(Object.keys(state.columnFilters.status).length > 0 && state.columnFilters.status[r.status] === false) return false;
+        } else {
+          var filterVal = (state.columnFilters[colId]||"").toLowerCase();
+          if(!filterVal) continue;
+          var rowVal = (r[colId]==null?"":String(r[colId])).toLowerCase();
+          var filterTokens = filterVal.split(',').map(function(t){ return t.trim(); }).filter(function(t){ return t; });
+          if (filterTokens.length > 0) {
+            var match = filterTokens.some(function(token){ return rowVal.indexOf(token) > -1; });
+            if (!match) return false;
+          }
+        }
+      }
+      return true;
+    });
     for(var i=0;i<rows.length;i++){ var row=rows[i]; var tr=document.createElement("tr"); (function(idx){ tr.addEventListener("click", function(){ selectRow(idx); }); })(i);
       if(i===state.selectedIndex) tr.classList.add("selected");
-      if(row.method){ var method=row.method.toUpperCase(); if(['POST','PUT','DELETE','PATCH','OPTIONS','HEAD'].indexOf(method)>-1){ tr.classList.add('method-'+method); } }
+      if(row.method){ var method=row.method.toUpperCase(); if(['POST','PUT','DELETE','PATCH','OPTIONS','HEAD','GET'].indexOf(method)>-1){ tr.classList.add('method-'+method); } }
       for(var j=0;j<state.columns.length;j++){ var c=state.columns[j]; if(!c.visible) continue;
         var td=document.createElement("td"); var v=row[c.id];
         if(c.id==="method") td.classList.add("method-cell");
@@ -111,8 +236,8 @@
     state.selectedIndex=index; renderBody();
     var row=state.rows[index]; if(!row) return;
     $("#detailsTitle").textContent=(row.method||"")+" "+(row.url||"");
-    $("#pane-overview").innerHTML=[
-      '<div class="kv">',
+    // Overview
+    $("#pane-overview").innerHTML=['<div class="kv">',
       '<div class="key">ID</div><div class="val">'+row.id+'</div>',
       '<div class="key">URL</div><div class="val">'+(row.url||"")+'</div>',
       '<div class="key">Method</div><div class="val">'+(row.method||"")+'</div>',
@@ -124,27 +249,44 @@
       '<div class="key">Started</div><div class="val">'+(row.startedDateTime||"")+'</div>',
       '<div class="key">Duration</div><div class="val">'+fmtTime(row.duration)+'</div>',
       '<div class="key">Size</div><div class="val">'+fmtBytes(row.size)+'</div>',
-      '</div>'
-    ].join("\n");
-    function headersHtml(a){ var out=[]; if(a){ for(var i=0;i<a.length;i++){ var h=a[i]; out.push((h.name||"")+": "+String(h.value||"")); } } return out.join("\n"); }
-    $("#pane-headers").textContent="Request Headers:\n"+headersHtml(row.requestHeaders)+"\n\nResponse Headers:\n"+headersHtml(row.responseHeaders);
-    $("#pane-request").textContent=row.requestPostData? (row.requestPostData.text||JSON.stringify(row.requestPostData)) : "(no body)";
+      '</div>'].join("\n");
+    // Headers
+    function headersToKvGrid(title,headers){ if(!headers||headers.length===0)return""; var kv=headers.map(function(h){return'<div class="key">'+(h.name||"")+'</div><div class="val">'+(h.value||"")+'</div>';}).join(""); return '<strong>'+title+'</strong><div class="kv">'+kv+'</div>'; }
+    $("#pane-headers").innerHTML = headersToKvGrid("Request Headers",row.requestHeaders) + '<br>' + headersToKvGrid("Response Headers",row.responseHeaders);
+    // Request
+    var reqPane=$("#pane-request"); reqPane.innerHTML="";
+    var reqContent=row.requestPostData?(row.requestPostData.text||JSON.stringify(row.requestPostData)):"(no body)";
+    var copyBtnReq=document.createElement("button"); copyBtnReq.className="copy-btn"; copyBtnReq.textContent="Copy";
+    copyBtnReq.addEventListener("click",function(){navigator.clipboard.writeText(reqContent).catch(function(e){console.error(e);});});
+    var contentNodeReq=document.createElement("div"); contentNodeReq.textContent=reqContent;
+    reqPane.appendChild(copyBtnReq); reqPane.appendChild(contentNodeReq);
+    // Timing
     $("#pane-timing").textContent=row.timingText||"";
-    $("#pane-response").textContent = "(loading...)";
-    if(row._reqObj && typeof row._reqObj.getContent === 'function'){
-      row._reqObj.getContent(function(content, encoding){
-        var text = content || "(no response body)";
-        if(encoding === "base64"){
-          try {
-            text = atob(content);
-          } catch(e) {
-            text = "(could not decode base64 response)";
-          }
+    // Response
+    var resPane=$("#pane-response"); resPane.innerHTML="(loading...)";
+    if(row._reqObj&&typeof row._reqObj.getContent==='function'){
+      row._reqObj.getContent(function(content,encoding){
+        resPane.innerHTML = "";
+        if(encoding==="base64" && row.type && row.type.startsWith('image/')){
+          var img=document.createElement('img');
+          img.src='data:'+row.type+';base64,'+content;
+          img.style.maxWidth='100%';
+          resPane.appendChild(img);
+          return;
         }
-        $("#pane-response").textContent = text;
+        if (isBinaryMimeType(row.type)) {
+          resPane.textContent = "[Binary content ("+row.type+")]";
+          return;
+        }
+        var text=content||"(no response body)";
+        if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
+        var copyBtnRes=document.createElement("button"); copyBtnRes.className="copy-btn"; copyBtnRes.textContent="Copy";
+        copyBtnRes.addEventListener("click",function(){navigator.clipboard.writeText(text).catch(function(e){console.error(e);});});
+        var contentNodeRes=document.createElement("div"); contentNodeRes.textContent=text;
+        resPane.appendChild(copyBtnRes); resPane.appendChild(contentNodeRes);
       });
-    } else {
-      $("#pane-response").textContent = "(response body not available)";
+    }else{
+      resPane.textContent="(response body not available)";
     }
   }
 
@@ -188,7 +330,7 @@
       entries.push(entry);
     }
     var now=new Date().toISOString();
-    return { log: { version:"1.2", creator:{ name:"Network+ for DevTools", version:"1.1.17" }, pages:[{ startedDateTime: now, id: pageref, title:"Network+", pageTimings:{} }], entries: entries } };
+    return { log: { version:"1.2", creator:{ name:"Network+ for DevTools", version:"1.2.0" }, pages:[{ startedDateTime: now, id: pageref, title:"Network+", pageTimings:{} }], entries: entries } };
   }
   function exportHAR(){
     var har = buildHarLogFromRows();
@@ -201,14 +343,66 @@
     // Theme init
     loadThemePref(function(pref){ applyTheme(pref); });
     var themeBtn=$("#themeBtn"); themeBtn.addEventListener("click", function(){ loadThemePref(function(cur){ var nxt=nextTheme(cur); saveThemePref(nxt); applyTheme(nxt); }); });
-    // Filter
-    $("#filterInput").addEventListener("input", function(e){ state.filter=e.target.value||""; renderBody(); });
     // Clear / Pause
-    $("#clearBtn").addEventListener("click", function(){ state.rows=[]; state.nextId=1; state.selectedIndex=-1; renderBody(); setStatus("Cleared"); });
-    $("#pauseBtn").addEventListener("click", function(){ state.paused=!state.paused; $("#pauseBtn").textContent = state.paused? "Resume":"Pause"; setStatus(state.paused? "Paused":"Resumed"); });
+    $("#clearBtn").addEventListener("click", function(){ state.rows=[]; state.columnFilters={}; state.nextId=1; state.selectedIndex=-1; render(); setStatus("Cleared"); });
+    var pauseBtn=$("#pauseBtn");
+    var topbar=$(".topbar");
+    function updateRecordState(){
+      pauseBtn.innerHTML = state.paused?"▶️":"⏸️";
+      if (state.paused) {
+        topbar.classList.add("paused");
+        topbar.classList.remove("recording");
+      } else {
+        topbar.classList.add("recording");
+        topbar.classList.remove("paused");
+      }
+      setStatus(state.paused?"Paused":"Recording…");
+    }
+    pauseBtn.addEventListener("click", function(){ state.paused=!state.paused; updateRecordState(); });
+    updateRecordState();
     // Export
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
+    // Columns Dropdown
+    var columnsDropdownContainer = document.createElement("div");
+    columnsDropdownContainer.className = "filter-dropdown"; // Reuse for position:relative
+    var columnsBtn = document.createElement("button");
+    columnsBtn.textContent = "Columns";
+    columnsBtn.className = "dropdown-btn";
+    var columnsDropdownContent = document.createElement("div");
+    columnsDropdownContent.className = "columns-dropdown dropdown-content";
+
+    function renderColumnsDropdown() {
+      columnsDropdownContent.innerHTML = "";
+      var allCols = DEFAULT_COLUMNS.map(function(c){return c;});
+      var currentColCfgs = {}; state.columns.forEach(function(c){ currentColCfgs[c.id] = c; });
+
+      allCols.forEach(function(defaultCol, i){
+        var current = currentColCfgs[defaultCol.id] || defaultCol;
+        var item = createCheckboxItem(current.label, current.visible, function(e) {
+          var col = state.columns.find(function(c){return c.id === current.id;});
+          if(col) col.visible = e.target.checked;
+          saveColumnPrefs();
+          render();
+          // Re-render dropdown to keep it open and reflect changes
+          renderColumnsDropdown();
+        });
+        columnsDropdownContent.appendChild(item);
+      });
+    }
+    columnsBtn.addEventListener("click", function(e){
+      var isShowing = columnsDropdownContent.classList.contains("show");
+      // Hide all other dropdowns
+      $all(".dropdown-content").forEach(function(d){ d.classList.remove("show"); });
+      if(!isShowing) {
+        renderColumnsDropdown();
+        columnsDropdownContent.classList.add("show");
+      }
+    });
+    columnsDropdownContainer.appendChild(columnsBtn);
+    columnsDropdownContainer.appendChild(columnsDropdownContent);
+    $(".topbar .right").appendChild(columnsDropdownContainer);
+
     // Accordion
     try {
       $all(".accordion-header").forEach(function(header){
@@ -217,15 +411,35 @@
           item.classList.toggle("active");
         });
       });
-      // By default, open the first accordion item
-      var firstItem = $(".accordion-item");
-      if(firstItem) firstItem.classList.add("active");
+      // Start with all sections open
+      $all(".accordion-item").forEach(function(item){
+        item.classList.add("active");
+      });
     } catch (e) {
       console.error("Error setting up accordion:", e);
       setStatus("Error setting up accordion: " + e.message);
     }
-    // Render header now
-    render();
+    render(); // Initial render
+
+    // Global click handler to close dropdowns
+    window.addEventListener('click', function(e) {
+      var target = e.target;
+
+      // If click is on a dropdown button, let its own handler manage it.
+      if (target.closest('.filter-btn') || target.closest('.dropdown-btn')) {
+        return;
+      }
+
+      // If click is inside dropdown content, do nothing.
+      if (target.closest('.dropdown-content')) {
+        return;
+      }
+
+      // Otherwise, click was outside. Close all dropdowns.
+      $all(".dropdown-content.show").forEach(function(d){
+        d.classList.remove('show');
+      });
+    });
 
     // Resizer logic
     var resizer = $("#resizer");
