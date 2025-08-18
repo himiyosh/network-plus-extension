@@ -368,7 +368,7 @@
     $("#exportHarBtn").addEventListener("click", exportHAR);
     // Column Settings Context Menu
     var columnsContextMenu = document.createElement("div");
-    columnsContextMenu.className = "dropdown-content"; // Reuse dropdown styling
+    columnsContextMenu.className = "filter-dropdown-content dropdown-content"; // Reuse dropdown styling
     columnsContextMenu.style.position = "absolute";
     columnsContextMenu.style.display = "none";
     document.body.appendChild(columnsContextMenu);
