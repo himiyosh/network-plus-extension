@@ -320,30 +320,51 @@
     }
     timingPane.innerHTML = headersToKvGrid("Timing", timings);
     // Response
-    var resPane=$("#pane-response"); resPane.innerHTML="(loading...)";
+    var resPane=$("#pane-response");
+    resPane.innerHTML="(loading...)";
+
+    function createInnerAccordionItem(title, contentEl) {
+      var item = document.createElement("div");
+      item.className = "accordion-item active"; // Active by default
+      var header = document.createElement("button");
+      header.className = "accordion-header";
+      header.innerHTML = '<span class="indicator"></span>' + title;
+      header.addEventListener("click", function(e){
+        item.classList.toggle("active");
+      });
+      var content = document.createElement("div");
+      content.className = "accordion-content";
+      content.appendChild(contentEl);
+      item.appendChild(header);
+      item.appendChild(content);
+      return item;
+    }
+
     if(row._reqObj&&typeof row._reqObj.getContent==='function'){
       row._reqObj.getContent(function(content,encoding){
         resPane.innerHTML = "";
         var text=content||"(no response body)";
+        var nestedAccordion = document.createElement("div");
+        nestedAccordion.className = "nested-accordion";
 
         if(encoding==="base64" && row.type && row.type.startsWith('image/')){
+          // Preview
           var img=document.createElement('img');
           img.src='data:'+row.type+';base64,'+content;
           img.style.maxWidth='100%';
-          resPane.appendChild(img);
-          // Also show the raw base64 string
+          nestedAccordion.appendChild(createInnerAccordionItem("Preview", img));
+
+          // Raw Data
           var rawData = document.createElement('div');
           rawData.textContent = text;
-          rawData.style.marginTop = '10px';
-          rawData.style.whiteSpace = 'pre-wrap';
-          rawData.style.wordBreak = 'break-all';
-          resPane.appendChild(rawData);
+          nestedAccordion.appendChild(createInnerAccordionItem("Raw Data", rawData));
         } else {
           if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
           var contentNodeRes=document.createElement("div");
           contentNodeRes.textContent=text;
-          resPane.appendChild(contentNodeRes);
+          nestedAccordion.appendChild(createInnerAccordionItem("Response", contentNodeRes));
         }
+        resPane.appendChild(nestedAccordion);
 
         var copyBtnRes=document.createElement("button"); copyBtnRes.className="copy-btn"; copyBtnRes.textContent="Copy";
         copyBtnRes.addEventListener("click",function(){navigator.clipboard.writeText(text).catch(function(e){console.error(e);});});
@@ -543,10 +564,46 @@
       chrome.devtools.network.onRequestFinished.addListener(function(request){
         if(state.paused) return;
         var row=buildRowFromRequest(request);
+        var wasAtBottom = state.autoScroll && (tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - 10);
         state.rows.push(row);
-        renderBody();
-        if (state.autoScroll) {
-          var tableWrap = $("#tableWrap");
+
+        // A full re-render is slow and causes focus issues.
+        // We can just append the new row.
+        var tr = document.createElement("tr");
+        var i = state.rows.length - 1;
+        (function(idx){ tr.addEventListener("click", function(){ selectRow(idx); }); })(i);
+        if(row.method){ var method=row.method.toUpperCase(); if(['POST','PUT','DELETE','PATCH','OPTIONS','HEAD','GET'].indexOf(method)>-1){ tr.classList.add('method-'+method); } }
+        for(var j=0;j<state.columns.length;j++){ var c=state.columns[j]; if(!c.visible) continue;
+          var td=document.createElement("td"); var v=row[c.id];
+          if(c.id==="method") td.classList.add("method-cell");
+          if(c.id==="size") v=fmtBytes(row.size);
+          if(c.id==="time") v=row.timeText||"";
+          if(c.id==="duration") v=fmtTime(row.duration);
+          if(c.id==="initiator") {
+            var initiator = row.initiator;
+            if (initiator && initiator.url) {
+              var link = document.createElement("a");
+              link.href = "#";
+              link.textContent = initiator.text;
+              link.title = initiator.url;
+              link.addEventListener("click", function(e){
+                e.preventDefault();
+                chrome.devtools.panels.openResource(initiator.url, initiator.lineNumber, function(){});
+              });
+              td.appendChild(link);
+            } else {
+              td.textContent = initiator.text;
+            }
+          } else {
+            td.textContent = v==null?"":String(v);
+          }
+          if(c.id==="url"||c.id==="path") td.title=row[c.id]||"";
+          tr.appendChild(td);
+        }
+        $("#tbody").appendChild(tr);
+        $("#counter").textContent=state.rows.length+" requests";
+
+        if (wasAtBottom) {
           tableWrap.scrollTop = tableWrap.scrollHeight;
         }
       });
