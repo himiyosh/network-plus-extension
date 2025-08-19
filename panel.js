@@ -360,9 +360,24 @@
           nestedAccordion.appendChild(createInnerAccordionItem("Raw Data", rawData));
         } else {
           if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
+
+          var TRUNCATE_LIMIT = 10000; // 10k chars
           var contentNodeRes=document.createElement("div");
-          contentNodeRes.textContent=text;
-          nestedAccordion.appendChild(createInnerAccordionItem("Response", contentNodeRes));
+          if (text.length > TRUNCATE_LIMIT) {
+            var truncatedText = document.createElement("span");
+            truncatedText.textContent = text.substring(0, TRUNCATE_LIMIT);
+            var showMoreBtn = document.createElement("button");
+            showMoreBtn.textContent = "… Show more";
+            showMoreBtn.className = "link-btn";
+            showMoreBtn.addEventListener("click", function(){
+              contentNodeRes.textContent = text; // Show full text
+            });
+            contentNodeRes.appendChild(truncatedText);
+            contentNodeRes.appendChild(showMoreBtn);
+          } else {
+            contentNodeRes.textContent = text;
+          }
+          nestedAccordion.appendChild(createInnerAccordionItem("Content", contentNodeRes));
         }
         resPane.appendChild(nestedAccordion);
 
@@ -528,11 +543,18 @@
       });
     });
 
-    // Auto-scroll checkbox
-    var autoScrollCheck = $("#autoScrollCheck");
-    autoScrollCheck.addEventListener("change", function(e){
-      state.autoScroll = e.target.checked;
+    // Auto-scroll button
+    var autoScrollBtn = document.createElement("button");
+    autoScrollBtn.id = "autoScrollBtn";
+    autoScrollBtn.textContent = "Auto-scroll";
+    if (state.autoScroll) {
+      autoScrollBtn.classList.add("active");
+    }
+    autoScrollBtn.addEventListener("click", function(e) {
+      state.autoScroll = !state.autoScroll;
+      autoScrollBtn.classList.toggle("active", state.autoScroll);
     });
+    $("#pauseBtn").insertAdjacentElement("afterend", autoScrollBtn);
 
     // Resizer logic
     var resizer = $("#resizer");
