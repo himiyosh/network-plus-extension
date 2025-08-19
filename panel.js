@@ -261,10 +261,12 @@
             link.href = "#";
             link.textContent = initiator.text;
             link.title = initiator.url;
-            link.addEventListener("click", function(e){
-              e.preventDefault();
-              chrome.devtools.panels.openResource(initiator.url, initiator.lineNumber, function(){});
-            });
+            (function(i){
+              link.addEventListener("click", function(e){
+                e.preventDefault();
+                chrome.devtools.panels.openResource(i.url, i.lineNumber, function(){});
+              });
+            })(initiator);
             td.appendChild(link);
           } else {
             td.textContent = initiator.text;
@@ -330,6 +332,7 @@
       header.className = "accordion-header";
       header.innerHTML = '<span class="indicator"></span>' + title;
       header.addEventListener("click", function(e){
+        e.stopPropagation();
         item.classList.toggle("active");
       });
       var content = document.createElement("div");
@@ -361,7 +364,7 @@
         } else {
           if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
 
-          var TRUNCATE_LIMIT = 10000; // 10k chars
+          var TRUNCATE_LIMIT = 2000; // 2k chars
           var contentNodeRes=document.createElement("div");
           if (text.length > TRUNCATE_LIMIT) {
             var truncatedText = document.createElement("span");
