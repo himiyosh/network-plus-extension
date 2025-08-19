@@ -25,6 +25,7 @@
     {id:"type",label:"Type",width:150,visible:true},
     {id:"duration",label:"Duration",width:110,visible:true},
     {id:"size",label:"Size",width:90,visible:true},
+    {id:"initiator",label:"Initiator",width:220,visible:true},
     {id:"url",label:"URL",width:420,visible:false}
   ];
 
@@ -57,10 +58,33 @@
       status:{},
       type: ""
     },
-    nextId:1, paused:false
+    nextId:1, paused:false,
+    globalFilter: "",
+    autoScroll: true
   };
 
   function extractUrlParts(url){ try{ var u=new URL(url); return {domain:u.host, path:u.pathname+(u.search||"")}; }catch(e){ return {domain:"",path:url}; } }
+
+  function formatInitiator(initiator) {
+    if (!initiator) return { text: "other" };
+    switch (initiator.type) {
+      case 'parser':
+        // The initiator is the document parser, which means it's likely from an <img src="..."> or similar tag.
+        // The URL and line number are often not super helpful here, so we just show the type.
+        return { text: 'parser' };
+      case 'script':
+        if (initiator.stack && initiator.stack.callFrames && initiator.stack.callFrames.length > 0) {
+          var frame = initiator.stack.callFrames[0];
+          var funcName = frame.functionName || '(anonymous)';
+          var fileName = frame.url.substring(frame.url.lastIndexOf('/') + 1) || '(internal)';
+          var text = fileName + ':' + frame.lineNumber;
+          return { text: text, url: frame.url, lineNumber: frame.lineNumber };
+        }
+        return { text: 'script' };
+      default:
+        return { text: initiator.type };
+    }
+  }
 
   function createCheckboxItem(text, checked, onChange) {
     var label = document.createElement("label");
@@ -91,10 +115,11 @@
       timeText: req && req.startedDateTime || "", duration: req && req.time || 0,
       startedDateTime: req && req.startedDateTime || "", requestHeaders: (req && req.request && req.request.headers) || [],
       responseHeaders: (req && req.response && req.response.headers) || [],
-      requestPostData: (req && req.request && req.request.postData) || null, timingText: ""
+      requestPostData: (req && req.request && req.request.postData) || null,
+      timings: (req && req.timings)||{},
+      initiator: formatInitiator(req.initiator)
     };
     var p=extractUrlParts(r.url); r.domain=p.domain; r.path=p.path;
-    var t=(req && req.timings)||{}; var pairs=[]; for(var k in t){ pairs.push(k+": "+t[k]); } r.timingText = pairs.length? pairs.join("\n") : "(no timing details)";
     r.id = state.nextId++;
     return r;
   }
@@ -191,6 +216,17 @@
   function renderBody(){
     var tbody=$("#tbody"); tbody.innerHTML="";
     var rows=state.rows.filter(function(r){
+      // Global filter
+      if (state.globalFilter) {
+        var lcf = state.globalFilter.toLowerCase();
+        var searchFields = [r.url, r.method, r.status, r.type];
+        var found = searchFields.some(function(field){
+          return field && String(field).toLowerCase().indexOf(lcf) > -1;
+        });
+        if (!found) return false;
+      }
+
+      // Per-column filters
       for(var colId in state.columnFilters){
         if(colId === 'method'){
           if(state.columnFilters.method[r.method] === false) return false;
@@ -218,7 +254,25 @@
         if(c.id==="size") v=fmtBytes(row.size);
         if(c.id==="time") v=row.timeText||"";
         if(c.id==="duration") v=fmtTime(row.duration);
-        td.textContent = v==null?"":String(v); if(c.id==="url"||c.id==="path") td.title=row[c.id]||"";
+        if(c.id==="initiator") {
+          var initiator = row.initiator;
+          if (initiator && initiator.url) {
+            var link = document.createElement("a");
+            link.href = "#";
+            link.textContent = initiator.text;
+            link.title = initiator.url;
+            link.addEventListener("click", function(e){
+              e.preventDefault();
+              chrome.devtools.panels.openResource(initiator.url, initiator.lineNumber, function(){});
+            });
+            td.appendChild(link);
+          } else {
+            td.textContent = initiator.text;
+          }
+        } else {
+          td.textContent = v==null?"":String(v);
+        }
+        if(c.id==="url"||c.id==="path") td.title=row[c.id]||"";
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
@@ -257,7 +311,14 @@
     var contentNodeReq=document.createElement("div"); contentNodeReq.textContent=reqContent;
     reqPane.appendChild(copyBtnReq); reqPane.appendChild(contentNodeReq);
     // Timing
-    $("#pane-timing").textContent=row.timingText||"";
+    var timingPane = $("#pane-timing");
+    var timings = [];
+    if (row.timings) {
+      for(var key in row.timings) {
+        timings.push({name: key, value: fmtTime(row.timings[key])});
+      }
+    }
+    timingPane.innerHTML = headersToKvGrid("Timing", timings);
     // Response
     var resPane=$("#pane-response"); resPane.innerHTML="(loading...)";
     if(row._reqObj&&typeof row._reqObj.getContent==='function'){
@@ -366,6 +427,11 @@
     // Export
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
+    // Global Filter
+    $("#filterInput").addEventListener("input", function(e){
+      state.globalFilter = e.target.value;
+      renderBody();
+    });
     // Column Settings Context Menu
     var columnsContextMenu = document.createElement("div");
     columnsContextMenu.className = "filter-dropdown-content dropdown-content"; // Reuse dropdown styling
@@ -441,6 +507,12 @@
       });
     });
 
+    // Auto-scroll checkbox
+    var autoScrollCheck = $("#autoScrollCheck");
+    autoScrollCheck.addEventListener("change", function(e){
+      state.autoScroll = e.target.checked;
+    });
+
     // Resizer logic
     var resizer = $("#resizer");
     var tableWrap = $("#tableWrap");
@@ -473,6 +545,10 @@
         var row=buildRowFromRequest(request);
         state.rows.push(row);
         renderBody();
+        if (state.autoScroll) {
+          var tableWrap = $("#tableWrap");
+          tableWrap.scrollTop = tableWrap.scrollHeight;
+        }
       });
       setStatus("Capturing…");
     } else {
