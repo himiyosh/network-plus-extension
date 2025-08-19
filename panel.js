@@ -12,6 +12,9 @@
   function applyTheme(pref){ var html=document.documentElement; html.removeAttribute("data-theme"); if(pref==="light")html.setAttribute("data-theme","light"); if(pref==="dark")html.setAttribute("data-theme","dark"); var b=$("#themeBtn"); if(b) b.textContent="Theme: "+(pref.charAt(0).toUpperCase()+pref.slice(1)); setStatus("Theme="+pref); }
   function nextTheme(cur){ var i=THEMES.indexOf(cur); return THEMES[(i+1)%THEMES.length]||"system"; }
 
+  var playIconSvg = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16px" height="16px"><path d="M8 5V19L19 12L8 5Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var pauseIconSvg = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16px" height="16px"><path d="M6 5V19M18 5V19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
   var DEFAULT_COLUMNS=[
     {id:"id",label:"ID",width:60,visible:true},
     {id:"time",label:"Time",width:160,visible:true},
@@ -58,14 +61,6 @@
   };
 
   function extractUrlParts(url){ try{ var u=new URL(url); return {domain:u.host, path:u.pathname+(u.search||"")}; }catch(e){ return {domain:"",path:url}; } }
-
-  function isBinaryMimeType(mimeType) {
-    if (!mimeType) return false;
-    var T = mimeType.split('/')[0];
-    if (T === 'text') return false;
-    if (mimeType.match(/json|javascript|xml|svg/)) return false;
-    return true;
-  }
 
   function createCheckboxItem(text, checked, onChange) {
     var label = document.createElement("label");
@@ -169,6 +164,7 @@
       tr.appendChild(th);
     }
     thead.appendChild(tr);
+
     var ftr = document.createElement("tr"); // Filters
     ftr.className = "filter-row";
     for(var i=0;i<state.columns.length;i++){
@@ -267,23 +263,30 @@
     if(row._reqObj&&typeof row._reqObj.getContent==='function'){
       row._reqObj.getContent(function(content,encoding){
         resPane.innerHTML = "";
+        var text=content||"(no response body)";
+
         if(encoding==="base64" && row.type && row.type.startsWith('image/')){
           var img=document.createElement('img');
           img.src='data:'+row.type+';base64,'+content;
           img.style.maxWidth='100%';
           resPane.appendChild(img);
-          return;
+          // Also show the raw base64 string
+          var rawData = document.createElement('div');
+          rawData.textContent = text;
+          rawData.style.marginTop = '10px';
+          rawData.style.whiteSpace = 'pre-wrap';
+          rawData.style.wordBreak = 'break-all';
+          resPane.appendChild(rawData);
+        } else {
+          if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
+          var contentNodeRes=document.createElement("div");
+          contentNodeRes.textContent=text;
+          resPane.appendChild(contentNodeRes);
         }
-        if (isBinaryMimeType(row.type)) {
-          resPane.textContent = "[Binary content ("+row.type+")]";
-          return;
-        }
-        var text=content||"(no response body)";
-        if(encoding==="base64"){ try{text=atob(content);}catch(e){text="(could not decode base64 response)";} }
+
         var copyBtnRes=document.createElement("button"); copyBtnRes.className="copy-btn"; copyBtnRes.textContent="Copy";
         copyBtnRes.addEventListener("click",function(){navigator.clipboard.writeText(text).catch(function(e){console.error(e);});});
-        var contentNodeRes=document.createElement("div"); contentNodeRes.textContent=text;
-        resPane.appendChild(copyBtnRes); resPane.appendChild(contentNodeRes);
+        resPane.insertBefore(copyBtnRes, resPane.firstChild);
       });
     }else{
       resPane.textContent="(response body not available)";
@@ -348,7 +351,7 @@
     var pauseBtn=$("#pauseBtn");
     var topbar=$(".topbar");
     function updateRecordState(){
-      pauseBtn.innerHTML = state.paused?"▶️":"⏸️";
+      pauseBtn.innerHTML = state.paused ? playIconSvg : pauseIconSvg;
       if (state.paused) {
         topbar.classList.add("paused");
         topbar.classList.remove("recording");
@@ -363,17 +366,15 @@
     // Export
     $("#exportCsvBtn").addEventListener("click", exportCSV);
     $("#exportHarBtn").addEventListener("click", exportHAR);
-    // Columns Dropdown
-    var columnsDropdownContainer = document.createElement("div");
-    columnsDropdownContainer.className = "filter-dropdown"; // Reuse for position:relative
-    var columnsBtn = document.createElement("button");
-    columnsBtn.textContent = "Columns";
-    columnsBtn.className = "dropdown-btn";
-    var columnsDropdownContent = document.createElement("div");
-    columnsDropdownContent.className = "columns-dropdown dropdown-content";
+    // Column Settings Context Menu
+    var columnsContextMenu = document.createElement("div");
+    columnsContextMenu.className = "filter-dropdown-content dropdown-content"; // Reuse dropdown styling
+    columnsContextMenu.style.position = "absolute";
+    columnsContextMenu.style.display = "none";
+    document.body.appendChild(columnsContextMenu);
 
-    function renderColumnsDropdown() {
-      columnsDropdownContent.innerHTML = "";
+    function renderColumnsContextMenu() {
+      columnsContextMenu.innerHTML = "";
       var allCols = DEFAULT_COLUMNS.map(function(c){return c;});
       var currentColCfgs = {}; state.columns.forEach(function(c){ currentColCfgs[c.id] = c; });
 
@@ -384,24 +385,22 @@
           if(col) col.visible = e.target.checked;
           saveColumnPrefs();
           render();
-          // Re-render dropdown to keep it open and reflect changes
-          renderColumnsDropdown();
+          // Re-render and show context menu again after table re-draw
+          renderColumnsContextMenu();
+          columnsContextMenu.style.display = "block";
         });
-        columnsDropdownContent.appendChild(item);
+        columnsContextMenu.appendChild(item);
       });
     }
-    columnsBtn.addEventListener("click", function(e){
-      var isShowing = columnsDropdownContent.classList.contains("show");
-      // Hide all other dropdowns
-      $all(".dropdown-content").forEach(function(d){ d.classList.remove("show"); });
-      if(!isShowing) {
-        renderColumnsDropdown();
-        columnsDropdownContent.classList.add("show");
-      }
+
+    $("#thead").addEventListener("contextmenu", function(e) {
+      e.preventDefault();
+      $all(".dropdown-content").forEach(function(d){ d.style.display="none"; d.classList.remove("show"); });
+      renderColumnsContextMenu();
+      columnsContextMenu.style.left = e.pageX + "px";
+      columnsContextMenu.style.top = e.pageY + "px";
+      columnsContextMenu.style.display = "block";
     });
-    columnsDropdownContainer.appendChild(columnsBtn);
-    columnsDropdownContainer.appendChild(columnsDropdownContent);
-    $(".topbar .right").appendChild(columnsDropdownContainer);
 
     // Accordion
     try {
@@ -426,7 +425,7 @@
       var target = e.target;
 
       // If click is on a dropdown button, let its own handler manage it.
-      if (target.closest('.filter-btn') || target.closest('.dropdown-btn')) {
+      if (target.closest('.filter-btn')) {
         return;
       }
 
@@ -436,8 +435,9 @@
       }
 
       // Otherwise, click was outside. Close all dropdowns.
-      $all(".dropdown-content.show").forEach(function(d){
+      $all(".dropdown-content").forEach(function(d){
         d.classList.remove('show');
+        d.style.display = "none";
       });
     });
 
