@@ -195,7 +195,7 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - [ ] DevTools に「Network+」タブが表示される
 - [ ] ページをリロードするとリクエストが一覧に表示される
 - [ ] グローバルフィルタが機能する
-- [ ] 全カラムの演算子付きフィルタ (contains / == / notcontains / regex / > / < など) が機能する
+- [ ] 右クリックポップアップまたは `Filters` ボタンで、全カラムの演算子付きフィルタ (contains / == / notcontains / regex / > / < など) が編集できる
 - [ ] ヘッダークリックでソートが切り替わる (昇順/降順/解除)
 - [ ] 行クリックで詳細パネルにリクエスト情報が表示される
 - [ ] 上下キーで行を選択できる
@@ -204,7 +204,7 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - [ ] Theme ボタンで System/Dark/Light が切り替わる
 - [ ] Pause/Resume が動作する
 - [ ] カラムのリサイズが機能する
-- [ ] ヘッダー右クリックでカラム表示切替メニューが出る
+- [ ] `Columns` ボタンでカラム表示切替メニューが出る
 
 ---
 

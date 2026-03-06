@@ -589,6 +589,52 @@ const _NetworkPlus = (function () {
     return wrap;
   }
 
+  function isRuleActive(rule) {
+    if (!rule) return false;
+    if (rule.op === 'empty' || rule.op === 'notempty') return true;
+    return String(rule.value || '').trim() !== '';
+  }
+
+  function getActiveFilterCount() {
+    let count = 0;
+    for (const col of state.columns) {
+      if (isRuleActive(state.columnFilterRules[col.id])) count++;
+    }
+    return count;
+  }
+
+  function createFilterPopupContent(onChange, focusColId) {
+    const root = document.createElement('div');
+    root.className = 'filter-popup-body';
+
+    const header = document.createElement('div');
+    header.className = 'filter-popup-header';
+    header.textContent = `Column Filters (${getActiveFilterCount()} active)`;
+    root.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'filter-popup-list';
+
+    const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
+    for (const col of state.columns) {
+      const row = document.createElement('div');
+      row.className = 'filter-popup-row';
+      if (focusColId && focusColId === col.id) row.classList.add('focus-target');
+
+      const label = document.createElement('div');
+      label.className = 'filter-popup-label';
+      label.textContent = col.label;
+      row.appendChild(label);
+
+      const control = createColumnFilterControl(col.id, debouncedOnChange);
+      row.appendChild(control);
+      list.appendChild(row);
+    }
+
+    root.appendChild(list);
+    return root;
+  }
+
   function toggleSort(colId) {
     if (state.sort.colId !== colId) {
       state.sort.colId = colId;
@@ -618,6 +664,7 @@ const _NetworkPlus = (function () {
       const th = document.createElement('th');
       th.style.width = (c.width || 120) + 'px';
       th.className = 'sortable-header';
+      th.dataset.colId = c.id;
       const sortIndicator =
         state.sort.colId === c.id ? (state.sort.direction === 'asc' ? ' ▲' : state.sort.direction === 'desc' ? ' ▼' : '') : '';
       th.textContent = c.label + sortIndicator;
@@ -654,18 +701,6 @@ const _NetworkPlus = (function () {
       tr.appendChild(th);
     }
     thead.appendChild(tr);
-
-    // Filter row [P3] — debounced column input filters
-    const ftr = document.createElement('tr');
-    ftr.className = 'filter-row';
-    const debouncedRenderBody = debounce(renderBody, FILTER_DEBOUNCE_MS);
-    for (const c of state.columns) {
-      if (!c.visible) continue;
-      const fth = document.createElement('th');
-      fth.appendChild(createColumnFilterControl(c.id, debouncedRenderBody));
-      ftr.appendChild(fth);
-    }
-    thead.appendChild(ftr);
   }
 
   function renderBody() {
@@ -1035,6 +1070,21 @@ const _NetworkPlus = (function () {
     columnsContextMenu.style.display = 'none';
     document.body.appendChild(columnsContextMenu);
 
+    const filterPopup = document.createElement('div');
+    filterPopup.className = 'filter-popup dropdown-content';
+    filterPopup.style.position = 'absolute';
+    filterPopup.style.display = 'none';
+    document.body.appendChild(filterPopup);
+
+    const openFilterPopup = (x, y, focusColId) => {
+      filterPopup.textContent = '';
+      filterPopup.appendChild(createFilterPopupContent(renderBody, focusColId));
+      filterPopup.style.left = x + 'px';
+      filterPopup.style.top = y + 'px';
+      filterPopup.style.display = 'block';
+      filterPopup.classList.add('show');
+    };
+
     const renderColumnsContextMenu = () => {
       columnsContextMenu.textContent = '';
       const currentColCfgs = {};
@@ -1062,10 +1112,37 @@ const _NetworkPlus = (function () {
         d.style.display = 'none';
         d.classList.remove('show');
       });
-      renderColumnsContextMenu();
-      columnsContextMenu.style.left = e.pageX + 'px';
-      columnsContextMenu.style.top = e.pageY + 'px';
-      columnsContextMenu.style.display = 'block';
+      const th = e.target.closest('th');
+      const focusColId = th ? th.dataset.colId : null;
+      openFilterPopup(e.pageX, e.pageY, focusColId);
+    });
+
+    $('#columnsBtn').addEventListener('click', (e) => {
+      const isVisible = columnsContextMenu.classList.contains('show');
+      $all('.dropdown-content').forEach((d) => {
+        d.style.display = 'none';
+        d.classList.remove('show');
+      });
+      if (!isVisible) {
+        renderColumnsContextMenu();
+        const rect = e.currentTarget.getBoundingClientRect();
+        columnsContextMenu.style.left = rect.left + window.scrollX + 'px';
+        columnsContextMenu.style.top = rect.bottom + window.scrollY + 'px';
+        columnsContextMenu.style.display = 'block';
+        columnsContextMenu.classList.add('show');
+      }
+    });
+
+    $('#filterBtn').addEventListener('click', (e) => {
+      const isVisible = filterPopup.classList.contains('show');
+      $all('.dropdown-content').forEach((d) => {
+        d.style.display = 'none';
+        d.classList.remove('show');
+      });
+      if (!isVisible) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        openFilterPopup(rect.left + window.scrollX, rect.bottom + window.scrollY, null);
+      }
     });
 
     // Accordion

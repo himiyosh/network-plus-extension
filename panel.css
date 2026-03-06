@@ -30,13 +30,19 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--content-bg:#ffffff;--f
 .accordion-item.active .indicator::before{transform:rotate(90deg)}
 .grid{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
 .title-row th{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);font-weight:600;text-align:left;padding:6px 8px;white-space:nowrap;z-index:2}
-.filter-row th{padding:2px 4px;background:var(--bg);position:sticky;top:28px;z-index:2}
 .title-row th.sortable-header{cursor:pointer;user-select:none}
 .title-row th.sortable-header:hover{background:var(--hover)}
 .filter-rule{display:flex;gap:4px;align-items:center}
 .filter-rule .filter-op{width:48%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:3px;border-radius:4px;font-size:11px}
 .filter-rule .filter-value{width:52%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:4px;border-radius:4px;font-size:11px}
 .filter-rule .filter-value:disabled{opacity:.65;cursor:not-allowed}
+.filter-popup{display:none;min-width:520px;max-width:720px;max-height:420px;overflow:auto;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:20}
+.filter-popup.show{display:block}
+.filter-popup-header{font-weight:700;margin-bottom:8px;color:var(--fg)}
+.filter-popup-list{display:flex;flex-direction:column;gap:6px}
+.filter-popup-row{display:grid;grid-template-columns:140px 1fr;gap:8px;align-items:center;padding:4px 2px;border-bottom:1px solid var(--border)}
+.filter-popup-row.focus-target{background:var(--selected);border-radius:4px}
+.filter-popup-label{font-size:12px;color:var(--muted);font-weight:600}
 .grid tbody td{border-bottom:1px solid var(--surface);padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .grid tbody tr:hover{background:var(--row-hover)}.grid tbody tr.selected{background:var(--selected)}
 .statusbar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid var(--border);background:var(--surface)}.statusbar .spacer{flex:1}

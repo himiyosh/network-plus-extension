@@ -9,10 +9,10 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 |------|------|
 | 📡 リアルタイムキャプチャ | `chrome.devtools.network.onRequestFinished` (Edge 拡張 API の `chrome.*` namespace) でリクエストをインクリメンタルに取得・表示 |
 | 🧱 カスタムカラム (11種) | ID, Time, Method, Status, Domain, Path, Type, Duration, Size, Initiator, URL |
-| 👁️ カラム表示/非表示 | ヘッダー右クリックでカラムの表示切替。設定は `localStorage` に永続化 |
+| 👁️ カラム表示/非表示 | ツールバーの `Columns` ボタンでカラムの表示切替。設定は `localStorage` に永続化 |
 | ↔️ カラムリサイズ | ドラッグでカラム幅を調整可能。設定は永続化 |
 | 🔎 グローバルフィルタ | URL, Method, Status, Type を横断検索 (debounce 付き) |
-| 🧰 カラム別フィルタ | 全カラムで演算子付きフィルタを設定可能 (`contains`, `==`, `!=`, `notcontains`, `startsWith`, `endsWith`, `regex`, `empty`, `notempty`、数値列は `>`, `>=`, `<`, `<=` も対応) |
+| 🧰 カラム別フィルタ | 右クリックポップアップまたはツールバーの `Filters` ボタンから、全カラムの演算子付きフィルタを編集可能 (`contains`, `==`, `!=`, `notcontains`, `startsWith`, `endsWith`, `regex`, `empty`, `notempty`、数値列は `>`, `>=`, `<`, `<=` も対応) |
 | ↕️ カラムソート | ヘッダークリックでソート切替 (昇順 → 降順 → ソート解除) |
 | 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示 |
 | 📄 CSV エクスポート | フィルタ適用後の表示行を UTF-8 BOM 付き CSV で出力 |
