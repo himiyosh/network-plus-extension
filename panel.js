@@ -19,6 +19,30 @@ const _NetworkPlus = (function () {
   const COL_PREF_KEY = 'networkPlus.cols';
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+  const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
+  const DATE_COLUMNS = ['time'];
+
+  const FILTER_OPERATORS_STRING = [
+    { value: 'contains', label: 'contains' },
+    { value: 'equals', label: '==' },
+    { value: 'notequals', label: '!=' },
+    { value: 'notcontains', label: 'notcontains' },
+    { value: 'startswith', label: 'startsWith' },
+    { value: 'endswith', label: 'endsWith' },
+    { value: 'regex', label: 'regex' },
+    { value: 'empty', label: 'isEmpty' },
+    { value: 'notempty', label: 'isNotEmpty' },
+  ];
+  const FILTER_OPERATORS_NUMERIC = [
+    { value: 'equals', label: '==' },
+    { value: 'notequals', label: '!=' },
+    { value: 'gt', label: '>' },
+    { value: 'gte', label: '>=' },
+    { value: 'lt', label: '<' },
+    { value: 'lte', label: '<=' },
+    { value: 'empty', label: 'isEmpty' },
+    { value: 'notempty', label: 'isNotEmpty' },
+  ];
 
   const DEFAULT_COLUMNS = [
     { id: 'id', label: 'ID', width: 60, visible: true },
@@ -43,6 +67,17 @@ const _NetworkPlus = (function () {
     HEAD: true,
     OPTIONS: true,
   });
+
+  const DEFAULT_COLUMN_FILTER_RULES = () => {
+    const rules = {};
+    for (const col of DEFAULT_COLUMNS) {
+      rules[col.id] = {
+        op: NUMERIC_COLUMNS.indexOf(col.id) > -1 ? 'equals' : 'contains',
+        value: '',
+      };
+    }
+    return rules;
+  };
 
   const PLAY_ICON_SVG =
     '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16px" height="16px"><path d="M8 5V19L19 12L8 5Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -158,10 +193,10 @@ const _NetworkPlus = (function () {
     rows: [],
     filteredRows: [], // [U5] cache for filtered rows
     selectedRow: null, // [U5] track by row object reference, not index
-    columnFilters: {
-      method: DEFAULT_METHOD_FILTERS(),
-      status: {},
-      type: '',
+    columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
+    sort: {
+      colId: 'time',
+      direction: 'desc',
     },
     nextId: 1,
     paused: false,
@@ -250,12 +285,87 @@ const _NetworkPlus = (function () {
   // Section 7: Filtering [U3][U5][P3]
   // ============================================================
   function getRowFilterValue(row, colId) {
-    // [U3] Initiator column: use the text property
-    if (colId === 'initiator') {
-      return row.initiator ? row.initiator.text : '';
-    }
+    if (colId === 'initiator') return row.initiator ? row.initiator.text : '';
+    if (colId === 'time') return row.startedDateTime || row.timeText || '';
     const v = row[colId];
-    return v == null ? '' : String(v);
+    return v == null ? '' : v;
+  }
+
+  function compareRowValues(a, b, colId) {
+    const av = getRowFilterValue(a, colId);
+    const bv = getRowFilterValue(b, colId);
+
+    if (NUMERIC_COLUMNS.indexOf(colId) > -1) {
+      const na = Number(av);
+      const nb = Number(bv);
+      if (isNaN(na) && isNaN(nb)) return 0;
+      if (isNaN(na)) return 1;
+      if (isNaN(nb)) return -1;
+      return na - nb;
+    }
+
+    if (DATE_COLUMNS.indexOf(colId) > -1) {
+      const da = new Date(av).getTime();
+      const db = new Date(bv).getTime();
+      if (isNaN(da) && isNaN(db)) return 0;
+      if (isNaN(da)) return 1;
+      if (isNaN(db)) return -1;
+      return da - db;
+    }
+
+    const sa = String(av).toLowerCase();
+    const sb = String(bv).toLowerCase();
+    if (sa < sb) return -1;
+    if (sa > sb) return 1;
+    return 0;
+  }
+
+  function evaluateFilterRule(rawValue, rule, isNumeric) {
+    const value = rawValue == null ? '' : String(rawValue);
+    const op = rule && rule.op ? rule.op : isNumeric ? 'equals' : 'contains';
+    const keyword = rule && rule.value != null ? String(rule.value) : '';
+
+    if (op === 'empty') return value.trim() === '';
+    if (op === 'notempty') return value.trim() !== '';
+    if (!keyword.trim()) return true;
+
+    if (isNumeric) {
+      const left = Number(value);
+      const right = Number(keyword);
+      if (isNaN(left) || isNaN(right)) return false;
+      if (op === 'equals') return left === right;
+      if (op === 'notequals') return left !== right;
+      if (op === 'gt') return left > right;
+      if (op === 'gte') return left >= right;
+      if (op === 'lt') return left < right;
+      if (op === 'lte') return left <= right;
+      return false;
+    }
+
+    const left = value.toLowerCase();
+    const right = keyword.toLowerCase();
+    if (op === 'contains') return left.indexOf(right) > -1;
+    if (op === 'notcontains') return left.indexOf(right) === -1;
+    if (op === 'equals') return left === right;
+    if (op === 'notequals') return left !== right;
+    if (op === 'startswith') return left.startsWith(right);
+    if (op === 'endswith') return left.endsWith(right);
+    if (op === 'regex') {
+      try {
+        return new RegExp(keyword, 'i').test(value);
+      } catch (_e) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function getSortedRows(rows) {
+    const sorted = rows.slice();
+    if (!state.sort.colId || !state.sort.direction) return sorted;
+    const dir = state.sort.direction === 'asc' ? 1 : -1;
+    sorted.sort((a, b) => compareRowValues(a, b, state.sort.colId) * dir);
+    return sorted;
   }
 
   function filterRows() {
@@ -268,26 +378,14 @@ const _NetworkPlus = (function () {
         if (!found) return false;
       }
 
-      // Per-column filters
-      for (const colId in state.columnFilters) {
-        if (colId === 'method') {
-          if (state.columnFilters.method[r.method] === false) return false;
-        } else if (colId === 'status') {
-          const statusFilters = state.columnFilters.status;
-          if (Object.keys(statusFilters).length > 0 && statusFilters[r.status] === false) return false;
-        } else {
-          const filterVal = (state.columnFilters[colId] || '').toLowerCase();
-          if (!filterVal) continue;
-          const rowVal = getRowFilterValue(r, colId).toLowerCase();
-          const filterTokens = filterVal
-            .split(',')
-            .map((t) => t.trim())
-            .filter((t) => t);
-          if (filterTokens.length > 0) {
-            const match = filterTokens.some((token) => rowVal.indexOf(token) > -1);
-            if (!match) return false;
-          }
-        }
+      // Per-column advanced filters
+      for (const col of state.columns) {
+        const colId = col.id;
+        const rule = state.columnFilterRules[colId];
+        if (!rule) continue;
+        const rowValue = getRowFilterValue(r, colId);
+        const isNumeric = NUMERIC_COLUMNS.indexOf(colId) > -1;
+        if (!evaluateFilterRule(rowValue, rule, isNumeric)) return false;
       }
       return true;
     });
@@ -441,59 +539,68 @@ const _NetworkPlus = (function () {
     return label;
   }
 
-  function createDropdownFilter(colId, isDynamic) {
-    const dropdown = document.createElement('div');
-    dropdown.className = 'filter-dropdown';
-    const btn = document.createElement('button');
-    btn.className = 'filter-btn';
-    const content = document.createElement('div');
-    content.className = 'filter-dropdown-content dropdown-content';
+  function getOperatorsForColumn(colId) {
+    return NUMERIC_COLUMNS.indexOf(colId) > -1 ? FILTER_OPERATORS_NUMERIC : FILTER_OPERATORS_STRING;
+  }
 
-    function updateBtnText() {
-      const currentOpts = state.columnFilters[colId];
-      const dynamicKeys = isDynamic
-        ? [...new Set(state.rows.map((r) => r[colId]))]
-        : Object.keys(state.columnFilters[colId]);
-      const hasFalse = dynamicKeys.some((k) => currentOpts[k] === false);
-      const enabled = dynamicKeys.filter((k) => currentOpts[k] !== false);
-      btn.textContent = hasFalse ? enabled.join(', ') || 'None' : 'All';
+  function createColumnFilterControl(colId, onChange) {
+    const wrap = document.createElement('div');
+    wrap.className = 'filter-rule';
+
+    const opSelect = document.createElement('select');
+    opSelect.className = 'filter-op';
+    const operators = getOperatorsForColumn(colId);
+    for (const op of operators) {
+      const option = document.createElement('option');
+      option.value = op.value;
+      option.textContent = op.label;
+      opSelect.appendChild(option);
     }
 
-    function populateContent() {
-      content.textContent = '';
-      const currentKeys = isDynamic
-        ? [...new Set(state.rows.map((r) => r[colId]))].sort((a, b) => a - b)
-        : Object.keys(state.columnFilters[colId]);
-      if (currentKeys.length === 0 && isDynamic) {
-        const msg = document.createElement('i');
-        msg.textContent = 'No options yet';
-        content.appendChild(msg);
-        return;
-      }
+    const rule = state.columnFilterRules[colId] || { op: operators[0].value, value: '' };
+    opSelect.value = rule.op;
 
-      for (const opt of currentKeys) {
-        const isChecked = state.columnFilters[colId][opt] !== false;
-        const item = createCheckboxItem(String(opt), isChecked, (e) => {
-          state.columnFilters[colId][opt] = e.target.checked;
-          updateBtnText();
-          renderBody();
-        });
-        content.appendChild(item);
-      }
-    }
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'filter-value';
+    input.placeholder = 'value';
+    input.value = rule.value || '';
 
-    if (!isDynamic) populateContent();
+    const updateInputState = () => {
+      const noValueRequired = opSelect.value === 'empty' || opSelect.value === 'notempty';
+      input.disabled = noValueRequired;
+      if (noValueRequired) input.value = '';
+    };
+    updateInputState();
 
-    btn.addEventListener('click', () => {
-      if (isDynamic) populateContent();
-      const isShowing = content.classList.contains('show');
-      $all('.dropdown-content').forEach((d) => d.classList.remove('show'));
-      if (!isShowing) content.classList.add('show');
+    opSelect.addEventListener('change', () => {
+      state.columnFilterRules[colId].op = opSelect.value;
+      updateInputState();
+      state.columnFilterRules[colId].value = input.value;
+      onChange();
     });
-    updateBtnText();
-    dropdown.appendChild(btn);
-    dropdown.appendChild(content);
-    return dropdown;
+    input.addEventListener('input', () => {
+      state.columnFilterRules[colId].value = input.value;
+      onChange();
+    });
+
+    wrap.appendChild(opSelect);
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  function toggleSort(colId) {
+    if (state.sort.colId !== colId) {
+      state.sort.colId = colId;
+      state.sort.direction = 'asc';
+      return;
+    }
+    if (state.sort.direction === 'asc') {
+      state.sort.direction = 'desc';
+      return;
+    }
+    state.sort.colId = null;
+    state.sort.direction = null;
   }
 
   // ============================================================
@@ -510,7 +617,16 @@ const _NetworkPlus = (function () {
       if (!c.visible) continue;
       const th = document.createElement('th');
       th.style.width = (c.width || 120) + 'px';
-      th.textContent = c.label;
+      th.className = 'sortable-header';
+      const sortIndicator =
+        state.sort.colId === c.id ? (state.sort.direction === 'asc' ? ' ▲' : state.sort.direction === 'desc' ? ' ▼' : '') : '';
+      th.textContent = c.label + sortIndicator;
+      th.title = 'Click to sort';
+      th.addEventListener('click', (e) => {
+        if (e.target && e.target.classList && e.target.classList.contains('col-resizer')) return;
+        toggleSort(c.id);
+        render();
+      });
       const resizer = document.createElement('div');
       resizer.className = 'col-resizer';
       ((col, headerEl) => {
@@ -546,22 +662,7 @@ const _NetworkPlus = (function () {
     for (const c of state.columns) {
       if (!c.visible) continue;
       const fth = document.createElement('th');
-      if (c.id === 'method') {
-        fth.appendChild(createDropdownFilter('method', false));
-      } else if (c.id === 'status') {
-        fth.appendChild(createDropdownFilter('status', true));
-      } else {
-        const fin = document.createElement('input');
-        fin.type = 'text';
-        fin.placeholder = 'Filter...';
-        fin.dataset.colId = c.id;
-        fin.value = state.columnFilters[c.id] || '';
-        fin.addEventListener('input', (e) => {
-          state.columnFilters[e.target.dataset.colId] = e.target.value;
-          debouncedRenderBody();
-        });
-        fth.appendChild(fin);
-      }
+      fth.appendChild(createColumnFilterControl(c.id, debouncedRenderBody));
       ftr.appendChild(fth);
     }
     thead.appendChild(ftr);
@@ -574,7 +675,7 @@ const _NetworkPlus = (function () {
     const frag = document.createDocumentFragment();
     tbody.textContent = '';
 
-    const rows = state.filteredRows;
+    const rows = getSortedRows(state.filteredRows);
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const tr = createTableRow(row, () => selectRow(row));
@@ -889,11 +990,7 @@ const _NetworkPlus = (function () {
     $('#clearBtn').addEventListener('click', () => {
       state.rows = [];
       state.filteredRows = [];
-      state.columnFilters = {
-        method: DEFAULT_METHOD_FILTERS(),
-        status: {},
-        type: '',
-      };
+      state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
       state.nextId = 1;
       state.selectedRow = null;
       render();
@@ -1059,13 +1156,8 @@ const _NetworkPlus = (function () {
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
         state.rows.push(row);
 
-        // Incremental append — only if row passes current filters
-        filterRows();
-        if (state.filteredRows.indexOf(row) > -1) {
-          const tr = createTableRow(row, () => selectRow(row));
-          $('#tbody').appendChild(tr);
-        }
-        $('#counter').textContent = state.filteredRows.length + ' requests';
+        // Re-render to keep sort order and advanced filter state consistent.
+        renderBody();
 
         if (wasAtBottom) {
           tableWrap.scrollTop = tableWrap.scrollHeight;
@@ -1086,7 +1178,19 @@ const _NetworkPlus = (function () {
   document.addEventListener('DOMContentLoaded', init);
 
   // Expose pure functions for testing
-  return { fmtBytes, fmtTime, extractUrlParts, formatInitiator, parseQueryString, guessMimeType, toHarHeaders, debounce, getRowFilterValue, DEFAULT_METHOD_FILTERS };
+  return {
+    fmtBytes,
+    fmtTime,
+    extractUrlParts,
+    formatInitiator,
+    parseQueryString,
+    guessMimeType,
+    toHarHeaders,
+    debounce,
+    getRowFilterValue,
+    evaluateFilterRule,
+    DEFAULT_METHOD_FILTERS,
+  };
 })();
 
 // Support CommonJS for Jest testing

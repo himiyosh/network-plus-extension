@@ -77,7 +77,7 @@ Microsoft Edge DevTools
 | 8 | **Data Model** | `buildRowFromRequest()`, `cacheResponseContent()` |
 | 9 | **Safe DOM Rendering** | `createKvGrid()`, `createHeaderSection()` |
 | 10 | **Table Row Creation** | `createTableRow()` (共通化された行生成) |
-| 11 | **UI Components** | `createCheckboxItem()`, `createDropdownFilter()` |
+| 11 | **UI Components** | `createCheckboxItem()`, `createColumnFilterControl()` |
 | 12 | **Rendering** | `renderHeader()`, `renderBody()`, `render()` |
 | 13 | **Detail Panel** | `selectRow()`, 詳細パネル描画 |
 | 14 | **Export** | `exportCSV()`, `exportHAR()`, `buildHarLogFromRows()` |
@@ -86,7 +86,7 @@ Microsoft Edge DevTools
 ### 2.4 テスト可能な設計
 
 - 純粋関数 (副作用なし、DOM 非依存) は **Section 3: Pure Utility Functions** に配置し、IIFE の `return` でエクスポートする
-- 既存のエクスポート対象: `fmtBytes`, `fmtTime`, `extractUrlParts`, `formatInitiator`, `parseQueryString`, `guessMimeType`, `toHarHeaders`, `debounce`, `getRowFilterValue`, `DEFAULT_METHOD_FILTERS`
+- 既存のエクスポート対象: `fmtBytes`, `fmtTime`, `extractUrlParts`, `formatInitiator`, `parseQueryString`, `guessMimeType`, `toHarHeaders`, `debounce`, `getRowFilterValue`, `evaluateFilterRule`, `DEFAULT_METHOD_FILTERS`
 - 新しい純粋関数を追加した場合は、`return` オブジェクトに追加し、対応するテストも追加すること
 
 ### 2.5 パフォーマンス
@@ -186,7 +186,8 @@ npm run lint               # ESLint 実行
 - [ ] DevTools に「Network+」タブが表示される
 - [ ] ページをリロードするとリクエストが一覧に表示される
 - [ ] グローバルフィルタが機能する
-- [ ] Method/Status ドロップダウンフィルタが機能する
+- [ ] 全カラムの演算子付きフィルタ (contains / == / notcontains / regex / > / < など) が機能する
+- [ ] ヘッダークリックでソートが切り替わる (昇順/降順/解除)
 - [ ] 行クリックで詳細パネルにリクエスト情報が表示される
 - [ ] 上下キーで行を選択できる
 - [ ] CSV エクスポートで正しいファイルがダウンロードされる

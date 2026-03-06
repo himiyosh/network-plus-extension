@@ -188,15 +188,54 @@ describe('getRowFilterValue [U3]', () => {
     expect(np.getRowFilterValue(row, 'initiator')).toBe('');
   });
 
-  test('returns string value for non-initiator columns', () => {
+  test('returns raw value for non-initiator columns', () => {
     const row = { method: 'GET', status: 200 };
     expect(np.getRowFilterValue(row, 'method')).toBe('GET');
-    expect(np.getRowFilterValue(row, 'status')).toBe('200');
+    expect(np.getRowFilterValue(row, 'status')).toBe(200);
+  });
+
+  test('uses startedDateTime for time column', () => {
+    const row = { startedDateTime: '2026-03-07T09:00:00.000Z', timeText: 'fallback' };
+    expect(np.getRowFilterValue(row, 'time')).toBe('2026-03-07T09:00:00.000Z');
   });
 
   test('returns empty string for null values', () => {
     const row = { domain: null };
     expect(np.getRowFilterValue(row, 'domain')).toBe('');
+  });
+});
+
+describe('evaluateFilterRule', () => {
+  test('supports contains and notcontains', () => {
+    expect(np.evaluateFilterRule('hello world', { op: 'contains', value: 'world' }, false)).toBe(true);
+    expect(np.evaluateFilterRule('hello world', { op: 'notcontains', value: 'world' }, false)).toBe(false);
+  });
+
+  test('supports equals and notequals', () => {
+    expect(np.evaluateFilterRule('GET', { op: 'equals', value: 'get' }, false)).toBe(true);
+    expect(np.evaluateFilterRule('GET', { op: 'notequals', value: 'POST' }, false)).toBe(true);
+  });
+
+  test('supports startsWith / endsWith', () => {
+    expect(np.evaluateFilterRule('https://example.com/api', { op: 'startswith', value: 'https://' }, false)).toBe(true);
+    expect(np.evaluateFilterRule('https://example.com/api', { op: 'endswith', value: '/api' }, false)).toBe(true);
+  });
+
+  test('supports regex and invalid regex handling', () => {
+    expect(np.evaluateFilterRule('microsoft.7389c30.js:188', { op: 'regex', value: 'microsoft\\..*js' }, false)).toBe(true);
+    expect(np.evaluateFilterRule('abc', { op: 'regex', value: '[abc' }, false)).toBe(false);
+  });
+
+  test('supports numeric operators', () => {
+    expect(np.evaluateFilterRule(204, { op: 'equals', value: '204' }, true)).toBe(true);
+    expect(np.evaluateFilterRule(204, { op: 'gt', value: '200' }, true)).toBe(true);
+    expect(np.evaluateFilterRule(204, { op: 'lt', value: '300' }, true)).toBe(true);
+    expect(np.evaluateFilterRule(204, { op: 'lte', value: '203' }, true)).toBe(false);
+  });
+
+  test('supports empty / notempty', () => {
+    expect(np.evaluateFilterRule('', { op: 'empty', value: '' }, false)).toBe(true);
+    expect(np.evaluateFilterRule('x', { op: 'notempty', value: '' }, false)).toBe(true);
   });
 });
 

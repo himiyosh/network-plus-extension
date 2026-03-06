@@ -31,7 +31,12 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--content-bg:#ffffff;--f
 .grid{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
 .title-row th{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);font-weight:600;text-align:left;padding:6px 8px;white-space:nowrap;z-index:2}
 .filter-row th{padding:2px 4px;background:var(--bg);position:sticky;top:28px;z-index:2}
-.filter-row input{width:100%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:4px;border-radius:4px}
+.title-row th.sortable-header{cursor:pointer;user-select:none}
+.title-row th.sortable-header:hover{background:var(--hover)}
+.filter-rule{display:flex;gap:4px;align-items:center}
+.filter-rule .filter-op{width:48%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:3px;border-radius:4px;font-size:11px}
+.filter-rule .filter-value{width:52%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:4px;border-radius:4px;font-size:11px}
+.filter-rule .filter-value:disabled{opacity:.65;cursor:not-allowed}
 .grid tbody td{border-bottom:1px solid var(--surface);padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .grid tbody tr:hover{background:var(--row-hover)}.grid tbody tr.selected{background:var(--selected)}
 .statusbar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid var(--border);background:var(--surface)}.statusbar .spacer{flex:1}
