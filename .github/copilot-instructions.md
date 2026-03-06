@@ -10,17 +10,17 @@
 | 項目 | 内容 |
 |------|------|
 | **プロジェクト名** | Network+ for DevTools |
-| **目的** | Chrome DevTools に強化版の Network パネルを追加する拡張機能 |
-| **技術スタック** | Vanilla JS (ES2020), CSS Custom Properties, Chrome Manifest V3 |
+| **目的** | Microsoft Edge DevTools に強化版の Network パネルを追加する拡張機能 |
+| **技術スタック** | Vanilla JS (ES2020), CSS Custom Properties, Edge Extension (Manifest V3) |
 | **ビルドツール** | なし (ビルドレス) |
 | **テスト** | Jest (Node.js 環境 + ブラウザ API モック) |
 | **Lint / Format** | ESLint (flat config) + Prettier |
-| **対象ブラウザ** | Chrome (最新安定版) |
+| **対象ブラウザ** | Microsoft Edge (最新安定版, Chromium ベース) |
 
 ### アーキテクチャ
 
 ```
-Chrome DevTools
+Microsoft Edge DevTools
   +-- devtools.html        ... chrome.devtools.panels.create() でパネル登録
        +-- panel.html       ... パネル UI
             +-- panel.js    ... 全ロジック (IIFE, 15セクション構成)
@@ -29,7 +29,7 @@ Chrome DevTools
 
 - **DevTools Panel Extension**: `chrome.devtools.network.onRequestFinished` でリクエストをキャプチャ
 - **ES Modules 不可**: DevTools パネルページは `<script type="module">` をサポートしないため、**IIFE 単一ファイル構成**を採用
-- **ビルドレス**: バンドラ不使用。ファイルをそのまま Chrome にロードする
+- **ビルドレス**: バンドラ不使用。ファイルをそのまま Edge にロードする
 
 ---
 
@@ -154,8 +154,8 @@ Chrome DevTools
 
 | 対象 | 手法 | 場所 |
 |------|------|------|
-| **純粋関数** | Jest ユニットテスト | `__tests__/panel.test.js` |
-| **DOM 操作** | 手動テスト (Chrome DevTools で拡張機能をロードして確認) | - |
+| **純粋関数** | Jest ユニットテスト | `tests/panel.test.js` |
+| **DOM 操作** | 手動テスト (Edge DevTools で拡張機能をロードして確認) | - |
 | **テーマ** | 手動テスト (System/Dark/Light 切替確認) | - |
 | **エクスポート** | 手動テスト (CSV/HAR ファイルの内容検証) | - |
 
@@ -175,13 +175,13 @@ npm run lint               # ESLint 実行
 
 ### 5.4 テスト環境の制約
 
-- DevTools パネルは ES Modules 非対応のため、テストでは `global` にブラウザ API をモックする (`__tests__/setup.js`)
+- DevTools パネルは ES Modules 非対応のため、テストでは `global` にブラウザ API をモックする (`tests/setup.js`)
 - `panel.js` は IIFE の `return` で純粋関数をエクスポートし、末尾の `module.exports` で Node.js に公開する
 - DOM 操作を含む関数 (レンダリング等) はユニットテスト対象外。手動テストで確認する
 
 ### 5.5 手動テストチェックリスト
 
-コードを変更した後、Chrome で拡張機能をリロードして以下を確認:
+コードを変更した後、Edge で拡張機能をリロードして以下を確認:
 
 - [ ] DevTools に「Network+」タブが表示される
 - [ ] ページをリロードするとリクエストが一覧に表示される
@@ -204,11 +204,11 @@ npm run lint               # ESLint 実行
 - **事象**: `selectRow()` の Overview, Headers, Timing ペインで、`innerHTML` に `row.url`, ヘッダー名/値等のユーザーデータを文字列結合で埋め込んでいた
 - **根本原因**: 初期実装で `innerHTML` の手軽さを優先し、XSS リスクを見落としていた。DevTools パネルは CSP で `script-src 'self'` を設定しているため `<script>` タグ注入は防げるが、イベントハンドラ属性 (`onerror` 等) による攻撃は防げない
 - **対策**: 全ユーザーデータ描画箇所を `textContent` / `createElement` / `createTextNode` に置換。安全なヘルパー関数 (`createKvGrid`, `createHeaderSection`) を導入し、新規 UI でも安全なパターンを踏襲できるようにした
-- **教訓**: Chrome 拡張機能の CSP があっても `innerHTML` + ユーザーデータは XSS リスクがある。DOM API による描画を原則とし、`innerHTML` は静的リテラルのみに制限すること
+- **教訓**: Edge (Chromium) 拡張機能の CSP があっても `innerHTML` + ユーザーデータは XSS リスクがある。DOM API による描画を原則とし、`innerHTML` は静的リテラルのみに制限すること
 
 ### LL-002: DevTools パネルは ES Modules 非対応
 - **事象**: モジュール分割のため `<script type="module">` を panel.html に導入しようとしたが、DevTools パネルページではモジュールが動作しなかった
-- **根本原因**: Chrome DevTools の拡張パネルは特殊なコンテキストで実行され、ES Modules のサポートが制限されている
+- **根本原因**: Edge DevTools の拡張パネルは特殊なコンテキストで実行され、ES Modules のサポートが制限されている
 - **対策**: IIFE 単一ファイル構成を維持し、セクションコメントで論理的に分割する。テスト可能な純粋関数は IIFE の `return` でエクスポートし、`module.exports` で Node.js からアクセス可能にする
 - **教訓**: DevTools 拡張のランタイム制約を事前に確認すること。ビルドツール (webpack/rollup) を導入すればモジュール分割は可能だが、ビルドレス設計とのトレードオフを考慮する
 

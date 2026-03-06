@@ -19,7 +19,7 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "setupFiles": ["./__tests__/setup.js"],
-    "testMatch": ["**/__tests__/**/*.test.js"]
+    "setupFiles": ["./tests/setup.js"],
+    "testMatch": ["**/tests/**/*.test.js"]
   }
 }

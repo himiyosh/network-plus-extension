@@ -1,35 +1,35 @@
-# Network+ for DevTools
+# 🌐 Network+ for DevTools
 
-Chrome DevTools に「**Network+**」パネルを追加する Chrome 拡張機能です。  
+Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡張機能です。  
 標準の Network パネルの代替・補完として、強化されたフィルタリング、エクスポート、テーマ切替などの機能を提供します。
 
-## 機能一覧
+## ✨ 機能一覧
 
 | 機能 | 説明 |
 |------|------|
-| リアルタイムキャプチャ | `chrome.devtools.network.onRequestFinished` でリクエストをインクリメンタルに取得・表示 |
-| カスタムカラム (11種) | ID, Time, Method, Status, Domain, Path, Type, Duration, Size, Initiator, URL |
-| カラム表示/非表示 | ヘッダー右クリックでカラムの表示切替。設定は `localStorage` に永続化 |
-| カラムリサイズ | ドラッグでカラム幅を調整可能。設定は永続化 |
-| グローバルフィルタ | URL, Method, Status, Type を横断検索 (debounce 付き) |
-| カラム別フィルタ | Method/Status はチェックボックスドロップダウン、テキストカラムはカンマ区切りトークンマッチ (debounce 付き) |
-| リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示 |
-| CSV エクスポート | フィルタ適用後の表示行を UTF-8 BOM 付き CSV で出力 |
-| HAR エクスポート | HAR 1.2 形式でヘッダー・タイミング・レスポンスボディ・クエリ文字列・PostData を含む完全なログを出力 |
-| テーマ切替 | System / Dark / Light の3モードを循環切替。`chrome.storage.local` に永続化 |
-| 録画制御 | Pause / Resume ボタン。録画中は赤、一時停止中はグレーのインジケータ表示 |
-| 自動スクロール | 新規リクエスト到着時に自動的にテーブル末尾へスクロール (トグル可能) |
-| Initiator リンク | スクリプト起因のリクエストをクリックすると DevTools でソースファイルを表示 |
-| パネルリサイズ | テーブルと詳細パネルの境界をドラッグで調整可能 |
-| キーボードナビゲーション | 上下キーで行選択、選択行を自動スクロール |
+| 📡 リアルタイムキャプチャ | `chrome.devtools.network.onRequestFinished` (Edge 拡張 API の `chrome.*` namespace) でリクエストをインクリメンタルに取得・表示 |
+| 🧱 カスタムカラム (11種) | ID, Time, Method, Status, Domain, Path, Type, Duration, Size, Initiator, URL |
+| 👁️ カラム表示/非表示 | ヘッダー右クリックでカラムの表示切替。設定は `localStorage` に永続化 |
+| ↔️ カラムリサイズ | ドラッグでカラム幅を調整可能。設定は永続化 |
+| 🔎 グローバルフィルタ | URL, Method, Status, Type を横断検索 (debounce 付き) |
+| 🧰 カラム別フィルタ | Method/Status はチェックボックスドロップダウン、テキストカラムはカンマ区切りトークンマッチ (debounce 付き) |
+| 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示 |
+| 📄 CSV エクスポート | フィルタ適用後の表示行を UTF-8 BOM 付き CSV で出力 |
+| 📦 HAR エクスポート | HAR 1.2 形式でヘッダー・タイミング・レスポンスボディ・クエリ文字列・PostData を含む完全なログを出力 |
+| 🎨 テーマ切替 | System / Dark / Light の3モードを循環切替。`chrome.storage.local` (Edge 互換 API) に永続化 |
+| ⏯️ 録画制御 | Pause / Resume ボタン。録画中は赤、一時停止中はグレーのインジケータ表示 |
+| ⬇️ 自動スクロール | 新規リクエスト到着時に自動的にテーブル末尾へスクロール (トグル可能) |
+| 🔗 Initiator リンク | スクリプト起因のリクエストをクリックすると DevTools でソースファイルを表示 |
+| 🪟 パネルリサイズ | テーブルと詳細パネルの境界をドラッグで調整可能 |
+| ⌨️ キーボードナビゲーション | 上下キーで行選択、選択行を自動スクロール |
 
-## プロジェクト構造
+## 📁 プロジェクト構造
 
 ```
 network-plus-extension/
   .github/
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
-  __tests__/                 ... Jest ユニットテスト
+  tests/                     ... Jest ユニットテスト
     setup.js                 ... テスト用ブラウザ API モック
     panel.test.js            ... 純粋関数のユニットテスト (27 tests)
   icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
@@ -46,15 +46,15 @@ network-plus-extension/
   README.md                  ... このファイル
 ```
 
-## インストール方法
+## 🚀 インストール方法
 
 1. このリポジトリをクローンまたはダウンロード
-2. Chrome で `chrome://extensions/` を開く
+2. Microsoft Edge で `edge://extensions/` を開く
 3. 「デベロッパーモード」を有効にする
 4. 「パッケージ化されていない拡張機能を読み込む」をクリックし、このフォルダを選択
 5. DevTools を開くと「**Network+**」タブが追加される
 
-## 開発
+## 🛠️ 開発
 
 ```bash
 npm install          # 依存関係インストール
@@ -63,20 +63,20 @@ npm run lint         # ESLint 実行
 npm run format       # Prettier フォーマット
 ```
 
-## 技術スタック
+## 🧰 技術スタック
 
-- **Manifest V3** — Chrome 拡張機能 (CSP 明示設定)
+- **Manifest V3** — Microsoft Edge 拡張機能 (Chromium ベース, CSP 明示設定)
 - **Vanilla JS (ES2020)** — フレームワーク・ビルドツール不要、`const`/`let`・アロー関数使用
 - **CSS Custom Properties** — テーマ切替
-- **chrome.devtools API** — ネットワークリクエストキャプチャ、パネル生成、ソースファイルオープン
+- **Edge 拡張 API (`chrome.devtools`)** — ネットワークリクエストキャプチャ、パネル生成、ソースファイルオープン
 - **ESLint + Prettier** — コード品質・フォーマット統一
 - **Jest** — ユニットテスト
 
-## セキュリティ
+## 🔒 セキュリティ
 
 - ユーザーデータ (URL、ヘッダー名/値等) の DOM 描画はすべて `textContent` または DOM API を使用 (`innerHTML` 未使用)
 - Content Security Policy を `manifest.json` で明示設定 (`script-src 'self'`)
 
-## ライセンス
+## 📜 ライセンス
 
 MIT
