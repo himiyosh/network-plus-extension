@@ -27,21 +27,23 @@ Chrome DevTools に「**Network+**」パネルを追加する Chrome 拡張機�
 
 ```
 network-plus-extension/
-  manifest.json        ... 拡張機能マニフェスト (Manifest V3, CSP 明示設定)
-  devtools.html        ... DevTools ページ (devtools.js をロード)
-  devtools.js          ... chrome.devtools.panels.create() で Network+ パネルを生成
-  panel.html           ... パネル UI レイアウト (ツールバー、テーブル、詳細サイドバー、ステータスバー)
-  panel.js             ... コアロジック (セクション分割): キャプチャ、フィルタ、レンダリング、エクスポート、テーマ
-  panel.css            ... CSS カスタムプロパティによるライト/ダーク/システムテーマ
-  icons/               ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
-  __tests__/           ... Jest ユニットテスト
-    setup.js           ... テスト用ブラウザ API モック
-    panel.test.js      ... 純粋関数のユニットテスト (27 tests)
-  eslint.config.mjs    ... ESLint 設定 (flat config)
-  .prettierrc          ... Prettier 設定
-  .gitignore           ... Git 除外設定
-  package.json         ... npm 設定・スクリプト・Jest 設定
-  README.md            ... このファイル
+  .github/
+    copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
+  __tests__/                 ... Jest ユニットテスト
+    setup.js                 ... テスト用ブラウザ API モック
+    panel.test.js            ... 純粋関数のユニットテスト (27 tests)
+  icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
+  manifest.json              ... 拡張機能マニフェスト (Manifest V3, CSP 明示設定)
+  devtools.html              ... DevTools ページ (devtools.js をロード)
+  devtools.js                ... chrome.devtools.panels.create() で Network+ パネルを生成
+  panel.html                 ... パネル UI レイアウト (ツールバー、テーブル、詳細サイドバー、ステータスバー)
+  panel.js                   ... コアロジック (15セクション分割): キャプチャ、フィルタ、レンダリング、エクスポート、テーマ
+  panel.css                  ... CSS カスタムプロパティによるライト/ダーク/システムテーマ
+  eslint.config.mjs          ... ESLint 設定 (flat config)
+  .prettierrc                ... Prettier 設定
+  .gitignore                 ... Git 除外設定
+  package.json               ... npm 設定・スクリプト・Jest 設定
+  README.md                  ... このファイル
 ```
 
 ## インストール方法
