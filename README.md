@@ -61,8 +61,26 @@ network-plus-extension/
 npm install          # 依存関係インストール
 npm test             # Jest テスト実行 (カバレッジ付き)
 npm run lint         # ESLint 実行
+npm run version:check # package.json と manifest.json の version 同期チェック
 npm run format       # Prettier フォーマット
 ```
+
+## 🧾 バージョニングルール
+
+- **方式**: Semantic Versioning (`MAJOR.MINOR.PATCH`)
+- **同期対象**: `manifest.json` と `package.json` の `version` を必ず同一値にする
+- **現在バージョン**: `1.4.0`
+
+| 変更種別 | 上げる番号 | 例 |
+|---|---|---|
+| 破壊的変更 (後方互換なし) | `MAJOR` | フィルタ設定フォーマット変更、既存 UI 動作の互換性破壊 |
+| 機能追加 (後方互換あり) | `MINOR` | 新しいソート機能、演算子追加 |
+| バグ修正 / ドキュメント修正 | `PATCH` | フィルタ判定バグ修正、README 修正 |
+
+バージョン更新時チェックリスト:
+- `manifest.json` と `package.json` の `version` を同時更新
+- `npm run version:check` を実行して同期を確認
+- 機能追加・仕様変更時は README の該当セクションも同一コミットで更新
 
 ## 🧰 技術スタック
 

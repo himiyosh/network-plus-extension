@@ -164,14 +164,23 @@ Microsoft Edge DevTools
 ```bash
 npm test                   # Jest テスト実行 (カバレッジ付き)
 npm run lint               # ESLint 実行
+npm run version:check      # package.json と manifest.json の version 同期チェック
 ```
 
 ### 5.3 品質ゲート
 
-- **コミット前に必ず実行**: `npm test` と `npm run lint` が両方 PASS であること
+- **コミット前に必ず実行**: `npm test` / `npm run lint` / `npm run version:check` がすべて PASS であること
 - ESLint: **0 errors, 0 warnings** を維持 (未使用の catch 変数は `_` プレフィックスでマーク)
 - Jest: **全テスト PASS** を維持
 - 新しい純粋関数を追加した場合は、対応するテストも同一コミットで追加すること
+
+### 5.6 バージョン管理 (SemVer)
+
+- バージョンは **Semantic Versioning (`MAJOR.MINOR.PATCH`)** を採用する
+- 機能追加時は `MINOR`、バグ修正時は `PATCH`、破壊的変更時は `MAJOR` を上げる
+- **必須同期**: `package.json` と `manifest.json` の `version` を同時更新する
+- バージョン更新の同一コミットで `README.md` の該当機能説明を更新する
+- バージョン同期の確認には `npm run version:check` を必ず実行する
 
 ### 5.4 テスト環境の制約
 

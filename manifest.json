@@ -1,6 +1,6 @@
 {
   "name": "Network+ for DevTools",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "manifest_version": 3,
   "devtools_page": "devtools.html",
   "description": "Enhanced Network panel with filtering, CSV/HAR export, theme cycling, and keyboard navigation.",

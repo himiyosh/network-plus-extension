@@ -1,12 +1,13 @@
 {
   "name": "network-plus-extension",
-  "version": "1.3.0",
-  "description": "Enhanced Network panel extension for Chrome DevTools with filtering, export, and theme controls.",
+  "version": "1.4.0",
+  "description": "Enhanced Network panel extension for Microsoft Edge DevTools with filtering, export, theme, sorting, and advanced filters.",
   "main": "devtools.js",
   "scripts": {
     "test": "jest --coverage",
     "lint": "eslint panel.js",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "version:check": "node scripts/check-version-sync.js"
   },
   "keywords": [],
   "author": "",
