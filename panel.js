@@ -353,7 +353,7 @@ const _NetworkPlus = (function () {
       keyEl.textContent = item.name || item.key || '';
       const valEl = document.createElement('div');
       valEl.className = 'val';
-      valEl.textContent = item.value || '';
+      valEl.textContent = item.value == null ? '' : String(item.value);
       grid.appendChild(keyEl);
       grid.appendChild(valEl);
     }
@@ -632,7 +632,7 @@ const _NetworkPlus = (function () {
         { key: 'ID', value: String(row.id) },
         { key: 'URL', value: row.url || '' },
         { key: 'Method', value: row.method || '' },
-        { key: 'Status', value: String(row.status || '') },
+        { key: 'Status', value: row.status == null ? '' : String(row.status) },
         { key: 'Type', value: row.type || '' },
         { key: 'Protocol', value: row.protocol || '' },
         { key: 'Domain', value: row.domain || '' },

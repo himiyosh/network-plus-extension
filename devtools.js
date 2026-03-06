@@ -1,1 +1,1 @@
-chrome.devtools.panels.create('Network+','','panel.html',function(panel){});
+chrome.devtools.panels.create('Network+', '', 'panel.html', function (_panel) {});

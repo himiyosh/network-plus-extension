@@ -1,7 +1,7 @@
 {
   "name": "network-plus-extension",
-  "version": "1.0.0",
-  "description": "Chrome DevTools に「**Network+**」パネルを追加する Chrome 拡張機能です。  \r 標準の Network パネルの代替・補完として、強化されたフィルタリング、エクスポート、テーマ切替などの機能を提供します。",
+  "version": "1.3.0",
+  "description": "Enhanced Network panel extension for Chrome DevTools with filtering, export, and theme controls.",
   "main": "devtools.js",
   "scripts": {
     "test": "jest --coverage",
@@ -10,7 +10,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.0.2",

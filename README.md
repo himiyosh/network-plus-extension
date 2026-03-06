@@ -76,3 +76,7 @@ npm run format       # Prettier フォーマット
 
 - ユーザーデータ (URL、ヘッダー名/値等) の DOM 描画はすべて `textContent` または DOM API を使用 (`innerHTML` 未使用)
 - Content Security Policy を `manifest.json` で明示設定 (`script-src 'self'`)
+
+## ライセンス
+
+MIT
