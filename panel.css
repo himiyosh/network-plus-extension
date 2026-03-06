@@ -67,3 +67,8 @@ html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
 .topbar.paused{border-top:2px solid #9ca3af}
 .topbar.paused #pauseBtn{color:#22c55e}
 html[data-theme="dark"] .topbar.paused #pauseBtn{color:#4ade80}
+.tableWrap:focus{outline:none}
+.tableWrap:focus-visible{outline:2px solid var(--method-put-fg);outline-offset:-2px}
+.grid tbody tr:focus-within{background:var(--row-hover)}
+mark{background:#fde68a;color:#111827;border-radius:2px;padding:0 1px}
+html[data-theme="dark"] mark{background:#854d0e;color:#fef3c7}

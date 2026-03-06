@@ -1,11 +1,19 @@
 {
   "name": "Network+ for DevTools",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "manifest_version": 3,
   "devtools_page": "devtools.html",
-  "description": "Stable Network+ panel with ID column, theme cycle, and proper CSV/HAR exports.",
+  "description": "Enhanced Network panel with filtering, CSV/HAR export, theme cycling, and keyboard navigation.",
   "permissions": [
     "storage",
     "downloads"
-  ]
+  ],
+  "icons": {
+    "16": "icons/icon16.svg",
+    "48": "icons/icon48.svg",
+    "128": "icons/icon128.svg"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
 }
