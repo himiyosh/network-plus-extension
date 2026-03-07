@@ -267,6 +267,16 @@ describe('evaluateFilterRule', () => {
     expect(np.evaluateFilterRule('PUT', rule, false)).toBe(false);
   });
 
+  test('supports statusSet mode for status code filtering', () => {
+    const rule = {
+      mode: 'statusSet',
+      include: { '200': true, '201': true, '404': false, '500': false },
+    };
+    expect(np.evaluateFilterRule('200', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('404', rule, false)).toBe(false);
+    expect(np.evaluateFilterRule('302', rule, false)).toBe(true); // not in include = show
+  });
+
   test('supports urlAdvanced include and exclude conditions', () => {
     const rule = {
       mode: 'urlAdvanced',

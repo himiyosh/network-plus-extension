@@ -44,8 +44,13 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--content-bg:#ffffff;--f
 .filter-rule .filter-value{width:52%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:4px;border-radius:4px;font-size:11px}
 .filter-rule .filter-value:disabled{opacity:.65;cursor:not-allowed}
 .filter-rule input[type="time"]{width:auto;min-width:80px}
-.filter-rule label{display:block;font-size:11px;color:var(--muted);margin-top:4px;width:100%}
+.filter-rule > label{display:block;font-size:11px;color:var(--muted);margin-top:4px;width:100%}
 .filter-rule label input[type="text"]{width:100%;margin-top:2px}
+.filter-checkbox-grid{display:flex;flex-wrap:wrap;gap:2px 8px;width:100%}
+.filter-checkbox-inline{display:flex;align-items:center;gap:3px;font-size:11px;cursor:pointer;padding:2px 4px;border-radius:3px;white-space:nowrap}
+.filter-checkbox-inline:hover{background:var(--hover)}
+.filter-checkbox-inline input[type="checkbox"]{margin:0}
+.filter-status-category{font-size:10px;font-weight:700;color:var(--muted);margin-top:6px;margin-bottom:2px;width:100%}
 .filter-condition-row{display:flex;gap:4px;align-items:center;width:100%}
 .filter-condition-row .filter-op{width:120px;flex-shrink:0}
 .filter-condition-row .filter-value{flex:1}

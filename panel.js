@@ -331,6 +331,12 @@ const _NetworkPlus = (function () {
       return rule.include ? !!rule.include[upper] : true;
     }
 
+    if (rule && rule.mode === 'statusSet') {
+      // If no codes are unchecked, show all
+      if (!rule.include || Object.keys(rule.include).length === 0) return true;
+      return rule.include[value] !== false;
+    }
+
     if (rule && rule.mode === 'urlAdvanced') {
       const cs = !!rule.caseSensitive;
       const v = cs ? value : value.toLowerCase();
@@ -689,12 +695,14 @@ const _NetworkPlus = (function () {
       return wrap;
     }
 
-    // --- Method column: checkbox set ---
+    // --- Method column: checkbox set (horizontal) ---
     if (colId === 'method') {
       const rule = state.columnFilterRules[colId];
       const isMethodSet = rule && rule.mode === 'methodSet';
       const include = isMethodSet ? Object.assign({}, rule.include) : DEFAULT_METHOD_FILTERS();
 
+      const grid = document.createElement('div');
+      grid.className = 'filter-checkbox-grid';
       for (const method of HTTP_METHODS) {
         const checked = include[method] !== false;
         const cb = createCheckboxItem(method, checked, () => {
@@ -702,7 +710,46 @@ const _NetworkPlus = (function () {
           state.columnFilterRules[colId] = { mode: 'methodSet', include: Object.assign({}, include) };
           onChange();
         });
-        wrap.appendChild(cb);
+        cb.className = 'filter-checkbox-inline';
+        grid.appendChild(cb);
+      }
+      wrap.appendChild(grid);
+      return wrap;
+    }
+
+    // --- Status column: checkbox set by category (horizontal) ---
+    if (colId === 'status') {
+      const STATUS_CATEGORIES = [
+        { label: '2xx Success', codes: [200, 201, 202, 204, 206] },
+        { label: '3xx Redirect', codes: [301, 302, 303, 304, 307, 308] },
+        { label: '4xx Client Error', codes: [400, 401, 403, 404, 405, 408, 409, 429] },
+        { label: '5xx Server Error', codes: [500, 502, 503, 504] },
+      ];
+      const rule = state.columnFilterRules[colId];
+      const isStatusSet = rule && rule.mode === 'statusSet';
+      const include = isStatusSet ? Object.assign({}, rule.include) : {};
+      // Default: all enabled (empty = show all)
+
+      for (const cat of STATUS_CATEGORIES) {
+        const catLabel = document.createElement('div');
+        catLabel.className = 'filter-status-category';
+        catLabel.textContent = cat.label;
+        wrap.appendChild(catLabel);
+
+        const grid = document.createElement('div');
+        grid.className = 'filter-checkbox-grid';
+        for (const code of cat.codes) {
+          const codeStr = String(code);
+          const checked = include[codeStr] !== false;
+          const cb = createCheckboxItem(codeStr, checked, () => {
+            include[codeStr] = !include[codeStr];
+            state.columnFilterRules[colId] = { mode: 'statusSet', include: Object.assign({}, include) };
+            onChange();
+          });
+          cb.className = 'filter-checkbox-inline';
+          grid.appendChild(cb);
+        }
+        wrap.appendChild(grid);
       }
       return wrap;
     }
@@ -885,6 +932,9 @@ const _NetworkPlus = (function () {
   function isRuleActive(rule) {
     if (!rule) return false;
     if (rule.mode === 'methodSet') {
+      return rule.include ? Object.values(rule.include).some((v) => !v) : false;
+    }
+    if (rule.mode === 'statusSet') {
       return rule.include ? Object.values(rule.include).some((v) => !v) : false;
     }
     if (rule.mode === 'urlAdvanced') {
