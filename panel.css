@@ -75,7 +75,7 @@ html[data-theme="light"]{
 #pauseBtn{font-size:16px}
 .topbar button:hover{background:var(--hover);border-color:var(--accent);color:var(--accent)}
 .topbar button.active{border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
-.topbar.paused{border-top:2px solid transparent}
+.topbar.paused{border-top:2px solid var(--border)}
 .topbar.recording{border-top:2px solid #ef4444}
 .topbar.recording #pauseBtn{color:#ef4444}
 html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
