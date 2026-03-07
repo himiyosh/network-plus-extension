@@ -195,8 +195,8 @@ const _NetworkPlus = (function () {
     selectedRow: null, // [U5] track by row object reference, not index
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
     sort: {
-      colId: 'time',
-      direction: 'desc',
+      colId: 'id',
+      direction: 'asc',
     },
     nextId: 1,
     paused: false,
@@ -475,7 +475,7 @@ const _NetworkPlus = (function () {
       type: (req && req.response && req.response.content && req.response.content.mimeType) || '',
       protocol: req && req.response && req.response.httpVersion ? String(req.response.httpVersion).toUpperCase() : '',
       size:
-        (req && req.response && (req.response.bodySize || (req.response.content && req.response.content.size))) || 0,
+        Math.max(0, (req && req.response && (req.response.bodySize > 0 ? req.response.bodySize : (req.response.content && req.response.content.size > 0 ? req.response.content.size : 0))) || 0),
       timeText: timeText,
       duration: (req && req.time) || 0,
       startedDateTime: isoStr,
@@ -619,17 +619,34 @@ const _NetworkPlus = (function () {
     const wrap = document.createElement('div');
     wrap.className = 'filter-rule';
 
-    // --- Time column: time range picker ---
+    // --- Time column: time range picker with auto-range ---
     if (colId === 'time') {
       const rule = state.columnFilterRules[colId];
       const isTimeRange = rule && rule.mode === 'timeRange';
-      const startVal = isTimeRange ? rule.start || '' : '';
-      const endVal = isTimeRange ? rule.end || '' : '';
+
+      // Compute min/max from recorded rows
+      let autoStart = '';
+      let autoEnd = '';
+      if (state.rows.length > 0) {
+        let minT = '99:99';
+        let maxT = '00:00';
+        for (const row of state.rows) {
+          const tv = row.timeFilterValue || '';
+          if (tv && tv < minT) minT = tv;
+          if (tv && tv > maxT) maxT = tv;
+        }
+        if (minT !== '99:99') autoStart = minT;
+        if (maxT !== '00:00') autoEnd = maxT;
+      }
+
+      const startVal = isTimeRange && rule.start ? rule.start : autoStart;
+      const endVal = isTimeRange && rule.end ? rule.end : autoEnd;
 
       const startLabel = document.createElement('span');
       startLabel.textContent = 'From ';
       const startInput = document.createElement('input');
       startInput.type = 'time';
+      startInput.step = '1';
       startInput.className = 'filter-value';
       startInput.value = startVal;
 
@@ -637,16 +654,17 @@ const _NetworkPlus = (function () {
       endLabel.textContent = ' To ';
       const endInput = document.createElement('input');
       endInput.type = 'time';
+      endInput.step = '1';
       endInput.className = 'filter-value';
       endInput.value = endVal;
 
       const clearBtn = document.createElement('button');
-      clearBtn.textContent = 'Clear';
+      clearBtn.textContent = 'Reset';
       clearBtn.className = 'filter-clear-btn';
       clearBtn.addEventListener('click', () => {
-        startInput.value = '';
-        endInput.value = '';
-        state.columnFilterRules[colId] = { mode: 'timeRange', start: '', end: '' };
+        startInput.value = autoStart;
+        endInput.value = autoEnd;
+        state.columnFilterRules[colId] = { mode: 'timeRange', start: autoStart, end: autoEnd };
         onChange();
       });
 
