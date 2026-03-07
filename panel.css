@@ -86,7 +86,7 @@ html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
 
 /* === Details Panel === */
 .details{display:flex;flex-direction:column;flex:0 0 50%;min-width:300px;overflow:hidden;border-left:1px solid var(--border)}
-.details-header{padding:8px 12px;border-bottom:1px solid var(--border);background:var(--topbar-bg);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.details-header{padding:8px 12px;border-bottom:1px solid var(--border);background:var(--topbar-bg);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
 .inspector-panels{display:flex;flex-direction:column;flex:1;overflow:hidden}
 .inspector-half{display:flex;flex-direction:column;flex:1;min-height:80px;overflow:hidden}
 .inspector-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;padding:4px 10px;background:var(--accent-dim);color:var(--accent);border-bottom:1px solid var(--border)}
@@ -95,15 +95,15 @@ html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
 
 /* === Tabs === */
 .tab-bar{display:flex;flex-wrap:nowrap;overflow-x:auto;background:var(--surface);border-bottom:1px solid var(--border);gap:0;padding:0 6px;scrollbar-width:thin}
-.tab-btn{padding:5px 12px;border:none;border-bottom:2px solid transparent;background:none;color:var(--muted);cursor:pointer;font-size:11px;white-space:nowrap;transition:all 0.15s;font-weight:500}
+.tab-btn{padding:5px 12px;border:none;border-bottom:2px solid transparent;background:none;color:var(--muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:all 0.15s;font-weight:500}
 .tab-btn:hover{color:var(--fg);background:var(--hover)}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700;background:var(--accent-dim)}
 .tab-content-area{flex:1;overflow:auto;position:relative}
-.tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:break-all}
+.tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:break-all;font-size:13px}
 .tab-pane.active{display:block}
 
 /* === Code Blocks & Syntax === */
-.code-block{background:var(--content-bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:'Cascadia Code',Consolas,'Courier New',monospace;font-size:11px;overflow:auto;max-height:none;white-space:pre-wrap;word-break:break-all;line-height:1.6}
+.code-block{background:var(--content-bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:'Cascadia Code',Consolas,'Courier New',monospace;font-size:12px;overflow:auto;max-height:none;white-space:pre-wrap;word-break:break-all;line-height:1.6}
 .syn-key{color:var(--syn-key)}.syn-str{color:var(--syn-str)}.syn-num{color:var(--syn-num)}
 .syn-bool{color:var(--syn-bool);font-weight:600}.syn-null{color:var(--syn-null);font-style:italic}
 .syn-status-line{color:var(--syn-status);font-weight:700}
@@ -148,8 +148,8 @@ html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
 .dur-ok{color:var(--dur-ok)}.dur-med{color:var(--dur-med);font-weight:500}.dur-slow{color:var(--dur-slow);font-weight:700}
 
 /* === KV Grid === */
-.kv{display:grid;grid-template-columns:150px 1fr;gap:1px 12px;font-size:12px}
-.kv .key{color:var(--syn-hdr-name);white-space:nowrap;font-weight:600;padding:3px 0;font-size:11px}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:1px 12px;font-size:13px}
+.kv .key{color:var(--syn-hdr-name);white-space:nowrap;font-weight:600;padding:3px 0;font-size:12px}
 .kv .val{color:var(--fg);overflow-wrap:break-word;min-width:0;padding:3px 0}
 
 /* === Status Bar === */
