@@ -1198,6 +1198,104 @@ const _NetworkPlus = (function () {
     }
   }
 
+  /**
+   * Render JSON text as a <pre> with syntax-highlighted spans.
+   * Uses DOM API only (no innerHTML) for XSS safety.
+   */
+  function renderJsonHighlighted(jsonText) {
+    const pre = document.createElement('pre');
+    pre.className = 'code-block code-json';
+    // Tokenize JSON string with a regex that captures keys, strings, numbers, booleans, null
+    const TOKEN_RE = /("(?:\\.|[^"\\])*")\s*:|("(?:\\.|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b)|(\bnull\b)/g;
+    let lastIndex = 0;
+    let match;
+    while ((match = TOKEN_RE.exec(jsonText)) !== null) {
+      // Append plain text before this match
+      if (match.index > lastIndex) {
+        pre.appendChild(document.createTextNode(jsonText.substring(lastIndex, match.index)));
+      }
+      const span = document.createElement('span');
+      if (match[1]) {
+        // JSON key (property name)
+        span.className = 'syn-key';
+        span.textContent = match[1];
+        pre.appendChild(span);
+        pre.appendChild(document.createTextNode(':'));
+      } else if (match[2]) {
+        // String value
+        span.className = 'syn-str';
+        span.textContent = match[2];
+        pre.appendChild(span);
+      } else if (match[3]) {
+        // Number
+        span.className = 'syn-num';
+        span.textContent = match[3];
+        pre.appendChild(span);
+      } else if (match[4]) {
+        // Boolean
+        span.className = 'syn-bool';
+        span.textContent = match[4];
+        pre.appendChild(span);
+      } else if (match[5]) {
+        // null
+        span.className = 'syn-null';
+        span.textContent = match[5];
+        pre.appendChild(span);
+      }
+      lastIndex = TOKEN_RE.lastIndex;
+    }
+    // Remaining text
+    if (lastIndex < jsonText.length) {
+      pre.appendChild(document.createTextNode(jsonText.substring(lastIndex)));
+    }
+    return pre;
+  }
+
+  /**
+   * Render raw HTTP text with syntax highlighting.
+   * First line = status/request line (bold), header names colored, body as-is.
+   */
+  function renderRawHighlighted(rawText) {
+    const pre = document.createElement('pre');
+    pre.className = 'code-block code-raw';
+    const lines = rawText.split('\n');
+    let inBody = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (i === 0) {
+        // Request/Status line
+        const span = document.createElement('span');
+        span.className = 'syn-status-line';
+        span.textContent = line;
+        pre.appendChild(span);
+      } else if (!inBody && line.trim() === '') {
+        // Empty line = separator between headers and body
+        inBody = true;
+        pre.appendChild(document.createTextNode(line));
+      } else if (!inBody) {
+        // Header line: "Name: Value"
+        const colonIdx = line.indexOf(':');
+        if (colonIdx > 0) {
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'syn-hdr-name';
+          nameSpan.textContent = line.substring(0, colonIdx);
+          pre.appendChild(nameSpan);
+          const valSpan = document.createElement('span');
+          valSpan.className = 'syn-hdr-val';
+          valSpan.textContent = line.substring(colonIdx);
+          pre.appendChild(valSpan);
+        } else {
+          pre.appendChild(document.createTextNode(line));
+        }
+      } else {
+        // Body — try to detect JSON for highlighting
+        pre.appendChild(document.createTextNode(line));
+      }
+      if (i < lines.length - 1) pre.appendChild(document.createTextNode('\n'));
+    }
+    return pre;
+  }
+
   function selectRow(row) {
     state.selectedRow = row;
     renderBody();
@@ -1238,9 +1336,11 @@ const _NetworkPlus = (function () {
     if (row.requestPostData && row.requestPostData.text) {
       const text = row.requestPostData.text;
       const formatted = formatJsonSafe(text);
-      const pre = document.createElement('pre');
-      pre.className = 'code-block';
-      pre.textContent = formatted || text;
+      const pre = formatted ? renderJsonHighlighted(formatted) : document.createElement('pre');
+      if (!formatted) {
+        pre.className = 'code-block';
+        pre.textContent = text;
+      }
       reqBodyPane.appendChild(pre);
 
       const copyBtn = document.createElement('button');
@@ -1278,9 +1378,7 @@ const _NetworkPlus = (function () {
     // Request > Raw
     const reqRawPane = $('#req-raw');
     reqRawPane.textContent = '';
-    const rawReqPre = document.createElement('pre');
-    rawReqPre.className = 'code-block';
-    rawReqPre.textContent = buildRawRequestText(row);
+    const rawReqPre = renderRawHighlighted(buildRawRequestText(row));
     const copyRawReq = document.createElement('button');
     copyRawReq.className = 'copy-btn';
     copyRawReq.textContent = 'Copy';
@@ -1333,24 +1431,27 @@ const _NetworkPlus = (function () {
         // Body tab — formatted text
         resBodyPane.textContent = '';
         const formatted = formatJsonSafe(text);
-        const bodyPre = document.createElement('pre');
-        bodyPre.className = 'code-block';
         if (formatted) {
-          bodyPre.textContent = formatted;
-        } else if (text.length > TRUNCATE_LIMIT) {
-          bodyPre.textContent = text.substring(0, TRUNCATE_LIMIT);
-          const showMore = document.createElement('button');
-          showMore.textContent = '... Show all (' + fmtBytes(text.length) + ')';
-          showMore.className = 'link-btn';
-          showMore.addEventListener('click', () => {
-            bodyPre.textContent = text;
-          });
+          const bodyPre = renderJsonHighlighted(formatted);
           resBodyPane.appendChild(bodyPre);
-          resBodyPane.appendChild(showMore);
         } else {
-          bodyPre.textContent = text || '(no response body)';
+          const bodyPre = document.createElement('pre');
+          bodyPre.className = 'code-block';
+          if (text.length > TRUNCATE_LIMIT) {
+            bodyPre.textContent = text.substring(0, TRUNCATE_LIMIT);
+            const showMore = document.createElement('button');
+            showMore.textContent = '... Show all (' + fmtBytes(text.length) + ')';
+            showMore.className = 'link-btn';
+            showMore.addEventListener('click', () => {
+              bodyPre.textContent = text;
+            });
+            resBodyPane.appendChild(bodyPre);
+            resBodyPane.appendChild(showMore);
+          } else {
+            bodyPre.textContent = text || '(no response body)';
+            resBodyPane.appendChild(bodyPre);
+          }
         }
-        if (!resBodyPane.querySelector('pre')) resBodyPane.appendChild(bodyPre);
         const copyBody = document.createElement('button');
         copyBody.className = 'copy-btn';
         copyBody.textContent = 'Copy';
@@ -1375,19 +1476,14 @@ const _NetworkPlus = (function () {
           iframe.srcdoc = text;
           resPreviewPane.appendChild(iframe);
         } else if (formatted) {
-          const pre = document.createElement('pre');
-          pre.className = 'code-block';
-          pre.textContent = formatted;
-          resPreviewPane.appendChild(pre);
+          resPreviewPane.appendChild(renderJsonHighlighted(formatted));
         } else {
           resPreviewPane.textContent = '(no preview available)';
         }
 
         // Raw tab
         resRawPane.textContent = '';
-        const rawResPre = document.createElement('pre');
-        rawResPre.className = 'code-block';
-        rawResPre.textContent = buildRawResponseText(row, text);
+        const rawResPre = renderRawHighlighted(buildRawResponseText(row, text));
         const copyRawRes = document.createElement('button');
         copyRawRes.className = 'copy-btn';
         copyRawRes.textContent = 'Copy';
