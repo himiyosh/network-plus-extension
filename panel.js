@@ -46,7 +46,7 @@ const _NetworkPlus = (function () {
 
   const DEFAULT_COLUMNS = [
     { id: 'id', label: 'ID', width: 60, visible: true },
-    { id: 'time', label: 'Time', width: 160, visible: true },
+    { id: 'time', label: 'Time', width: 200, visible: true },
     { id: 'method', label: 'Method', width: 80, visible: true },
     { id: 'status', label: 'Status', width: 70, visible: true },
     { id: 'domain', label: 'Domain', width: 180, visible: true },
@@ -455,10 +455,14 @@ const _NetworkPlus = (function () {
     if (isoStr) {
       const d = new Date(isoStr);
       if (!isNaN(d.getTime())) {
+        const yyyy = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
         const hh = String(d.getHours()).padStart(2, '0');
         const mm = String(d.getMinutes()).padStart(2, '0');
         const ss = String(d.getSeconds()).padStart(2, '0');
-        timeText = hh + ':' + mm + ':' + ss;
+        const ms = String(d.getMilliseconds()).padStart(3, '0');
+        timeText = yyyy + '-' + mo + '-' + dd + ' ' + hh + ':' + mm + ':' + ss + '.' + ms;
         timeFilterValue = hh + ':' + mm;
       }
     }
@@ -909,6 +913,26 @@ const _NetworkPlus = (function () {
     }
 
     root.appendChild(list);
+    return root;
+  }
+
+  function createSingleColumnFilterContent(colId, onChange) {
+    const root = document.createElement('div');
+    root.className = 'filter-popup-body';
+
+    const col = state.columns.find((c) => c.id === colId);
+    if (!col) return root;
+
+    const header = document.createElement('div');
+    header.className = 'filter-popup-header';
+    header.textContent = col.label + ' Filter';
+    root.appendChild(header);
+
+    const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
+    const control = createColumnFilterControl(colId, debouncedOnChange);
+    control.style.marginTop = '8px';
+    root.appendChild(control);
+
     return root;
   }
 
@@ -1392,7 +1416,11 @@ const _NetworkPlus = (function () {
 
     const openFilterPopup = (x, y, focusColId) => {
       filterPopup.textContent = '';
-      filterPopup.appendChild(createFilterPopupContent(renderBody, focusColId));
+      if (focusColId) {
+        filterPopup.appendChild(createSingleColumnFilterContent(focusColId, renderBody));
+      } else {
+        filterPopup.appendChild(createFilterPopupContent(renderBody, null));
+      }
       filterPopup.style.left = x + 'px';
       filterPopup.style.top = y + 'px';
       filterPopup.style.display = 'block';
