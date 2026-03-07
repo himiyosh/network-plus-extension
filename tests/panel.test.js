@@ -194,13 +194,20 @@ describe('getRowFilterValue [U3]', () => {
     expect(np.getRowFilterValue(row, 'status')).toBe(200);
   });
 
-  test('uses startedDateTime for time column', () => {
+  test('uses clientStartFilter for clientStart column', () => {
     const row = {
-      startedDateTime: '2026-03-07T09:00:00.000Z',
-      timeText: '18:00:00',
-      timeFilterValue: '18:00',
+      clientStart: '18:00:00.000',
+      clientStartFilter: '18:00',
     };
-    expect(np.getRowFilterValue(row, 'time')).toBe('18:00');
+    expect(np.getRowFilterValue(row, 'clientStart')).toBe('18:00');
+  });
+
+  test('uses serverDoneFilter for serverDone column', () => {
+    const row = {
+      serverDone: '18:00:05.123',
+      serverDoneFilter: '18:00',
+    };
+    expect(np.getRowFilterValue(row, 'serverDone')).toBe('18:00');
   });
 
   test('returns empty string for null values', () => {

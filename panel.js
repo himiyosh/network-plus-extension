@@ -20,7 +20,7 @@ const _NetworkPlus = (function () {
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
-  const DATE_COLUMNS = ['time'];
+  const DATE_COLUMNS = ['clientStart', 'serverDone'];
 
   const FILTER_OPERATORS_STRING = [
     { value: 'contains', label: 'contains' },
@@ -46,7 +46,8 @@ const _NetworkPlus = (function () {
 
   const DEFAULT_COLUMNS = [
     { id: 'id', label: 'ID', width: 60, visible: true },
-    { id: 'time', label: 'Time', width: 200, visible: true },
+    { id: 'clientStart', label: 'ClientStart', width: 120, visible: true },
+    { id: 'serverDone', label: 'ServerDone', width: 120, visible: true },
     { id: 'method', label: 'Method', width: 80, visible: true },
     { id: 'status', label: 'Status', width: 70, visible: true },
     { id: 'domain', label: 'Domain', width: 180, visible: true },
@@ -286,7 +287,8 @@ const _NetworkPlus = (function () {
   // ============================================================
   function getRowFilterValue(row, colId) {
     if (colId === 'initiator') return row.initiator ? row.initiator.text : '';
-    if (colId === 'time') return row.timeFilterValue || row.timeText || '';
+    if (colId === 'clientStart') return row.clientStartFilter || row.clientStart || '';
+    if (colId === 'serverDone') return row.serverDoneFilter || row.serverDone || '';
     const v = row[colId];
     return v == null ? '' : v;
   }
@@ -448,22 +450,32 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 8: Data Model
   // ============================================================
+  function fmtLocalTime(isoStr) {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    const ms = String(d.getMilliseconds()).padStart(3, '0');
+    return hh + ':' + mm + ':' + ss + '.' + ms;
+  }
+
+  function fmtFilterTime(isoStr) {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '';
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
   function buildRowFromRequest(req) {
     const isoStr = (req && req.startedDateTime) || '';
-    let timeText = isoStr;
-    let timeFilterValue = '';
-    if (isoStr) {
-      const d = new Date(isoStr);
-      if (!isNaN(d.getTime())) {
-        const yyyy = d.getFullYear();
-        const mo = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        const hh = String(d.getHours()).padStart(2, '0');
-        const mm = String(d.getMinutes()).padStart(2, '0');
-        const ss = String(d.getSeconds()).padStart(2, '0');
-        const ms = String(d.getMilliseconds()).padStart(3, '0');
-        timeText = yyyy + '-' + mo + '-' + dd + ' ' + hh + ':' + mm + ':' + ss + '.' + ms;
-        timeFilterValue = hh + ':' + mm;
+    const durationMs = (req && req.time) || 0;
+    let serverDoneIso = '';
+    if (isoStr && durationMs > 0) {
+      const startMs = new Date(isoStr).getTime();
+      if (!isNaN(startMs)) {
+        serverDoneIso = new Date(startMs + durationMs).toISOString();
       }
     }
     const r = {
@@ -476,10 +488,12 @@ const _NetworkPlus = (function () {
       protocol: req && req.response && req.response.httpVersion ? String(req.response.httpVersion).toUpperCase() : '',
       size:
         Math.max(0, (req && req.response && (req.response.bodySize > 0 ? req.response.bodySize : (req.response.content && req.response.content.size > 0 ? req.response.content.size : 0))) || 0),
-      timeText: timeText,
-      duration: (req && req.time) || 0,
+      clientStart: fmtLocalTime(isoStr),
+      serverDone: fmtLocalTime(serverDoneIso),
+      clientStartFilter: fmtFilterTime(isoStr),
+      serverDoneFilter: fmtFilterTime(serverDoneIso),
+      duration: durationMs,
       startedDateTime: isoStr,
-      timeFilterValue: timeFilterValue,
       requestHeaders: (req && req.request && req.request.headers) || [],
       responseHeaders: (req && req.response && req.response.headers) || [],
       requestPostData: (req && req.request && req.request.postData) || null,
@@ -570,7 +584,6 @@ const _NetworkPlus = (function () {
       } else {
         let v = row[c.id];
         if (c.id === 'size') v = fmtBytes(row.size);
-        else if (c.id === 'time') v = row.timeText || '';
         else if (c.id === 'duration') v = fmtTime(row.duration);
         td.textContent = v == null ? '' : String(v);
       }
@@ -611,8 +624,9 @@ const _NetworkPlus = (function () {
     const wrap = document.createElement('div');
     wrap.className = 'filter-rule';
 
-    // --- Time column: time range picker with auto-range ---
-    if (colId === 'time') {
+    // --- Time columns (clientStart / serverDone): time range picker with auto-range ---
+    if (colId === 'clientStart' || colId === 'serverDone') {
+      const filterField = colId === 'clientStart' ? 'clientStartFilter' : 'serverDoneFilter';
       const rule = state.columnFilterRules[colId];
       const isTimeRange = rule && rule.mode === 'timeRange';
 
@@ -623,7 +637,7 @@ const _NetworkPlus = (function () {
         let minT = '99:99';
         let maxT = '00:00';
         for (const row of state.rows) {
-          const tv = row.timeFilterValue || '';
+          const tv = row[filterField] || '';
           if (tv && tv < minT) minT = tv;
           if (tv && tv > maxT) maxT = tv;
         }
@@ -1430,7 +1444,6 @@ const _NetworkPlus = (function () {
       for (const c of cols) {
         let v = r[c.id];
         if (c.id === 'size') v = fmtBytes(r.size);
-        else if (c.id === 'time') v = r.timeText || '';
         else if (c.id === 'duration') v = fmtTime(r.duration);
         else if (c.id === 'initiator') v = r.initiator ? r.initiator.text : '';
         arr.push(esc(v));
