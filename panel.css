@@ -68,10 +68,11 @@ html[data-theme="light"]{
 
 /* === Top Bar === */
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--topbar-bg);position:sticky;top:0;z-index:3;box-shadow:var(--shadow-sm)}
+.topbar .left,.topbar .right{display:flex;align-items:center;gap:8px}
 .topbar input{width:360px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);transition:border-color 0.2s,box-shadow 0.2s}
 .topbar input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
-.topbar button{padding:5px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);cursor:pointer;font-size:12px;transition:all 0.15s}
-#pauseBtn{font-size:16px;padding:4px 10px;line-height:1}
+.topbar button{min-height:32px;padding:5px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);cursor:pointer;font-size:12px;line-height:1.5;display:inline-flex;align-items:center;justify-content:center;transition:all 0.15s}
+#pauseBtn{font-size:16px}
 .topbar button:hover{background:var(--hover);border-color:var(--accent);color:var(--accent)}
 .topbar button.active{border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
 .topbar.recording{border-top:2px solid #ef4444}
@@ -119,7 +120,7 @@ html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
 /* === Table Grid === */
 .grid{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
 .title-row th{position:sticky;top:0;background:var(--th-bg);border-bottom:2px solid var(--th-border);font-weight:700;text-align:left;padding:7px 8px;white-space:nowrap;z-index:2;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--muted)}
-.title-row th.sortable-header{cursor:pointer;user-select:none}
+.title-row th.sortable-header{cursor:pointer;-webkit-user-select:none;user-select:none}
 .title-row th.sortable-header:hover{background:var(--hover);color:var(--accent)}
 .grid tbody td{border-bottom:1px solid var(--stripe);padding:5px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 .grid tbody tr:nth-child(even){background:var(--stripe)}
@@ -217,3 +218,11 @@ html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+
+/* === Search Highlight & Mark === */
+.search-highlight{background:rgba(255,255,0,0.4);color:inherit;padding:1px 2px;border-radius:2px;font-weight:500}
+html[data-theme="dark"] .search-highlight{background:rgba(255,255,0,0.25)}
+.marked-row{background:rgba(255,215,0,0.15) !important;border-left:3px solid #fbbf24 !important}
+html[data-theme="dark"] .marked-row{background:rgba(255,215,0,0.08) !important;border-left:3px solid #fbbf24 !important}
+.multi-selected{background:rgba(99,102,241,0.15) !important;border-left:3px solid var(--accent) !important}
+html[data-theme="dark"] .multi-selected{background:rgba(129,140,248,0.12) !important}

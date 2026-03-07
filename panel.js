@@ -186,6 +186,47 @@ const _NetworkPlus = (function () {
     };
   }
 
+  /**
+   * Highlight search matches in text (XSS-safe, DOM-only)
+   * @param {string} text - Text to search in
+   * @param {string} query - Search query
+   * @returns {DocumentFragment} - Text with <mark> elements for matches
+   */
+  function highlightText(text, query) {
+    const fragment = document.createDocumentFragment();
+    if (!query || !text) {
+      fragment.appendChild(document.createTextNode(text || ''));
+      return fragment;
+    }
+
+    const lcText = text.toLowerCase();
+    const lcQuery = query.toLowerCase();
+    let lastIndex = 0;
+    let index = lcText.indexOf(lcQuery);
+
+    while (index !== -1) {
+      // Before match
+      if (index > lastIndex) {
+        fragment.appendChild(document.createTextNode(text.substring(lastIndex, index)));
+      }
+      // Match
+      const mark = document.createElement('mark');
+      mark.className = 'search-highlight';
+      mark.textContent = text.substring(index, index + query.length);
+      fragment.appendChild(mark);
+
+      lastIndex = index + query.length;
+      index = lcText.indexOf(lcQuery, lastIndex);
+    }
+
+    // After last match
+    if (lastIndex < text.length) {
+      fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
+    }
+
+    return fragment;
+  }
+
   // ============================================================
   // Section 4: State Management
   // ============================================================
@@ -194,6 +235,8 @@ const _NetworkPlus = (function () {
     rows: [],
     filteredRows: [], // [U5] cache for filtered rows
     selectedRow: null, // [U5] track by row object reference, not index
+    selectedRows: new Set(), // [U7] multi-row selection
+    markedRows: new Set(), // [U7] marked rows (highlight)
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
     sort: {
       colId: 'id',
@@ -561,6 +604,8 @@ const _NetworkPlus = (function () {
     tr.dataset.rowId = row.id;
 
     if (state.selectedRow === row) tr.classList.add('selected');
+    if (state.markedRows.has(row)) tr.classList.add('marked-row');
+    if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
     if (row.method) {
       const method = row.method.toUpperCase();
       if (HTTP_METHODS.indexOf(method) > -1) tr.classList.add('method-' + method);
@@ -583,16 +628,26 @@ const _NetworkPlus = (function () {
         if (initiator && initiator.url) {
           const link = document.createElement('a');
           link.href = '#';
-          link.textContent = initiator.text;
           link.title = initiator.url;
           link.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             chrome.devtools.panels.openResource(initiator.url, initiator.lineNumber, () => {});
           });
+          // Highlight initiator text if search active
+          if (state.globalFilter) {
+            link.appendChild(highlightText(initiator.text, state.globalFilter));
+          } else {
+            link.textContent = initiator.text;
+          }
           td.appendChild(link);
         } else {
-          td.textContent = initiator ? initiator.text : '';
+          const txt = initiator ? initiator.text : '';
+          if (state.globalFilter) {
+            td.appendChild(highlightText(txt, state.globalFilter));
+          } else {
+            td.textContent = txt;
+          }
         }
       } else {
         let v = row[c.id];
@@ -605,7 +660,13 @@ const _NetworkPlus = (function () {
           else if (row.duration > 500) td.classList.add('dur-med');
           else if (row.duration > 100) td.classList.add('dur-ok');
         }
-        td.textContent = v == null ? '' : String(v);
+        const text = v == null ? '' : String(v);
+        // Highlight text if global filter active
+        if (state.globalFilter && text) {
+          td.appendChild(highlightText(text, state.globalFilter));
+        } else {
+          td.textContent = text;
+        }
       }
 
       if (c.id === 'url' || c.id === 'path') td.title = row[c.id] || '';
@@ -1131,7 +1192,7 @@ const _NetworkPlus = (function () {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const tr = createTableRow(row, () => selectRow(row));
+      const tr = createTableRow(row, (e) => selectRow(row, e));
       frag.appendChild(tr);
     }
     tbody.appendChild(frag);
@@ -1310,7 +1371,36 @@ const _NetworkPlus = (function () {
     return pre;
   }
 
-  function selectRow(row) {
+  function selectRow(row, event) {
+    // Multi-row selection support
+    if (event && event.ctrlKey) {
+      // Ctrl+Click: toggle multi-selection
+      if (state.selectedRows.has(row)) {
+        state.selectedRows.delete(row);
+      } else {
+        state.selectedRows.add(row);
+      }
+      renderBody(); // Update row styling only
+      return; // Don't update detail panel
+    }
+
+    if (event && event.shiftKey && state.selectedRow) {
+      // Shift+Click: range selection
+      const filtered = state.filteredRows;
+      const lastIdx = filtered.indexOf(state.selectedRow);
+      const currentIdx = filtered.indexOf(row);
+      if (lastIdx !== -1 && currentIdx !== -1) {
+        const [start, end] = lastIdx < currentIdx ? [lastIdx, currentIdx] : [currentIdx, lastIdx];
+        for (let i = start; i <= end; i++) {
+          state.selectedRows.add(filtered[i]);
+        }
+        renderBody(); // Update row styling only
+        return; // Don't update detail panel
+      }
+    }
+
+    // Normal click: clear multi-selection and show detail
+    state.selectedRows.clear();
     state.selectedRow = row;
     renderBody();
     if (!row) return;
@@ -1590,7 +1680,7 @@ const _NetworkPlus = (function () {
     return state.filteredRows;
   }
 
-  function exportCSV() {
+  function exportCSV(customRows) {
     const cols = state.columns.filter((c) => c.visible);
     const esc = (s) => {
       s = String(s == null ? '' : s);
@@ -1598,7 +1688,7 @@ const _NetworkPlus = (function () {
     };
     const header = cols.map((c) => esc(c.label)).join(',');
     const lines = [header];
-    const rows = getExportRows();
+    const rows = customRows || getExportRows();
     for (const r of rows) {
       const arr = [];
       for (const c of cols) {
@@ -1729,6 +1819,8 @@ const _NetworkPlus = (function () {
       state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
       state.nextId = 1;
       state.selectedRow = null;
+      state.selectedRows.clear();
+      state.markedRows.clear();
       render();
       setStatus('Cleared');
     });
@@ -1921,6 +2013,128 @@ const _NetworkPlus = (function () {
       if (selectedTr) selectedTr.scrollIntoView({ block: 'nearest' });
     }
 
+    // Right-click context menu for marking/selecting rows
+    const contextMenu = document.createElement('div');
+    contextMenu.className = 'filter-dropdown-content dropdown-content';
+    contextMenu.style.position = 'absolute';
+    contextMenu.style.display = 'none';
+    contextMenu.style.zIndex = '1000';
+    document.body.appendChild(contextMenu);
+
+    let contextMenuRow = null;
+
+    tableWrap.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const tr = e.target.closest('tr');
+      if (!tr || !tr.dataset.rowId) {
+        contextMenu.style.display = 'none';
+        return;
+      }
+
+      const rowId = parseInt(tr.dataset.rowId, 10);
+      contextMenuRow = state.rows.find((r) => r.id === rowId);
+      if (!contextMenuRow) return;
+
+      contextMenu.textContent = '';
+      const isMarked = state.markedRows.has(contextMenuRow);
+      const isMultiSelected = state.selectedRows.has(contextMenuRow);
+
+      // Mark/Unmark option
+      const markBtn = document.createElement('button');
+      markBtn.textContent = isMarked ? '✓ Unmark' : '⭐ Mark';
+      markBtn.className = 'filter-btn';
+      markBtn.style.marginBottom = '4px';
+      markBtn.addEventListener('click', () => {
+        if (isMarked) {
+          state.markedRows.delete(contextMenuRow);
+        } else {
+          state.markedRows.add(contextMenuRow);
+        }
+        renderBody();
+        contextMenu.style.display = 'none';
+      });
+      contextMenu.appendChild(markBtn);
+
+      // Add/Remove from multi-selection
+      const selectBtn = document.createElement('button');
+      selectBtn.textContent = isMultiSelected ? '✓ Deselect' : '☑ Select';
+      selectBtn.className = 'filter-btn';
+      selectBtn.style.marginBottom = '4px';
+      selectBtn.addEventListener('click', () => {
+        if (isMultiSelected) {
+          state.selectedRows.delete(contextMenuRow);
+        } else {
+          state.selectedRows.add(contextMenuRow);
+        }
+        renderBody();
+        contextMenu.style.display = 'none';
+      });
+      contextMenu.appendChild(selectBtn);
+
+      // Clear all marks
+      if (state.markedRows.size > 0) {
+        const clearMarksBtn = document.createElement('button');
+        clearMarksBtn.textContent = '🚫 Clear All Marks';
+        clearMarksBtn.className = 'filter-btn';
+        clearMarksBtn.style.marginBottom = '4px';
+        clearMarksBtn.addEventListener('click', () => {
+          state.markedRows.clear();
+          renderBody();
+          contextMenu.style.display = 'none';
+        });
+        contextMenu.appendChild(clearMarksBtn);
+      }
+
+      // Export/Keep/Delete selected rows
+      if (state.selectedRows.size > 0) {
+        const selCount = state.selectedRows.size;
+        const keepBtn = document.createElement('button');
+        keepBtn.textContent = `✅ Keep Selected (${selCount})`;
+        keepBtn.className = 'filter-btn';
+        keepBtn.style.marginBottom = '4px';
+        keepBtn.addEventListener('click', () => {
+          state.rows = state.rows.filter((r) => state.selectedRows.has(r));
+          state.selectedRows.clear();
+          renderBody();
+          contextMenu.style.display = 'none';
+        });
+        contextMenu.appendChild(keepBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = `❌ Delete Selected (${selCount})`;
+        deleteBtn.className = 'filter-btn';
+        deleteBtn.style.marginBottom = '4px';
+        deleteBtn.addEventListener('click', () => {
+          state.rows = state.rows.filter((r) => !state.selectedRows.has(r));
+          state.selectedRows.clear();
+          renderBody();
+          contextMenu.style.display = 'none';
+        });
+        contextMenu.appendChild(deleteBtn);
+
+        const exportSelectedBtn = document.createElement('button');
+        exportSelectedBtn.textContent = `📄 Export Selected CSV (${selCount})`;
+        exportSelectedBtn.className = 'filter-btn';
+        exportSelectedBtn.addEventListener('click', () => {
+          exportCSV([...state.selectedRows]);
+          contextMenu.style.display = 'none';
+        });
+        contextMenu.appendChild(exportSelectedBtn);
+      }
+
+      // Show menu
+      contextMenu.style.left = e.pageX + 'px';
+      contextMenu.style.top = e.pageY + 'px';
+      contextMenu.style.display = 'block';
+    });
+
+    // Close context menu on outside click
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.dropdown-content')) {
+        contextMenu.style.display = 'none';
+      }
+    });
+
     // Resizer logic
     const resizer = $('#resizer');
     const details = $('#details');
@@ -1984,6 +2198,7 @@ const _NetworkPlus = (function () {
     guessMimeType,
     toHarHeaders,
     debounce,
+    highlightText,
     getRowFilterValue,
     evaluateFilterRule,
     DEFAULT_METHOD_FILTERS,

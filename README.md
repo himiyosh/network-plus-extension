@@ -12,7 +12,7 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 👁️ カラム表示/非表示 | ツールバーの `Columns` ボタンでカラムの表示切替。設定は `localStorage` に永続化 |
 | ↔️ カラムリサイズ | ドラッグでカラム幅を調整可能。設定は永続化 |
 | 🔎 グローバルフィルタ | URL, Method, Status, Type を横断検索 (debounce 付き) |
-| 🧰 カラム別フィルタ | 右クリックポップアップまたはツールバーの `Filters` ボタンから、全カラムの演算子付きフィルタを編集可能 (`contains`, `==`, `!=`, `notcontains`, `startsWith`, `endsWith`, `regex`, `empty`, `notempty`、数値列は `>`, `>=`, `<`, `<=` も対応) |
+| 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能 |
 | ↕️ カラムソート | ヘッダークリックでソート切替 (昇順 → 降順 → ソート解除) |
 | 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示 |
 | 📄 CSV エクスポート | フィルタ適用後の表示行を UTF-8 BOM 付き CSV で出力 |
@@ -32,7 +32,7 @@ network-plus-extension/
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
   tests/                     ... Jest ユニットテスト
     setup.js                 ... テスト用ブラウザ API モック
-    panel.test.js            ... 純粋関数のユニットテスト (27 tests)
+    panel.test.js            ... 純粋関数のユニットテスト
   icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
   manifest.json              ... 拡張機能マニフェスト (Manifest V3, CSP 明示設定)
   devtools.html              ... DevTools ページ (devtools.js をロード)
@@ -76,6 +76,12 @@ npm run format       # Prettier フォーマット
 | 破壊的変更 (後方互換なし) | `MAJOR` | フィルタ設定フォーマット変更、既存 UI 動作の互換性破壊 |
 | 機能追加 (後方互換あり) | `MINOR` | 新しいソート機能、演算子追加 |
 | バグ修正 / ドキュメント修正 | `PATCH` | フィルタ判定バグ修正、README 修正 |
+
+運用ポリシー (重要):
+- `version` は**コミットごとに更新しない**。更新は**リリース時のみ**行う。
+- 開発中の複数コミットは同一バージョンのまま進め、リリース確定時に 1 回だけ更新する。
+- 基本方針は `PATCH` 優先。`MINOR` はユーザー影響のある機能追加をまとめてリリースする時だけ使用する。
+- 1 機能を複数回コミットした場合でも、最終リリースでは 1 回のバージョン更新に集約する。
 
 バージョン更新時チェックリスト:
 - `manifest.json` と `package.json` の `version` を同時更新
