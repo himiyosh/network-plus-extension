@@ -195,8 +195,12 @@ describe('getRowFilterValue [U3]', () => {
   });
 
   test('uses startedDateTime for time column', () => {
-    const row = { startedDateTime: '2026-03-07T09:00:00.000Z', timeText: 'fallback' };
-    expect(np.getRowFilterValue(row, 'time')).toBe('2026-03-07T09:00:00.000Z');
+    const row = {
+      startedDateTime: '2026-03-07T09:00:00.000Z',
+      timeText: '18:00:00',
+      timeFilterValue: '18:00',
+    };
+    expect(np.getRowFilterValue(row, 'time')).toBe('18:00');
   });
 
   test('returns empty string for null values', () => {
@@ -236,6 +240,94 @@ describe('evaluateFilterRule', () => {
   test('supports empty / notempty', () => {
     expect(np.evaluateFilterRule('', { op: 'empty', value: '' }, false)).toBe(true);
     expect(np.evaluateFilterRule('x', { op: 'notempty', value: '' }, false)).toBe(true);
+  });
+
+  test('supports methodSet mode for multiple allowed methods', () => {
+    const rule = {
+      mode: 'methodSet',
+      include: {
+        GET: true,
+        POST: true,
+        PUT: false,
+        DELETE: false,
+        PATCH: false,
+        HEAD: false,
+        OPTIONS: false,
+      },
+    };
+    expect(np.evaluateFilterRule('GET', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('post', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('PUT', rule, false)).toBe(false);
+  });
+
+  test('supports urlAdvanced include and exclude conditions', () => {
+    const rule = {
+      mode: 'urlAdvanced',
+      includeAny: 'ZZZZZZZZ',
+      includeAll: '',
+      excludeAny: 'XXXXXXXX,YYYYYYYYYYYY',
+      caseSensitive: false,
+    };
+    expect(np.evaluateFilterRule('https://contoso/api/ZZZZZZZZ/orders', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('https://contoso/api/orders', rule, false)).toBe(false);
+    expect(np.evaluateFilterRule('https://contoso/api/ZZZZZZZZ/XXXXXXXX', rule, false)).toBe(false);
+  });
+
+  test('supports urlAdvanced includeAll with case-sensitive option', () => {
+    const rule = {
+      mode: 'urlAdvanced',
+      includeAny: '',
+      includeAll: 'TenantA,Orders',
+      excludeAny: '',
+      caseSensitive: true,
+    };
+    expect(np.evaluateFilterRule('https://contoso/TenantA/Orders', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('https://contoso/tenanta/orders', rule, false)).toBe(false);
+  });
+
+  test('supports timeRange mode with visual time input values', () => {
+    const rule = {
+      mode: 'timeRange',
+      start: '09:00',
+      end: '17:30',
+    };
+    expect(np.evaluateFilterRule('09:15', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('18:00', rule, false)).toBe(false);
+  });
+
+  test('supports timeRange mode across midnight', () => {
+    const rule = {
+      mode: 'timeRange',
+      start: '22:00',
+      end: '02:00',
+    };
+    expect(np.evaluateFilterRule('23:45', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('01:30', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('12:00', rule, false)).toBe(false);
+  });
+
+  test('supports multiText mode with multiple AND conditions', () => {
+    const rule = {
+      mode: 'multiText',
+      conditions: [
+        { op: 'contains', value: 'contoso' },
+        { op: 'contains', value: 'api' },
+      ],
+    };
+    expect(np.evaluateFilterRule('api.contoso.com', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('www.contoso.com', rule, false)).toBe(false);
+  });
+
+  test('supports multiText mode with notcontains conditions', () => {
+    const rule = {
+      mode: 'multiText',
+      conditions: [
+        { op: 'contains', value: '/orders' },
+        { op: 'notcontains', value: '/internal' },
+      ],
+    };
+    expect(np.evaluateFilterRule('/api/orders/123', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('/api/internal/orders/123', rule, false)).toBe(false);
   });
 });
 

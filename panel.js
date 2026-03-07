@@ -286,7 +286,7 @@ const _NetworkPlus = (function () {
   // ============================================================
   function getRowFilterValue(row, colId) {
     if (colId === 'initiator') return row.initiator ? row.initiator.text : '';
-    if (colId === 'time') return row.startedDateTime || row.timeText || '';
+    if (colId === 'time') return row.timeFilterValue || row.timeText || '';
     const v = row[colId];
     return v == null ? '' : v;
   }
@@ -322,6 +322,60 @@ const _NetworkPlus = (function () {
 
   function evaluateFilterRule(rawValue, rule, isNumeric) {
     const value = rawValue == null ? '' : String(rawValue);
+
+    // --- Mode-based rules (column-specific) ---
+    if (rule && rule.mode === 'methodSet') {
+      const upper = value.toUpperCase();
+      return rule.include ? !!rule.include[upper] : true;
+    }
+
+    if (rule && rule.mode === 'urlAdvanced') {
+      const cs = !!rule.caseSensitive;
+      const v = cs ? value : value.toLowerCase();
+      // includeAny: at least one keyword must be present
+      if (rule.includeAny && rule.includeAny.trim()) {
+        const terms = rule.includeAny.split(',').map((t) => t.trim()).filter(Boolean);
+        const found = terms.some((t) => v.indexOf(cs ? t : t.toLowerCase()) > -1);
+        if (!found) return false;
+      }
+      // includeAll: all keywords must be present
+      if (rule.includeAll && rule.includeAll.trim()) {
+        const terms = rule.includeAll.split(',').map((t) => t.trim()).filter(Boolean);
+        const allFound = terms.every((t) => v.indexOf(cs ? t : t.toLowerCase()) > -1);
+        if (!allFound) return false;
+      }
+      // excludeAny: none of these keywords should be present
+      if (rule.excludeAny && rule.excludeAny.trim()) {
+        const terms = rule.excludeAny.split(',').map((t) => t.trim()).filter(Boolean);
+        const excluded = terms.some((t) => v.indexOf(cs ? t : t.toLowerCase()) > -1);
+        if (excluded) return false;
+      }
+      return true;
+    }
+
+    if (rule && rule.mode === 'timeRange') {
+      const start = rule.start || '';
+      const end = rule.end || '';
+      if (!start && !end) return true;
+      const v = value; // HH:MM format
+      if (start <= end) {
+        // Normal range: 09:00 - 17:30
+        return (!start || v >= start) && (!end || v <= end);
+      } else {
+        // Across midnight: 22:00 - 02:00
+        return v >= start || v <= end;
+      }
+    }
+
+    if (rule && rule.mode === 'multiText') {
+      if (!rule.conditions || rule.conditions.length === 0) return true;
+      return rule.conditions.every((cond) => {
+        if (!cond.value || !cond.value.trim()) return true;
+        return evaluateFilterRule(value, cond, false);
+      });
+    }
+
+    // --- Standard operator-based rules ---
     const op = rule && rule.op ? rule.op : isNumeric ? 'equals' : 'contains';
     const keyword = rule && rule.value != null ? String(rule.value) : '';
 
@@ -395,6 +449,19 @@ const _NetworkPlus = (function () {
   // Section 8: Data Model
   // ============================================================
   function buildRowFromRequest(req) {
+    const isoStr = (req && req.startedDateTime) || '';
+    let timeText = isoStr;
+    let timeFilterValue = '';
+    if (isoStr) {
+      const d = new Date(isoStr);
+      if (!isNaN(d.getTime())) {
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        timeText = hh + ':' + mm + ':' + ss;
+        timeFilterValue = hh + ':' + mm;
+      }
+    }
     const r = {
       _reqObj: req,
       method: (req && req.request && req.request.method) || '',
@@ -405,9 +472,10 @@ const _NetworkPlus = (function () {
       protocol: req && req.response && req.response.httpVersion ? String(req.response.httpVersion).toUpperCase() : '',
       size:
         (req && req.response && (req.response.bodySize || (req.response.content && req.response.content.size))) || 0,
-      timeText: (req && req.startedDateTime) || '',
+      timeText: timeText,
       duration: (req && req.time) || 0,
-      startedDateTime: (req && req.startedDateTime) || '',
+      startedDateTime: isoStr,
+      timeFilterValue: timeFilterValue,
       requestHeaders: (req && req.request && req.request.headers) || [],
       responseHeaders: (req && req.response && req.response.headers) || [],
       requestPostData: (req && req.request && req.request.postData) || null,
@@ -547,6 +615,203 @@ const _NetworkPlus = (function () {
     const wrap = document.createElement('div');
     wrap.className = 'filter-rule';
 
+    // --- Time column: time range picker ---
+    if (colId === 'time') {
+      const rule = state.columnFilterRules[colId];
+      const isTimeRange = rule && rule.mode === 'timeRange';
+      const startVal = isTimeRange ? rule.start || '' : '';
+      const endVal = isTimeRange ? rule.end || '' : '';
+
+      const startLabel = document.createElement('span');
+      startLabel.textContent = 'From ';
+      const startInput = document.createElement('input');
+      startInput.type = 'time';
+      startInput.className = 'filter-value';
+      startInput.value = startVal;
+
+      const endLabel = document.createElement('span');
+      endLabel.textContent = ' To ';
+      const endInput = document.createElement('input');
+      endInput.type = 'time';
+      endInput.className = 'filter-value';
+      endInput.value = endVal;
+
+      const clearBtn = document.createElement('button');
+      clearBtn.textContent = 'Clear';
+      clearBtn.className = 'filter-clear-btn';
+      clearBtn.addEventListener('click', () => {
+        startInput.value = '';
+        endInput.value = '';
+        state.columnFilterRules[colId] = { mode: 'timeRange', start: '', end: '' };
+        onChange();
+      });
+
+      const update = () => {
+        state.columnFilterRules[colId] = { mode: 'timeRange', start: startInput.value, end: endInput.value };
+        onChange();
+      };
+      startInput.addEventListener('change', update);
+      endInput.addEventListener('change', update);
+
+      wrap.appendChild(startLabel);
+      wrap.appendChild(startInput);
+      wrap.appendChild(endLabel);
+      wrap.appendChild(endInput);
+      wrap.appendChild(clearBtn);
+      return wrap;
+    }
+
+    // --- Method column: checkbox set ---
+    if (colId === 'method') {
+      const rule = state.columnFilterRules[colId];
+      const isMethodSet = rule && rule.mode === 'methodSet';
+      const include = isMethodSet ? Object.assign({}, rule.include) : DEFAULT_METHOD_FILTERS();
+
+      for (const method of HTTP_METHODS) {
+        const checked = include[method] !== false;
+        const cb = createCheckboxItem(method, checked, () => {
+          include[method] = !include[method];
+          state.columnFilterRules[colId] = { mode: 'methodSet', include: Object.assign({}, include) };
+          onChange();
+        });
+        wrap.appendChild(cb);
+      }
+      return wrap;
+    }
+
+    // --- URL column: advanced include/exclude ---
+    if (colId === 'url') {
+      const rule = state.columnFilterRules[colId];
+      const isAdv = rule && rule.mode === 'urlAdvanced';
+
+      const inclAnyLabel = document.createElement('label');
+      inclAnyLabel.textContent = 'Include ANY (comma-separated):';
+      const inclAnyInput = document.createElement('input');
+      inclAnyInput.type = 'text';
+      inclAnyInput.className = 'filter-value';
+      inclAnyInput.placeholder = 'keyword1, keyword2';
+      inclAnyInput.value = isAdv ? rule.includeAny || '' : '';
+
+      const inclAllLabel = document.createElement('label');
+      inclAllLabel.textContent = 'Include ALL (comma-separated):';
+      const inclAllInput = document.createElement('input');
+      inclAllInput.type = 'text';
+      inclAllInput.className = 'filter-value';
+      inclAllInput.placeholder = 'must1, must2';
+      inclAllInput.value = isAdv ? rule.includeAll || '' : '';
+
+      const exclLabel = document.createElement('label');
+      exclLabel.textContent = 'Exclude ANY (comma-separated):';
+      const exclInput = document.createElement('input');
+      exclInput.type = 'text';
+      exclInput.className = 'filter-value';
+      exclInput.placeholder = 'exclude1, exclude2';
+      exclInput.value = isAdv ? rule.excludeAny || '' : '';
+
+      const csLabel = document.createElement('label');
+      const csCb = document.createElement('input');
+      csCb.type = 'checkbox';
+      csCb.checked = isAdv ? !!rule.caseSensitive : false;
+      csLabel.appendChild(csCb);
+      const csText = document.createTextNode(' Case sensitive');
+      csLabel.appendChild(csText);
+
+      const update = () => {
+        state.columnFilterRules[colId] = {
+          mode: 'urlAdvanced',
+          includeAny: inclAnyInput.value,
+          includeAll: inclAllInput.value,
+          excludeAny: exclInput.value,
+          caseSensitive: csCb.checked,
+        };
+        onChange();
+      };
+      inclAnyInput.addEventListener('input', update);
+      inclAllInput.addEventListener('input', update);
+      exclInput.addEventListener('input', update);
+      csCb.addEventListener('change', update);
+
+      wrap.appendChild(inclAnyLabel);
+      wrap.appendChild(inclAnyInput);
+      wrap.appendChild(inclAllLabel);
+      wrap.appendChild(inclAllInput);
+      wrap.appendChild(exclLabel);
+      wrap.appendChild(exclInput);
+      wrap.appendChild(csLabel);
+      return wrap;
+    }
+
+    // --- Domain / Path columns: multi-condition filter ---
+    if (colId === 'domain' || colId === 'path') {
+      const rule = state.columnFilterRules[colId];
+      const isMulti = rule && rule.mode === 'multiText';
+      const conditions = isMulti && rule.conditions ? rule.conditions.slice() : [{ op: 'contains', value: '' }];
+
+      const renderConditions = () => {
+        wrap.textContent = '';
+        conditions.forEach((cond, idx) => {
+          const row = document.createElement('div');
+          row.className = 'filter-condition-row';
+
+          const opSelect = document.createElement('select');
+          opSelect.className = 'filter-op';
+          for (const op of FILTER_OPERATORS_STRING) {
+            const option = document.createElement('option');
+            option.value = op.value;
+            option.textContent = op.label;
+            opSelect.appendChild(option);
+          }
+          opSelect.value = cond.op || 'contains';
+
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'filter-value';
+          input.placeholder = 'value';
+          input.value = cond.value || '';
+
+          const removeBtn = document.createElement('button');
+          removeBtn.textContent = 'x';
+          removeBtn.className = 'filter-remove-btn';
+          removeBtn.addEventListener('click', () => {
+            conditions.splice(idx, 1);
+            if (conditions.length === 0) conditions.push({ op: 'contains', value: '' });
+            state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
+            onChange();
+            renderConditions();
+          });
+
+          opSelect.addEventListener('change', () => {
+            conditions[idx].op = opSelect.value;
+            state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
+            onChange();
+          });
+          input.addEventListener('input', () => {
+            conditions[idx].value = input.value;
+            state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
+            onChange();
+          });
+
+          row.appendChild(opSelect);
+          row.appendChild(input);
+          if (conditions.length > 1) row.appendChild(removeBtn);
+          wrap.appendChild(row);
+        });
+
+        const addBtn = document.createElement('button');
+        addBtn.textContent = '+ Add condition';
+        addBtn.className = 'filter-add-btn';
+        addBtn.addEventListener('click', () => {
+          conditions.push({ op: 'contains', value: '' });
+          state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
+          renderConditions();
+        });
+        wrap.appendChild(addBtn);
+      };
+      renderConditions();
+      return wrap;
+    }
+
+    // --- Default: generic operator + value ---
     const opSelect = document.createElement('select');
     opSelect.className = 'filter-op';
     const operators = getOperatorsForColumn(colId);
@@ -591,6 +856,18 @@ const _NetworkPlus = (function () {
 
   function isRuleActive(rule) {
     if (!rule) return false;
+    if (rule.mode === 'methodSet') {
+      return rule.include ? Object.values(rule.include).some((v) => !v) : false;
+    }
+    if (rule.mode === 'urlAdvanced') {
+      return !!(rule.includeAny || '').trim() || !!(rule.includeAll || '').trim() || !!(rule.excludeAny || '').trim();
+    }
+    if (rule.mode === 'timeRange') {
+      return !!(rule.start || '').trim() || !!(rule.end || '').trim();
+    }
+    if (rule.mode === 'multiText') {
+      return rule.conditions ? rule.conditions.some((c) => (c.value || '').trim() !== '') : false;
+    }
     if (rule.op === 'empty' || rule.op === 'notempty') return true;
     return String(rule.value || '').trim() !== '';
   }
@@ -711,6 +988,35 @@ const _NetworkPlus = (function () {
     tbody.textContent = '';
 
     const rows = getSortedRows(state.filteredRows);
+
+    if (rows.length === 0 && !state.paused) {
+      if ($('#tableWrap')) {
+        let emptyState = document.getElementById('empty-state-msg');
+        if (!emptyState) {
+          emptyState = document.createElement('div');
+          emptyState.id = 'empty-state-msg';
+          emptyState.className = 'empty-state';
+          const icon = document.createElement('div');
+          icon.className = 'icon';
+          icon.textContent = '📡';
+          const text1 = document.createElement('div');
+          text1.textContent = 'Recording network activity...';
+          const text2 = document.createElement('div');
+          text2.style.fontSize = '0.8em';
+          text2.style.marginTop = '10px';
+          text2.textContent = 'Perform a request or reload the page to see activity.';
+          emptyState.appendChild(icon);
+          emptyState.appendChild(text1);
+          emptyState.appendChild(text2);
+          $('#tableWrap').appendChild(emptyState);
+        }
+        emptyState.style.display = 'flex';
+      }
+    } else {
+      const emptyState = document.getElementById('empty-state-msg');
+      if (emptyState) emptyState.style.display = 'none';
+    }
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const tr = createTableRow(row, () => selectRow(row));
@@ -1010,6 +1316,14 @@ const _NetworkPlus = (function () {
   function init() {
     loadColumnPrefs();
     setStatus('panel.js loaded');
+
+    // Global Search Ctrl+F
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        $('#filterInput').focus();
+      }
+    });
 
     // Theme init
     loadThemePref((pref) => applyTheme(pref));

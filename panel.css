@@ -32,10 +32,19 @@ html[data-theme="light"]{--bg:#ffffff;--surface:#f9fafb;--content-bg:#ffffff;--f
 .title-row th{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);font-weight:600;text-align:left;padding:6px 8px;white-space:nowrap;z-index:2}
 .title-row th.sortable-header{cursor:pointer;user-select:none}
 .title-row th.sortable-header:hover{background:var(--hover)}
-.filter-rule{display:flex;gap:4px;align-items:center}
+.filter-rule{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .filter-rule .filter-op{width:48%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:3px;border-radius:4px;font-size:11px}
 .filter-rule .filter-value{width:52%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:4px;border-radius:4px;font-size:11px}
 .filter-rule .filter-value:disabled{opacity:.65;cursor:not-allowed}
+.filter-rule input[type="time"]{width:auto;min-width:80px}
+.filter-rule label{display:block;font-size:11px;color:var(--muted);margin-top:4px;width:100%}
+.filter-rule label input[type="text"]{width:100%;margin-top:2px}
+.filter-condition-row{display:flex;gap:4px;align-items:center;width:100%}
+.filter-condition-row .filter-op{width:120px;flex-shrink:0}
+.filter-condition-row .filter-value{flex:1}
+.filter-remove-btn{background:none;border:1px solid var(--border);color:var(--fg);border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px}
+.filter-add-btn{background:none;border:1px solid var(--border);color:var(--accent);border-radius:4px;cursor:pointer;padding:3px 8px;font-size:11px;margin-top:4px;width:100%}
+.filter-clear-btn{background:none;border:1px solid var(--border);color:var(--fg);border-radius:4px;cursor:pointer;padding:2px 8px;font-size:11px;margin-left:4px}
 .filter-popup{display:none;min-width:520px;max-width:720px;max-height:420px;overflow:auto;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:20}
 .filter-popup.show{display:block}
 .filter-popup-header{font-weight:700;margin-bottom:8px;color:var(--fg)}
