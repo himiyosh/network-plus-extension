@@ -75,13 +75,13 @@ Microsoft Edge DevTools
 | 6 | **Column Preferences** | カラム設定の読込/保存 |
 | 7 | **Filtering** | `filterRows()`, `getRowFilterValue()` |
 | 8 | **Data Model** | `buildRowFromRequest()`, `cacheResponseContent()` |
-| 9 | **Safe DOM Rendering** | `createKvGrid()`, `createHeaderSection()` |
+| 9 | **Safe DOM Rendering** | `createKvGrid()` |
 | 10 | **Table Row Creation** | `createTableRow()` (共通化された行生成) |
-| 11 | **UI Components** | `createCheckboxItem()`, `createColumnFilterControl()` |
+| 11 | **UI Components** | `createCheckboxItem()`, `createColumnFilterControl()` (Time 専用ローカル時刻 time picker / Method 専用複数選択 / Domain・Path 専用複数条件 / URL 専用複合条件 UI を含む) |
 | 12 | **Rendering** | `renderHeader()`, `renderBody()`, `render()` |
-| 13 | **Detail Panel** | `selectRow()`, 詳細パネル描画 |
+| 13 | **Detail Panel** | `selectRow()`, Fiddler 風タブ付きインスペクター (Request: Headers/Body/Query/Cookies/Raw, Response: Headers/Body/Preview/Cookies/Timing/Raw) |
 | 14 | **Export** | `exportCSV()`, `exportHAR()`, `buildHarLogFromRows()` |
-| 15 | **Initialization** | `init()`, イベントリスナー登録、ネットワークサブスクリプション |
+| 15 | **Initialization** | `init()`, タブ切替、イベントリスナー登録、ネットワークサブスクリプション |
 
 ### 2.4 テスト可能な設計
 
@@ -178,6 +178,9 @@ npm run version:check      # package.json と manifest.json の version 同期�
 
 - バージョンは **Semantic Versioning (`MAJOR.MINOR.PATCH`)** を採用する
 - 機能追加時は `MINOR`、バグ修正時は `PATCH`、破壊的変更時は `MAJOR` を上げる
+- **コミットごとにバージョンを上げない**。バージョン更新は**リリース時のみ**実施する
+- 開発中の複数コミットは同一バージョンのまま進め、リリース確定時に 1 回だけ更新する
+- 通常は `PATCH` を優先し、`MINOR` はユーザー影響のある機能追加をまとめて出すリリース時に限定する
 - **必須同期**: `package.json` と `manifest.json` の `version` を同時更新する
 - バージョン更新の同一コミットで `README.md` の該当機能説明を更新する
 - バージョン同期の確認には `npm run version:check` を必ず実行する
@@ -195,9 +198,9 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - [ ] DevTools に「Network+」タブが表示される
 - [ ] ページをリロードするとリクエストが一覧に表示される
 - [ ] グローバルフィルタが機能する
-- [ ] 右クリックポップアップまたは `Filters` ボタンで、全カラムの演算子付きフィルタ (contains / == / notcontains / regex / > / < など) が編集できる
+- [ ] 右クリックポップアップまたは `Filters` ボタンでカラム別フィルタを編集できる (`Time`: ローカル時間の time picker 範囲指定, `Method`: 複数選択, `Domain` / `Path`: 条件追加 + `notcontains`, `URL`: include/exclude 複合条件, その他: 演算子付きフィルタ)
 - [ ] ヘッダークリックでソートが切り替わる (昇順/降順/解除)
-- [ ] 行クリックで詳細パネルにリクエスト情報が表示される
+- [ ] 行クリックで詳細パネルが Fiddler 風タブ表示される (Request: Headers/Body/Query/Cookies/Raw, Response: Headers/Body/Preview/Cookies/Timing/Raw)
 - [ ] 上下キーで行を選択できる
 - [ ] CSV エクスポートで正しいファイルがダウンロードされる
 - [ ] HAR エクスポートで正しいファイルがダウンロードされる

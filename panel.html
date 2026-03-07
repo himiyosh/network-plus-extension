@@ -31,27 +31,44 @@
     </section>
     <div class="resizer" id="resizer"></div>
     <aside class="details" id="details">
-      <div class="details-header"><div id="detailsTitle">Select a request…</div></div>
-      <div class="accordion" id="detailsAccordion">
-        <div class="accordion-item">
-          <button class="accordion-header"><span class="indicator"></span>Overview</button>
-          <div class="accordion-content" id="pane-overview"></div>
+      <div class="details-header"><div id="detailsTitle">Select a request...</div></div>
+      <div class="inspector-panels">
+        <div class="inspector-half" id="inspector-request">
+          <div class="inspector-label">Request</div>
+          <div class="tab-bar" id="req-tab-bar">
+            <button class="tab-btn active" data-tab="req-headers">Headers</button>
+            <button class="tab-btn" data-tab="req-body">Body</button>
+            <button class="tab-btn" data-tab="req-query">Query</button>
+            <button class="tab-btn" data-tab="req-cookies">Cookies</button>
+            <button class="tab-btn" data-tab="req-raw">Raw</button>
+          </div>
+          <div class="tab-content-area">
+            <div class="tab-pane active" id="req-headers"></div>
+            <div class="tab-pane" id="req-body"></div>
+            <div class="tab-pane" id="req-query"></div>
+            <div class="tab-pane" id="req-cookies"></div>
+            <div class="tab-pane" id="req-raw"></div>
+          </div>
         </div>
-        <div class="accordion-item">
-          <button class="accordion-header"><span class="indicator"></span>Headers</button>
-          <div class="accordion-content" id="pane-headers"></div>
-        </div>
-        <div class="accordion-item">
-          <button class="accordion-header"><span class="indicator"></span>Request</button>
-          <div class="accordion-content" id="pane-request"></div>
-        </div>
-        <div class="accordion-item">
-          <button class="accordion-header"><span class="indicator"></span>Response</button>
-          <div class="accordion-content" id="pane-response"></div>
-        </div>
-        <div class="accordion-item">
-          <button class="accordion-header"><span class="indicator"></span>Timing</button>
-          <div class="accordion-content" id="pane-timing"></div>
+        <div class="inspector-divider" id="inspector-divider"></div>
+        <div class="inspector-half" id="inspector-response">
+          <div class="inspector-label">Response</div>
+          <div class="tab-bar" id="res-tab-bar">
+            <button class="tab-btn active" data-tab="res-headers">Headers</button>
+            <button class="tab-btn" data-tab="res-body">Body</button>
+            <button class="tab-btn" data-tab="res-preview">Preview</button>
+            <button class="tab-btn" data-tab="res-cookies">Cookies</button>
+            <button class="tab-btn" data-tab="res-timing">Timing</button>
+            <button class="tab-btn" data-tab="res-raw">Raw</button>
+          </div>
+          <div class="tab-content-area">
+            <div class="tab-pane active" id="res-headers"></div>
+            <div class="tab-pane" id="res-body"></div>
+            <div class="tab-pane" id="res-preview"></div>
+            <div class="tab-pane" id="res-cookies"></div>
+            <div class="tab-pane" id="res-timing"></div>
+            <div class="tab-pane" id="res-raw"></div>
+          </div>
         </div>
       </div>
     </aside>

@@ -530,15 +530,7 @@ const _NetworkPlus = (function () {
     return grid;
   }
 
-  function createHeaderSection(title, headers) {
-    if (!headers || headers.length === 0) return null;
-    const frag = document.createDocumentFragment();
-    const strong = document.createElement('strong');
-    strong.textContent = title;
-    frag.appendChild(strong);
-    frag.appendChild(createKvGrid(headers));
-    return frag;
-  }
+  // createHeaderSection removed — replaced by tabbed inspector layout
 
   // ============================================================
   // Section 10: Table Row Creation (shared) [Q2]
@@ -1074,27 +1066,72 @@ const _NetworkPlus = (function () {
   }
 
   // ============================================================
-  // Section 13: Detail Panel [S1][S2][S3] — safe rendering
+  // Section 13: Detail Panel — Fiddler-style tabbed inspector
   // ============================================================
-  function createInnerAccordionItem(title, contentEl) {
-    const item = document.createElement('div');
-    item.className = 'accordion-item active';
-    const header = document.createElement('button');
-    header.className = 'accordion-header';
-    const indicator = document.createElement('span');
-    indicator.className = 'indicator';
-    header.appendChild(indicator);
-    header.appendChild(document.createTextNode(title));
-    header.addEventListener('click', (e) => {
-      e.stopPropagation();
-      item.classList.toggle('active');
+
+  function parseCookieHeader(headerValue) {
+    if (!headerValue) return [];
+    return headerValue.split(';').map((part) => {
+      const idx = part.indexOf('=');
+      if (idx === -1) return { name: part.trim(), value: '' };
+      return { name: part.substring(0, idx).trim(), value: part.substring(idx + 1).trim() };
     });
-    const contentWrap = document.createElement('div');
-    contentWrap.className = 'accordion-content';
-    contentWrap.appendChild(contentEl);
-    item.appendChild(header);
-    item.appendChild(contentWrap);
-    return item;
+  }
+
+  function getHeaderValue(headers, name) {
+    if (!headers) return '';
+    const lower = name.toLowerCase();
+    for (const h of headers) {
+      if ((h.name || '').toLowerCase() === lower) return h.value || '';
+    }
+    return '';
+  }
+
+  function buildRawRequestText(row) {
+    const method = row.method || 'GET';
+    const url = row.url || '/';
+    let path;
+    try {
+      const u = new URL(url);
+      path = u.pathname + u.search;
+    } catch (_e) {
+      path = url;
+    }
+    const proto = row.protocol || 'HTTP/1.1';
+    let raw = method + ' ' + path + ' ' + proto + '\r\n';
+    if (row.requestHeaders) {
+      for (const h of row.requestHeaders) {
+        raw += (h.name || '') + ': ' + (h.value || '') + '\r\n';
+      }
+    }
+    raw += '\r\n';
+    if (row.requestPostData && row.requestPostData.text) {
+      raw += row.requestPostData.text;
+    }
+    return raw;
+  }
+
+  function buildRawResponseText(row, responseBody) {
+    const proto = row.protocol || 'HTTP/1.1';
+    const status = row.status || 0;
+    const statusText = row.statusText || '';
+    let raw = proto + ' ' + status + ' ' + statusText + '\r\n';
+    if (row.responseHeaders) {
+      for (const h of row.responseHeaders) {
+        raw += (h.name || '') + ': ' + (h.value || '') + '\r\n';
+      }
+    }
+    raw += '\r\n';
+    if (responseBody) raw += responseBody;
+    return raw;
+  }
+
+  function formatJsonSafe(text) {
+    try {
+      return JSON.stringify(JSON.parse(text), null, 2);
+    } catch (_e) {
+      return null;
+    }
   }
 
   function selectRow(row) {
@@ -1102,136 +1139,271 @@ const _NetworkPlus = (function () {
     renderBody();
     if (!row) return;
 
-    // [U6] Focus the table for keyboard navigation
     const tableWrap = $('#tableWrap');
     if (tableWrap) tableWrap.focus();
 
-    $('#detailsTitle').textContent = (row.method || '') + ' ' + (row.url || '');
+    const titleParts = [];
+    if (row.status) titleParts.push(String(row.status));
+    if (row.method) titleParts.push(row.method);
+    titleParts.push(row.url || '');
+    $('#detailsTitle').textContent = titleParts.join(' ');
 
-    // [S1] Overview — safe DOM creation
-    const overviewPane = $('#pane-overview');
-    overviewPane.textContent = '';
-    overviewPane.appendChild(
-      createKvGrid([
-        { key: 'ID', value: String(row.id) },
-        { key: 'URL', value: row.url || '' },
-        { key: 'Method', value: row.method || '' },
-        { key: 'Status', value: row.status == null ? '' : String(row.status) },
-        { key: 'Type', value: row.type || '' },
-        { key: 'Protocol', value: row.protocol || '' },
-        { key: 'Domain', value: row.domain || '' },
-        { key: 'Path', value: row.path || '' },
-        { key: 'Started', value: row.startedDateTime || '' },
-        { key: 'Duration', value: fmtTime(row.duration) },
-        { key: 'Size', value: fmtBytes(row.size) },
-      ]),
-    );
+    // === REQUEST TABS ===
 
-    // [S2] Headers — safe DOM creation
-    const headersPane = $('#pane-headers');
-    headersPane.textContent = '';
-    const reqHeaderSec = createHeaderSection('Request Headers', row.requestHeaders);
-    if (reqHeaderSec) headersPane.appendChild(reqHeaderSec);
-    const resHeaderSec = createHeaderSection('Response Headers', row.responseHeaders);
-    if (resHeaderSec) {
-      headersPane.appendChild(document.createElement('br'));
-      headersPane.appendChild(resHeaderSec);
+    // Request > Headers
+    const reqHeadersPane = $('#req-headers');
+    reqHeadersPane.textContent = '';
+    const reqInfo = createKvGrid([
+      { key: 'Method', value: row.method || '' },
+      { key: 'URL', value: row.url || '' },
+      { key: 'Protocol', value: row.protocol || '' },
+    ]);
+    reqHeadersPane.appendChild(reqInfo);
+    if (row.requestHeaders && row.requestHeaders.length > 0) {
+      const title = document.createElement('strong');
+      title.textContent = 'Request Headers';
+      title.style.display = 'block';
+      title.style.marginTop = '8px';
+      reqHeadersPane.appendChild(title);
+      reqHeadersPane.appendChild(createKvGrid(row.requestHeaders.map((h) => ({ key: h.name, value: h.value }))));
     }
 
-    // Request
-    const reqPane = $('#pane-request');
-    reqPane.textContent = '';
-    const reqContent = row.requestPostData
-      ? row.requestPostData.text || JSON.stringify(row.requestPostData)
-      : '(no body)';
-    const copyBtnReq = document.createElement('button');
-    copyBtnReq.className = 'copy-btn';
-    copyBtnReq.textContent = 'Copy';
-    copyBtnReq.addEventListener('click', () => {
-      navigator.clipboard.writeText(reqContent).catch((e) => console.error(e));
+    // Request > Body
+    const reqBodyPane = $('#req-body');
+    reqBodyPane.textContent = '';
+    if (row.requestPostData && row.requestPostData.text) {
+      const text = row.requestPostData.text;
+      const formatted = formatJsonSafe(text);
+      const pre = document.createElement('pre');
+      pre.className = 'code-block';
+      pre.textContent = formatted || text;
+      reqBodyPane.appendChild(pre);
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'copy-btn';
+      copyBtn.textContent = 'Copy';
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(text).catch((e) => console.error(e));
+      });
+      reqBodyPane.insertBefore(copyBtn, reqBodyPane.firstChild);
+    } else {
+      reqBodyPane.textContent = '(no request body)';
+    }
+
+    // Request > Query
+    const reqQueryPane = $('#req-query');
+    reqQueryPane.textContent = '';
+    const queryParams = parseQueryString(row.url || '');
+    if (queryParams.length > 0) {
+      reqQueryPane.appendChild(createKvGrid(queryParams));
+    } else {
+      reqQueryPane.textContent = '(no query parameters)';
+    }
+
+    // Request > Cookies
+    const reqCookiesPane = $('#req-cookies');
+    reqCookiesPane.textContent = '';
+    const cookieHeader = getHeaderValue(row.requestHeaders, 'cookie');
+    if (cookieHeader) {
+      const cookies = parseCookieHeader(cookieHeader);
+      reqCookiesPane.appendChild(createKvGrid(cookies.map((c) => ({ key: c.name, value: c.value }))));
+    } else {
+      reqCookiesPane.textContent = '(no cookies)';
+    }
+
+    // Request > Raw
+    const reqRawPane = $('#req-raw');
+    reqRawPane.textContent = '';
+    const rawReqPre = document.createElement('pre');
+    rawReqPre.className = 'code-block';
+    rawReqPre.textContent = buildRawRequestText(row);
+    const copyRawReq = document.createElement('button');
+    copyRawReq.className = 'copy-btn';
+    copyRawReq.textContent = 'Copy';
+    copyRawReq.addEventListener('click', () => {
+      navigator.clipboard.writeText(rawReqPre.textContent).catch((e) => console.error(e));
     });
-    const contentNodeReq = document.createElement('div');
-    contentNodeReq.textContent = reqContent;
-    reqPane.appendChild(copyBtnReq);
-    reqPane.appendChild(contentNodeReq);
+    reqRawPane.appendChild(copyRawReq);
+    reqRawPane.appendChild(rawReqPre);
 
-    // [S3] Timing — safe DOM creation
-    const timingPane = $('#pane-timing');
-    timingPane.textContent = '';
-    const timings = [];
-    if (row.timings) {
-      for (const key in row.timings) {
-        timings.push({ name: key, value: fmtTime(row.timings[key]) });
-      }
-    }
-    if (timings.length > 0) {
-      const timingTitle = document.createElement('strong');
-      timingTitle.textContent = 'Timing';
-      timingPane.appendChild(timingTitle);
-      timingPane.appendChild(createKvGrid(timings));
+    // === RESPONSE TABS ===
+
+    // Response > Headers
+    const resHeadersPane = $('#res-headers');
+    resHeadersPane.textContent = '';
+    const resInfo = createKvGrid([
+      { key: 'Status', value: row.status + ' ' + (row.statusText || '') },
+      { key: 'Protocol', value: row.protocol || '' },
+      { key: 'Size', value: fmtBytes(row.size) },
+      { key: 'Duration', value: fmtTime(row.duration) },
+    ]);
+    resHeadersPane.appendChild(resInfo);
+    if (row.responseHeaders && row.responseHeaders.length > 0) {
+      const title = document.createElement('strong');
+      title.textContent = 'Response Headers';
+      title.style.display = 'block';
+      title.style.marginTop = '8px';
+      resHeadersPane.appendChild(title);
+      resHeadersPane.appendChild(createKvGrid(row.responseHeaders.map((h) => ({ key: h.name, value: h.value }))));
     }
 
-    // Response
-    const resPane = $('#pane-response');
-    resPane.textContent = '';
-    const loadingMsg = document.createElement('span');
-    loadingMsg.textContent = '(loading...)';
-    resPane.appendChild(loadingMsg);
+    // Response > Body, Preview, Raw — populated async
+    const resBodyPane = $('#res-body');
+    const resPreviewPane = $('#res-preview');
+    const resRawPane = $('#res-raw');
+    resBodyPane.textContent = '(loading...)';
+    resPreviewPane.textContent = '(loading...)';
+    resRawPane.textContent = '';
 
     if (row._reqObj && typeof row._reqObj.getContent === 'function') {
       row._reqObj.getContent((content, encoding) => {
-        resPane.textContent = '';
-        let text = content || '(no response body)';
-        const nestedAccordion = document.createElement('div');
-        nestedAccordion.className = 'nested-accordion';
+        let text = content || '';
+        if (encoding === 'base64') {
+          try {
+            text = atob(content);
+          } catch (_e) {
+            text = '(could not decode base64 response)';
+          }
+        }
 
+        // Body tab — formatted text
+        resBodyPane.textContent = '';
+        const formatted = formatJsonSafe(text);
+        const bodyPre = document.createElement('pre');
+        bodyPre.className = 'code-block';
+        if (formatted) {
+          bodyPre.textContent = formatted;
+        } else if (text.length > TRUNCATE_LIMIT) {
+          bodyPre.textContent = text.substring(0, TRUNCATE_LIMIT);
+          const showMore = document.createElement('button');
+          showMore.textContent = '... Show all (' + fmtBytes(text.length) + ')';
+          showMore.className = 'link-btn';
+          showMore.addEventListener('click', () => {
+            bodyPre.textContent = text;
+          });
+          resBodyPane.appendChild(bodyPre);
+          resBodyPane.appendChild(showMore);
+        } else {
+          bodyPre.textContent = text || '(no response body)';
+        }
+        if (!resBodyPane.querySelector('pre')) resBodyPane.appendChild(bodyPre);
+        const copyBody = document.createElement('button');
+        copyBody.className = 'copy-btn';
+        copyBody.textContent = 'Copy';
+        copyBody.addEventListener('click', () => {
+          navigator.clipboard.writeText(text).catch((e) => console.error(e));
+        });
+        resBodyPane.insertBefore(copyBody, resBodyPane.firstChild);
+
+        // Preview tab — image or rendered HTML
+        resPreviewPane.textContent = '';
         if (encoding === 'base64' && row.type && row.type.startsWith('image/')) {
           const img = document.createElement('img');
           img.src = 'data:' + row.type + ';base64,' + content;
           img.style.maxWidth = '100%';
-          nestedAccordion.appendChild(createInnerAccordionItem('Preview', img));
-
-          const rawData = document.createElement('div');
-          rawData.textContent = text;
-          nestedAccordion.appendChild(createInnerAccordionItem('Raw Data', rawData));
+          resPreviewPane.appendChild(img);
+        } else if (row.type && (row.type.indexOf('html') > -1)) {
+          const iframe = document.createElement('iframe');
+          iframe.sandbox = '';
+          iframe.style.width = '100%';
+          iframe.style.height = '300px';
+          iframe.style.border = '1px solid var(--border)';
+          iframe.srcdoc = text;
+          resPreviewPane.appendChild(iframe);
+        } else if (formatted) {
+          const pre = document.createElement('pre');
+          pre.className = 'code-block';
+          pre.textContent = formatted;
+          resPreviewPane.appendChild(pre);
         } else {
-          if (encoding === 'base64') {
-            try {
-              text = atob(content);
-            } catch (_e) {
-              text = '(could not decode base64 response)';
-            }
-          }
-
-          const contentNodeRes = document.createElement('div');
-          if (text.length > TRUNCATE_LIMIT) {
-            const truncatedText = document.createElement('span');
-            truncatedText.textContent = text.substring(0, TRUNCATE_LIMIT);
-            const showMoreBtn = document.createElement('button');
-            showMoreBtn.textContent = '... Show more';
-            showMoreBtn.className = 'link-btn';
-            showMoreBtn.addEventListener('click', () => {
-              contentNodeRes.textContent = text;
-            });
-            contentNodeRes.appendChild(truncatedText);
-            contentNodeRes.appendChild(showMoreBtn);
-          } else {
-            contentNodeRes.textContent = text;
-          }
-          nestedAccordion.appendChild(createInnerAccordionItem('Content', contentNodeRes));
+          resPreviewPane.textContent = '(no preview available)';
         }
-        resPane.appendChild(nestedAccordion);
 
-        const copyBtnRes = document.createElement('button');
-        copyBtnRes.className = 'copy-btn';
-        copyBtnRes.textContent = 'Copy';
-        copyBtnRes.addEventListener('click', () => {
-          navigator.clipboard.writeText(text).catch((e) => console.error(e));
+        // Raw tab
+        resRawPane.textContent = '';
+        const rawResPre = document.createElement('pre');
+        rawResPre.className = 'code-block';
+        rawResPre.textContent = buildRawResponseText(row, text);
+        const copyRawRes = document.createElement('button');
+        copyRawRes.className = 'copy-btn';
+        copyRawRes.textContent = 'Copy';
+        copyRawRes.addEventListener('click', () => {
+          navigator.clipboard.writeText(rawResPre.textContent).catch((e) => console.error(e));
         });
-        resPane.insertBefore(copyBtnRes, resPane.firstChild);
+        resRawPane.appendChild(copyRawRes);
+        resRawPane.appendChild(rawResPre);
       });
     } else {
-      resPane.textContent = '(response body not available)';
+      resBodyPane.textContent = '(response body not available)';
+      resPreviewPane.textContent = '(response body not available)';
+      resRawPane.textContent = '(response body not available)';
+    }
+
+    // Response > Cookies
+    const resCookiesPane = $('#res-cookies');
+    resCookiesPane.textContent = '';
+    const setCookieHeaders = (row.responseHeaders || []).filter(
+      (h) => (h.name || '').toLowerCase() === 'set-cookie',
+    );
+    if (setCookieHeaders.length > 0) {
+      resCookiesPane.appendChild(
+        createKvGrid(setCookieHeaders.map((h, i) => ({ key: 'Set-Cookie #' + (i + 1), value: h.value }))),
+      );
+    } else {
+      resCookiesPane.textContent = '(no set-cookie headers)';
+    }
+
+    // Response > Timing
+    const resTimingPane = $('#res-timing');
+    resTimingPane.textContent = '';
+    const timingItems = [];
+    if (row.timings) {
+      for (const key in row.timings) {
+        if (typeof row.timings[key] === 'number' && row.timings[key] >= 0) {
+          timingItems.push({ name: key, value: fmtTime(row.timings[key]) });
+        }
+      }
+    }
+    timingItems.push({ name: 'Total', value: fmtTime(row.duration) });
+    const timingTitle = document.createElement('strong');
+    timingTitle.textContent = 'Timing Breakdown';
+    resTimingPane.appendChild(timingTitle);
+    resTimingPane.appendChild(createKvGrid(timingItems));
+
+    // Timing bar visualization
+    if (row.timings) {
+      const barWrap = document.createElement('div');
+      barWrap.className = 'timing-bar-wrap';
+      const total = row.duration || 1;
+      const phases = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
+      const colors = ['#999', '#6cf', '#f90', '#c6f', '#9c6', '#6c9', '#69c'];
+      for (let i = 0; i < phases.length; i++) {
+        const val = row.timings[phases[i]];
+        if (typeof val === 'number' && val > 0) {
+          const seg = document.createElement('div');
+          seg.className = 'timing-bar-seg';
+          seg.style.width = Math.max(1, (val / total) * 100) + '%';
+          seg.style.background = colors[i];
+          seg.title = phases[i] + ': ' + fmtTime(val);
+          barWrap.appendChild(seg);
+        }
+      }
+      resTimingPane.appendChild(barWrap);
+
+      // Legend
+      const legend = document.createElement('div');
+      legend.className = 'timing-legend';
+      for (let i = 0; i < phases.length; i++) {
+        const item = document.createElement('span');
+        item.className = 'timing-legend-item';
+        const dot = document.createElement('span');
+        dot.className = 'timing-legend-dot';
+        dot.style.background = colors[i];
+        item.appendChild(dot);
+        item.appendChild(document.createTextNode(phases[i]));
+        legend.appendChild(item);
+      }
+      resTimingPane.appendChild(legend);
     }
   }
 
@@ -1505,13 +1677,28 @@ const _NetworkPlus = (function () {
       }
     });
 
-    // Accordion
-    $all('.accordion-header').forEach((header) => {
-      header.addEventListener('click', (e) => {
-        e.currentTarget.parentElement.classList.toggle('active');
+    // Tab switching for inspector panels
+    const initTabBar = (barId) => {
+      const bar = $('#' + barId);
+      if (!bar) return;
+      bar.addEventListener('click', (e) => {
+        const btn = e.target.closest('.tab-btn');
+        if (!btn) return;
+        const tabId = btn.dataset.tab;
+        // Deactivate siblings
+        bar.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        // Show target pane, hide others
+        const contentArea = bar.nextElementSibling;
+        if (contentArea) {
+          contentArea.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
+          const target = contentArea.querySelector('#' + tabId);
+          if (target) target.classList.add('active');
+        }
       });
-    });
-    $all('.accordion-item').forEach((item) => item.classList.add('active'));
+    };
+    initTabBar('req-tab-bar');
+    initTabBar('res-tab-bar');
 
     render();
 
