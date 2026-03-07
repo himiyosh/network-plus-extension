@@ -24,9 +24,9 @@ const _NetworkPlus = (function () {
 
   const FILTER_OPERATORS_STRING = [
     { value: 'contains', label: 'contains' },
+    { value: 'notcontains', label: 'not contains' },
     { value: 'equals', label: '==' },
     { value: 'notequals', label: '!=' },
-    { value: 'notcontains', label: 'notcontains' },
     { value: 'startswith', label: 'startsWith' },
     { value: 'endswith', label: 'endsWith' },
     { value: 'regex', label: 'regex' },
@@ -565,11 +565,18 @@ const _NetworkPlus = (function () {
       const method = row.method.toUpperCase();
       if (HTTP_METHODS.indexOf(method) > -1) tr.classList.add('method-' + method);
     }
+    // Status code row class
+    const st = row.status;
+    if (st >= 200 && st < 300) tr.classList.add('status-2xx');
+    else if (st >= 300 && st < 400) tr.classList.add('status-3xx');
+    else if (st >= 400 && st < 500) tr.classList.add('status-4xx');
+    else if (st >= 500) tr.classList.add('status-5xx');
 
     const visibleCols = state.columns.filter((c) => c.visible);
     for (const c of visibleCols) {
       const td = document.createElement('td');
       if (c.id === 'method') td.classList.add('method-cell');
+      if (c.id === 'status') td.classList.add('status-cell');
 
       if (c.id === 'initiator') {
         const initiator = row.initiator;
@@ -590,7 +597,14 @@ const _NetworkPlus = (function () {
       } else {
         let v = row[c.id];
         if (c.id === 'size') v = fmtBytes(row.size);
-        else if (c.id === 'duration') v = fmtTime(row.duration);
+        else if (c.id === 'duration') {
+          v = fmtTime(row.duration);
+          td.classList.add('duration-cell');
+          // Color duration: green (<100ms), yellow (<500ms), orange (<2s), red (>2s)
+          if (row.duration > 2000) td.classList.add('dur-slow');
+          else if (row.duration > 500) td.classList.add('dur-med');
+          else if (row.duration > 100) td.classList.add('dur-ok');
+        }
         td.textContent = v == null ? '' : String(v);
       }
 
