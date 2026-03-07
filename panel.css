@@ -219,10 +219,17 @@ html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
 
-/* === Search Highlight & Mark === */
+/* === Search Highlight & Highlighted Row === */
 .search-highlight{background:rgba(255,255,0,0.4);color:inherit;padding:1px 2px;border-radius:2px;font-weight:500}
 html[data-theme="dark"] .search-highlight{background:rgba(255,255,0,0.25)}
-.marked-row{background:rgba(255,215,0,0.15) !important;border-left:3px solid #fbbf24 !important}
-html[data-theme="dark"] .marked-row{background:rgba(255,215,0,0.08) !important;border-left:3px solid #fbbf24 !important}
+.highlighted-row{background:rgba(255,215,0,0.15) !important;border-left:3px solid #fbbf24 !important}
+html[data-theme="dark"] .highlighted-row{background:rgba(255,215,0,0.08) !important;border-left:3px solid #fbbf24 !important}
 .multi-selected{background:rgba(99,102,241,0.15) !important;border-left:3px solid var(--accent) !important}
 html[data-theme="dark"] .multi-selected{background:rgba(129,140,248,0.12) !important}
+
+/* Subdued context menu */
+.context-menu{min-width:220px;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 18px rgba(15,23,42,0.12);padding:6px}
+html[data-theme="dark"] .context-menu{box-shadow:0 10px 22px rgba(2,6,23,0.35)}
+.context-menu-item{display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:0;border-radius:6px;padding:7px 9px;font-size:12px;line-height:1.4;cursor:pointer}
+.context-menu-item + .context-menu-item{margin-top:2px}
+.context-menu-item:hover{background:var(--hover);color:var(--fg)}

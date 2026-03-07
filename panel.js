@@ -236,7 +236,7 @@ const _NetworkPlus = (function () {
     filteredRows: [], // [U5] cache for filtered rows
     selectedRow: null, // [U5] track by row object reference, not index
     selectedRows: new Set(), // [U7] multi-row selection
-    markedRows: new Set(), // [U7] marked rows (highlight)
+    highlightedRows: new Set(), // [U7] highlighted rows
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
     sort: {
       colId: 'id',
@@ -604,7 +604,7 @@ const _NetworkPlus = (function () {
     tr.dataset.rowId = row.id;
 
     if (state.selectedRow === row) tr.classList.add('selected');
-    if (state.markedRows.has(row)) tr.classList.add('marked-row');
+    if (state.highlightedRows.has(row)) tr.classList.add('highlighted-row');
     if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
     if (row.method) {
       const method = row.method.toUpperCase();
@@ -1820,7 +1820,7 @@ const _NetworkPlus = (function () {
       state.nextId = 1;
       state.selectedRow = null;
       state.selectedRows.clear();
-      state.markedRows.clear();
+      state.highlightedRows.clear();
       render();
       setStatus('Cleared');
     });
@@ -2015,7 +2015,7 @@ const _NetworkPlus = (function () {
 
     // Right-click context menu for marking/selecting rows
     const contextMenu = document.createElement('div');
-    contextMenu.className = 'filter-dropdown-content dropdown-content';
+    contextMenu.className = 'filter-dropdown-content dropdown-content context-menu';
     contextMenu.style.position = 'absolute';
     contextMenu.style.display = 'none';
     contextMenu.style.zIndex = '1000';
@@ -2036,30 +2036,34 @@ const _NetworkPlus = (function () {
       if (!contextMenuRow) return;
 
       contextMenu.textContent = '';
-      const isMarked = state.markedRows.has(contextMenuRow);
       const isMultiSelected = state.selectedRows.has(contextMenuRow);
+      const targetRows = isMultiSelected && state.selectedRows.size > 0 ? [...state.selectedRows] : [contextMenuRow];
+      const allHighlighted = targetRows.every((r) => state.highlightedRows.has(r));
 
-      // Mark/Unmark option
-      const markBtn = document.createElement('button');
-      markBtn.textContent = isMarked ? '✓ Unmark' : '⭐ Mark';
-      markBtn.className = 'filter-btn';
-      markBtn.style.marginBottom = '4px';
-      markBtn.addEventListener('click', () => {
-        if (isMarked) {
-          state.markedRows.delete(contextMenuRow);
-        } else {
-          state.markedRows.add(contextMenuRow);
-        }
+      // Highlight/Unhighlight (single row or selected rows)
+      const highlightBtn = document.createElement('button');
+      highlightBtn.textContent = allHighlighted
+        ? targetRows.length > 1
+          ? `Unhighlight Selected (${targetRows.length})`
+          : 'Unhighlight'
+        : targetRows.length > 1
+          ? `Highlight Selected (${targetRows.length})`
+          : 'Highlight';
+      highlightBtn.className = 'context-menu-item';
+      highlightBtn.addEventListener('click', () => {
+        targetRows.forEach((r) => {
+          if (allHighlighted) state.highlightedRows.delete(r);
+          else state.highlightedRows.add(r);
+        });
         renderBody();
         contextMenu.style.display = 'none';
       });
-      contextMenu.appendChild(markBtn);
+      contextMenu.appendChild(highlightBtn);
 
       // Add/Remove from multi-selection
       const selectBtn = document.createElement('button');
-      selectBtn.textContent = isMultiSelected ? '✓ Deselect' : '☑ Select';
-      selectBtn.className = 'filter-btn';
-      selectBtn.style.marginBottom = '4px';
+      selectBtn.textContent = isMultiSelected ? 'Deselect' : 'Select';
+      selectBtn.className = 'context-menu-item';
       selectBtn.addEventListener('click', () => {
         if (isMultiSelected) {
           state.selectedRows.delete(contextMenuRow);
@@ -2071,14 +2075,13 @@ const _NetworkPlus = (function () {
       });
       contextMenu.appendChild(selectBtn);
 
-      // Clear all marks
-      if (state.markedRows.size > 0) {
+      // Clear all highlights
+      if (state.highlightedRows.size > 0) {
         const clearMarksBtn = document.createElement('button');
-        clearMarksBtn.textContent = '🚫 Clear All Marks';
-        clearMarksBtn.className = 'filter-btn';
-        clearMarksBtn.style.marginBottom = '4px';
+        clearMarksBtn.textContent = 'Clear All Highlights';
+        clearMarksBtn.className = 'context-menu-item';
         clearMarksBtn.addEventListener('click', () => {
-          state.markedRows.clear();
+          state.highlightedRows.clear();
           renderBody();
           contextMenu.style.display = 'none';
         });
@@ -2089,11 +2092,11 @@ const _NetworkPlus = (function () {
       if (state.selectedRows.size > 0) {
         const selCount = state.selectedRows.size;
         const keepBtn = document.createElement('button');
-        keepBtn.textContent = `✅ Keep Selected (${selCount})`;
-        keepBtn.className = 'filter-btn';
-        keepBtn.style.marginBottom = '4px';
+        keepBtn.textContent = `Keep Selected (${selCount})`;
+        keepBtn.className = 'context-menu-item';
         keepBtn.addEventListener('click', () => {
           state.rows = state.rows.filter((r) => state.selectedRows.has(r));
+          state.highlightedRows = new Set([...state.highlightedRows].filter((r) => state.rows.includes(r)));
           state.selectedRows.clear();
           renderBody();
           contextMenu.style.display = 'none';
@@ -2101,11 +2104,11 @@ const _NetworkPlus = (function () {
         contextMenu.appendChild(keepBtn);
 
         const deleteBtn = document.createElement('button');
-        deleteBtn.textContent = `❌ Delete Selected (${selCount})`;
-        deleteBtn.className = 'filter-btn';
-        deleteBtn.style.marginBottom = '4px';
+        deleteBtn.textContent = `Delete Selected (${selCount})`;
+        deleteBtn.className = 'context-menu-item';
         deleteBtn.addEventListener('click', () => {
           state.rows = state.rows.filter((r) => !state.selectedRows.has(r));
+          state.highlightedRows = new Set([...state.highlightedRows].filter((r) => state.rows.includes(r)));
           state.selectedRows.clear();
           renderBody();
           contextMenu.style.display = 'none';
@@ -2113,8 +2116,8 @@ const _NetworkPlus = (function () {
         contextMenu.appendChild(deleteBtn);
 
         const exportSelectedBtn = document.createElement('button');
-        exportSelectedBtn.textContent = `📄 Export Selected CSV (${selCount})`;
-        exportSelectedBtn.className = 'filter-btn';
+        exportSelectedBtn.textContent = `Export Selected CSV (${selCount})`;
+        exportSelectedBtn.className = 'context-menu-item';
         exportSelectedBtn.addEventListener('click', () => {
           exportCSV([...state.selectedRows]);
           contextMenu.style.display = 'none';
