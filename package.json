@@ -1,0 +1,32 @@
+{
+  "name": "network-plus-extension",
+  "version": "1.4.0",
+  "description": "Enhanced Network panel extension for Microsoft Edge DevTools with filtering, export, theme, sorting, and advanced filters.",
+  "main": "devtools.js",
+  "scripts": {
+    "test": "jest --coverage",
+    "lint": "eslint panel.js",
+    "format": "prettier --write .",
+    "version:check": "node scripts/check-version-sync.js",
+    "build": "esbuild panel.js --bundle --minify --outfile=dist/panel.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "esbuild": "^0.27.3",
+    "eslint": "^10.0.2",
+    "jest": "^30.2.0",
+    "prettier": "^3.8.1"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "setupFiles": [
+      "./tests/setup.js"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ]
+  }
+}
