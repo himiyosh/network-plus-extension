@@ -1328,6 +1328,17 @@ const _NetworkPlus = (function () {
     for (let i = 0; i < rows.length; i++) totalBytes += rows[i].size || 0;
     const totalSizeEl = $('#totalSize');
     if (totalSizeEl) totalSizeEl.textContent = totalBytes > 0 ? fmtBytes(totalBytes) + ' transferred' : '';
+    // Update selected rows size
+    const selectedSizeEl = $('#selectedSize');
+    if (selectedSizeEl) {
+      if (state.selectedRows.size > 0) {
+        let selBytes = 0;
+        for (const r of state.selectedRows) selBytes += r.size || 0;
+        selectedSizeEl.textContent = state.selectedRows.size + ' selected / ' + fmtBytes(selBytes);
+      } else {
+        selectedSizeEl.textContent = '';
+      }
+    }
   }
 
   function render() {
