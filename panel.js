@@ -17,6 +17,8 @@ const _NetworkPlus = (function () {
   const THEME_KEY = 'networkPlus.theme';
   const THEMES = ['system', 'dark', 'light'];
   const COL_PREF_KEY = 'networkPlus.cols';
+  const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
+  const COL_PREF_VERSION = 2; // Bump when default visibility changes
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
@@ -316,6 +318,7 @@ const _NetworkPlus = (function () {
     const prefs = state.columns.map((c) => ({ id: c.id, visible: c.visible, width: c.width }));
     try {
       localStorage.setItem(COL_PREF_KEY, JSON.stringify(prefs));
+      localStorage.setItem(COL_PREF_VERSION_KEY, String(COL_PREF_VERSION));
     } catch (_e) {
       console.warn('Failed to save column preferences');
     }
@@ -326,17 +329,18 @@ const _NetworkPlus = (function () {
       const saved = localStorage.getItem(COL_PREF_KEY);
       if (saved) {
         const savedCols = JSON.parse(saved);
-        const savedMap = {};
-        savedCols.forEach((c) => {
-          savedMap[c.id] = c;
-        });
+        const savedVersion = Number(localStorage.getItem(COL_PREF_VERSION_KEY)) || 0;
+        const needsVisReset = savedVersion < COL_PREF_VERSION;
+
         // Restore saved order — iterate savedCols first, then append any new defaults
         const ordered = [];
         const used = new Set();
         for (const sc of savedCols) {
           const def = DEFAULT_COLUMNS.find((d) => d.id === sc.id);
           if (def) {
-            ordered.push({ ...def, visible: sc.visible, width: sc.width });
+            // If schema version changed, reset visibility to current defaults (keep width/order)
+            const vis = needsVisReset ? def.visible : sc.visible;
+            ordered.push({ ...def, visible: vis, width: sc.width });
             used.add(sc.id);
           }
         }
@@ -344,6 +348,12 @@ const _NetworkPlus = (function () {
           if (!used.has(def.id)) ordered.push({ ...def });
         }
         state.columns = ordered;
+
+        // Persist new version so the reset is one-time
+        if (needsVisReset) {
+          localStorage.setItem(COL_PREF_VERSION_KEY, String(COL_PREF_VERSION));
+          saveColumnPrefs();
+        }
       }
     } catch (_e) {
       console.warn('Failed to load column preferences');
