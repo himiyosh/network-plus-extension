@@ -60,13 +60,13 @@ describe('extractUrlParts', () => {
 });
 
 describe('formatInitiator', () => {
-  test('returns "other" for null/undefined', () => {
-    expect(np.formatInitiator(null)).toEqual({ text: 'other' });
-    expect(np.formatInitiator(undefined)).toEqual({ text: 'other' });
+  test('returns "(unknown)" for null/undefined', () => {
+    expect(np.formatInitiator(null)).toEqual({ text: '(unknown)', typeLabel: '' });
+    expect(np.formatInitiator(undefined)).toEqual({ text: '(unknown)', typeLabel: '' });
   });
 
-  test('returns "parser" for parser type', () => {
-    expect(np.formatInitiator({ type: 'parser' })).toEqual({ text: 'parser' });
+  test('returns "HTML Parser" for parser type', () => {
+    expect(np.formatInitiator({ type: 'parser' })).toEqual({ text: 'HTML Parser', typeLabel: 'HTML' });
   });
 
   test('returns script info with call frames', () => {
@@ -78,20 +78,23 @@ describe('formatInitiator', () => {
         ],
       },
     });
-    expect(result.text).toBe('app.js:42');
+    expect(result.text).toBe('JS: app.js:42');
     expect(result.url).toBe('https://example.com/app.js');
     expect(result.lineNumber).toBe(42);
+    expect(result.typeLabel).toBe('JS');
   });
 
-  test('returns "script" when no call frames', () => {
-    expect(np.formatInitiator({ type: 'script' })).toEqual({ text: 'script' });
+  test('returns "JavaScript" when no call frames', () => {
+    expect(np.formatInitiator({ type: 'script' })).toEqual({ text: 'JavaScript', typeLabel: 'JS' });
     expect(np.formatInitiator({ type: 'script', stack: { callFrames: [] } })).toEqual({
-      text: 'script',
+      text: 'JavaScript',
+      typeLabel: 'JS',
     });
   });
 
-  test('returns type text for unknown types', () => {
-    expect(np.formatInitiator({ type: 'preflight' })).toEqual({ text: 'preflight' });
+  test('returns descriptive text for known types', () => {
+    expect(np.formatInitiator({ type: 'preflight' })).toEqual({ text: 'CORS Preflight', typeLabel: 'CORS' });
+    expect(np.formatInitiator({ type: 'preload' })).toEqual({ text: 'Preload', typeLabel: 'Preload' });
   });
 });
 

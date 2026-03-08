@@ -85,6 +85,15 @@ const _NetworkPlus = (function () {
   const PAUSE_ICON_SVG =
     '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16px" height="16px"><path d="M6 5V19M18 5V19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+  const HIGHLIGHT_COLORS = [
+    { name: 'Yellow', cls: 'hl-yellow' },
+    { name: 'Red', cls: 'hl-red' },
+    { name: 'Green', cls: 'hl-green' },
+    { name: 'Blue', cls: 'hl-blue' },
+    { name: 'Purple', cls: 'hl-purple' },
+    { name: 'Orange', cls: 'hl-orange' },
+  ];
+
   // ============================================================
   // Section 2: DOM Helpers
   // ============================================================
@@ -126,20 +135,26 @@ const _NetworkPlus = (function () {
   }
 
   function formatInitiator(initiator) {
-    if (!initiator) return { text: 'other' };
+    if (!initiator) return { text: '(unknown)', typeLabel: '' };
     switch (initiator.type) {
       case 'parser':
-        return { text: 'parser' };
+        return { text: 'HTML Parser', typeLabel: 'HTML' };
       case 'script':
         if (initiator.stack && initiator.stack.callFrames && initiator.stack.callFrames.length > 0) {
           const frame = initiator.stack.callFrames[0];
           const fileName = frame.url.substring(frame.url.lastIndexOf('/') + 1) || '(internal)';
-          const text = fileName + ':' + frame.lineNumber;
-          return { text, url: frame.url, lineNumber: frame.lineNumber };
+          const text = 'JS: ' + fileName + ':' + frame.lineNumber;
+          return { text, url: frame.url, lineNumber: frame.lineNumber, typeLabel: 'JS' };
         }
-        return { text: 'script' };
+        return { text: 'JavaScript', typeLabel: 'JS' };
+      case 'preload':
+        return { text: 'Preload', typeLabel: 'Preload' };
+      case 'preflight':
+        return { text: 'CORS Preflight', typeLabel: 'CORS' };
+      case 'SignedExchange':
+        return { text: 'Signed Exchange', typeLabel: 'SXG' };
       default:
-        return { text: initiator.type || 'other' };
+        return { text: initiator.type || '(unknown)', typeLabel: initiator.type || '' };
     }
   }
 
@@ -236,7 +251,7 @@ const _NetworkPlus = (function () {
     filteredRows: [], // [U5] cache for filtered rows
     selectedRow: null, // [U5] track by row object reference, not index
     selectedRows: new Set(), // [U7] multi-row selection
-    highlightedRows: new Set(), // [U7] highlighted rows
+    highlightedRows: new Map(), // [U7] highlighted rows: row -> color class
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
     sort: {
       colId: 'id',
@@ -604,7 +619,8 @@ const _NetworkPlus = (function () {
     tr.dataset.rowId = row.id;
 
     if (state.selectedRow === row) tr.classList.add('selected');
-    if (state.highlightedRows.has(row)) tr.classList.add('highlighted-row');
+    const hlColor = state.highlightedRows.get(row);
+    if (hlColor) tr.classList.add('highlighted-row', hlColor);
     if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
     if (row.method) {
       const method = row.method.toUpperCase();
@@ -776,18 +792,51 @@ const _NetworkPlus = (function () {
       const isMethodSet = rule && rule.mode === 'methodSet';
       const include = isMethodSet ? Object.assign({}, rule.include) : DEFAULT_METHOD_FILTERS();
 
+      // Select All / Deselect All
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:4px;margin-bottom:4px';
+      const allBtn = document.createElement('button');
+      allBtn.textContent = 'All';
+      allBtn.className = 'filter-clear-btn';
+      allBtn.style.flex = '1';
+      allBtn.addEventListener('click', () => {
+        HTTP_METHODS.forEach((m) => { include[m] = true; });
+        state.columnFilterRules[colId] = { mode: 'methodSet', include: Object.assign({}, include) };
+        onChange();
+        // Re-render checkboxes
+        grid.textContent = '';
+        renderMethodCheckboxes();
+      });
+      const noneBtn = document.createElement('button');
+      noneBtn.textContent = 'None';
+      noneBtn.className = 'filter-clear-btn';
+      noneBtn.style.flex = '1';
+      noneBtn.addEventListener('click', () => {
+        HTTP_METHODS.forEach((m) => { include[m] = false; });
+        state.columnFilterRules[colId] = { mode: 'methodSet', include: Object.assign({}, include) };
+        onChange();
+        grid.textContent = '';
+        renderMethodCheckboxes();
+      });
+      btnRow.appendChild(allBtn);
+      btnRow.appendChild(noneBtn);
+      wrap.appendChild(btnRow);
+
       const grid = document.createElement('div');
       grid.className = 'filter-checkbox-grid';
-      for (const method of HTTP_METHODS) {
-        const checked = include[method] !== false;
-        const cb = createCheckboxItem(method, checked, () => {
-          include[method] = !include[method];
-          state.columnFilterRules[colId] = { mode: 'methodSet', include: Object.assign({}, include) };
-          onChange();
-        });
-        cb.className = 'filter-checkbox-inline';
-        grid.appendChild(cb);
-      }
+      const renderMethodCheckboxes = () => {
+        for (const method of HTTP_METHODS) {
+          const checked = include[method] !== false;
+          const cb = createCheckboxItem(method, checked, () => {
+            include[method] = !include[method];
+            state.columnFilterRules[colId] = { mode: 'methodSet', include: Object.assign({}, include) };
+            onChange();
+          });
+          cb.className = 'filter-checkbox-inline';
+          grid.appendChild(cb);
+        }
+      };
+      renderMethodCheckboxes();
       wrap.appendChild(grid);
       return wrap;
     }
@@ -1197,6 +1246,11 @@ const _NetworkPlus = (function () {
     }
     tbody.appendChild(frag);
     $('#counter').textContent = rows.length + ' requests';
+    // Update total size
+    let totalBytes = 0;
+    for (let i = 0; i < rows.length; i++) totalBytes += rows[i].size || 0;
+    const totalSizeEl = $('#totalSize');
+    if (totalSizeEl) totalSizeEl.textContent = totalBytes > 0 ? fmtBytes(totalBytes) + ' transferred' : '';
   }
 
   function render() {
@@ -1884,6 +1938,36 @@ const _NetworkPlus = (function () {
 
     const renderColumnsContextMenu = () => {
       columnsContextMenu.textContent = '';
+
+      // Select All / Deselect All buttons
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:4px;padding:4px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:4px';
+      const selectAllBtn = document.createElement('button');
+      selectAllBtn.textContent = 'Select All';
+      selectAllBtn.className = 'context-menu-item';
+      selectAllBtn.style.cssText = 'flex:1;text-align:center;font-size:11px;padding:4px';
+      selectAllBtn.addEventListener('click', () => {
+        state.columns.forEach((c) => { c.visible = true; });
+        saveColumnPrefs();
+        render();
+        renderColumnsContextMenu();
+        columnsContextMenu.style.display = 'block';
+      });
+      const deselectAllBtn = document.createElement('button');
+      deselectAllBtn.textContent = 'Deselect All';
+      deselectAllBtn.className = 'context-menu-item';
+      deselectAllBtn.style.cssText = 'flex:1;text-align:center;font-size:11px;padding:4px';
+      deselectAllBtn.addEventListener('click', () => {
+        state.columns.forEach((c) => { c.visible = false; });
+        saveColumnPrefs();
+        render();
+        renderColumnsContextMenu();
+        columnsContextMenu.style.display = 'block';
+      });
+      btnRow.appendChild(selectAllBtn);
+      btnRow.appendChild(deselectAllBtn);
+      columnsContextMenu.appendChild(btnRow);
+
       const currentColCfgs = {};
       state.columns.forEach((c) => {
         currentColCfgs[c.id] = c;
@@ -1969,7 +2053,12 @@ const _NetworkPlus = (function () {
 
     // Global click handler to close dropdowns
     window.addEventListener('click', (e) => {
-      if (e.target.closest('.filter-btn') || e.target.closest('.dropdown-content')) return;
+      if (
+        e.target.closest('#filterBtn') ||
+        e.target.closest('#columnsBtn') ||
+        e.target.closest('.filter-btn') ||
+        e.target.closest('.dropdown-content')
+      ) return;
       $all('.dropdown-content').forEach((d) => {
         d.classList.remove('show');
         d.style.display = 'none';
@@ -2040,25 +2129,40 @@ const _NetworkPlus = (function () {
       const targetRows = isMultiSelected && state.selectedRows.size > 0 ? [...state.selectedRows] : [contextMenuRow];
       const allHighlighted = targetRows.every((r) => state.highlightedRows.has(r));
 
-      // Highlight/Unhighlight (single row or selected rows)
-      const highlightBtn = document.createElement('button');
-      highlightBtn.textContent = allHighlighted
-        ? targetRows.length > 1
-          ? `Unhighlight Selected (${targetRows.length})`
-          : 'Unhighlight'
-        : targetRows.length > 1
-          ? `Highlight Selected (${targetRows.length})`
-          : 'Highlight';
-      highlightBtn.className = 'context-menu-item';
-      highlightBtn.addEventListener('click', () => {
-        targetRows.forEach((r) => {
-          if (allHighlighted) state.highlightedRows.delete(r);
-          else state.highlightedRows.add(r);
+      // Highlight color picker
+      const hlLabel = document.createElement('div');
+      hlLabel.className = 'context-menu-item';
+      hlLabel.style.cssText = 'font-weight:600;font-size:11px;cursor:default;padding-bottom:2px';
+      hlLabel.textContent = targetRows.length > 1 ? `Highlight (${targetRows.length} rows)` : 'Highlight';
+      contextMenu.appendChild(hlLabel);
+
+      const colorRow = document.createElement('div');
+      colorRow.style.cssText = 'display:flex;gap:4px;padding:4px 9px 6px;flex-wrap:wrap';
+      for (const hc of HIGHLIGHT_COLORS) {
+        const swatch = document.createElement('button');
+        swatch.className = 'hl-swatch ' + hc.cls;
+        swatch.title = hc.name;
+        swatch.addEventListener('click', () => {
+          targetRows.forEach((r) => { state.highlightedRows.set(r, hc.cls); });
+          renderBody();
+          contextMenu.style.display = 'none';
         });
-        renderBody();
-        contextMenu.style.display = 'none';
-      });
-      contextMenu.appendChild(highlightBtn);
+        colorRow.appendChild(swatch);
+      }
+      contextMenu.appendChild(colorRow);
+
+      // Unhighlight
+      if (allHighlighted) {
+        const unhighlightBtn = document.createElement('button');
+        unhighlightBtn.textContent = targetRows.length > 1 ? `Unhighlight (${targetRows.length})` : 'Unhighlight';
+        unhighlightBtn.className = 'context-menu-item';
+        unhighlightBtn.addEventListener('click', () => {
+          targetRows.forEach((r) => { state.highlightedRows.delete(r); });
+          renderBody();
+          contextMenu.style.display = 'none';
+        });
+        contextMenu.appendChild(unhighlightBtn);
+      }
 
       // Add/Remove from multi-selection
       const selectBtn = document.createElement('button');
@@ -2096,7 +2200,7 @@ const _NetworkPlus = (function () {
         keepBtn.className = 'context-menu-item';
         keepBtn.addEventListener('click', () => {
           state.rows = state.rows.filter((r) => state.selectedRows.has(r));
-          state.highlightedRows = new Set([...state.highlightedRows].filter((r) => state.rows.includes(r)));
+          for (const r of state.highlightedRows.keys()) { if (!state.rows.includes(r)) state.highlightedRows.delete(r); }
           state.selectedRows.clear();
           renderBody();
           contextMenu.style.display = 'none';
@@ -2108,7 +2212,7 @@ const _NetworkPlus = (function () {
         deleteBtn.className = 'context-menu-item';
         deleteBtn.addEventListener('click', () => {
           state.rows = state.rows.filter((r) => !state.selectedRows.has(r));
-          state.highlightedRows = new Set([...state.highlightedRows].filter((r) => state.rows.includes(r)));
+          for (const r of state.highlightedRows.keys()) { if (!state.rows.includes(r)) state.highlightedRows.delete(r); }
           state.selectedRows.clear();
           renderBody();
           contextMenu.style.display = 'none';
