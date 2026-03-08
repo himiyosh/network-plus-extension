@@ -330,14 +330,33 @@ const _NetworkPlus = (function () {
         savedCols.forEach((c) => {
           savedMap[c.id] = c;
         });
-        state.columns = DEFAULT_COLUMNS.map((c) => {
-          const savedPref = savedMap[c.id];
-          return savedPref ? { ...c, visible: savedPref.visible, width: savedPref.width } : { ...c };
-        });
+        // Restore saved order — iterate savedCols first, then append any new defaults
+        const ordered = [];
+        const used = new Set();
+        for (const sc of savedCols) {
+          const def = DEFAULT_COLUMNS.find((d) => d.id === sc.id);
+          if (def) {
+            ordered.push({ ...def, visible: sc.visible, width: sc.width });
+            used.add(sc.id);
+          }
+        }
+        for (const def of DEFAULT_COLUMNS) {
+          if (!used.has(def.id)) ordered.push({ ...def });
+        }
+        state.columns = ordered;
       }
     } catch (_e) {
       console.warn('Failed to load column preferences');
     }
+  }
+
+  function moveColumn(fromId, toId) {
+    const fromIdx = state.columns.findIndex((c) => c.id === fromId);
+    const toIdx = state.columns.findIndex((c) => c.id === toId);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+    const [col] = state.columns.splice(fromIdx, 1);
+    state.columns.splice(toIdx, 0, col);
+    saveColumnPrefs();
   }
 
   // ============================================================
@@ -1155,36 +1174,84 @@ const _NetworkPlus = (function () {
     const thead = $('#thead');
     thead.textContent = '';
 
+    // Compute total table width from all visible columns
+    const visibleCols = state.columns.filter((c) => c.visible);
+    const totalW = visibleCols.reduce((sum, c) => sum + (c.width || 120), 0);
+    const grid = $('#grid');
+    grid.style.width = totalW + 'px';
+
     // Title row
     const tr = document.createElement('tr');
     tr.className = 'title-row';
-    for (const c of state.columns) {
-      if (!c.visible) continue;
+    let dragSrcColId = null;
+    for (const c of visibleCols) {
       const th = document.createElement('th');
       th.style.width = (c.width || 120) + 'px';
       th.className = 'sortable-header';
       th.dataset.colId = c.id;
+      th.draggable = true;
       const sortIndicator =
         state.sort.colId === c.id ? (state.sort.direction === 'asc' ? ' ▲' : state.sort.direction === 'desc' ? ' ▼' : '') : '';
       th.textContent = c.label + sortIndicator;
-      th.title = 'Click to sort';
+      th.title = 'Click to sort, drag to reorder';
       th.addEventListener('click', (e) => {
         if (e.target && e.target.classList && e.target.classList.contains('col-resizer')) return;
         toggleSort(c.id);
         render();
       });
+
+      // --- Drag-and-drop reorder ---
+      th.addEventListener('dragstart', (e) => {
+        dragSrcColId = c.id;
+        th.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', c.id);
+      });
+      th.addEventListener('dragend', () => {
+        th.classList.remove('dragging');
+        tr.querySelectorAll('th').forEach((el) => {
+          el.classList.remove('drag-over-left', 'drag-over-right');
+        });
+      });
+      th.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (!dragSrcColId || dragSrcColId === c.id) return;
+        const rect = th.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        th.classList.toggle('drag-over-left', e.clientX < midX);
+        th.classList.toggle('drag-over-right', e.clientX >= midX);
+      });
+      th.addEventListener('dragleave', () => {
+        th.classList.remove('drag-over-left', 'drag-over-right');
+      });
+      th.addEventListener('drop', (e) => {
+        e.preventDefault();
+        th.classList.remove('drag-over-left', 'drag-over-right');
+        const fromId = e.dataTransfer.getData('text/plain');
+        if (fromId && fromId !== c.id) {
+          moveColumn(fromId, c.id);
+          render();
+        }
+      });
+
+      // --- Column resizer (independent width) ---
       const resizer = document.createElement('div');
       resizer.className = 'col-resizer';
       ((col, headerEl) => {
         resizer.addEventListener('mousedown', (e) => {
           e.preventDefault();
+          e.stopPropagation();
           const startX = e.clientX;
           const startWidth = headerEl.offsetWidth;
-          const handleMouseMove = (e) => {
-            const newWidth = startWidth + (e.clientX - startX);
+          const handleMouseMove = (ev) => {
+            const newWidth = startWidth + (ev.clientX - startX);
             if (newWidth > MIN_COL_WIDTH) {
               col.width = newWidth;
               headerEl.style.width = newWidth + 'px';
+              // Update total table width
+              const newTotal = state.columns.filter((cc) => cc.visible).reduce((s, cc) => s + (cc.width || 120), 0);
+              grid.style.width = newTotal + 'px';
             }
           };
           const handleMouseUp = () => {
@@ -1968,13 +2035,7 @@ const _NetworkPlus = (function () {
       btnRow.appendChild(deselectAllBtn);
       columnsContextMenu.appendChild(btnRow);
 
-      const currentColCfgs = {};
-      state.columns.forEach((c) => {
-        currentColCfgs[c.id] = c;
-      });
-
-      DEFAULT_COLUMNS.forEach((defaultCol) => {
-        const current = currentColCfgs[defaultCol.id] || defaultCol;
+      state.columns.forEach((current) => {
         const item = createCheckboxItem(current.label, current.visible, (e) => {
           const col = state.columns.find((c) => c.id === current.id);
           if (col) col.visible = e.target.checked;
