@@ -55,7 +55,7 @@ const _NetworkPlus = (function () {
     { id: 'type', label: 'Type', width: 150, visible: true },
     { id: 'duration', label: 'Duration', width: 110, visible: true },
     { id: 'size', label: 'Size', width: 90, visible: true },
-    { id: 'initiator', label: 'Initiator', width: 220, visible: true },
+    { id: 'initiator', label: 'Initiator', width: 220, visible: false },
     { id: 'url', label: 'URL', width: 420, visible: false },
   ];
 
@@ -2303,7 +2303,7 @@ const _NetworkPlus = (function () {
       }
     });
 
-    // Resizer logic
+    // Resizer logic (left/right panel split)
     const resizer = $('#resizer');
     const details = $('#details');
 
@@ -2323,6 +2323,39 @@ const _NetworkPlus = (function () {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     });
+
+    // Inspector divider (Request/Response pane resize)
+    const inspectorDivider = $('#inspector-divider');
+    const inspectorPanels = inspectorDivider ? inspectorDivider.parentElement : null;
+    if (inspectorDivider && inspectorPanels) {
+      inspectorDivider.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const reqPane = $('#inspector-request');
+        const resPane = $('#inspector-response');
+        const startY = e.clientY;
+        const startReqH = reqPane.offsetHeight;
+        const startResH = resPane.offsetHeight;
+
+        const handleMove = (ev) => {
+          const delta = ev.clientY - startY;
+          const newReqH = startReqH + delta;
+          const newResH = startResH - delta;
+          const minH = 80;
+          if (newReqH >= minH && newResH >= minH) {
+            reqPane.style.flex = 'none';
+            resPane.style.flex = 'none';
+            reqPane.style.height = newReqH + 'px';
+            resPane.style.height = newResH + 'px';
+          }
+        };
+        const handleUp = () => {
+          document.removeEventListener('mousemove', handleMove);
+          document.removeEventListener('mouseup', handleUp);
+        };
+        document.addEventListener('mousemove', handleMove);
+        document.addEventListener('mouseup', handleUp);
+      });
+    }
 
     // Network subscription
     if (chrome && chrome.devtools && chrome.devtools.network && chrome.devtools.network.onRequestFinished) {
