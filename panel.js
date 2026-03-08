@@ -2378,6 +2378,195 @@ const _NetworkPlus = (function () {
       });
     }
 
+    // Import Feature (HAR / SAZ)
+    const importBtn = $('#importBtn');
+    const importFile = $('#importFile');
+    if (importBtn && importFile) {
+      importBtn.addEventListener('click', () => {
+        importFile.click();
+      });
+
+      importFile.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setStatus(`Importing ${file.name}...`);
+
+        try {
+          // HAR import
+          if (file.name.toLowerCase().endsWith('.har')) {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            if (data && data.log && data.log.entries) {
+              state.paused = true;
+              pauseBtn.textContent = '▶️';
+              pauseBtn.title = 'Resume recording';
+
+              state.rows = [];
+              state.selectedRows.clear();
+              state.highlightedRows.clear();
+
+              let currentId = state.nextId;
+              data.log.entries.forEach((entry) => {
+                entry.id = currentId++;
+
+                if (!entry.getContent && entry.response && entry.response.content && entry.response.content.text) {
+                  entry.getContent = function (cb) {
+                    cb(entry.response.content.text, entry.response.content.encoding || 'utf8');
+                  };
+                }
+
+                const row = buildRowFromRequest(entry);
+                if (entry.response && entry.response.content && entry.response.content.text) {
+                  row.responseContent = entry.response.content.text;
+                }
+                state.rows.push(row);
+              });
+              state.nextId = currentId;
+
+              renderBody();
+              setStatus(`Imported ${data.log.entries.length} requests from HAR`);
+            } else {
+              setStatus('Invalid HAR format');
+            }
+          }
+          // SAZ import
+          else if (file.name.toLowerCase().endsWith('.saz')) {
+            if (!window.fflate) {
+              setStatus('fflate library missing, cannot extract SAZ');
+              return;
+            }
+
+            const buf = await file.arrayBuffer();
+            const unzipped = window.fflate.unzipSync(new Uint8Array(buf));
+
+            const rawKeys = Object.keys(unzipped).filter((k) => k.startsWith('raw/'));
+            const reqIds = new Set();
+            rawKeys.forEach((k) => {
+              const m = k.match(/^raw\/(\d+)_([csm])\.(txt|xml)$/);
+              if (m) reqIds.add(m[1]);
+            });
+
+            if (reqIds.size === 0) {
+              setStatus('No payload found in SAZ');
+              return;
+            }
+
+            state.paused = true;
+            pauseBtn.textContent = '▶️';
+            state.rows = [];
+            state.selectedRows.clear();
+            state.highlightedRows.clear();
+            let currentId = state.nextId;
+
+            const parseHttpMessage = (uint8arr) => {
+              const txt = new TextDecoder().decode(uint8arr);
+              const parts = txt.split('\r\n\r\n');
+              const headerPart = parts[0];
+              const body = parts.slice(1).join('\r\n\r\n');
+              const lines = headerPart.split('\r\n');
+              const startLine = lines[0];
+
+              const headers = [];
+              let currentHeader = null;
+              for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (line.startsWith(' ') || line.startsWith('\t')) {
+                  if (currentHeader) currentHeader.value += ' ' + line.trim();
+                } else {
+                  const colonIdx = line.indexOf(':');
+                  if (colonIdx > 0) {
+                    currentHeader = {
+                      name: line.substring(0, colonIdx).trim(),
+                      value: line.substring(colonIdx + 1).trim(),
+                    };
+                    headers.push(currentHeader);
+                  }
+                }
+              }
+              return { startLine, headers, body };
+            };
+
+            const getHeaderVal = (hdrs, name) => {
+              const h = hdrs.find((x) => x.name.toLowerCase() === name.toLowerCase());
+              return h ? h.value : null;
+            };
+
+            Array.from(reqIds)
+              .sort((a, b) => parseInt(a) - parseInt(b))
+              .forEach((id) => {
+                const reqKey = `raw/${id}_c.txt`;
+                const resKey = `raw/${id}_s.txt`;
+
+                if (!unzipped[reqKey] || !unzipped[resKey]) return;
+
+                try {
+                  const clientRaw = parseHttpMessage(unzipped[reqKey]);
+                  const serverRaw = parseHttpMessage(unzipped[resKey]);
+
+                  const reqParts = clientRaw.startLine.split(' ');
+                  const method = reqParts[0];
+                  const url = reqParts.slice(1, reqParts.length - 1).join(' ');
+                  const reqHttpVersion = reqParts[reqParts.length - 1];
+
+                  const resParts = serverRaw.startLine.split(' ');
+                  const resHttpVersion = resParts[0];
+                  const status = parseInt(resParts[1], 10) || 0;
+                  const statusText = resParts.slice(2).join(' ');
+
+                  const resType = getHeaderVal(serverRaw.headers, 'content-type') || '';
+                  const bodySize = serverRaw.body ? new TextEncoder().encode(serverRaw.body).length : 0;
+
+                  const entry = {
+                    id: currentId++,
+                    startedDateTime: new Date().toISOString(),
+                    time: 0,
+                    request: {
+                      method: method,
+                      url: url,
+                      httpVersion: reqHttpVersion,
+                      headers: clientRaw.headers,
+                      postData: clientRaw.body ? { text: clientRaw.body } : null,
+                    },
+                    response: {
+                      status: status,
+                      statusText: statusText,
+                      httpVersion: resHttpVersion,
+                      headers: serverRaw.headers,
+                      content: {
+                        size: bodySize,
+                        mimeType: resType.split(';')[0],
+                        text: serverRaw.body,
+                      },
+                      bodySize: bodySize,
+                    },
+                  };
+
+                  entry.getContent = function (cb) {
+                    cb(serverRaw.body, 'utf8');
+                  };
+
+                  const row = buildRowFromRequest(entry);
+                  if (serverRaw.body) row.responseContent = serverRaw.body;
+                  state.rows.push(row);
+                } catch (ex) {
+                  console.error('Failed to parse SAZ pair', id, ex);
+                }
+              });
+
+            state.nextId = currentId;
+            renderBody();
+            setStatus(`Imported ${state.rows.length} requests from SAZ`);
+          }
+        } catch (err) {
+          setStatus('Import Error: ' + err.message);
+          console.error(err);
+        }
+
+        importFile.value = ''; // allow re-importing the same file
+      });
+    }
+
     // Network subscription
     if (chrome && chrome.devtools && chrome.devtools.network && chrome.devtools.network.onRequestFinished) {
       chrome.devtools.network.onRequestFinished.addListener((request) => {

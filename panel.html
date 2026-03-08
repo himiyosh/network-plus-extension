@@ -15,6 +15,8 @@
       <button id="pauseBtn" title="Pause recording">⏸️</button>
     </div>
     <div class="right">
+      <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
+      <button id="importBtn" title="Import HAR / SAZ">📥 Import</button>
       <button id="filterBtn">⚙️ Filters</button>
       <button id="columnsBtn">🗂️ Columns</button>
       <button id="exportCsvBtn">📄 CSV</button>
@@ -74,6 +76,7 @@
     </aside>
   </main>
   <footer class="statusbar"><span id="statusText">Loaded</span><span class="spacer"></span><span id="selectedSize"></span><span id="totalSize"></span><span id="counter">0 requests</span></footer>
+  <script src="vendor/fflate.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>
