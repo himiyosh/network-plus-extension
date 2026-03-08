@@ -1822,36 +1822,6 @@ const _NetworkPlus = (function () {
     return state.filteredRows;
   }
 
-  function exportCSV(customRows) {
-    const cols = state.columns.filter((c) => c.visible);
-    const esc = (s) => {
-      s = String(s == null ? '' : s);
-      return '"' + s.replace(/"/g, '""') + '"';
-    };
-    const header = cols.map((c) => esc(c.label)).join(',');
-    const lines = [header];
-    const rows = customRows || getExportRows();
-    for (const r of rows) {
-      const arr = [];
-      for (const c of cols) {
-        let v = r[c.id];
-        if (c.id === 'size') v = fmtBytes(r.size);
-        else if (c.id === 'duration') v = fmtTime(r.duration);
-        else if (c.id === 'initiator') v = r.initiator ? r.initiator.text : '';
-        arr.push(esc(v));
-      }
-      lines.push(arr.join(','));
-    }
-    const csv = '\ufeff' + lines.join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'network-plus.csv';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
   function buildHarLogFromRows() {
     const pageref = 'page_1';
     const entries = [];
@@ -1988,7 +1958,6 @@ const _NetworkPlus = (function () {
     updateRecordState();
 
     // Export
-    $('#exportCsvBtn').addEventListener('click', exportCSV);
     $('#exportHarBtn').addEventListener('click', exportHAR);
 
     // [P3] Global Filter — debounced
@@ -2300,15 +2269,6 @@ const _NetworkPlus = (function () {
           contextMenu.style.display = 'none';
         });
         contextMenu.appendChild(deleteBtn);
-
-        const exportSelectedBtn = document.createElement('button');
-        exportSelectedBtn.textContent = `Export Selected CSV (${selCount})`;
-        exportSelectedBtn.className = 'context-menu-item';
-        exportSelectedBtn.addEventListener('click', () => {
-          exportCSV([...state.selectedRows]);
-          contextMenu.style.display = 'none';
-        });
-        contextMenu.appendChild(exportSelectedBtn);
       }
 
       // Show menu

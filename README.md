@@ -15,8 +15,7 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能 |
 | ↕️ カラムソート | ヘッダークリックでソート切替 (昇順 → 降順 → ソート解除) |
 | 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示 |
-| 📄 CSV エクスポート | フィルタ適用後の表示行を UTF-8 BOM 付き CSV で出力 |
-| 📦 HAR エクスポート | HAR 1.2 形式でヘッダー・タイミング・レスポンスボディ・クエリ文字列・PostData を含む完全なログを出力 |
+|  HAR エクスポート | HAR 1.2 形式でヘッダー・タイミング・レスポンスボディ・クエリ文字列・PostData を含む完全なログを出力 |
 | 🎨 テーマ切替 | System / Dark / Light の3モードを循環切替。`chrome.storage.local` (Edge 互換 API) に永続化 |
 | ⏯️ 録画制御 | Pause / Resume ボタン。録画中は赤、一時停止中はグレーのインジケータ表示 |
 | ⬇️ 自動スクロール | 新規リクエスト到着時に自動的にテーブル末尾へスクロール (トグル可能) |

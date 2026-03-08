@@ -11,16 +11,17 @@
     <div class="left">
       <strong>Network+</strong>
       <input id="filterInput" type="text" placeholder="Global search (Ctrl+F)..."/>
-      <button id="clearBtn" title="Clear requests">🚫</button>
-      <button id="pauseBtn" title="Pause recording">⏸️</button>
+      <div class="separator"></div>
+      <button id="clearBtn" title="Clear requests" class="icon-btn">🚫</button>
+      <button id="pauseBtn" title="Pause recording" class="icon-btn">⏸️</button>
+      <button id="importBtn" title="Import (HAR/SAZ)" class="icon-btn">📥</button>
+      <button id="exportHarBtn" title="Export (HAR)" class="icon-btn">📤</button>
+      <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
+      <div class="separator"></div>
     </div>
     <div class="right">
-      <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
-      <button id="importBtn" title="Import HAR / SAZ">📥 Import</button>
       <button id="filterBtn">⚙️ Filters</button>
       <button id="columnsBtn">🗂️ Columns</button>
-      <button id="exportCsvBtn">📄 CSV</button>
-      <button id="exportHarBtn">📦 HAR</button>
       <button id="themeBtn">🌗 System</button>
     </div>
   </header>

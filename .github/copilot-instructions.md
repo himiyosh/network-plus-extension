@@ -80,7 +80,7 @@ Microsoft Edge DevTools
 | 11 | **UI Components** | `createCheckboxItem()`, `createColumnFilterControl()` (Time 専用ローカル時刻 time picker / Method 専用複数選択 / Domain・Path 専用複数条件 / URL 専用複合条件 UI を含む) |
 | 12 | **Rendering** | `renderHeader()`, `renderBody()`, `render()` |
 | 13 | **Detail Panel** | `selectRow()`, Fiddler 風タブ付きインスペクター (Request: Headers/Body/Query/Cookies/Raw, Response: Headers/Body/Preview/Cookies/Timing/Raw) |
-| 14 | **Export** | `exportCSV()`, `exportHAR()`, `buildHarLogFromRows()` |
+| 14 | **Export** | `exportHAR()`, `buildHarLogFromRows()` |
 | 15 | **Initialization** | `init()`, タブ切替、イベントリスナー登録、ネットワークサブスクリプション |
 
 ### 2.4 テスト可能な設計
@@ -130,7 +130,7 @@ Microsoft Edge DevTools
 ### 3.4 権限の最小化
 
 - `manifest.json` の `permissions` は必要最小限に保つ
-- 現在の権限: `storage` (テーマ設定永続化), `downloads` (CSV/HAR エクスポート)
+- 現在の権限: `storage` (テーマ設定永続化), `downloads` (HAR エクスポート)
 - 新しい権限を追加する場合は、README の「セキュリティ」セクションに理由を記載すること
 
 ---
@@ -157,7 +157,7 @@ Microsoft Edge DevTools
 | **純粋関数** | Jest ユニットテスト | `tests/panel.test.js` |
 | **DOM 操作** | 手動テスト (Edge DevTools で拡張機能をロードして確認) | - |
 | **テーマ** | 手動テスト (System/Dark/Light 切替確認) | - |
-| **エクスポート** | 手動テスト (CSV/HAR ファイルの内容検証) | - |
+| **エクスポート** | 手動テスト (HAR ファイルの内容検証) | - |
 
 ### 5.2 テスト実行
 
@@ -202,7 +202,6 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - [ ] ヘッダークリックでソートが切り替わる (昇順/降順/解除)
 - [ ] 行クリックで詳細パネルが Fiddler 風タブ表示される (Request: Headers/Body/Query/Cookies/Raw, Response: Headers/Body/Preview/Cookies/Timing/Raw)
 - [ ] 上下キーで行を選択できる
-- [ ] CSV エクスポートで正しいファイルがダウンロードされる
 - [ ] HAR エクスポートで正しいファイルがダウンロードされる
 - [ ] Theme ボタンで System/Dark/Light が切り替わる
 - [ ] Pause/Resume が動作する

@@ -69,10 +69,11 @@ html[data-theme="light"]{
 /* === Top Bar === */
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-top:2px solid transparent;border-bottom:1px solid var(--border);background:var(--topbar-bg);position:sticky;top:0;z-index:3;box-shadow:var(--shadow-sm)}
 .topbar .left,.topbar .right{display:flex;align-items:center;gap:8px}
+.topbar .separator{width:1px;height:24px;background:var(--border);margin:0 4px}
 .topbar input{width:360px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);transition:border-color 0.2s,box-shadow 0.2s}
 .topbar input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
 .topbar button{min-height:32px;padding:5px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);cursor:pointer;font-size:12px;line-height:1.5;display:inline-flex;align-items:center;justify-content:center;transition:all 0.15s}
-#pauseBtn{font-size:16px}
+.topbar button.icon-btn{padding:5px 8px;font-size:16px}
 .topbar button:hover{background:var(--hover);border-color:var(--accent);color:var(--accent)}
 .topbar button.active{border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
 .topbar.paused{border-top:2px solid var(--border)}
