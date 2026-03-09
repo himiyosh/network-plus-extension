@@ -40,6 +40,8 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 network-plus-extension/
   .github/
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
+    agents/
+      ui-review.agent.md     ... UI/UX レビューエージェント
   docs/
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
@@ -136,7 +138,13 @@ npm run format       # Prettier フォーマット
 | **エクスポート** | 手動テスト (HAR ファイルの内容検証) | - |
 
 テスト環境のモック設定は [tests/setup.js](tests/setup.js) を参照。
+## 🤖 Copilot エージェント
 
+| エージェント | 用途 |
+|---|---|
+| [ui-review](.github/agents/ui-review.agent.md) | UI/UX レビュー。テーマ一貫性・レイアウト・操作性・XSS 安全性・データ表示品質・コード品質の 6 軸で検証 |
+
+呼び出し方: `@ui-review` で UI/UX レビューを依頼
 ## 🧾 バージョニングルール
 
 - **方式**: Semantic Versioning (`MAJOR.MINOR.PATCH`)
@@ -187,6 +195,7 @@ npm run format       # Prettier フォーマット
 | ファイル | 説明 |
 |---|---|
 | [.github/copilot-instructions.md](.github/copilot-instructions.md) | Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針) |
+| [.github/agents/ui-review.agent.md](.github/agents/ui-review.agent.md) | UI/UX レビューエージェント (6 軸検証) |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | package.json / manifest.json バージョン同期チェックスクリプト |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
