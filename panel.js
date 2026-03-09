@@ -2907,6 +2907,18 @@ const _NetworkPlus = (function () {
     // [U6] Keyboard navigation
     const tableWrap = $('#tableWrap');
     tableWrap.setAttribute('tabindex', '0');
+
+    // Auto-scroll: disable when user manually scrolls up, re-enable at bottom
+    tableWrap.addEventListener('scroll', () => {
+      if (!state.autoScroll) return;
+      const atBottom = tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD - 40;
+      const autoScrollBtn = document.getElementById('autoScrollBtn');
+      if (!atBottom && state.rows.length > 0) {
+        state.autoScroll = false;
+        if (autoScrollBtn) autoScrollBtn.classList.remove('active');
+      }
+    });
+
     tableWrap.addEventListener('keydown', (e) => {
       if (!state.filteredRows.length) return;
       const currentIdx = state.selectedRow ? state.filteredRows.indexOf(state.selectedRow) : -1;
@@ -3374,10 +3386,10 @@ const _NetworkPlus = (function () {
           renderStatsBar();
         }
 
-        // Auto-scroll only if enabled and user was at bottom
+        // Auto-scroll only if enabled and user was already at bottom before this request
         if (state.autoScroll) {
-          const isAtBottom = tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
-          if (isAtBottom || passesFilter) {
+          const isAtBottom = tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD - 40;
+          if (isAtBottom) {
             tableWrap.scrollTop = tableWrap.scrollHeight;
           }
         }

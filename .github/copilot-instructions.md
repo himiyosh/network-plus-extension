@@ -287,3 +287,15 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - **根本原因**: `state.selectedIndex` がフィルタ前の配列インデックスだったが、`renderBody()` はフィルタ後の配列で行を描画していたため、インデックスが不一致になった
 - **対策**: `selectedIndex` を廃止し、`selectedRow` としてオブジェクト参照で選択を管理するように変更。フィルタ変更後も正しい行が選択される
 - **教訓**: フィルタ可能なリストでは、インデックスではなくオブジェクト参照やユニーク ID で選択状態を管理すること
+
+### LL-005: sticky ヘッダーの hover 背景透過
+- **事象**: `position:sticky` のカラムヘッダーに `:hover` で `background:var(--hover)` (rgba, alpha 6%) を設定したため、スクロール時に下のレコード行が透けて表示された
+- **根本原因**: `--hover` は `rgba(99,102,241,0.06)` でアルファ値を持つ半透明色。sticky 要素は他の要素の上に重なるため、不透明な背景色が必須
+- **対策**: hover 時の背景を `var(--th-bg)` (不透明) に変更し、アクセントカラーは `box-shadow:inset 0 -2px 0 var(--accent)` の下線で表現
+- **教訓**: `position:sticky` / `position:fixed` の要素に `rgba` / `hsla` 等の半透明背景を使用してはならない。hover エフェクトは不透明背景 + box-shadow / border で表現すること
+
+### LL-006: auto-scroll がユーザーの手動スクロールを上書き
+- **事象**: auto-scroll ON の状態で手動スクロールしても、新リクエスト到着のたびに最下部に強制スクロールされ、ユーザーが過去のリクエストを閲覧できなかった
+- **根本原因**: `if (isAtBottom || passesFilter)` の条件で `passesFilter` が true の場合に常にスクロールしていた。手動スクロール位置を考慮していなかった
+- **対策**: (1) `passesFilter` 条件を除去し `isAtBottom` のみで判定 (2) scroll イベントリスナーで手動スクロール上方向を検知し `autoScroll = false` に自動切替 (3) Auto-scroll ボタンの active 状態も連動更新
+- **教訓**: auto-scroll は「ユーザーが既にボトムにいる場合のみ」発動すべき。ユーザーの手動スクロール操作を常に尊重し、自動動作が手動操作を上書きしないこと

@@ -44,6 +44,7 @@ DevTools パネルという特殊な環境での表示品質・操作性・一�
 - [ ] System テーマで OS 設定切替に追従するか
 - [ ] 選択行・ホバー行・アクティブタブの視認性が 3 テーマすべてで十分か
 - [ ] ステータスバー、ツールバー、詳細パネルの背景色がテーマ間で統一されているか
+- [ ] **sticky 要素 (ヘッダー等) の :hover 背景に半透明色 (rgba/hsla) を使用していないか** --- スクロール時に下のコンテンツが透けて見える (LL-005)。不透明背景 + box-shadow/border で表現すること
 
 **検証方法**: Edge DevTools で拡張機能をロードし、Theme ボタンで 3 テーマを切り替えて目視確認する。
 
@@ -78,6 +79,8 @@ DevTools パネルという特殊な環境での表示品質・操作性・一�
 - [ ] 詳細パネルのタブ (Request: Headers/Body/Query/Cookies/Raw, Response: Headers/Body/Preview/Cookies/Timing/Raw) がすべて切り替わるか
 - [ ] Initiator リンクのクリックで DevTools がソースファイルを開くか
 - [ ] Auto-scroll トグルが ON/OFF で正しく動作するか
+- [ ] **手動スクロールで上へ移動した時に auto-scroll が自動 OFF になるか** --- ユーザーが過去リクエストを閲覧中に強制スクロールされないこと (LL-006)
+- [ ] **auto-scroll OFF 中に新リクエスト到着してもスクロール位置が維持されるか**
 
 ### 軸 4: 🔒 XSS 安全性 (XSS Safety)
 
