@@ -41,7 +41,7 @@ network-plus-extension/
   .github/
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
   docs/
-    unified-project-rules.md ... 共通プロジェクトルール
+    unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
     check-version-sync.js    ... package.json / manifest.json バージョン同期チェック
   tests/                     ... Jest ユニットテスト
@@ -187,7 +187,7 @@ npm run format       # Prettier フォーマット
 | ファイル | 説明 |
 |---|---|
 | [.github/copilot-instructions.md](.github/copilot-instructions.md) | Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針) |
-| [docs/unified-project-rules.md](docs/unified-project-rules.md) | JPUCSupport 共通プロジェクトルール |
+| docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | package.json / manifest.json バージョン同期チェックスクリプト |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
 

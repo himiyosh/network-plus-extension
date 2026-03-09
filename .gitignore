@@ -8,6 +8,12 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Playwright MCP
+.playwright-mcp/
+
+# Shared rules (local reference only)
+docs/unified-project-rules.md
+
 # Environment / config
 .env
 *.local.json
