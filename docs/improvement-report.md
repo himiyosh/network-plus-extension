@@ -142,3 +142,35 @@ v2.0.0 (メジャー):
   [P1] #4 タイミングウォーターフォール      🔴 L
   [P2] #6 リクエスト diff 比較              🔴 L
 ```
+
+---
+
+## Cycle 2: 全機能実装 (2026-03-09)
+
+### 実装結果
+
+| # | 優先度 | 機能名 | 状態 | コミット |
+|---|---|---|---|---|
+| 1 | P0 | cURL / fetch / PowerShell コピー | ✅ 完了 | `577af76` |
+| 2 | P0 | フィルタプリセット保存・復元 | ✅ 完了 | `577af76` |
+| 3 | P1 | リクエスト統計サマリーパネル | ✅ 完了 | `577af76` |
+| 4 | P1 | タイミングウォーターフォール表示 | ✅ 完了 | `577af76` |
+| 5 | P1 | キーボードショートカット一覧 | ✅ 完了 | `577af76` |
+| 6 | P2 | リクエスト diff 比較 | ✅ 完了 | `577af76` |
+| 7 | P2 | レスポンスボディ検索 | ✅ 完了 | `577af76` |
+| 8 | P2 | カラムドラッグ並替永続化 | ✅ 既存実装 | (v1.4.0 で実装済み) |
+
+### 品質ゲート
+
+| チェック | 結果 |
+|---|---|
+| Jest テスト | ✅ 54/54 PASS (11 新規テスト追加) |
+| ESLint | ✅ 0 errors, 0 warnings |
+| Version sync | ✅ OK (1.4.0) |
+
+### 追加テスト
+
+- `generateCurl`: 3 テスト (null, GET, POST with headers/body)
+- `generateFetch`: 3 テスト (null, GET, POST with headers/body)
+- `generatePowerShell`: 3 テスト (null, GET, POST with headers)
+- `computeStats`: 2 テスト (empty, multi-row statistics)
