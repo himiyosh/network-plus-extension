@@ -1,7 +1,7 @@
 # Network+ for DevTools - Copilot Instructions
 
 > 本ファイルは `network-plus-extension` プロジェクトにおける Copilot の動作ルールを定義する。
-> 共通ルールは [unified-project-rules.md](../unified-project-rules.md) を参照。
+> 共通ルールは [unified-project-rules.md](../docs/unified-project-rules.md) を参照。
 
 ---
 
@@ -107,6 +107,25 @@ Microsoft Edge DevTools
 | **新しい色の追加** | 上記 4 箇所すべてにカスタムプロパティを追加すること |
 | **単位** | `px` を基本とする (DevTools パネルはズーム非対応) |
 
+### 2.7 フォルダ構成ルール (絶対遵守)
+
+ルートフォルダは拡張機能のロードに必要なファイルのみに限定する。
+
+| フォルダ | 配置するもの |
+|----------|-------------|
+| **ルート** | 拡張機能コアファイル (`manifest.json`, `devtools.*`, `panel.*`) + プロジェクト設定 (`package.json`, `.gitignore`, `.prettierrc`, `eslint.config.mjs`, `README.md`) のみ |
+| **`docs/`** | プロジェクトドキュメント、ルール文書 |
+| **`scripts/`** | ユーティリティスクリプト、一時的な修正スクリプト |
+| **`tests/`** | テストファイル、テストヘルパー |
+| **`icons/`** | 拡張機能アイコン |
+| **`vendor/`** | サードパーティライブラリ |
+| **`.github/`** | GitHub/Copilot 設定 |
+
+**禁止事項**:
+- ルートに一時ファイル (`fix*.js`, `test_output.*`, `*.tmp`) を作成・コミットしない
+- 作業用スクリプトは `scripts/` に配置し、作業完了後に不要であれば削除する
+- テスト出力・カバレッジは `.gitignore` で除外済み (`coverage/`)
+
 ---
 
 ## 3. セキュリティ / シークレット管理
@@ -211,6 +230,12 @@ npm run version:check      # package.json と manifest.json の version 同期�
 ---
 
 ## 6. Lessons Learned
+
+### LL-004: ルートフォルダへの一時ファイル散乱
+- **事象**: `fix.js`, `fix_empty.js`, `test.svg`, `test_output.txt`, `eslint.json` 等の一時ファイル・出力ファイルがルートに放置されていた
+- **根本原因**: 一時的な修正スクリプトやテスト出力を作成後、削除ルールが未整備だった
+- **対策**: (1) 不要ファイルを削除、(2) `.gitignore` に `fix*.js`, `test_output.*`, `*.tmp` を追加、(3) フォルダ整理ルール (2.7) を新設
+- **教訓**: ルートフォルダは拡張機能のロードに必要なファイルのみに限定する。作業スクリプトは `scripts/` に、ドキュメントは `docs/` に配置すること
 
 ### LL-001: innerHTML + ユーザーデータ = XSS 脆弱性
 - **事象**: `selectRow()` の Overview, Headers, Timing ペインで、`innerHTML` に `row.url`, ヘッダー名/値等のユーザーデータを文字列結合で埋め込んでいた

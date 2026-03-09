@@ -34,10 +34,15 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 network-plus-extension/
   .github/
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
+  docs/
+    unified-project-rules.md ... 共通プロジェクトルール
+  scripts/
+    check-version-sync.js    ... package.json / manifest.json バージョン同期チェック
   tests/                     ... Jest ユニットテスト
     setup.js                 ... テスト用ブラウザ API モック
     panel.test.js            ... 純粋関数のユニットテスト
   icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
+  vendor/                    ... サードパーティライブラリ
   manifest.json              ... 拡張機能マニフェスト (Manifest V3, CSP 明示設定)
   devtools.html              ... DevTools ページ (devtools.js をロード)
   devtools.js                ... chrome.devtools.panels.create() で Network+ パネルを生成

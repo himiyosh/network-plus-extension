@@ -2,3 +2,9 @@ node_modules/
 coverage/
 *.log
 .DS_Store
+
+# Temporary / one-off scripts
+fix*.js
+test_output.*
+test.svg
+*.tmp
