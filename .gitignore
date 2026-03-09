@@ -27,3 +27,4 @@ fix*.js
 test_output.*
 test.svg
 *.tmp
+filter-popup-*

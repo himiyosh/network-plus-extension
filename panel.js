@@ -1869,10 +1869,14 @@ const _NetworkPlus = (function () {
     return stats;
   }
 
-  function renderStatsBar(rows) {
+  function renderStatsBar() {
     const bar = document.getElementById('stats-bar');
     if (!bar || !bar.classList.contains('visible')) return;
     bar.textContent = '';
+
+    // Use selected rows if any, otherwise all filtered rows
+    const hasSelection = state.selectedRows.size > 0;
+    const rows = hasSelection ? [...state.selectedRows] : state.filteredRows;
     const s = computeStats(rows);
 
     const addBadge = (label, value, color) => {
@@ -1888,6 +1892,14 @@ const _NetworkPlus = (function () {
       badge.appendChild(valueSpan);
       bar.appendChild(badge);
     };
+
+    // Scope indicator
+    if (hasSelection) {
+      const scopeBadge = document.createElement('span');
+      scopeBadge.style.cssText = 'display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:var(--accent-dim);border:1px solid var(--accent);font-size:10px;font-weight:700;color:var(--accent);white-space:nowrap';
+      scopeBadge.textContent = '\uD83D\uDCCC Selected: ' + state.selectedRows.size;
+      bar.appendChild(scopeBadge);
+    }
 
     addBadge('Requests', String(s.total), 'var(--accent)');
     addBadge('Size', fmtBytes(s.totalSize), 'var(--accent)');
@@ -1914,7 +1926,7 @@ const _NetworkPlus = (function () {
   function render() {
     renderHeader();
     renderBody();
-    renderStatsBar(state.filteredRows);
+    renderStatsBar();
   }
 
   // ============================================================
@@ -2094,6 +2106,7 @@ const _NetworkPlus = (function () {
         state.selectedRows.add(row);
       }
       renderBody(); // Update row styling only
+      renderStatsBar(); // Update stats for selection
       return; // Don't update detail panel
     }
 
@@ -2108,6 +2121,7 @@ const _NetworkPlus = (function () {
           state.selectedRows.add(filtered[i]);
         }
         renderBody(); // Update row styling only
+        renderStatsBar(); // Update stats for selection
         return; // Don't update detail panel
       }
     }
@@ -2116,6 +2130,7 @@ const _NetworkPlus = (function () {
     state.selectedRows.clear();
     state.selectedRow = row;
     renderBody();
+    renderStatsBar(); // Update stats (back to all)
     if (!row) return;
 
     const tableWrap = $('#tableWrap');
@@ -2840,7 +2855,7 @@ const _NetworkPlus = (function () {
         if (!bar) return;
         bar.classList.toggle('visible');
         if (bar.classList.contains('visible')) {
-          renderStatsBar(state.filteredRows);
+          renderStatsBar();
         }
         statsBtn.classList.toggle('active', bar.classList.contains('visible'));
       });
@@ -3320,11 +3335,11 @@ const _NetworkPlus = (function () {
           for (let i = 0; i < rows.length; i++) totalBytes += rows[i].size || 0;
           const totalSizeEl = $('#totalSize');
           if (totalSizeEl) totalSizeEl.textContent = totalBytes > 0 ? fmtBytes(totalBytes) + ' transferred' : '';
-          renderStatsBar(rows);
+          renderStatsBar();
         } else {
           // Full re-render needed (sort active or row filtered out)
           renderBody();
-          renderStatsBar(state.filteredRows);
+          renderStatsBar();
         }
 
         // Auto-scroll only if enabled and user was at bottom
