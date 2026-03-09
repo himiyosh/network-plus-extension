@@ -19,6 +19,8 @@ export default [
         Blob: "readonly",
         atob: "readonly",
         DocumentFragment: "readonly",
+        TextDecoder: "readonly",
+        TextEncoder: "readonly",
         module: "readonly",
       },
     },
