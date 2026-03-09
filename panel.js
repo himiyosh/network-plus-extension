@@ -21,31 +21,136 @@ const _NetworkPlus = (function () {
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
   const FILTER_PRESET_KEY = 'networkPlus.filterPresets';
   const MAX_FILTER_PRESETS = 20;
+  const LANG_KEY = 'networkPlus.lang';
+
+  // i18n dictionary
+  const I18N = {
+    en: {
+      columnFilters: 'Column Filters',
+      active: 'active',
+      clearAll: 'Clear All',
+      timing: 'Timing',
+      request: 'Request',
+      response: 'Response',
+      other: 'Other',
+      respBody: 'Resp. Body',
+      filter: 'Filter',
+      from: 'From',
+      to: 'To',
+      reset: 'Reset',
+      all: 'All',
+      none: 'None',
+      contains: 'contains',
+      notcontains: 'not contains',
+      equals: '==',
+      notequals: '!=',
+      startswith: 'starts with',
+      endswith: 'ends with',
+      regex: 'regex',
+      empty: 'is empty',
+      notempty: 'is not empty',
+      gt: '>',
+      gte: '>=',
+      lt: '<',
+      lte: '<=',
+      value: 'value',
+      addCondition: '+ Add',
+      remove: 'Del',
+      includeAny: 'Include (any)',
+      includeAll: 'Include (all)',
+      exclude: 'Exclude',
+      caseSensitive: 'Case sensitive',
+      savedPresets: 'Saved Presets',
+      presetName: 'Preset name...',
+      save: 'Save',
+      noPresets: 'No saved presets yet.',
+      saved: 'Saved',
+      applied: 'Preset applied',
+      lang: 'EN',
+    },
+    ja: {
+      columnFilters: '\u30AB\u30E9\u30E0\u30D5\u30A3\u30EB\u30BF',
+      active: '\u6709\u52B9',
+      clearAll: '\u5168\u89E3\u9664',
+      timing: '\u30BF\u30A4\u30DF\u30F3\u30B0',
+      request: '\u30EA\u30AF\u30A8\u30B9\u30C8',
+      response: '\u30EC\u30B9\u30DD\u30F3\u30B9',
+      other: '\u305D\u306E\u4ED6',
+      respBody: '\u30EC\u30B9\u30DD\u30F3\u30B9\u672C\u6587',
+      filter: '\u30D5\u30A3\u30EB\u30BF',
+      from: '\u958B\u59CB',
+      to: '\u7D42\u4E86',
+      reset: '\u30EA\u30BB\u30C3\u30C8',
+      all: '\u5168\u9078\u629E',
+      none: '\u5168\u89E3\u9664',
+      contains: '\u542B\u3080',
+      notcontains: '\u542B\u307E\u306A\u3044',
+      equals: '\u4E00\u81F4',
+      notequals: '\u4E0D\u4E00\u81F4',
+      startswith: '\u524D\u65B9\u4E00\u81F4',
+      endswith: '\u5F8C\u65B9\u4E00\u81F4',
+      regex: '\u6B63\u898F\u8868\u73FE',
+      empty: '\u7A7A',
+      notempty: '\u7A7A\u3067\u306A\u3044',
+      gt: '>\u3088\u308A\u5927',
+      gte: '>=\u4EE5\u4E0A',
+      lt: '<\u3088\u308A\u5C0F',
+      lte: '<=\u4EE5\u4E0B',
+      value: '\u5024',
+      addCondition: '+ \u8FFD\u52A0',
+      remove: '\u524A\u9664',
+      includeAny: '\u542B\u3080 (\u3044\u305A\u308C\u304B)',
+      includeAll: '\u542B\u3080 (\u3059\u3079\u3066)',
+      exclude: '\u9664\u5916',
+      caseSensitive: '\u5927\u6587\u5B57\u5C0F\u6587\u5B57\u3092\u533A\u5225',
+      savedPresets: '\u4FDD\u5B58\u6E08\u307F\u30D7\u30EA\u30BB\u30C3\u30C8',
+      presetName: '\u30D7\u30EA\u30BB\u30C3\u30C8\u540D...',
+      save: '\u4FDD\u5B58',
+      noPresets: '\u4FDD\u5B58\u6E08\u307F\u30D7\u30EA\u30BB\u30C3\u30C8\u306F\u3042\u308A\u307E\u305B\u3093',
+      saved: '\u4FDD\u5B58\u3057\u307E\u3057\u305F',
+      applied: '\u30D7\u30EA\u30BB\u30C3\u30C8\u9069\u7528\u6E08\u307F',
+      lang: 'JA',
+    },
+  };
+
+  let currentLang = 'en';
+  function t(key) { return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key; }
+
+  function loadLangPref() {
+    try {
+      const saved = localStorage.getItem(LANG_KEY);
+      if (saved && I18N[saved]) currentLang = saved;
+    } catch (_e) { /* ignore */ }
+  }
+  function saveLangPref(lang) {
+    currentLang = lang;
+    try { localStorage.setItem(LANG_KEY, lang); } catch (_e) { /* ignore */ }
+  }
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
   const DATE_COLUMNS = ['clientStart', 'serverDone'];
 
   const FILTER_OPERATORS_STRING = [
-    { value: 'contains', label: 'contains' },
-    { value: 'notcontains', label: 'not contains' },
-    { value: 'equals', label: '==' },
-    { value: 'notequals', label: '!=' },
-    { value: 'startswith', label: 'startsWith' },
-    { value: 'endswith', label: 'endsWith' },
-    { value: 'regex', label: 'regex' },
-    { value: 'empty', label: 'isEmpty' },
-    { value: 'notempty', label: 'isNotEmpty' },
+    { value: 'contains', key: 'contains' },
+    { value: 'notcontains', key: 'notcontains' },
+    { value: 'equals', key: 'equals' },
+    { value: 'notequals', key: 'notequals' },
+    { value: 'startswith', key: 'startswith' },
+    { value: 'endswith', key: 'endswith' },
+    { value: 'regex', key: 'regex' },
+    { value: 'empty', key: 'empty' },
+    { value: 'notempty', key: 'notempty' },
   ];
   const FILTER_OPERATORS_NUMERIC = [
-    { value: 'equals', label: '==' },
-    { value: 'notequals', label: '!=' },
-    { value: 'gt', label: '>' },
-    { value: 'gte', label: '>=' },
-    { value: 'lt', label: '<' },
-    { value: 'lte', label: '<=' },
-    { value: 'empty', label: 'isEmpty' },
-    { value: 'notempty', label: 'isNotEmpty' },
+    { value: 'equals', key: 'equals' },
+    { value: 'notequals', key: 'notequals' },
+    { value: 'gt', key: 'gt' },
+    { value: 'gte', key: 'gte' },
+    { value: 'lt', key: 'lt' },
+    { value: 'lte', key: 'lte' },
+    { value: 'empty', key: 'empty' },
+    { value: 'notempty', key: 'notempty' },
   ];
 
   const DEFAULT_COLUMNS = [
@@ -1108,7 +1213,7 @@ const _NetworkPlus = (function () {
       const endVal = isTimeRange && rule.end ? rule.end : autoEnd;
 
       const startLabel = document.createElement('span');
-      startLabel.textContent = 'From ';
+      startLabel.textContent = t('from') + ' ';
       const startInput = document.createElement('input');
       startInput.type = 'time';
       startInput.step = '1';
@@ -1116,7 +1221,7 @@ const _NetworkPlus = (function () {
       startInput.value = startVal;
 
       const endLabel = document.createElement('span');
-      endLabel.textContent = ' To ';
+      endLabel.textContent = ' ' + t('to') + ' ';
       const endInput = document.createElement('input');
       endInput.type = 'time';
       endInput.step = '1';
@@ -1124,7 +1229,7 @@ const _NetworkPlus = (function () {
       endInput.value = endVal;
 
       const clearBtn = document.createElement('button');
-      clearBtn.textContent = 'Reset';
+      clearBtn.textContent = t('reset');
       clearBtn.className = 'filter-clear-btn';
       clearBtn.addEventListener('click', () => {
         startInput.value = autoStart;
@@ -1158,7 +1263,7 @@ const _NetworkPlus = (function () {
       const btnRow = document.createElement('div');
       btnRow.style.cssText = 'display:flex;gap:4px;margin-bottom:4px';
       const allBtn = document.createElement('button');
-      allBtn.textContent = 'All';
+      allBtn.textContent = t('all');
       allBtn.className = 'filter-clear-btn';
       allBtn.style.flex = '1';
       allBtn.addEventListener('click', () => {
@@ -1170,7 +1275,7 @@ const _NetworkPlus = (function () {
         renderMethodCheckboxes();
       });
       const noneBtn = document.createElement('button');
-      noneBtn.textContent = 'None';
+      noneBtn.textContent = t('none');
       noneBtn.className = 'filter-clear-btn';
       noneBtn.style.flex = '1';
       noneBtn.addEventListener('click', () => {
@@ -1246,7 +1351,7 @@ const _NetworkPlus = (function () {
       const isAdv = rule && rule.mode === 'urlAdvanced';
 
       const inclAnyLabel = document.createElement('label');
-      inclAnyLabel.textContent = 'Include ANY (comma-separated):';
+      inclAnyLabel.textContent = t('includeAny') + ':';
       const inclAnyInput = document.createElement('input');
       inclAnyInput.type = 'text';
       inclAnyInput.className = 'filter-value';
@@ -1254,7 +1359,7 @@ const _NetworkPlus = (function () {
       inclAnyInput.value = isAdv ? rule.includeAny || '' : '';
 
       const inclAllLabel = document.createElement('label');
-      inclAllLabel.textContent = 'Include ALL (comma-separated):';
+      inclAllLabel.textContent = t('includeAll') + ':';
       const inclAllInput = document.createElement('input');
       inclAllInput.type = 'text';
       inclAllInput.className = 'filter-value';
@@ -1262,7 +1367,7 @@ const _NetworkPlus = (function () {
       inclAllInput.value = isAdv ? rule.includeAll || '' : '';
 
       const exclLabel = document.createElement('label');
-      exclLabel.textContent = 'Exclude ANY (comma-separated):';
+      exclLabel.textContent = t('exclude') + ':';
       const exclInput = document.createElement('input');
       exclInput.type = 'text';
       exclInput.className = 'filter-value';
@@ -1274,7 +1379,7 @@ const _NetworkPlus = (function () {
       csCb.type = 'checkbox';
       csCb.checked = isAdv ? !!rule.caseSensitive : false;
       csLabel.appendChild(csCb);
-      const csText = document.createTextNode(' Case sensitive');
+      const csText = document.createTextNode(' ' + t('caseSensitive'));
       csLabel.appendChild(csText);
 
       const update = () => {
@@ -1319,7 +1424,7 @@ const _NetworkPlus = (function () {
           for (const op of FILTER_OPERATORS_STRING) {
             const option = document.createElement('option');
             option.value = op.value;
-            option.textContent = op.label;
+            option.textContent = t(op.key);
             opSelect.appendChild(option);
           }
           opSelect.value = cond.op || 'contains';
@@ -1327,11 +1432,11 @@ const _NetworkPlus = (function () {
           const input = document.createElement('input');
           input.type = 'text';
           input.className = 'filter-value';
-          input.placeholder = 'value';
+          input.placeholder = t('value');
           input.value = cond.value || '';
 
           const removeBtn = document.createElement('button');
-          removeBtn.textContent = 'x';
+          removeBtn.textContent = t('remove');
           removeBtn.className = 'filter-remove-btn';
           removeBtn.addEventListener('click', () => {
             conditions.splice(idx, 1);
@@ -1359,7 +1464,7 @@ const _NetworkPlus = (function () {
         });
 
         const addBtn = document.createElement('button');
-        addBtn.textContent = '+ Add condition';
+        addBtn.textContent = t('addCondition');
         addBtn.className = 'filter-add-btn';
         addBtn.addEventListener('click', () => {
           conditions.push({ op: 'contains', value: '' });
@@ -1379,7 +1484,7 @@ const _NetworkPlus = (function () {
     for (const op of operators) {
       const option = document.createElement('option');
       option.value = op.value;
-      option.textContent = op.label;
+      option.textContent = t(op.key);
       opSelect.appendChild(option);
     }
 
@@ -1389,7 +1494,7 @@ const _NetworkPlus = (function () {
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'filter-value';
-    input.placeholder = 'value';
+    input.placeholder = t('value');
     input.value = rule.value || '';
 
     const updateInputState = () => {
@@ -1456,13 +1561,13 @@ const _NetworkPlus = (function () {
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
     const headerText = document.createElement('span');
-    headerText.textContent = '\u2699\uFE0F Column Filters' + (totalActive > 0 ? ' (' + totalActive + ' active)' : '');
+    headerText.textContent = '\u2699\uFE0F ' + t('columnFilters') + (totalActive > 0 ? ' (' + totalActive + ' ' + t('active') + ')' : '');
     header.appendChild(headerText);
 
     if (totalActive > 0) {
       const clearAllBtn = document.createElement('button');
       clearAllBtn.className = 'filter-clear-btn';
-      clearAllBtn.textContent = '\u274C Clear All';
+      clearAllBtn.textContent = '\u274C ' + t('clearAll');
       clearAllBtn.addEventListener('click', () => {
         state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
         onChange();
@@ -1472,6 +1577,20 @@ const _NetworkPlus = (function () {
       });
       header.appendChild(clearAllBtn);
     }
+
+    // Language toggle
+    const langBtn = document.createElement('button');
+    langBtn.className = 'filter-clear-btn';
+    langBtn.textContent = '\uD83C\uDF10 ' + t('lang');
+    langBtn.title = 'Toggle EN/JA';
+    langBtn.addEventListener('click', () => {
+      const next = currentLang === 'en' ? 'ja' : 'en';
+      saveLangPref(next);
+      root.textContent = '';
+      root.appendChild(createFilterPopupContent(onChange, focusColId));
+    });
+    header.appendChild(langBtn);
+
     root.appendChild(header);
 
     const list = document.createElement('div');
@@ -1481,10 +1600,10 @@ const _NetworkPlus = (function () {
 
     // Group columns by category for better organization
     const groups = [
-      { title: '\u23F1\uFE0F Timing', ids: ['clientStart', 'serverDone', 'duration'] },
-      { title: '\u27A1\uFE0F Request', ids: ['method', 'url', 'domain', 'path'] },
-      { title: '\u2B05\uFE0F Response', ids: ['status', 'type', 'size', 'body'] },
-      { title: '\uD83D\uDD27 Other', ids: ['id', 'initiator'] },
+      { title: '\u23F1\uFE0F ' + t('timing'), ids: ['clientStart', 'serverDone', 'duration'] },
+      { title: '\u27A1\uFE0F ' + t('request'), ids: ['method', 'url', 'domain', 'path'] },
+      { title: '\u2B05\uFE0F ' + t('response'), ids: ['status', 'type', 'size', 'body'] },
+      { title: '\uD83D\uDD27 ' + t('other'), ids: ['id', 'initiator'] },
     ];
 
     for (const group of groups) {
@@ -1499,7 +1618,7 @@ const _NetworkPlus = (function () {
       for (const colId of group.ids) {
         // body is a pseudo-column, not in state.columns
         const col = state.columns.find((c) => c.id === colId);
-        const label = col ? col.label : (colId === 'body' ? '\uD83D\uDCC4 Resp. Body' : colId);
+        const label = col ? col.label : (colId === 'body' ? '\uD83D\uDCC4 ' + t('respBody') : colId);
 
         const row = document.createElement('div');
         row.className = 'filter-popup-row';
@@ -1546,7 +1665,7 @@ const _NetworkPlus = (function () {
 
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
-    header.textContent = '\uD83D\uDD0D ' + col.label + ' Filter';
+    header.textContent = '\uD83D\uDD0D ' + col.label + ' ' + t('filter');
     root.appendChild(header);
 
     const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
@@ -2354,6 +2473,7 @@ const _NetworkPlus = (function () {
   // ============================================================
   function init() {
     loadColumnPrefs();
+    loadLangPref();
     setStatus('panel.js loaded');
 
     // Global Search Ctrl+F
@@ -2560,13 +2680,13 @@ const _NetworkPlus = (function () {
 
         const nameInput = document.createElement('input');
         nameInput.type = 'text';
-        nameInput.placeholder = 'Preset name...';
+        nameInput.placeholder = t('presetName');
         nameInput.style.cssText = 'flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:11px';
 
         const saveBtn = document.createElement('button');
         saveBtn.className = 'filter-add-btn';
         saveBtn.style.cssText = 'width:auto;margin:0;padding:4px 12px;font-size:11px';
-        saveBtn.textContent = 'Save';
+        saveBtn.textContent = t('save');
 
         const doSave = () => {
           const name = nameInput.value.trim();
@@ -2583,7 +2703,7 @@ const _NetworkPlus = (function () {
             // Show success feedback
             const toast = document.createElement('div');
             toast.style.cssText = 'padding:6px 10px;background:var(--status-2xx);color:#fff;border-radius:6px;font-size:11px;font-weight:600;text-align:center;margin:4px 8px';
-            toast.textContent = 'Saved: ' + name;
+            toast.textContent = t('saved') + ': ' + name;
             presetsDropdown.insertBefore(toast, saveRow.nextSibling);
             setTimeout(() => { toast.remove(); refreshPresetsList(); }, 1500);
             setStatus('Preset saved: ' + name);
@@ -2604,7 +2724,7 @@ const _NetworkPlus = (function () {
           if (presets.length === 0) {
             const empty = document.createElement('div');
             empty.style.cssText = 'padding:10px 8px;color:var(--muted);font-size:11px;text-align:center';
-            empty.textContent = 'No saved presets yet. Enter a name above and click Save.';
+            empty.textContent = t('noPresets');
             presetsDropdown.appendChild(empty);
             return;
           }
@@ -2614,7 +2734,7 @@ const _NetworkPlus = (function () {
 
           const listTitle = document.createElement('div');
           listTitle.style.cssText = 'padding:4px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted)';
-          listTitle.textContent = 'Saved Presets (' + presets.length + ')';
+          listTitle.textContent = t('savedPresets') + ' (' + presets.length + ')';
           presetsDropdown.appendChild(listTitle);
 
           for (let i = 0; i < presets.length; i++) {
