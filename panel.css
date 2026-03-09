@@ -3,6 +3,7 @@
    ============================================================ */
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;font:13px 'Segoe UI',system-ui,-apple-system,Roboto,sans-serif;color:var(--fg);background:var(--bg)}
+body{display:flex;flex-direction:column;overflow:hidden}
 
 /* --- Light Theme --- */
 :root{
@@ -81,8 +82,12 @@ html[data-theme="light"]{
 .topbar.recording #pauseBtn{color:#ef4444}
 html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
 
+/* === Stats Bar === */
+.stats-bar{display:none;padding:5px 10px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--fg);gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0}
+.stats-bar.visible{display:flex}
+
 /* === Layout === */
-.content{display:flex;height:calc(100vh - 72px)}
+.content{display:flex;flex:1;min-height:0}
 .tableWrap{overflow:auto;flex:1 1 50%}
 .resizer{flex:0 0 4px;cursor:col-resize;background:var(--border);z-index:2;transition:background 0.15s}
 .resizer:hover{background:var(--accent)}

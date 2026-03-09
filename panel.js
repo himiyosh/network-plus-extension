@@ -649,9 +649,12 @@ const _NetworkPlus = (function () {
   }
 
   function captureCurrentFilterState() {
+    const bar = document.getElementById('stats-bar');
     return {
       globalFilter: state.globalFilter,
       columnFilterRules: JSON.parse(JSON.stringify(state.columnFilterRules)),
+      statsVisible: bar ? bar.classList.contains('visible') : false,
+      theme: document.documentElement.getAttribute('data-theme') || 'system',
     };
   }
 
@@ -661,6 +664,20 @@ const _NetworkPlus = (function () {
     if (filterInput) filterInput.value = state.globalFilter;
     if (preset.columnFilterRules) {
       state.columnFilterRules = JSON.parse(JSON.stringify(preset.columnFilterRules));
+    }
+    // Restore stats bar visibility
+    if (typeof preset.statsVisible === 'boolean') {
+      const bar = document.getElementById('stats-bar');
+      const sBtn = $('#statsBtn');
+      if (bar) {
+        bar.classList.toggle('visible', preset.statsVisible);
+        if (sBtn) sBtn.classList.toggle('active', preset.statsVisible);
+      }
+    }
+    // Restore theme
+    if (preset.theme) {
+      applyTheme(preset.theme);
+      saveThemePref(preset.theme);
     }
     render();
     setStatus('Preset applied: ' + preset.name);
@@ -1732,17 +1749,8 @@ const _NetworkPlus = (function () {
   }
 
   function renderStatsBar(rows) {
-    let bar = document.getElementById('stats-bar');
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.id = 'stats-bar';
-      bar.style.cssText = 'display:none;padding:5px 10px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--fg);gap:6px;flex-wrap:wrap;align-items:center;position:sticky;top:42px;z-index:2';
-      const topbar = document.querySelector('.topbar');
-      if (topbar && topbar.nextSibling) {
-        topbar.parentNode.insertBefore(bar, topbar.nextSibling);
-      }
-    }
-    if (bar.style.display === 'none') return;
+    const bar = document.getElementById('stats-bar');
+    if (!bar || !bar.classList.contains('visible')) return;
     bar.textContent = '';
     const s = computeStats(rows);
 
@@ -2702,21 +2710,13 @@ const _NetworkPlus = (function () {
     const statsBtn = $('#statsBtn');
     if (statsBtn) {
       statsBtn.addEventListener('click', () => {
-        let bar = document.getElementById('stats-bar');
-        if (!bar) {
-          bar = document.createElement('div');
-          bar.id = 'stats-bar';
-          bar.style.cssText = 'display:flex;padding:5px 10px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--fg);gap:6px;flex-wrap:wrap;align-items:center;position:sticky;top:42px;z-index:2';
-          const topbar = document.querySelector('.topbar');
-          if (topbar && topbar.nextSibling) {
-            topbar.parentNode.insertBefore(bar, topbar.nextSibling);
-          }
+        const bar = document.getElementById('stats-bar');
+        if (!bar) return;
+        bar.classList.toggle('visible');
+        if (bar.classList.contains('visible')) {
           renderStatsBar(state.filteredRows);
-        } else {
-          bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
-          if (bar.style.display === 'flex') renderStatsBar(state.filteredRows);
         }
-        statsBtn.classList.toggle('active', bar.style.display !== 'none');
+        statsBtn.classList.toggle('active', bar.classList.contains('visible'));
       });
     }
 
