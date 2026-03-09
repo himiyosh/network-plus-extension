@@ -1570,12 +1570,19 @@ const _NetworkPlus = (function () {
       const clearAllBtn = document.createElement('button');
       clearAllBtn.className = 'filter-clear-btn';
       clearAllBtn.textContent = '\u274C ' + t('clearAll');
-      clearAllBtn.addEventListener('click', () => {
+      clearAllBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
+        state.globalFilter = '';
+        const filterInput = document.getElementById('filterInput');
+        if (filterInput) filterInput.value = '';
         onChange();
-        // Re-render the popup
-        root.textContent = '';
-        root.appendChild(createFilterPopupContent(onChange, focusColId));
+        // Re-render the popup in place
+        const parent = root.parentElement;
+        const newContent = createFilterPopupContent(onChange, focusColId);
+        if (parent) {
+          parent.replaceChild(newContent, root);
+        }
       });
       header.appendChild(clearAllBtn);
     }
@@ -2691,26 +2698,6 @@ const _NetworkPlus = (function () {
         openFilterPopup(rect.left + window.scrollX, rect.bottom + window.scrollY, null);
       }
     });
-
-    // Reset all filters button
-    const resetFiltersBtn = $('#resetFiltersBtn');
-    if (resetFiltersBtn) {
-      resetFiltersBtn.addEventListener('click', () => {
-        state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
-        state.globalFilter = '';
-        const filterInput = $('#filterInput');
-        if (filterInput) filterInput.value = '';
-        render();
-        setStatus(t('clearAll'));
-        // Close any open filter popup
-        $all('.dropdown-content').forEach((d) => {
-          d.style.display = 'none';
-          d.classList.remove('show');
-        });
-        filterPopup.style.display = 'none';
-        filterPopup.classList.remove('show');
-      });
-    }
 
     // --- Filter Presets UI ---
     const presetsBtn = $('#presetsBtn');
