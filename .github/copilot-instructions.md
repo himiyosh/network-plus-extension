@@ -167,9 +167,42 @@ Microsoft Edge DevTools
 
 ---
 
-## 5. テスト / 品質保証
+## 5. コミット / 言語 / エンコーディング規約
 
-### 5.1 テスト方針
+### 5.1 コミットメッセージ規則
+
+- **言語**: 英語
+- **形式**: `<type>: <short description>`
+- **type 一覧**: `feat` (新機能), `fix` (バグ修正), `docs` (ドキュメント), `refactor` (リファクタリング), `chore` (設定/依存関係), `test` (テスト追加/修正)
+- 本文が必要な場合は改行後に詳細を記述 (日本語 OK)
+
+### 5.2 言語ポリシー
+
+| 対象 | 使用言語 |
+|---|---|
+| **ファイル名** | 英語 (kebab-case) |
+| **コミットメッセージ** | 英語 |
+| **ブランチ名** | 英語 |
+| **コードコメント** | 英語推奨 (日本語許容) |
+| **ドキュメント本文** (README 等) | 日本語 |
+| **Copilot Instructions / Lessons Learned** | 日本語 |
+
+### 5.3 エンコーディング
+
+- ソースファイルは **UTF-8** で保存
+- Markdown 編集後は U+FFFD (REPLACEMENT CHARACTER) スキャンを実施し、絵文字の文字化けがないことを確認する
+
+### 5.4 自動実行の安全制約
+
+- `main` / `master` への直接 push 禁止。PR を経由する
+- `git push --force` / `git reset --hard` / ファイル・ブランチ削除等の破壊的操作はユーザー確認必須
+- 作業ブランチへの `git push` / PR 作成 (`gh pr create`) は確認不要で自動実行 OK
+
+---
+
+## 6. テスト / 品質保証
+
+### 6.1 テスト方針
 
 | 対象 | 手法 | 場所 |
 |------|------|------|
@@ -178,7 +211,7 @@ Microsoft Edge DevTools
 | **テーマ** | 手動テスト (System/Dark/Light 切替確認) | - |
 | **エクスポート** | 手動テスト (HAR ファイルの内容検証) | - |
 
-### 5.2 テスト実行
+### 6.2 テスト実行
 
 ```bash
 npm test                   # Jest テスト実行 (カバレッジ付き)
@@ -186,14 +219,14 @@ npm run lint               # ESLint 実行
 npm run version:check      # package.json と manifest.json の version 同期チェック
 ```
 
-### 5.3 品質ゲート
+### 6.3 品質ゲート
 
 - **コミット前に必ず実行**: `npm test` / `npm run lint` / `npm run version:check` がすべて PASS であること
 - ESLint: **0 errors, 0 warnings** を維持 (未使用の catch 変数は `_` プレフィックスでマーク)
 - Jest: **全テスト PASS** を維持
 - 新しい純粋関数を追加した場合は、対応するテストも同一コミットで追加すること
 
-### 5.6 バージョン管理 (SemVer)
+### 6.4 バージョン管理 (SemVer)
 
 - バージョンは **Semantic Versioning (`MAJOR.MINOR.PATCH`)** を採用する
 - 機能追加時は `MINOR`、バグ修正時は `PATCH`、破壊的変更時は `MAJOR` を上げる
@@ -204,13 +237,13 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - バージョン更新の同一コミットで `README.md` の該当機能説明を更新する
 - バージョン同期の確認には `npm run version:check` を必ず実行する
 
-### 5.4 テスト環境の制約
+### 6.5 テスト環境の制約
 
 - DevTools パネルは ES Modules 非対応のため、テストでは `global` にブラウザ API をモックする (`tests/setup.js`)
 - `panel.js` は IIFE の `return` で純粋関数をエクスポートし、末尾の `module.exports` で Node.js に公開する
 - DOM 操作を含む関数 (レンダリング等) はユニットテスト対象外。手動テストで確認する
 
-### 5.5 手動テストチェックリスト
+### 6.6 手動テストチェックリスト
 
 コードを変更した後、Edge で拡張機能をリロードして以下を確認:
 
@@ -229,7 +262,7 @@ npm run version:check      # package.json と manifest.json の version 同期�
 
 ---
 
-## 6. Lessons Learned
+## 7. Lessons Learned
 
 ### LL-004: ルートフォルダへの一時ファイル散乱
 - **事象**: `fix.js`, `fix_empty.js`, `test.svg`, `test_output.txt`, `eslint.json` 等の一時ファイル・出力ファイルがルートに放置されていた

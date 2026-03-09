@@ -2,6 +2,19 @@ node_modules/
 coverage/
 *.log
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Environment / config
+.env
+*.local.json
+
+# Logs / temp
+/logs/
+/tmp/
 
 # Temporary / one-off scripts
 fix*.js

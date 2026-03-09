@@ -1,5 +1,11 @@
 # 🌐 Network+ for DevTools
 
+![Edge Extension](https://img.shields.io/badge/Edge-Extension-0078d4?logo=microsoftedge)
+![Manifest V3](https://img.shields.io/badge/Manifest-V3-4caf50)
+![Vanilla JS](https://img.shields.io/badge/JavaScript-ES2020-f7df1e?logo=javascript)
+![Jest](https://img.shields.io/badge/Test-Jest-c21325?logo=jest)
+![License](https://img.shields.io/badge/License-MIT-blue)
+
 Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡張機能です。  
 標準の Network パネルの代替・補完として、強化されたフィルタリング、エクスポート、テーマ切替などの機能を提供します。
 
@@ -52,17 +58,63 @@ network-plus-extension/
   eslint.config.mjs          ... ESLint 設定 (flat config)
   .prettierrc                ... Prettier 設定
   .gitignore                 ... Git 除外設定
+  es-metadata.yml            ... 1ES Inventory-As-Code メタデータ
   package.json               ... npm 設定・スクリプト・Jest 設定
   README.md                  ... このファイル
 ```
 
-## 🚀 インストール方法
+## 🏗️ アーキテクチャ
 
-1. このリポジトリをクローンまたはダウンロード
-2. Microsoft Edge で `edge://extensions/` を開く
-3. 「デベロッパーモード」を有効にする
-4. 「パッケージ化されていない拡張機能を読み込む」をクリックし、このフォルダを選択
-5. DevTools を開くと「**Network+**」タブが追加される
+```
+Microsoft Edge DevTools
+  +-- devtools.html        ... chrome.devtools.panels.create() でパネル登録
+       +-- panel.html       ... パネル UI
+            +-- panel.js    ... 全ロジック (IIFE, 15セクション構成)
+            +-- panel.css   ... テーマ対応スタイル
+```
+
+- **DevTools Panel Extension**: `chrome.devtools.network.onRequestFinished` でリクエストをキャプチャ
+- **ES Modules 不可**: DevTools パネルページは `<script type="module">` をサポートしないため、**IIFE 単一ファイル構成**を採用
+- **ビルドレス**: バンドラ不使用。ファイルをそのまま Edge にロードする
+
+## 🚀 セットアップ
+
+### 1. リポジトリの取得
+
+```bash
+git clone https://github.com/user/network-plus-extension.git
+cd network-plus-extension
+```
+
+### 2. 前提条件
+
+- **Microsoft Edge** (最新安定版, Chromium ベース)
+- **Node.js** (テスト・Lint 実行用)
+
+### 3. 依存関係のインストール
+
+```bash
+npm install
+```
+
+### 4. Edge へのインストール
+
+1. Microsoft Edge で `edge://extensions/` を開く
+2. 「デベロッパーモード」を有効にする
+3. 「パッケージ化されていない拡張機能を読み込む」をクリックし、このフォルダを選択
+4. DevTools を開くと「**Network+**」タブが追加される
+
+## 📖 使い方
+
+1. DevTools を開き (F12)、「**Network+**」タブを選択
+2. ページをリロードすると、ネットワークリクエストがリアルタイムで一覧表示される
+3. **グローバルフィルタ**: テキスト入力で URL, Method, Status, Type を横断検索
+4. **カラム別フィルタ**: カラムヘッダー右クリック or ツールバーの `Filters` ボタンで詳細フィルタ設定
+5. **ソート**: カラムヘッダークリックで昇順/降順/解除を切替
+6. **リクエスト詳細**: 行クリックで Fiddler 風のタブ付きインスペクター (Request/Response) を表示
+7. **HAR エクスポート**: ツールバーの Export ボタンで HAR 1.2 形式ファイルをダウンロード
+8. **テーマ切替**: Theme ボタンで System/Dark/Light を循環切替
+9. **キーボード操作**: 上下キーで行選択
 
 ## 🛠️ 開発
 
@@ -74,10 +126,21 @@ npm run version:check # package.json と manifest.json の version 同期チェ�
 npm run format       # Prettier フォーマット
 ```
 
+## 🧪 テスト
+
+| 対象 | 手法 | 場所 |
+|------|------|------|
+| **純粋関数** | Jest ユニットテスト | [tests/panel.test.js](tests/panel.test.js) |
+| **DOM 操作** | 手動テスト (Edge DevTools で拡張機能をロードして確認) | - |
+| **テーマ** | 手動テスト (System/Dark/Light 切替確認) | - |
+| **エクスポート** | 手動テスト (HAR ファイルの内容検証) | - |
+
+テスト環境のモック設定は [tests/setup.js](tests/setup.js) を参照。
+
 ## 🧾 バージョニングルール
 
 - **方式**: Semantic Versioning (`MAJOR.MINOR.PATCH`)
-- **同期対象**: `manifest.json` と `package.json` の `version` を必ず同一値にする
+- **同期対象**: [manifest.json](manifest.json) と [package.json](package.json) の `version` を必ず同一値にする
 - **現在バージョン**: `1.4.0`
 
 | 変更種別 | 上げる番号 | 例 |
@@ -93,23 +156,72 @@ npm run format       # Prettier フォーマット
 - 1 機能を複数回コミットした場合でも、最終リリースでは 1 回のバージョン更新に集約する。
 
 バージョン更新時チェックリスト:
-- `manifest.json` と `package.json` の `version` を同時更新
+- [manifest.json](manifest.json) と [package.json](package.json) の `version` を同時更新
 - `npm run version:check` を実行して同期を確認
 - 機能追加・仕様変更時は README の該当セクションも同一コミットで更新
 
 ## 🧰 技術スタック
 
-- **Manifest V3** — Microsoft Edge 拡張機能 (Chromium ベース, CSP 明示設定)
-- **Vanilla JS (ES2020)** — フレームワーク・ビルドツール不要、`const`/`let`・アロー関数使用
-- **CSS Custom Properties** — テーマ切替
-- **Edge 拡張 API (`chrome.devtools`)** — ネットワークリクエストキャプチャ、パネル生成、ソースファイルオープン
-- **ESLint + Prettier** — コード品質・フォーマット統一
-- **Jest** — ユニットテスト
+- **Manifest V3** --- Microsoft Edge 拡張機能 (Chromium ベース, CSP 明示設定)
+- **Vanilla JS (ES2020)** --- フレームワーク・ビルドツール不要、`const`/`let`・アロー関数使用
+- **CSS Custom Properties** --- テーマ切替
+- **Edge 拡張 API (`chrome.devtools`)** --- ネットワークリクエストキャプチャ、パネル生成、ソースファイルオープン
+- **ESLint + Prettier** --- コード品質・フォーマット統一
+- **Jest** --- ユニットテスト
 
 ## 🔒 セキュリティ
 
 - ユーザーデータ (URL、ヘッダー名/値等) の DOM 描画はすべて `textContent` または DOM API を使用 (`innerHTML` 未使用)
-- Content Security Policy を `manifest.json` で明示設定 (`script-src 'self'`)
+- Content Security Policy を [manifest.json](manifest.json) で明示設定 (`script-src 'self'`)
+- 拡張機能の権限は必要最小限に限定: `storage` (テーマ設定永続化), `downloads` (HAR エクスポート)
+
+## ⚠️ 注意事項 / 制約
+
+- **Microsoft Edge 専用** --- Chrome でも動作する可能性はあるが、テスト・サポート対象は Edge のみ
+- **DevTools パネルは ES Modules 非対応** --- IIFE 単一ファイル構成を採用しているため、`import`/`export` は使用不可
+- **ビルドレス設計** --- バンドラ不使用。ファイルをそのまま Edge にロードする
+- **ローカル専用** --- ネットワーク通信や外部 API とのデータ送受信は行わない
+
+## 📚 関連ドキュメント
+
+| ファイル | 説明 |
+|---|---|
+| [.github/copilot-instructions.md](.github/copilot-instructions.md) | Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針) |
+| [docs/unified-project-rules.md](docs/unified-project-rules.md) | JPUCSupport 共通プロジェクトルール |
+| [scripts/check-version-sync.js](scripts/check-version-sync.js) | package.json / manifest.json バージョン同期チェックスクリプト |
+| [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
+
+<details>
+<summary>📋 変更履歴 (クリックで展開)</summary>
+
+### v1.4.0
+
+- カラム別フィルタ強化 (Time: time picker, Method: 複数選択, Domain/Path: 複数条件, URL: 複合条件)
+- Fiddler 風タブ付き詳細インスペクター (Request/Response 各サブタブ)
+- カラムリサイズ機能
+- Auto-scroll トグル
+- Initiator リンク (DevTools ソースファイルオープン)
+
+### v1.3.0
+
+- HAR エクスポート (HAR 1.2 完全対応)
+- キーボードナビゲーション (上下キー)
+
+### v1.2.0
+
+- グローバルフィルタ (debounce 付き)
+- カラムソート (昇順/降順/解除)
+
+### v1.1.0
+
+- テーマ切替 (System/Dark/Light)
+- 録画制御 (Pause/Resume)
+
+### v1.0.0
+
+- 初回リリース: リアルタイムキャプチャ、カスタムカラム、カラム表示切替
+
+</details>
 
 ## 📜 ライセンス
 

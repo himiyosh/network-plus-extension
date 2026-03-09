@@ -1,0 +1,7 @@
+schemaVersion: 1
+owningService: JPUCSupport
+accountableOwners:
+  directOwners:
+    - himiyosh@microsoft.com
+    - jpucsupport@microsoft.com
+description: "Network+ for DevTools - Enhanced Network panel extension for Microsoft Edge DevTools"
