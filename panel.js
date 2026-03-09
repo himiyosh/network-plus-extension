@@ -1585,11 +1585,16 @@ const _NetworkPlus = (function () {
     langBtn.className = 'filter-clear-btn';
     langBtn.textContent = '\uD83C\uDF10 ' + t('lang');
     langBtn.title = 'Toggle EN/JA';
-    langBtn.addEventListener('click', () => {
+    langBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent global click handler from closing popup
       const next = currentLang === 'en' ? 'ja' : 'en';
       saveLangPref(next);
-      root.textContent = '';
-      root.appendChild(createFilterPopupContent(onChange, focusColId));
+      // Re-render popup content in place without closing
+      const parent = root.parentElement;
+      const newContent = createFilterPopupContent(onChange, focusColId);
+      if (parent) {
+        parent.replaceChild(newContent, root);
+      }
     });
     header.appendChild(langBtn);
 
@@ -1927,6 +1932,13 @@ const _NetworkPlus = (function () {
     renderHeader();
     renderBody();
     renderStatsBar();
+    // Update Filters button badge
+    const fBtn = document.getElementById('filterBtn');
+    if (fBtn) {
+      const cnt = getActiveFilterCount() + (isRuleActive(state.columnFilterRules['body']) ? 1 : 0);
+      fBtn.textContent = '\u2699\uFE0F Filters' + (cnt > 0 ? ' (' + cnt + ')' : '');
+      fBtn.classList.toggle('active', cnt > 0);
+    }
   }
 
   // ============================================================
@@ -2679,6 +2691,26 @@ const _NetworkPlus = (function () {
         openFilterPopup(rect.left + window.scrollX, rect.bottom + window.scrollY, null);
       }
     });
+
+    // Reset all filters button
+    const resetFiltersBtn = $('#resetFiltersBtn');
+    if (resetFiltersBtn) {
+      resetFiltersBtn.addEventListener('click', () => {
+        state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
+        state.globalFilter = '';
+        const filterInput = $('#filterInput');
+        if (filterInput) filterInput.value = '';
+        render();
+        setStatus(t('clearAll'));
+        // Close any open filter popup
+        $all('.dropdown-content').forEach((d) => {
+          d.style.display = 'none';
+          d.classList.remove('show');
+        });
+        filterPopup.style.display = 'none';
+        filterPopup.classList.remove('show');
+      });
+    }
 
     // --- Filter Presets UI ---
     const presetsBtn = $('#presetsBtn');
