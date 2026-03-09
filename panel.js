@@ -1736,7 +1736,7 @@ const _NetworkPlus = (function () {
     if (!bar) {
       bar = document.createElement('div');
       bar.id = 'stats-bar';
-      bar.style.cssText = 'display:none;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);gap:16px;flex-wrap:wrap;align-items:center';
+      bar.style.cssText = 'display:none;padding:5px 10px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--fg);gap:6px;flex-wrap:wrap;align-items:center;position:sticky;top:42px;z-index:2';
       const topbar = document.querySelector('.topbar');
       if (topbar && topbar.nextSibling) {
         topbar.parentNode.insertBefore(bar, topbar.nextSibling);
@@ -1745,26 +1745,40 @@ const _NetworkPlus = (function () {
     if (bar.style.display === 'none') return;
     bar.textContent = '';
     const s = computeStats(rows);
-    const items = [
-      'Requests: ' + s.total,
-      'Size: ' + fmtBytes(s.totalSize),
-      'Avg: ' + fmtTime(s.avgDuration),
-    ];
-    const statusParts = [];
-    for (const [k, v] of Object.entries(s.statuses)) {
-      statusParts.push(k + ':' + v);
+
+    const addBadge = (label, value, color) => {
+      const badge = document.createElement('span');
+      badge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;background:var(--bg);border:1px solid var(--border);font-size:11px;white-space:nowrap';
+      const labelSpan = document.createElement('span');
+      labelSpan.style.cssText = 'color:var(--muted);font-weight:400';
+      labelSpan.textContent = label;
+      const valueSpan = document.createElement('span');
+      valueSpan.style.cssText = 'font-weight:700;font-variant-numeric:tabular-nums;color:' + (color || 'var(--fg)');
+      valueSpan.textContent = value;
+      badge.appendChild(labelSpan);
+      badge.appendChild(valueSpan);
+      bar.appendChild(badge);
+    };
+
+    addBadge('Requests', String(s.total), 'var(--accent)');
+    addBadge('Size', fmtBytes(s.totalSize), 'var(--accent)');
+    addBadge('Avg', fmtTime(s.avgDuration), s.avgDuration > 1000 ? 'var(--dur-slow)' : s.avgDuration > 300 ? 'var(--dur-med)' : 'var(--dur-ok)');
+
+    // Status badges with color coding
+    const statusColors = { '2xx': 'var(--status-2xx)', '3xx': 'var(--status-3xx)', '4xx': 'var(--status-4xx)', '5xx': 'var(--status-5xx)' };
+    for (const [bucket, count] of Object.entries(s.statuses)) {
+      addBadge(bucket, String(count), statusColors[bucket] || 'var(--fg)');
     }
-    if (statusParts.length > 0) items.push('Status: ' + statusParts.join(' '));
-    const methodParts = [];
-    for (const [k, v] of Object.entries(s.methods)) {
-      methodParts.push(k + ':' + v);
-    }
-    if (methodParts.length > 0) items.push('Methods: ' + methodParts.join(' '));
-    for (const txt of items) {
-      const span = document.createElement('span');
-      span.textContent = txt;
-      span.style.marginRight = '16px';
-      bar.appendChild(span);
+
+    // Top methods
+    const methodEntries = Object.entries(s.methods).sort((a, b) => b[1] - a[1]);
+    if (methodEntries.length > 0) {
+      const sep = document.createElement('span');
+      sep.style.cssText = 'width:1px;height:16px;background:var(--border);margin:0 2px';
+      bar.appendChild(sep);
+      for (const [method, count] of methodEntries.slice(0, 4)) {
+        addBadge(method, String(count), 'var(--muted)');
+      }
     }
   }
 
@@ -2527,36 +2541,69 @@ const _NetworkPlus = (function () {
 
       const refreshPresetsList = () => {
         presetsDropdown.textContent = '';
-        // Save current button
+
+        // Inline name input for saving
+        const saveRow = document.createElement('div');
+        saveRow.style.cssText = 'display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--border)';
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.placeholder = 'Preset name...';
+        nameInput.style.cssText = 'flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:11px';
+
         const saveBtn = document.createElement('button');
-        saveBtn.className = 'context-menu-item';
-        saveBtn.style.fontWeight = '600';
-        saveBtn.textContent = '+ Save Current Filter';
-        saveBtn.addEventListener('click', () => {
-          const name = prompt('Preset name:');
-          if (!name || !name.trim()) return;
+        saveBtn.className = 'filter-add-btn';
+        saveBtn.style.cssText = 'width:auto;margin:0;padding:4px 12px;font-size:11px';
+        saveBtn.textContent = 'Save';
+
+        const doSave = () => {
+          const name = nameInput.value.trim();
+          if (!name) {
+            nameInput.style.borderColor = 'var(--status-5xx)';
+            nameInput.focus();
+            return;
+          }
           loadFilterPresets((presets) => {
-            presets.unshift({ name: name.trim(), ...captureCurrentFilterState() });
+            presets.unshift({ name, ...captureCurrentFilterState() });
             saveFilterPresets(presets);
-            presetsDropdown.style.display = 'none';
-            presetsDropdown.classList.remove('show');
-            setStatus('Preset saved: ' + name.trim());
+            nameInput.value = '';
+            nameInput.style.borderColor = 'var(--border)';
+            // Show success feedback
+            const toast = document.createElement('div');
+            toast.style.cssText = 'padding:6px 10px;background:var(--status-2xx);color:#fff;border-radius:6px;font-size:11px;font-weight:600;text-align:center;margin:4px 8px';
+            toast.textContent = 'Saved: ' + name;
+            presetsDropdown.insertBefore(toast, saveRow.nextSibling);
+            setTimeout(() => { toast.remove(); refreshPresetsList(); }, 1500);
+            setStatus('Preset saved: ' + name);
           });
+        };
+
+        saveBtn.addEventListener('click', doSave);
+        nameInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') doSave();
         });
-        presetsDropdown.appendChild(saveBtn);
+
+        saveRow.appendChild(nameInput);
+        saveRow.appendChild(saveBtn);
+        presetsDropdown.appendChild(saveRow);
 
         // Load presets
         loadFilterPresets((presets) => {
           if (presets.length === 0) {
             const empty = document.createElement('div');
-            empty.style.cssText = 'padding:8px;color:var(--muted);font-size:11px';
-            empty.textContent = '(no saved presets)';
+            empty.style.cssText = 'padding:10px 8px;color:var(--muted);font-size:11px;text-align:center';
+            empty.textContent = 'No saved presets yet. Enter a name above and click Save.';
             presetsDropdown.appendChild(empty);
             return;
           }
           const sep = document.createElement('div');
-          sep.style.cssText = 'border-top:1px solid var(--border);margin:4px 0';
+          sep.style.cssText = 'border-top:1px solid var(--border);margin:2px 0';
           presetsDropdown.appendChild(sep);
+
+          const listTitle = document.createElement('div');
+          listTitle.style.cssText = 'padding:4px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted)';
+          listTitle.textContent = 'Saved Presets (' + presets.length + ')';
+          presetsDropdown.appendChild(listTitle);
 
           for (let i = 0; i < presets.length; i++) {
             const preset = presets[i];
@@ -2658,7 +2705,7 @@ const _NetworkPlus = (function () {
         if (!bar) {
           bar = document.createElement('div');
           bar.id = 'stats-bar';
-          bar.style.cssText = 'display:flex;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);gap:16px;flex-wrap:wrap;align-items:center';
+          bar.style.cssText = 'display:flex;padding:5px 10px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--fg);gap:6px;flex-wrap:wrap;align-items:center;position:sticky;top:42px;z-index:2';
           const topbar = document.querySelector('.topbar');
           if (topbar && topbar.nextSibling) {
             topbar.parentNode.insertBefore(bar, topbar.nextSibling);
