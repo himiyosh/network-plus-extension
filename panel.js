@@ -1456,13 +1456,13 @@ const _NetworkPlus = (function () {
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
     const headerText = document.createElement('span');
-    headerText.textContent = 'Column Filters' + (totalActive > 0 ? ' (' + totalActive + ' active)' : '');
+    headerText.textContent = '\u2699\uFE0F Column Filters' + (totalActive > 0 ? ' (' + totalActive + ' active)' : '');
     header.appendChild(headerText);
 
     if (totalActive > 0) {
       const clearAllBtn = document.createElement('button');
       clearAllBtn.className = 'filter-clear-btn';
-      clearAllBtn.textContent = 'Clear All';
+      clearAllBtn.textContent = '\u274C Clear All';
       clearAllBtn.addEventListener('click', () => {
         state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
         onChange();
@@ -1481,10 +1481,10 @@ const _NetworkPlus = (function () {
 
     // Group columns by category for better organization
     const groups = [
-      { title: 'Timing', ids: ['clientStart', 'serverDone', 'duration'] },
-      { title: 'Request', ids: ['method', 'url', 'domain', 'path'] },
-      { title: 'Response', ids: ['status', 'type', 'size', 'body'] },
-      { title: 'Other', ids: ['id', 'initiator'] },
+      { title: '\u23F1\uFE0F Timing', ids: ['clientStart', 'serverDone', 'duration'] },
+      { title: '\u27A1\uFE0F Request', ids: ['method', 'url', 'domain', 'path'] },
+      { title: '\u2B05\uFE0F Response', ids: ['status', 'type', 'size', 'body'] },
+      { title: '\uD83D\uDD27 Other', ids: ['id', 'initiator'] },
     ];
 
     for (const group of groups) {
@@ -1493,13 +1493,13 @@ const _NetworkPlus = (function () {
 
       const sectionTitle = document.createElement('div');
       sectionTitle.className = 'filter-popup-section-title';
-      sectionTitle.textContent = group.title + (hasActive ? ' *' : '');
+      sectionTitle.textContent = group.title + (hasActive ? ' \u2705' : '');
       list.appendChild(sectionTitle);
 
       for (const colId of group.ids) {
         // body is a pseudo-column, not in state.columns
         const col = state.columns.find((c) => c.id === colId);
-        const label = col ? col.label : (colId === 'body' ? 'Response Body' : colId);
+        const label = col ? col.label : (colId === 'body' ? '\uD83D\uDCC4 Resp. Body' : colId);
 
         const row = document.createElement('div');
         row.className = 'filter-popup-row';
@@ -1546,7 +1546,7 @@ const _NetworkPlus = (function () {
 
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
-    header.textContent = col.label + ' Filter';
+    header.textContent = '\uD83D\uDD0D ' + col.label + ' Filter';
     root.appendChild(header);
 
     const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
@@ -2449,7 +2449,11 @@ const _NetworkPlus = (function () {
       } else {
         filterPopup.appendChild(createFilterPopupContent(renderBody, null));
       }
-      filterPopup.style.left = x + 'px';
+      // Position: clamp to viewport to prevent overflow
+      const vpW = document.documentElement.clientWidth;
+      const popupW = 660; // max-width
+      const safeX = Math.min(x, vpW - popupW - 10);
+      filterPopup.style.left = Math.max(5, safeX) + 'px';
       filterPopup.style.top = y + 'px';
       filterPopup.style.display = 'block';
       filterPopup.classList.add('show');
