@@ -20,6 +20,7 @@ const _NetworkPlus = (function () {
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
   const FILTER_PRESET_KEY = 'networkPlus.filterPresets';
+  const LAST_PRESET_KEY = 'networkPlus.lastPreset';
   const MAX_FILTER_PRESETS = 20;
   const LANG_KEY = 'networkPlus.lang';
 
@@ -784,6 +785,8 @@ const _NetworkPlus = (function () {
       applyTheme(preset.theme);
       saveThemePref(preset.theme);
     }
+    // Remember last applied preset
+    try { localStorage.setItem(LAST_PRESET_KEY, preset.name); } catch (_e) { /* ignore */ }
     render();
     setStatus('Preset applied: ' + preset.name);
   }
@@ -2849,7 +2852,25 @@ const _NetworkPlus = (function () {
     initTabBar('req-tab-bar');
     initTabBar('res-tab-bar');
 
-    render();
+    // Restore last applied preset (if any)
+    try {
+      const lastPresetName = localStorage.getItem(LAST_PRESET_KEY);
+      if (lastPresetName) {
+        loadFilterPresets((presets) => {
+          const preset = presets.find((p) => p.name === lastPresetName);
+          if (preset) {
+            applyFilterPreset(preset);
+            setStatus('Restored preset: ' + preset.name);
+          } else {
+            render();
+          }
+        });
+      } else {
+        render();
+      }
+    } catch (_e) {
+      render();
+    }
 
     // Global click handler to close dropdowns
     window.addEventListener('click', (e) => {
