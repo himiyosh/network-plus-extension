@@ -2688,6 +2688,7 @@ const _NetworkPlus = (function () {
       if (
         e.target.closest('#filterBtn') ||
         e.target.closest('#columnsBtn') ||
+        e.target.closest('#presetsBtn') ||
         e.target.closest('.filter-btn') ||
         e.target.closest('.dropdown-content')
       ) return;
