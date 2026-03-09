@@ -21,6 +21,7 @@ export default [
         DocumentFragment: "readonly",
         TextDecoder: "readonly",
         TextEncoder: "readonly",
+        prompt: "readonly",
         module: "readonly",
       },
     },

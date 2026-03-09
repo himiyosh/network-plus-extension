@@ -19,6 +19,8 @@ const _NetworkPlus = (function () {
   const COL_PREF_KEY = 'networkPlus.cols';
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
+  const FILTER_PRESET_KEY = 'networkPlus.filterPresets';
+  const MAX_FILTER_PRESETS = 20;
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
@@ -59,6 +61,7 @@ const _NetworkPlus = (function () {
     { id: 'size', label: 'Size', width: 90, visible: true },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
     { id: 'url', label: 'URL', width: 420, visible: false },
+    { id: 'waterfall', label: 'Waterfall', width: 180, visible: false },
   ];
 
   const DEFAULT_METHOD_FILTERS = () => ({
@@ -79,6 +82,8 @@ const _NetworkPlus = (function () {
         value: '',
       };
     }
+    // Body search pseudo-column
+    rules['body'] = { op: 'contains', value: '' };
     return rules;
   };
 
@@ -244,6 +249,84 @@ const _NetworkPlus = (function () {
     return fragment;
   }
 
+  /**
+   * Generate a cURL command string from a request row.
+   * @param {object} row - The request row object
+   * @returns {string} cURL command
+   */
+  function generateCurl(row) {
+    if (!row) return '';
+    const parts = ['curl'];
+    if (row.method && row.method !== 'GET') {
+      parts.push('-X ' + row.method);
+    }
+    parts.push("'" + (row.url || '').replace(/'/g, "'\\''") + "'");
+    if (row.requestHeaders) {
+      for (const h of row.requestHeaders) {
+        const name = (h.name || '').replace(/'/g, "'\\''");
+        const value = (h.value || '').replace(/'/g, "'\\''");
+        parts.push("-H '" + name + ': ' + value + "'");
+      }
+    }
+    if (row.requestPostData && row.requestPostData.text) {
+      parts.push("-d '" + row.requestPostData.text.replace(/'/g, "'\\''") + "'");
+    }
+    return parts.join(' \\\n  ');
+  }
+
+  /**
+   * Generate a fetch() code snippet from a request row.
+   * @param {object} row - The request row object
+   * @returns {string} JavaScript fetch code
+   */
+  function generateFetch(row) {
+    if (!row) return '';
+    const opts = {};
+    if (row.method && row.method !== 'GET') opts.method = row.method;
+    if (row.requestHeaders && row.requestHeaders.length > 0) {
+      const headers = {};
+      for (const h of row.requestHeaders) {
+        headers[h.name || ''] = h.value || '';
+      }
+      opts.headers = headers;
+    }
+    if (row.requestPostData && row.requestPostData.text) {
+      opts.body = row.requestPostData.text;
+    }
+    const url = JSON.stringify(row.url || '');
+    if (Object.keys(opts).length === 0) {
+      return 'fetch(' + url + ')';
+    }
+    return 'fetch(' + url + ', ' + JSON.stringify(opts, null, 2) + ')';
+  }
+
+  /**
+   * Generate a PowerShell Invoke-WebRequest command from a request row.
+   * @param {object} row - The request row object
+   * @returns {string} PowerShell command
+   */
+  function generatePowerShell(row) {
+    if (!row) return '';
+    const parts = ['Invoke-WebRequest'];
+    parts.push("-Uri '" + (row.url || '').replace(/'/g, "''") + "'");
+    if (row.method && row.method !== 'GET') {
+      parts.push('-Method ' + row.method);
+    }
+    if (row.requestHeaders && row.requestHeaders.length > 0) {
+      const headerPairs = [];
+      for (const h of row.requestHeaders) {
+        const name = (h.name || '').replace(/'/g, "''");
+        const value = (h.value || '').replace(/'/g, "''");
+        headerPairs.push("'" + name + "'='" + value + "'");
+      }
+      parts.push('-Headers @{' + headerPairs.join('; ') + '}');
+    }
+    if (row.requestPostData && row.requestPostData.text) {
+      parts.push("-Body '" + row.requestPostData.text.replace(/'/g, "''") + "'");
+    }
+    return parts.join(' `\n  ');
+  }
+
   // ============================================================
   // Section 4: State Management
   // ============================================================
@@ -376,6 +459,7 @@ const _NetworkPlus = (function () {
     if (colId === 'initiator') return row.initiator ? row.initiator.text : '';
     if (colId === 'clientStart') return row.clientStartFilter || row.clientStart || '';
     if (colId === 'serverDone') return row.serverDoneFilter || row.serverDone || '';
+    if (colId === 'body') return row.responseContent || '';
     const v = row[colId];
     return v == null ? '' : v;
   }
@@ -540,6 +624,48 @@ const _NetworkPlus = (function () {
     });
   }
 
+  // --- Filter Presets ---
+  function loadFilterPresets(callback) {
+    if (chrome && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get([FILTER_PRESET_KEY], (result) => {
+        callback(result[FILTER_PRESET_KEY] || []);
+      });
+    } else {
+      try {
+        callback(JSON.parse(localStorage.getItem(FILTER_PRESET_KEY)) || []);
+      } catch (_e) {
+        callback([]);
+      }
+    }
+  }
+
+  function saveFilterPresets(presets) {
+    const trimmed = presets.slice(0, MAX_FILTER_PRESETS);
+    if (chrome && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ [FILTER_PRESET_KEY]: trimmed });
+    } else {
+      localStorage.setItem(FILTER_PRESET_KEY, JSON.stringify(trimmed));
+    }
+  }
+
+  function captureCurrentFilterState() {
+    return {
+      globalFilter: state.globalFilter,
+      columnFilterRules: JSON.parse(JSON.stringify(state.columnFilterRules)),
+    };
+  }
+
+  function applyFilterPreset(preset) {
+    state.globalFilter = preset.globalFilter || '';
+    const filterInput = $('#filterInput');
+    if (filterInput) filterInput.value = state.globalFilter;
+    if (preset.columnFilterRules) {
+      state.columnFilterRules = JSON.parse(JSON.stringify(preset.columnFilterRules));
+    }
+    render();
+    setStatus('Preset applied: ' + preset.name);
+  }
+
   // ============================================================
   // Section 8: Data Model
   // ============================================================
@@ -694,6 +820,28 @@ const _NetworkPlus = (function () {
             td.textContent = txt;
           }
         }
+      } else if (c.id === 'waterfall') {
+        // Miniature timing waterfall bar
+        td.style.padding = '2px 4px';
+        const total = row.duration || 0;
+        if (total > 0 && row.timings) {
+          const bar = document.createElement('div');
+          bar.style.cssText = 'display:flex;height:14px;border-radius:3px;overflow:hidden;background:var(--border)';
+          const phases = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
+          const colors = ['#999', '#6cf', '#f90', '#c6f', '#9c6', '#6c9', '#69c'];
+          for (let pi = 0; pi < phases.length; pi++) {
+            const val = row.timings[phases[pi]];
+            if (typeof val === 'number' && val > 0) {
+              const seg = document.createElement('div');
+              seg.style.cssText = 'height:100%;min-width:1px;background:' + colors[pi];
+              seg.style.width = Math.max(1, (val / total) * 100) + '%';
+              seg.title = phases[pi] + ': ' + fmtTime(val);
+              bar.appendChild(seg);
+            }
+          }
+          td.appendChild(bar);
+        }
+        td.title = fmtTime(total);
       } else {
         let v = row[c.id];
         if (c.id === 'size') v = fmtBytes(row.size);
@@ -723,6 +871,174 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 11: UI Components
   // ============================================================
+
+  function toggleHelpOverlay() {
+    let overlay = document.getElementById('help-overlay');
+    if (overlay) {
+      overlay.style.display = overlay.style.display === 'none' ? 'flex' : 'none';
+      return;
+    }
+    overlay = document.createElement('div');
+    overlay.id = 'help-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 28px;max-width:480px;width:90%;box-shadow:var(--shadow-md);color:var(--fg);font-size:13px;max-height:80vh;overflow-y:auto';
+    const title = document.createElement('h3');
+    title.style.cssText = 'margin:0 0 12px;font-size:16px;color:var(--accent)';
+    title.textContent = 'Keyboard Shortcuts';
+    card.appendChild(title);
+    const shortcuts = [
+      ['Ctrl+F', 'Focus global search'],
+      ['?', 'Show this help'],
+      ['Escape', 'Close help / dropdowns'],
+      ['Up / Down', 'Navigate rows'],
+      ['Ctrl+Click', 'Multi-select rows'],
+      ['Shift+Click', 'Range-select rows'],
+      ['Right-click', 'Context menu (highlight, copy as cURL/fetch/PS)'],
+      ['Delete', 'Clear all requests'],
+    ];
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse';
+    for (const [key, desc] of shortcuts) {
+      const tr = document.createElement('tr');
+      const tdKey = document.createElement('td');
+      tdKey.style.cssText = 'padding:5px 12px 5px 0;font-weight:700;white-space:nowrap;color:var(--accent);font-family:monospace;font-size:12px;width:120px';
+      tdKey.textContent = key;
+      const tdDesc = document.createElement('td');
+      tdDesc.style.cssText = 'padding:5px 0;color:var(--fg)';
+      tdDesc.textContent = desc;
+      tr.appendChild(tdKey);
+      tr.appendChild(tdDesc);
+      table.appendChild(tr);
+    }
+    card.appendChild(table);
+    const closeHint = document.createElement('div');
+    closeHint.style.cssText = 'margin-top:12px;text-align:center;font-size:11px;color:var(--muted)';
+    closeHint.textContent = 'Press ? or Escape to close';
+    card.appendChild(closeHint);
+    overlay.appendChild(card);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.style.display = 'none';
+    });
+    document.body.appendChild(overlay);
+  }
+
+  function showDiffOverlay(rowA, rowB) {
+    let overlay = document.getElementById('diff-overlay');
+    if (overlay) overlay.remove();
+    overlay = document.createElement('div');
+    overlay.id = 'diff-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;max-width:90vw;width:900px;box-shadow:var(--shadow-md);color:var(--fg);font-size:12px;max-height:85vh;overflow-y:auto';
+    const title = document.createElement('h3');
+    title.style.cssText = 'margin:0 0 12px;font-size:15px;color:var(--accent)';
+    title.textContent = 'Request Diff';
+    card.appendChild(title);
+
+    const subtitle = document.createElement('div');
+    subtitle.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:12px';
+    subtitle.textContent = '#' + rowA.id + ' ' + rowA.method + ' ' + (rowA.url || '').substring(0, 80) + '  vs  #' + rowB.id + ' ' + rowB.method + ' ' + (rowB.url || '').substring(0, 80);
+    card.appendChild(subtitle);
+
+    const sections = [
+      { label: 'URL', a: rowA.url || '', b: rowB.url || '' },
+      { label: 'Method', a: rowA.method || '', b: rowB.method || '' },
+      { label: 'Status', a: String(rowA.status || ''), b: String(rowB.status || '') },
+    ];
+
+    // Headers diff
+    const aHeaders = (rowA.requestHeaders || []).reduce((m, h) => { m[h.name] = h.value; return m; }, {});
+    const bHeaders = (rowB.requestHeaders || []).reduce((m, h) => { m[h.name] = h.value; return m; }, {});
+    const allHeaderKeys = new Set([...Object.keys(aHeaders), ...Object.keys(bHeaders)]);
+    for (const key of allHeaderKeys) {
+      if (aHeaders[key] !== bHeaders[key]) {
+        sections.push({ label: 'Header: ' + key, a: aHeaders[key] || '(absent)', b: bHeaders[key] || '(absent)' });
+      }
+    }
+
+    // Query params diff
+    const aParams = parseQueryString(rowA.url || '');
+    const bParams = parseQueryString(rowB.url || '');
+    const aMap = {};
+    for (const p of aParams) aMap[p.name] = p.value;
+    const bMap = {};
+    for (const p of bParams) bMap[p.name] = p.value;
+    const allParamKeys = new Set([...Object.keys(aMap), ...Object.keys(bMap)]);
+    for (const key of allParamKeys) {
+      if (aMap[key] !== bMap[key]) {
+        sections.push({ label: 'Query: ' + key, a: aMap[key] || '(absent)', b: bMap[key] || '(absent)' });
+      }
+    }
+
+    // Body diff
+    const aBody = (rowA.requestPostData && rowA.requestPostData.text) || '';
+    const bBody = (rowB.requestPostData && rowB.requestPostData.text) || '';
+    if (aBody !== bBody) {
+      sections.push({ label: 'Request Body', a: aBody.substring(0, 500) || '(empty)', b: bBody.substring(0, 500) || '(empty)' });
+    }
+
+    // Render diff table
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-family:monospace;font-size:11px';
+    const thead = document.createElement('tr');
+    for (const colText of ['Field', '#' + rowA.id, '#' + rowB.id]) {
+      const th = document.createElement('th');
+      th.style.cssText = 'padding:4px 8px;text-align:left;border-bottom:2px solid var(--border);color:var(--muted);font-size:10px;text-transform:uppercase';
+      th.textContent = colText;
+      thead.appendChild(th);
+    }
+    table.appendChild(thead);
+
+    for (const s of sections) {
+      const tr = document.createElement('tr');
+      const isDiff = s.a !== s.b;
+      tr.style.background = isDiff ? 'var(--accent-dim)' : 'transparent';
+      const tdLabel = document.createElement('td');
+      tdLabel.style.cssText = 'padding:4px 8px;font-weight:600;color:var(--syn-hdr-name);white-space:nowrap;border-bottom:1px solid var(--stripe)';
+      tdLabel.textContent = s.label;
+      const tdA = document.createElement('td');
+      tdA.style.cssText = 'padding:4px 8px;word-break:break-all;border-bottom:1px solid var(--stripe);max-width:350px;overflow:hidden;text-overflow:ellipsis';
+      tdA.textContent = s.a;
+      const tdB = document.createElement('td');
+      tdB.style.cssText = 'padding:4px 8px;word-break:break-all;border-bottom:1px solid var(--stripe);max-width:350px;overflow:hidden;text-overflow:ellipsis';
+      tdB.textContent = s.b;
+      if (isDiff) {
+        tdA.style.color = 'var(--status-5xx)';
+        tdB.style.color = 'var(--status-2xx)';
+      }
+      tr.appendChild(tdLabel);
+      tr.appendChild(tdA);
+      tr.appendChild(tdB);
+      table.appendChild(tr);
+    }
+
+    if (sections.filter((s) => s.a !== s.b).length === 0) {
+      const noChange = document.createElement('div');
+      noChange.style.cssText = 'padding:12px;color:var(--muted);text-align:center';
+      noChange.textContent = 'No differences found in URL, method, status, headers, query params, or body.';
+      card.appendChild(noChange);
+    } else {
+      card.appendChild(table);
+    }
+
+    const closeHint = document.createElement('div');
+    closeHint.style.cssText = 'margin-top:12px;text-align:center;font-size:11px;color:var(--muted)';
+    closeHint.textContent = 'Click outside or press Escape to close';
+    card.appendChild(closeHint);
+    overlay.appendChild(card);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+    document.addEventListener('keydown', function closeDiff(e) {
+      if (e.key === 'Escape' && document.getElementById('diff-overlay')) {
+        document.getElementById('diff-overlay').remove();
+        document.removeEventListener('keydown', closeDiff);
+      }
+    });
+    document.body.appendChild(overlay);
+  }
+
   function createCheckboxItem(text, checked, onChange) {
     const label = document.createElement('label');
     const cb = document.createElement('input');
@@ -1139,6 +1455,17 @@ const _NetworkPlus = (function () {
       list.appendChild(row);
     }
 
+    // Response Body search pseudo-column
+    const bodyRow = document.createElement('div');
+    bodyRow.className = 'filter-popup-row';
+    if (focusColId === 'body') bodyRow.classList.add('focus-target');
+    const bodyLabel = document.createElement('div');
+    bodyLabel.className = 'filter-popup-label';
+    bodyLabel.textContent = 'Resp. Body';
+    bodyRow.appendChild(bodyLabel);
+    bodyRow.appendChild(createColumnFilterControl('body', debouncedOnChange));
+    list.appendChild(bodyRow);
+
     root.appendChild(list);
     return root;
   }
@@ -1341,9 +1668,60 @@ const _NetworkPlus = (function () {
     }
   }
 
+  function computeStats(rows) {
+    const stats = { total: rows.length, methods: {}, statuses: {}, totalSize: 0, totalDuration: 0 };
+    for (const r of rows) {
+      stats.methods[r.method] = (stats.methods[r.method] || 0) + 1;
+      const bucket = r.status >= 500 ? '5xx' : r.status >= 400 ? '4xx' : r.status >= 300 ? '3xx' : r.status >= 200 ? '2xx' : 'other';
+      stats.statuses[bucket] = (stats.statuses[bucket] || 0) + 1;
+      stats.totalSize += r.size || 0;
+      stats.totalDuration += r.duration || 0;
+    }
+    stats.avgDuration = stats.total > 0 ? stats.totalDuration / stats.total : 0;
+    return stats;
+  }
+
+  function renderStatsBar(rows) {
+    let bar = document.getElementById('stats-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'stats-bar';
+      bar.style.cssText = 'display:none;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);gap:16px;flex-wrap:wrap;align-items:center';
+      const topbar = document.querySelector('.topbar');
+      if (topbar && topbar.nextSibling) {
+        topbar.parentNode.insertBefore(bar, topbar.nextSibling);
+      }
+    }
+    if (bar.style.display === 'none') return;
+    bar.textContent = '';
+    const s = computeStats(rows);
+    const items = [
+      'Requests: ' + s.total,
+      'Size: ' + fmtBytes(s.totalSize),
+      'Avg: ' + fmtTime(s.avgDuration),
+    ];
+    const statusParts = [];
+    for (const [k, v] of Object.entries(s.statuses)) {
+      statusParts.push(k + ':' + v);
+    }
+    if (statusParts.length > 0) items.push('Status: ' + statusParts.join(' '));
+    const methodParts = [];
+    for (const [k, v] of Object.entries(s.methods)) {
+      methodParts.push(k + ':' + v);
+    }
+    if (methodParts.length > 0) items.push('Methods: ' + methodParts.join(' '));
+    for (const txt of items) {
+      const span = document.createElement('span');
+      span.textContent = txt;
+      span.style.marginRight = '16px';
+      bar.appendChild(span);
+    }
+  }
+
   function render() {
     renderHeader();
     renderBody();
+    renderStatsBar(state.filteredRows);
   }
 
   // ============================================================
@@ -1912,6 +2290,18 @@ const _NetworkPlus = (function () {
         e.preventDefault();
         $('#filterInput').focus();
       }
+      // Help overlay: ? key
+      if (e.key === '?' && !e.target.matches('input, textarea, select')) {
+        e.preventDefault();
+        toggleHelpOverlay();
+      }
+      // Escape closes help overlay
+      if (e.key === 'Escape') {
+        const overlay = document.getElementById('help-overlay');
+        if (overlay && overlay.style.display !== 'none') {
+          overlay.style.display = 'none';
+        }
+      }
     });
 
     // Theme init
@@ -2077,6 +2467,100 @@ const _NetworkPlus = (function () {
       }
     });
 
+    // --- Filter Presets UI ---
+    const presetsBtn = $('#presetsBtn');
+    if (presetsBtn) {
+      const presetsDropdown = document.createElement('div');
+      presetsDropdown.className = 'filter-dropdown-content dropdown-content';
+      presetsDropdown.style.cssText = 'position:absolute;min-width:240px;max-height:360px;overflow-y:auto';
+      document.body.appendChild(presetsDropdown);
+
+      const refreshPresetsList = () => {
+        presetsDropdown.textContent = '';
+        // Save current button
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'context-menu-item';
+        saveBtn.style.fontWeight = '600';
+        saveBtn.textContent = '+ Save Current Filter';
+        saveBtn.addEventListener('click', () => {
+          const name = prompt('Preset name:');
+          if (!name || !name.trim()) return;
+          loadFilterPresets((presets) => {
+            presets.unshift({ name: name.trim(), ...captureCurrentFilterState() });
+            saveFilterPresets(presets);
+            presetsDropdown.style.display = 'none';
+            presetsDropdown.classList.remove('show');
+            setStatus('Preset saved: ' + name.trim());
+          });
+        });
+        presetsDropdown.appendChild(saveBtn);
+
+        // Load presets
+        loadFilterPresets((presets) => {
+          if (presets.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding:8px;color:var(--muted);font-size:11px';
+            empty.textContent = '(no saved presets)';
+            presetsDropdown.appendChild(empty);
+            return;
+          }
+          const sep = document.createElement('div');
+          sep.style.cssText = 'border-top:1px solid var(--border);margin:4px 0';
+          presetsDropdown.appendChild(sep);
+
+          for (let i = 0; i < presets.length; i++) {
+            const preset = presets[i];
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:4px';
+
+            const applyBtn = document.createElement('button');
+            applyBtn.className = 'context-menu-item';
+            applyBtn.style.flex = '1';
+            applyBtn.textContent = preset.name;
+            applyBtn.addEventListener('click', () => {
+              applyFilterPreset(preset);
+              presetsDropdown.style.display = 'none';
+              presetsDropdown.classList.remove('show');
+            });
+            row.appendChild(applyBtn);
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'filter-remove-btn';
+            delBtn.textContent = '×';
+            delBtn.title = 'Delete preset';
+            ((idx) => {
+              delBtn.addEventListener('click', () => {
+                loadFilterPresets((p) => {
+                  p.splice(idx, 1);
+                  saveFilterPresets(p);
+                  refreshPresetsList();
+                });
+              });
+            })(i);
+            row.appendChild(delBtn);
+
+            presetsDropdown.appendChild(row);
+          }
+        });
+      };
+
+      presetsBtn.addEventListener('click', (e) => {
+        const isVisible = presetsDropdown.classList.contains('show');
+        $all('.dropdown-content').forEach((d) => {
+          d.style.display = 'none';
+          d.classList.remove('show');
+        });
+        if (!isVisible) {
+          refreshPresetsList();
+          const rect = e.currentTarget.getBoundingClientRect();
+          presetsDropdown.style.left = rect.left + 'px';
+          presetsDropdown.style.top = rect.bottom + 'px';
+          presetsDropdown.style.display = 'block';
+          presetsDropdown.classList.add('show');
+        }
+      });
+    }
+
     // Tab switching for inspector panels
     const initTabBar = (barId) => {
       const bar = $('#' + barId);
@@ -2115,6 +2599,28 @@ const _NetworkPlus = (function () {
         d.style.display = 'none';
       });
     });
+
+    // Stats toggle button
+    const statsBtn = $('#statsBtn');
+    if (statsBtn) {
+      statsBtn.addEventListener('click', () => {
+        let bar = document.getElementById('stats-bar');
+        if (!bar) {
+          bar = document.createElement('div');
+          bar.id = 'stats-bar';
+          bar.style.cssText = 'display:flex;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);gap:16px;flex-wrap:wrap;align-items:center';
+          const topbar = document.querySelector('.topbar');
+          if (topbar && topbar.nextSibling) {
+            topbar.parentNode.insertBefore(bar, topbar.nextSibling);
+          }
+          renderStatsBar(state.filteredRows);
+        } else {
+          bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
+          if (bar.style.display === 'flex') renderStatsBar(state.filteredRows);
+        }
+        statsBtn.classList.toggle('active', bar.style.display !== 'none');
+      });
+    }
 
     // Auto-scroll button
     const autoScrollBtn = document.createElement('button');
@@ -2269,6 +2775,42 @@ const _NetworkPlus = (function () {
           contextMenu.style.display = 'none';
         });
         contextMenu.appendChild(deleteBtn);
+      }
+
+      // Compare selected (diff) — available when exactly 2 rows selected
+      if (state.selectedRows.size === 2) {
+        const diffBtn = document.createElement('button');
+        diffBtn.textContent = 'Compare Selected (Diff)';
+        diffBtn.className = 'context-menu-item';
+        diffBtn.addEventListener('click', () => {
+          const [rowA, rowB] = [...state.selectedRows];
+          showDiffOverlay(rowA, rowB);
+          contextMenu.style.display = 'none';
+        });
+        contextMenu.appendChild(diffBtn);
+      }
+
+      // Copy as cURL / fetch / PowerShell
+      const copySep = document.createElement('div');
+      copySep.style.cssText = 'border-top:1px solid var(--border);margin:4px 0';
+      contextMenu.appendChild(copySep);
+
+      const copyFormats = [
+        { label: 'Copy as cURL', fn: generateCurl },
+        { label: 'Copy as fetch', fn: generateFetch },
+        { label: 'Copy as PowerShell', fn: generatePowerShell },
+      ];
+      for (const fmt of copyFormats) {
+        const btn = document.createElement('button');
+        btn.textContent = fmt.label;
+        btn.className = 'context-menu-item';
+        btn.addEventListener('click', () => {
+          const text = fmt.fn(contextMenuRow);
+          navigator.clipboard.writeText(text).catch((_e) => {});
+          contextMenu.style.display = 'none';
+          setStatus(fmt.label + ' copied');
+        });
+        contextMenu.appendChild(btn);
       }
 
       // Show menu
@@ -2572,6 +3114,10 @@ const _NetworkPlus = (function () {
     highlightText,
     getRowFilterValue,
     evaluateFilterRule,
+    generateCurl,
+    generateFetch,
+    generatePowerShell,
+    computeStats,
     DEFAULT_METHOD_FILTERS,
   };
 })();

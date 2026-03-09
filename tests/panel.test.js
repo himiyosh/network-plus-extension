@@ -368,3 +368,110 @@ describe('DEFAULT_METHOD_FILTERS', () => {
     expect(filters).not.toBe(filters2);
   });
 });
+
+describe('generateCurl', () => {
+  test('returns empty string for null/undefined', () => {
+    expect(np.generateCurl(null)).toBe('');
+    expect(np.generateCurl(undefined)).toBe('');
+  });
+
+  test('generates GET cURL command', () => {
+    const row = { method: 'GET', url: 'https://example.com/api', requestHeaders: [] };
+    const result = np.generateCurl(row);
+    expect(result).toContain('curl');
+    expect(result).toContain('https://example.com/api');
+    expect(result).not.toContain('-X');
+  });
+
+  test('generates POST cURL with headers and body', () => {
+    const row = {
+      method: 'POST',
+      url: 'https://example.com/api',
+      requestHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+      requestPostData: { text: '{"key":"value"}' },
+    };
+    const result = np.generateCurl(row);
+    expect(result).toContain('-X POST');
+    expect(result).toContain("-H 'Content-Type: application/json'");
+    expect(result).toContain('-d');
+  });
+});
+
+describe('generateFetch', () => {
+  test('returns empty string for null/undefined', () => {
+    expect(np.generateFetch(null)).toBe('');
+    expect(np.generateFetch(undefined)).toBe('');
+  });
+
+  test('generates simple GET fetch', () => {
+    const row = { method: 'GET', url: 'https://example.com/api', requestHeaders: [] };
+    const result = np.generateFetch(row);
+    expect(result).toContain('fetch(');
+    expect(result).toContain('https://example.com/api');
+  });
+
+  test('generates POST fetch with headers and body', () => {
+    const row = {
+      method: 'POST',
+      url: 'https://example.com/api',
+      requestHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+      requestPostData: { text: '{"key":"value"}' },
+    };
+    const result = np.generateFetch(row);
+    expect(result).toContain('"method": "POST"');
+    expect(result).toContain('"Content-Type"');
+  });
+});
+
+describe('generatePowerShell', () => {
+  test('returns empty string for null/undefined', () => {
+    expect(np.generatePowerShell(null)).toBe('');
+    expect(np.generatePowerShell(undefined)).toBe('');
+  });
+
+  test('generates GET PowerShell command', () => {
+    const row = { method: 'GET', url: 'https://example.com/api', requestHeaders: [] };
+    const result = np.generatePowerShell(row);
+    expect(result).toContain('Invoke-WebRequest');
+    expect(result).toContain('https://example.com/api');
+    expect(result).not.toContain('-Method');
+  });
+
+  test('generates POST PowerShell with headers', () => {
+    const row = {
+      method: 'POST',
+      url: 'https://example.com/api',
+      requestHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+      requestPostData: { text: '{"key":"value"}' },
+    };
+    const result = np.generatePowerShell(row);
+    expect(result).toContain('-Method POST');
+    expect(result).toContain('-Headers');
+    expect(result).toContain('-Body');
+  });
+});
+
+describe('computeStats', () => {
+  test('returns empty stats for empty array', () => {
+    const result = np.computeStats([]);
+    expect(result.total).toBe(0);
+    expect(result.totalSize).toBe(0);
+    expect(result.avgDuration).toBe(0);
+  });
+
+  test('computes correct statistics', () => {
+    const rows = [
+      { method: 'GET', status: 200, size: 1000, duration: 100 },
+      { method: 'POST', status: 201, size: 500, duration: 200 },
+      { method: 'GET', status: 404, size: 200, duration: 50 },
+    ];
+    const result = np.computeStats(rows);
+    expect(result.total).toBe(3);
+    expect(result.methods.GET).toBe(2);
+    expect(result.methods.POST).toBe(1);
+    expect(result.statuses['2xx']).toBe(2);
+    expect(result.statuses['4xx']).toBe(1);
+    expect(result.totalSize).toBe(1700);
+    expect(result.avgDuration).toBeCloseTo(116.67, 1);
+  });
+});
