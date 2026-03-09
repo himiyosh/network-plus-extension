@@ -3177,16 +3177,40 @@ const _NetworkPlus = (function () {
         if (state.paused) return;
         const row = buildRowFromRequest(request);
         cacheResponseContent(row); // [U1]
-        const wasAtBottom =
-          state.autoScroll &&
-          tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
         state.rows.push(row);
 
-        // Re-render to keep sort order and advanced filter state consistent.
-        renderBody();
+        // Incremental add: if default sort (id asc) and row passes filter, just append
+        const isDefaultSort = state.sort.colId === 'id' && state.sort.direction === 'asc';
+        filterRows();
+        const passesFilter = state.filteredRows.indexOf(row) !== -1;
 
-        if (wasAtBottom) {
-          tableWrap.scrollTop = tableWrap.scrollHeight;
+        if (isDefaultSort && passesFilter) {
+          // Append single row without full re-render
+          const tbody = $('#tbody');
+          const emptyState = document.getElementById('empty-state-msg');
+          if (emptyState) emptyState.style.display = 'none';
+          const tr = createTableRow(row, (e) => selectRow(row, e));
+          tbody.appendChild(tr);
+          // Update counters
+          const rows = state.filteredRows;
+          $('#counter').textContent = rows.length + ' requests';
+          let totalBytes = 0;
+          for (let i = 0; i < rows.length; i++) totalBytes += rows[i].size || 0;
+          const totalSizeEl = $('#totalSize');
+          if (totalSizeEl) totalSizeEl.textContent = totalBytes > 0 ? fmtBytes(totalBytes) + ' transferred' : '';
+          renderStatsBar(rows);
+        } else {
+          // Full re-render needed (sort active or row filtered out)
+          renderBody();
+          renderStatsBar(state.filteredRows);
+        }
+
+        // Auto-scroll only if enabled and user was at bottom
+        if (state.autoScroll) {
+          const isAtBottom = tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
+          if (isAtBottom || passesFilter) {
+            tableWrap.scrollTop = tableWrap.scrollHeight;
+          }
         }
       });
       setStatus('Capturing...');
