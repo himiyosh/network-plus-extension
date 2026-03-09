@@ -1190,6 +1190,7 @@ const _NetworkPlus = (function () {
 
     // --- Time columns (clientStart / serverDone): time range picker with auto-range ---
     if (colId === 'clientStart' || colId === 'serverDone') {
+      wrap.className = 'filter-rule filter-rule--time';
       const filterField = colId === 'clientStart' ? 'clientStartFilter' : 'serverDoneFilter';
       const rule = state.columnFilterRules[colId];
       const isTimeRange = rule && rule.mode === 'timeRange';
@@ -1478,6 +1479,7 @@ const _NetworkPlus = (function () {
     }
 
     // --- Default: generic operator + value ---
+    wrap.className = 'filter-rule filter-rule--inline';
     const opSelect = document.createElement('select');
     opSelect.className = 'filter-op';
     const operators = getOperatorsForColumn(colId);
