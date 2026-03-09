@@ -1431,40 +1431,90 @@ const _NetworkPlus = (function () {
     const root = document.createElement('div');
     root.className = 'filter-popup-body';
 
+    const activeCount = getActiveFilterCount();
+    const bodyRule = state.columnFilterRules['body'];
+    const totalActive = activeCount + (isRuleActive(bodyRule) ? 1 : 0);
+
+    // Header with active count and Clear All button
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
-    header.textContent = `Column Filters (${getActiveFilterCount()} active)`;
+    const headerText = document.createElement('span');
+    headerText.textContent = 'Column Filters' + (totalActive > 0 ? ' (' + totalActive + ' active)' : '');
+    header.appendChild(headerText);
+
+    if (totalActive > 0) {
+      const clearAllBtn = document.createElement('button');
+      clearAllBtn.className = 'filter-clear-btn';
+      clearAllBtn.textContent = 'Clear All';
+      clearAllBtn.addEventListener('click', () => {
+        state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
+        onChange();
+        // Re-render the popup
+        root.textContent = '';
+        root.appendChild(createFilterPopupContent(onChange, focusColId));
+      });
+      header.appendChild(clearAllBtn);
+    }
     root.appendChild(header);
 
     const list = document.createElement('div');
     list.className = 'filter-popup-list';
 
     const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
-    for (const col of state.columns) {
-      const row = document.createElement('div');
-      row.className = 'filter-popup-row';
-      if (focusColId && focusColId === col.id) row.classList.add('focus-target');
 
-      const label = document.createElement('div');
-      label.className = 'filter-popup-label';
-      label.textContent = col.label;
-      row.appendChild(label);
+    // Group columns by category for better organization
+    const groups = [
+      { title: 'Timing', ids: ['clientStart', 'serverDone', 'duration'] },
+      { title: 'Request', ids: ['method', 'url', 'domain', 'path'] },
+      { title: 'Response', ids: ['status', 'type', 'size', 'body'] },
+      { title: 'Other', ids: ['id', 'initiator'] },
+    ];
 
-      const control = createColumnFilterControl(col.id, debouncedOnChange);
-      row.appendChild(control);
-      list.appendChild(row);
+    for (const group of groups) {
+      // Check if any column in group has an active filter
+      const hasActive = group.ids.some((id) => isRuleActive(state.columnFilterRules[id]));
+
+      const sectionTitle = document.createElement('div');
+      sectionTitle.className = 'filter-popup-section-title';
+      sectionTitle.textContent = group.title + (hasActive ? ' *' : '');
+      list.appendChild(sectionTitle);
+
+      for (const colId of group.ids) {
+        // body is a pseudo-column, not in state.columns
+        const col = state.columns.find((c) => c.id === colId);
+        const label = col ? col.label : (colId === 'body' ? 'Response Body' : colId);
+
+        const row = document.createElement('div');
+        row.className = 'filter-popup-row';
+        if (focusColId && focusColId === colId) row.classList.add('focus-target');
+        if (isRuleActive(state.columnFilterRules[colId])) row.classList.add('has-active-filter');
+
+        const labelEl = document.createElement('div');
+        labelEl.className = 'filter-popup-label';
+        labelEl.textContent = label;
+        row.appendChild(labelEl);
+
+        const control = createColumnFilterControl(colId, debouncedOnChange);
+        row.appendChild(control);
+        list.appendChild(row);
+      }
     }
 
-    // Response Body search pseudo-column
-    const bodyRow = document.createElement('div');
-    bodyRow.className = 'filter-popup-row';
-    if (focusColId === 'body') bodyRow.classList.add('focus-target');
-    const bodyLabel = document.createElement('div');
-    bodyLabel.className = 'filter-popup-label';
-    bodyLabel.textContent = 'Resp. Body';
-    bodyRow.appendChild(bodyLabel);
-    bodyRow.appendChild(createColumnFilterControl('body', debouncedOnChange));
-    list.appendChild(bodyRow);
+    // Show any columns not in groups (e.g. waterfall, custom columns)
+    const groupedIds = new Set(groups.flatMap((g) => g.ids));
+    for (const col of state.columns) {
+      if (!groupedIds.has(col.id)) {
+        const row = document.createElement('div');
+        row.className = 'filter-popup-row';
+        if (isRuleActive(state.columnFilterRules[col.id])) row.classList.add('has-active-filter');
+        const labelEl = document.createElement('div');
+        labelEl.className = 'filter-popup-label';
+        labelEl.textContent = col.label;
+        row.appendChild(labelEl);
+        row.appendChild(createColumnFilterControl(col.id, debouncedOnChange));
+        list.appendChild(row);
+      }
+    }
 
     root.appendChild(list);
     return root;
