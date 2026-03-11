@@ -13,145 +13,38 @@ const _NetworkPlus = (function () {
   const SCROLL_THRESHOLD = 10;
   const TRUNCATE_LIMIT = 2000;
   const FILTER_DEBOUNCE_MS = 150;
+  const DEEP_SEARCH_DEBOUNCE_MS = 250;
 
   const THEME_KEY = 'networkPlus.theme';
   const THEMES = ['system', 'dark', 'light'];
   const COL_PREF_KEY = 'networkPlus.cols';
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
-  const FILTER_PRESET_KEY = 'networkPlus.filterPresets';
-  const LAST_PRESET_KEY = 'networkPlus.lastPreset';
-  const MAX_FILTER_PRESETS = 20;
-  const LANG_KEY = 'networkPlus.lang';
-
-  // i18n dictionary
-  const I18N = {
-    en: {
-      columnFilters: 'Column Filters',
-      active: 'active',
-      clearAll: 'Clear All',
-      timing: 'Timing',
-      request: 'Request',
-      response: 'Response',
-      other: 'Other',
-      respBody: 'Resp. Body',
-      filter: 'Filter',
-      from: 'From',
-      to: 'To',
-      reset: 'Reset',
-      all: 'All',
-      none: 'None',
-      contains: 'contains',
-      notcontains: 'not contains',
-      equals: '==',
-      notequals: '!=',
-      startswith: 'starts with',
-      endswith: 'ends with',
-      regex: 'regex',
-      empty: 'is empty',
-      notempty: 'is not empty',
-      gt: '>',
-      gte: '>=',
-      lt: '<',
-      lte: '<=',
-      value: 'value',
-      addCondition: '+ Add',
-      remove: 'Del',
-      includeAny: 'Include (any)',
-      includeAll: 'Include (all)',
-      exclude: 'Exclude',
-      caseSensitive: 'Case sensitive',
-      savedPresets: 'Saved Presets',
-      presetName: 'Preset name...',
-      save: 'Save',
-      noPresets: 'No saved presets yet.',
-      saved: 'Saved',
-      applied: 'Preset applied',
-      lang: 'EN',
-    },
-    ja: {
-      columnFilters: '\u30AB\u30E9\u30E0\u30D5\u30A3\u30EB\u30BF',
-      active: '\u6709\u52B9',
-      clearAll: '\u5168\u89E3\u9664',
-      timing: '\u30BF\u30A4\u30DF\u30F3\u30B0',
-      request: '\u30EA\u30AF\u30A8\u30B9\u30C8',
-      response: '\u30EC\u30B9\u30DD\u30F3\u30B9',
-      other: '\u305D\u306E\u4ED6',
-      respBody: '\u30EC\u30B9\u30DD\u30F3\u30B9\u672C\u6587',
-      filter: '\u30D5\u30A3\u30EB\u30BF',
-      from: '\u958B\u59CB',
-      to: '\u7D42\u4E86',
-      reset: '\u30EA\u30BB\u30C3\u30C8',
-      all: '\u5168\u9078\u629E',
-      none: '\u5168\u89E3\u9664',
-      contains: '\u542B\u3080',
-      notcontains: '\u542B\u307E\u306A\u3044',
-      equals: '\u4E00\u81F4',
-      notequals: '\u4E0D\u4E00\u81F4',
-      startswith: '\u524D\u65B9\u4E00\u81F4',
-      endswith: '\u5F8C\u65B9\u4E00\u81F4',
-      regex: '\u6B63\u898F\u8868\u73FE',
-      empty: '\u7A7A',
-      notempty: '\u7A7A\u3067\u306A\u3044',
-      gt: '>\u3088\u308A\u5927',
-      gte: '>=\u4EE5\u4E0A',
-      lt: '<\u3088\u308A\u5C0F',
-      lte: '<=\u4EE5\u4E0B',
-      value: '\u5024',
-      addCondition: '+ \u8FFD\u52A0',
-      remove: '\u524A\u9664',
-      includeAny: '\u542B\u3080 (\u3044\u305A\u308C\u304B)',
-      includeAll: '\u542B\u3080 (\u3059\u3079\u3066)',
-      exclude: '\u9664\u5916',
-      caseSensitive: '\u5927\u6587\u5B57\u5C0F\u6587\u5B57\u3092\u533A\u5225',
-      savedPresets: '\u4FDD\u5B58\u6E08\u307F\u30D7\u30EA\u30BB\u30C3\u30C8',
-      presetName: '\u30D7\u30EA\u30BB\u30C3\u30C8\u540D...',
-      save: '\u4FDD\u5B58',
-      noPresets: '\u4FDD\u5B58\u6E08\u307F\u30D7\u30EA\u30BB\u30C3\u30C8\u306F\u3042\u308A\u307E\u305B\u3093',
-      saved: '\u4FDD\u5B58\u3057\u307E\u3057\u305F',
-      applied: '\u30D7\u30EA\u30BB\u30C3\u30C8\u9069\u7528\u6E08\u307F',
-      lang: 'JA',
-    },
-  };
-
-  let currentLang = 'en';
-  function t(key) { return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key; }
-
-  function loadLangPref() {
-    try {
-      const saved = localStorage.getItem(LANG_KEY);
-      if (saved && I18N[saved]) currentLang = saved;
-    } catch (_e) { /* ignore */ }
-  }
-  function saveLangPref(lang) {
-    currentLang = lang;
-    try { localStorage.setItem(LANG_KEY, lang); } catch (_e) { /* ignore */ }
-  }
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
   const DATE_COLUMNS = ['clientStart', 'serverDone'];
 
   const FILTER_OPERATORS_STRING = [
-    { value: 'contains', key: 'contains' },
-    { value: 'notcontains', key: 'notcontains' },
-    { value: 'equals', key: 'equals' },
-    { value: 'notequals', key: 'notequals' },
-    { value: 'startswith', key: 'startswith' },
-    { value: 'endswith', key: 'endswith' },
-    { value: 'regex', key: 'regex' },
-    { value: 'empty', key: 'empty' },
-    { value: 'notempty', key: 'notempty' },
+    { value: 'contains', label: 'contains' },
+    { value: 'notcontains', label: 'not contains' },
+    { value: 'equals', label: '==' },
+    { value: 'notequals', label: '!=' },
+    { value: 'startswith', label: 'startsWith' },
+    { value: 'endswith', label: 'endsWith' },
+    { value: 'regex', label: 'regex' },
+    { value: 'empty', label: 'isEmpty' },
+    { value: 'notempty', label: 'isNotEmpty' },
   ];
   const FILTER_OPERATORS_NUMERIC = [
-    { value: 'equals', key: 'equals' },
-    { value: 'notequals', key: 'notequals' },
-    { value: 'gt', key: 'gt' },
-    { value: 'gte', key: 'gte' },
-    { value: 'lt', key: 'lt' },
-    { value: 'lte', key: 'lte' },
-    { value: 'empty', key: 'empty' },
-    { value: 'notempty', key: 'notempty' },
+    { value: 'equals', label: '==' },
+    { value: 'notequals', label: '!=' },
+    { value: 'gt', label: '>' },
+    { value: 'gte', label: '>=' },
+    { value: 'lt', label: '<' },
+    { value: 'lte', label: '<=' },
+    { value: 'empty', label: 'isEmpty' },
+    { value: 'notempty', label: 'isNotEmpty' },
   ];
 
   const DEFAULT_COLUMNS = [
@@ -167,7 +60,6 @@ const _NetworkPlus = (function () {
     { id: 'size', label: 'Size', width: 90, visible: true },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
     { id: 'url', label: 'URL', width: 420, visible: false },
-    { id: 'waterfall', label: 'Waterfall', width: 180, visible: false },
   ];
 
   const DEFAULT_METHOD_FILTERS = () => ({
@@ -188,8 +80,6 @@ const _NetworkPlus = (function () {
         value: '',
       };
     }
-    // Body search pseudo-column
-    rules['body'] = { op: 'contains', value: '' };
     return rules;
   };
 
@@ -356,81 +246,46 @@ const _NetworkPlus = (function () {
   }
 
   /**
-   * Generate a cURL command string from a request row.
-   * @param {object} row - The request row object
-   * @returns {string} cURL command
+   * Deep search: check if a row matches query in deep content fields.
+   * Pure function (no DOM/state dependency) — testable.
+   * @param {object} row - Row object from buildRowFromRequest
+   * @param {string} query - Search keyword (case-insensitive)
+   * @param {object} scope - { reqBody, resBody, reqHeaders, resHeaders }
+   * @returns {boolean}
    */
-  function generateCurl(row) {
-    if (!row) return '';
-    const parts = ['curl'];
-    if (row.method && row.method !== 'GET') {
-      parts.push('-X ' + row.method);
-    }
-    parts.push("'" + (row.url || '').replace(/'/g, "'\\''") + "'");
-    if (row.requestHeaders) {
-      for (const h of row.requestHeaders) {
-        const name = (h.name || '').replace(/'/g, "'\\''");
-        const value = (h.value || '').replace(/'/g, "'\\''");
-        parts.push("-H '" + name + ': ' + value + "'");
-      }
-    }
-    if (row.requestPostData && row.requestPostData.text) {
-      parts.push("-d '" + row.requestPostData.text.replace(/'/g, "'\\''") + "'");
-    }
-    return parts.join(' \\\n  ');
-  }
+  function deepSearchMatch(row, query, scope) {
+    if (!query) return false;
+    const lcq = query.toLowerCase();
 
-  /**
-   * Generate a fetch() code snippet from a request row.
-   * @param {object} row - The request row object
-   * @returns {string} JavaScript fetch code
-   */
-  function generateFetch(row) {
-    if (!row) return '';
-    const opts = {};
-    if (row.method && row.method !== 'GET') opts.method = row.method;
-    if (row.requestHeaders && row.requestHeaders.length > 0) {
-      const headers = {};
-      for (const h of row.requestHeaders) {
-        headers[h.name || ''] = h.value || '';
-      }
-      opts.headers = headers;
+    if (scope.reqBody) {
+      const postText = row.requestPostData && row.requestPostData.text ? row.requestPostData.text : '';
+      if (postText && postText.toLowerCase().indexOf(lcq) > -1) return true;
     }
-    if (row.requestPostData && row.requestPostData.text) {
-      opts.body = row.requestPostData.text;
-    }
-    const url = JSON.stringify(row.url || '');
-    if (Object.keys(opts).length === 0) {
-      return 'fetch(' + url + ')';
-    }
-    return 'fetch(' + url + ', ' + JSON.stringify(opts, null, 2) + ')';
-  }
 
-  /**
-   * Generate a PowerShell Invoke-WebRequest command from a request row.
-   * @param {object} row - The request row object
-   * @returns {string} PowerShell command
-   */
-  function generatePowerShell(row) {
-    if (!row) return '';
-    const parts = ['Invoke-WebRequest'];
-    parts.push("-Uri '" + (row.url || '').replace(/'/g, "''") + "'");
-    if (row.method && row.method !== 'GET') {
-      parts.push('-Method ' + row.method);
+    if (scope.resBody) {
+      const resText = row.responseContent || '';
+      if (resText && resText.toLowerCase().indexOf(lcq) > -1) return true;
     }
-    if (row.requestHeaders && row.requestHeaders.length > 0) {
-      const headerPairs = [];
-      for (const h of row.requestHeaders) {
-        const name = (h.name || '').replace(/'/g, "''");
-        const value = (h.value || '').replace(/'/g, "''");
-        headerPairs.push("'" + name + "'='" + value + "'");
+
+    if (scope.reqHeaders) {
+      const reqH = row.requestHeaders || [];
+      for (let i = 0; i < reqH.length; i++) {
+        const h = reqH[i];
+        if ((h.name && h.name.toLowerCase().indexOf(lcq) > -1) ||
+            (h.value && h.value.toLowerCase().indexOf(lcq) > -1)) return true;
       }
-      parts.push('-Headers @{' + headerPairs.join('; ') + '}');
     }
-    if (row.requestPostData && row.requestPostData.text) {
-      parts.push("-Body '" + row.requestPostData.text.replace(/'/g, "''") + "'");
+
+    if (scope.resHeaders) {
+      const resH = row.responseHeaders || [];
+      for (let i = 0; i < resH.length; i++) {
+        const h = resH[i];
+        if ((h.name && h.name.toLowerCase().indexOf(lcq) > -1) ||
+            (h.value && h.value.toLowerCase().indexOf(lcq) > -1)) return true;
+      }
     }
-    return parts.join(' `\n  ');
+
+    return false;
   }
 
   // ============================================================
@@ -452,6 +307,14 @@ const _NetworkPlus = (function () {
     paused: false,
     globalFilter: '',
     autoScroll: true,
+    // Deep search state
+    deepSearch: {
+      query: '',
+      matches: [],       // array of row references that match
+      currentIndex: -1,  // index into matches[]
+      scope: { reqBody: true, resBody: true, reqHeaders: true, resHeaders: true },
+      visible: false,    // search bar visibility
+    },
   };
 
   // ============================================================
@@ -565,7 +428,6 @@ const _NetworkPlus = (function () {
     if (colId === 'initiator') return row.initiator ? row.initiator.text : '';
     if (colId === 'clientStart') return row.clientStartFilter || row.clientStart || '';
     if (colId === 'serverDone') return row.serverDoneFilter || row.serverDone || '';
-    if (colId === 'body') return row.responseContent || '';
     const v = row[colId];
     return v == null ? '' : v;
   }
@@ -730,67 +592,6 @@ const _NetworkPlus = (function () {
     });
   }
 
-  // --- Filter Presets ---
-  function loadFilterPresets(callback) {
-    if (chrome && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get([FILTER_PRESET_KEY], (result) => {
-        callback(result[FILTER_PRESET_KEY] || []);
-      });
-    } else {
-      try {
-        callback(JSON.parse(localStorage.getItem(FILTER_PRESET_KEY)) || []);
-      } catch (_e) {
-        callback([]);
-      }
-    }
-  }
-
-  function saveFilterPresets(presets) {
-    const trimmed = presets.slice(0, MAX_FILTER_PRESETS);
-    if (chrome && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ [FILTER_PRESET_KEY]: trimmed });
-    } else {
-      localStorage.setItem(FILTER_PRESET_KEY, JSON.stringify(trimmed));
-    }
-  }
-
-  function captureCurrentFilterState() {
-    const bar = document.getElementById('stats-bar');
-    return {
-      globalFilter: state.globalFilter,
-      columnFilterRules: JSON.parse(JSON.stringify(state.columnFilterRules)),
-      statsVisible: bar ? bar.classList.contains('visible') : false,
-      theme: document.documentElement.getAttribute('data-theme') || 'system',
-    };
-  }
-
-  function applyFilterPreset(preset) {
-    state.globalFilter = preset.globalFilter || '';
-    const filterInput = $('#filterInput');
-    if (filterInput) filterInput.value = state.globalFilter;
-    if (preset.columnFilterRules) {
-      state.columnFilterRules = JSON.parse(JSON.stringify(preset.columnFilterRules));
-    }
-    // Restore stats bar visibility
-    if (typeof preset.statsVisible === 'boolean') {
-      const bar = document.getElementById('stats-bar');
-      const sBtn = $('#statsBtn');
-      if (bar) {
-        bar.classList.toggle('visible', preset.statsVisible);
-        if (sBtn) sBtn.classList.toggle('active', preset.statsVisible);
-      }
-    }
-    // Restore theme
-    if (preset.theme) {
-      applyTheme(preset.theme);
-      saveThemePref(preset.theme);
-    }
-    // Remember last applied preset
-    try { localStorage.setItem(LAST_PRESET_KEY, preset.name); } catch (_e) { /* ignore */ }
-    render();
-    setStatus('Preset applied: ' + preset.name);
-  }
-
   // ============================================================
   // Section 8: Data Model
   // ============================================================
@@ -902,6 +703,14 @@ const _NetworkPlus = (function () {
     const hlColor = state.highlightedRows.get(row);
     if (hlColor) tr.classList.add('highlighted-row', hlColor);
     if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
+    // Deep search match highlight
+    const ds = state.deepSearch;
+    if (ds.query && ds.matches.indexOf(row) > -1) {
+      tr.classList.add('deep-search-match');
+      if (ds.currentIndex >= 0 && ds.matches[ds.currentIndex] === row) {
+        tr.classList.add('deep-search-current');
+      }
+    }
     if (row.method) {
       const method = row.method.toUpperCase();
       if (HTTP_METHODS.indexOf(method) > -1) tr.classList.add('method-' + method);
@@ -945,28 +754,6 @@ const _NetworkPlus = (function () {
             td.textContent = txt;
           }
         }
-      } else if (c.id === 'waterfall') {
-        // Miniature timing waterfall bar
-        td.style.padding = '2px 4px';
-        const total = row.duration || 0;
-        if (total > 0 && row.timings) {
-          const bar = document.createElement('div');
-          bar.style.cssText = 'display:flex;height:14px;border-radius:3px;overflow:hidden;background:var(--border)';
-          const phases = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
-          const colors = ['#999', '#6cf', '#f90', '#c6f', '#9c6', '#6c9', '#69c'];
-          for (let pi = 0; pi < phases.length; pi++) {
-            const val = row.timings[phases[pi]];
-            if (typeof val === 'number' && val > 0) {
-              const seg = document.createElement('div');
-              seg.style.cssText = 'height:100%;min-width:1px;background:' + colors[pi];
-              seg.style.width = Math.max(1, (val / total) * 100) + '%';
-              seg.title = phases[pi] + ': ' + fmtTime(val);
-              bar.appendChild(seg);
-            }
-          }
-          td.appendChild(bar);
-        }
-        td.title = fmtTime(total);
       } else {
         let v = row[c.id];
         if (c.id === 'size') v = fmtBytes(row.size);
@@ -996,174 +783,6 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 11: UI Components
   // ============================================================
-
-  function toggleHelpOverlay() {
-    let overlay = document.getElementById('help-overlay');
-    if (overlay) {
-      overlay.style.display = overlay.style.display === 'none' ? 'flex' : 'none';
-      return;
-    }
-    overlay = document.createElement('div');
-    overlay.id = 'help-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center';
-    const card = document.createElement('div');
-    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 28px;max-width:480px;width:90%;box-shadow:var(--shadow-md);color:var(--fg);font-size:13px;max-height:80vh;overflow-y:auto';
-    const title = document.createElement('h3');
-    title.style.cssText = 'margin:0 0 12px;font-size:16px;color:var(--accent)';
-    title.textContent = 'Keyboard Shortcuts';
-    card.appendChild(title);
-    const shortcuts = [
-      ['Ctrl+F', 'Focus global search'],
-      ['?', 'Show this help'],
-      ['Escape', 'Close help / dropdowns'],
-      ['Up / Down', 'Navigate rows'],
-      ['Ctrl+Click', 'Multi-select rows'],
-      ['Shift+Click', 'Range-select rows'],
-      ['Right-click', 'Context menu (highlight, copy as cURL/fetch/PS)'],
-      ['Delete', 'Clear all requests'],
-    ];
-    const table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse';
-    for (const [key, desc] of shortcuts) {
-      const tr = document.createElement('tr');
-      const tdKey = document.createElement('td');
-      tdKey.style.cssText = 'padding:5px 12px 5px 0;font-weight:700;white-space:nowrap;color:var(--accent);font-family:monospace;font-size:12px;width:120px';
-      tdKey.textContent = key;
-      const tdDesc = document.createElement('td');
-      tdDesc.style.cssText = 'padding:5px 0;color:var(--fg)';
-      tdDesc.textContent = desc;
-      tr.appendChild(tdKey);
-      tr.appendChild(tdDesc);
-      table.appendChild(tr);
-    }
-    card.appendChild(table);
-    const closeHint = document.createElement('div');
-    closeHint.style.cssText = 'margin-top:12px;text-align:center;font-size:11px;color:var(--muted)';
-    closeHint.textContent = 'Press ? or Escape to close';
-    card.appendChild(closeHint);
-    overlay.appendChild(card);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) overlay.style.display = 'none';
-    });
-    document.body.appendChild(overlay);
-  }
-
-  function showDiffOverlay(rowA, rowB) {
-    let overlay = document.getElementById('diff-overlay');
-    if (overlay) overlay.remove();
-    overlay = document.createElement('div');
-    overlay.id = 'diff-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center';
-    const card = document.createElement('div');
-    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;max-width:90vw;width:900px;box-shadow:var(--shadow-md);color:var(--fg);font-size:12px;max-height:85vh;overflow-y:auto';
-    const title = document.createElement('h3');
-    title.style.cssText = 'margin:0 0 12px;font-size:15px;color:var(--accent)';
-    title.textContent = 'Request Diff';
-    card.appendChild(title);
-
-    const subtitle = document.createElement('div');
-    subtitle.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:12px';
-    subtitle.textContent = '#' + rowA.id + ' ' + rowA.method + ' ' + (rowA.url || '').substring(0, 80) + '  vs  #' + rowB.id + ' ' + rowB.method + ' ' + (rowB.url || '').substring(0, 80);
-    card.appendChild(subtitle);
-
-    const sections = [
-      { label: 'URL', a: rowA.url || '', b: rowB.url || '' },
-      { label: 'Method', a: rowA.method || '', b: rowB.method || '' },
-      { label: 'Status', a: String(rowA.status || ''), b: String(rowB.status || '') },
-    ];
-
-    // Headers diff
-    const aHeaders = (rowA.requestHeaders || []).reduce((m, h) => { m[h.name] = h.value; return m; }, {});
-    const bHeaders = (rowB.requestHeaders || []).reduce((m, h) => { m[h.name] = h.value; return m; }, {});
-    const allHeaderKeys = new Set([...Object.keys(aHeaders), ...Object.keys(bHeaders)]);
-    for (const key of allHeaderKeys) {
-      if (aHeaders[key] !== bHeaders[key]) {
-        sections.push({ label: 'Header: ' + key, a: aHeaders[key] || '(absent)', b: bHeaders[key] || '(absent)' });
-      }
-    }
-
-    // Query params diff
-    const aParams = parseQueryString(rowA.url || '');
-    const bParams = parseQueryString(rowB.url || '');
-    const aMap = {};
-    for (const p of aParams) aMap[p.name] = p.value;
-    const bMap = {};
-    for (const p of bParams) bMap[p.name] = p.value;
-    const allParamKeys = new Set([...Object.keys(aMap), ...Object.keys(bMap)]);
-    for (const key of allParamKeys) {
-      if (aMap[key] !== bMap[key]) {
-        sections.push({ label: 'Query: ' + key, a: aMap[key] || '(absent)', b: bMap[key] || '(absent)' });
-      }
-    }
-
-    // Body diff
-    const aBody = (rowA.requestPostData && rowA.requestPostData.text) || '';
-    const bBody = (rowB.requestPostData && rowB.requestPostData.text) || '';
-    if (aBody !== bBody) {
-      sections.push({ label: 'Request Body', a: aBody.substring(0, 500) || '(empty)', b: bBody.substring(0, 500) || '(empty)' });
-    }
-
-    // Render diff table
-    const table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-family:monospace;font-size:11px';
-    const thead = document.createElement('tr');
-    for (const colText of ['Field', '#' + rowA.id, '#' + rowB.id]) {
-      const th = document.createElement('th');
-      th.style.cssText = 'padding:4px 8px;text-align:left;border-bottom:2px solid var(--border);color:var(--muted);font-size:10px;text-transform:uppercase';
-      th.textContent = colText;
-      thead.appendChild(th);
-    }
-    table.appendChild(thead);
-
-    for (const s of sections) {
-      const tr = document.createElement('tr');
-      const isDiff = s.a !== s.b;
-      tr.style.background = isDiff ? 'var(--accent-dim)' : 'transparent';
-      const tdLabel = document.createElement('td');
-      tdLabel.style.cssText = 'padding:4px 8px;font-weight:600;color:var(--syn-hdr-name);white-space:nowrap;border-bottom:1px solid var(--stripe)';
-      tdLabel.textContent = s.label;
-      const tdA = document.createElement('td');
-      tdA.style.cssText = 'padding:4px 8px;word-break:break-all;border-bottom:1px solid var(--stripe);max-width:350px;overflow:hidden;text-overflow:ellipsis';
-      tdA.textContent = s.a;
-      const tdB = document.createElement('td');
-      tdB.style.cssText = 'padding:4px 8px;word-break:break-all;border-bottom:1px solid var(--stripe);max-width:350px;overflow:hidden;text-overflow:ellipsis';
-      tdB.textContent = s.b;
-      if (isDiff) {
-        tdA.style.color = 'var(--status-5xx)';
-        tdB.style.color = 'var(--status-2xx)';
-      }
-      tr.appendChild(tdLabel);
-      tr.appendChild(tdA);
-      tr.appendChild(tdB);
-      table.appendChild(tr);
-    }
-
-    if (sections.filter((s) => s.a !== s.b).length === 0) {
-      const noChange = document.createElement('div');
-      noChange.style.cssText = 'padding:12px;color:var(--muted);text-align:center';
-      noChange.textContent = 'No differences found in URL, method, status, headers, query params, or body.';
-      card.appendChild(noChange);
-    } else {
-      card.appendChild(table);
-    }
-
-    const closeHint = document.createElement('div');
-    closeHint.style.cssText = 'margin-top:12px;text-align:center;font-size:11px;color:var(--muted)';
-    closeHint.textContent = 'Click outside or press Escape to close';
-    card.appendChild(closeHint);
-    overlay.appendChild(card);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) overlay.remove();
-    });
-    document.addEventListener('keydown', function closeDiff(e) {
-      if (e.key === 'Escape' && document.getElementById('diff-overlay')) {
-        document.getElementById('diff-overlay').remove();
-        document.removeEventListener('keydown', closeDiff);
-      }
-    });
-    document.body.appendChild(overlay);
-  }
-
   function createCheckboxItem(text, checked, onChange) {
     const label = document.createElement('label');
     const cb = document.createElement('input');
@@ -1193,7 +812,6 @@ const _NetworkPlus = (function () {
 
     // --- Time columns (clientStart / serverDone): time range picker with auto-range ---
     if (colId === 'clientStart' || colId === 'serverDone') {
-      wrap.className = 'filter-rule filter-rule--time';
       const filterField = colId === 'clientStart' ? 'clientStartFilter' : 'serverDoneFilter';
       const rule = state.columnFilterRules[colId];
       const isTimeRange = rule && rule.mode === 'timeRange';
@@ -1217,7 +835,7 @@ const _NetworkPlus = (function () {
       const endVal = isTimeRange && rule.end ? rule.end : autoEnd;
 
       const startLabel = document.createElement('span');
-      startLabel.textContent = t('from') + ' ';
+      startLabel.textContent = 'From ';
       const startInput = document.createElement('input');
       startInput.type = 'time';
       startInput.step = '1';
@@ -1225,7 +843,7 @@ const _NetworkPlus = (function () {
       startInput.value = startVal;
 
       const endLabel = document.createElement('span');
-      endLabel.textContent = ' ' + t('to') + ' ';
+      endLabel.textContent = ' To ';
       const endInput = document.createElement('input');
       endInput.type = 'time';
       endInput.step = '1';
@@ -1233,7 +851,7 @@ const _NetworkPlus = (function () {
       endInput.value = endVal;
 
       const clearBtn = document.createElement('button');
-      clearBtn.textContent = t('reset');
+      clearBtn.textContent = 'Reset';
       clearBtn.className = 'filter-clear-btn';
       clearBtn.addEventListener('click', () => {
         startInput.value = autoStart;
@@ -1267,7 +885,7 @@ const _NetworkPlus = (function () {
       const btnRow = document.createElement('div');
       btnRow.style.cssText = 'display:flex;gap:4px;margin-bottom:4px';
       const allBtn = document.createElement('button');
-      allBtn.textContent = t('all');
+      allBtn.textContent = 'All';
       allBtn.className = 'filter-clear-btn';
       allBtn.style.flex = '1';
       allBtn.addEventListener('click', () => {
@@ -1279,7 +897,7 @@ const _NetworkPlus = (function () {
         renderMethodCheckboxes();
       });
       const noneBtn = document.createElement('button');
-      noneBtn.textContent = t('none');
+      noneBtn.textContent = 'None';
       noneBtn.className = 'filter-clear-btn';
       noneBtn.style.flex = '1';
       noneBtn.addEventListener('click', () => {
@@ -1355,7 +973,7 @@ const _NetworkPlus = (function () {
       const isAdv = rule && rule.mode === 'urlAdvanced';
 
       const inclAnyLabel = document.createElement('label');
-      inclAnyLabel.textContent = t('includeAny') + ':';
+      inclAnyLabel.textContent = 'Include ANY (comma-separated):';
       const inclAnyInput = document.createElement('input');
       inclAnyInput.type = 'text';
       inclAnyInput.className = 'filter-value';
@@ -1363,7 +981,7 @@ const _NetworkPlus = (function () {
       inclAnyInput.value = isAdv ? rule.includeAny || '' : '';
 
       const inclAllLabel = document.createElement('label');
-      inclAllLabel.textContent = t('includeAll') + ':';
+      inclAllLabel.textContent = 'Include ALL (comma-separated):';
       const inclAllInput = document.createElement('input');
       inclAllInput.type = 'text';
       inclAllInput.className = 'filter-value';
@@ -1371,7 +989,7 @@ const _NetworkPlus = (function () {
       inclAllInput.value = isAdv ? rule.includeAll || '' : '';
 
       const exclLabel = document.createElement('label');
-      exclLabel.textContent = t('exclude') + ':';
+      exclLabel.textContent = 'Exclude ANY (comma-separated):';
       const exclInput = document.createElement('input');
       exclInput.type = 'text';
       exclInput.className = 'filter-value';
@@ -1383,7 +1001,7 @@ const _NetworkPlus = (function () {
       csCb.type = 'checkbox';
       csCb.checked = isAdv ? !!rule.caseSensitive : false;
       csLabel.appendChild(csCb);
-      const csText = document.createTextNode(' ' + t('caseSensitive'));
+      const csText = document.createTextNode(' Case sensitive');
       csLabel.appendChild(csText);
 
       const update = () => {
@@ -1428,7 +1046,7 @@ const _NetworkPlus = (function () {
           for (const op of FILTER_OPERATORS_STRING) {
             const option = document.createElement('option');
             option.value = op.value;
-            option.textContent = t(op.key);
+            option.textContent = op.label;
             opSelect.appendChild(option);
           }
           opSelect.value = cond.op || 'contains';
@@ -1436,11 +1054,11 @@ const _NetworkPlus = (function () {
           const input = document.createElement('input');
           input.type = 'text';
           input.className = 'filter-value';
-          input.placeholder = t('value');
+          input.placeholder = 'value';
           input.value = cond.value || '';
 
           const removeBtn = document.createElement('button');
-          removeBtn.textContent = t('remove');
+          removeBtn.textContent = 'x';
           removeBtn.className = 'filter-remove-btn';
           removeBtn.addEventListener('click', () => {
             conditions.splice(idx, 1);
@@ -1468,7 +1086,7 @@ const _NetworkPlus = (function () {
         });
 
         const addBtn = document.createElement('button');
-        addBtn.textContent = t('addCondition');
+        addBtn.textContent = '+ Add condition';
         addBtn.className = 'filter-add-btn';
         addBtn.addEventListener('click', () => {
           conditions.push({ op: 'contains', value: '' });
@@ -1482,14 +1100,13 @@ const _NetworkPlus = (function () {
     }
 
     // --- Default: generic operator + value ---
-    wrap.className = 'filter-rule filter-rule--inline';
     const opSelect = document.createElement('select');
     opSelect.className = 'filter-op';
     const operators = getOperatorsForColumn(colId);
     for (const op of operators) {
       const option = document.createElement('option');
       option.value = op.value;
-      option.textContent = t(op.key);
+      option.textContent = op.label;
       opSelect.appendChild(option);
     }
 
@@ -1499,7 +1116,7 @@ const _NetworkPlus = (function () {
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'filter-value';
-    input.placeholder = t('value');
+    input.placeholder = 'value';
     input.value = rule.value || '';
 
     const updateInputState = () => {
@@ -1558,115 +1175,28 @@ const _NetworkPlus = (function () {
     const root = document.createElement('div');
     root.className = 'filter-popup-body';
 
-    const activeCount = getActiveFilterCount();
-    const bodyRule = state.columnFilterRules['body'];
-    const totalActive = activeCount + (isRuleActive(bodyRule) ? 1 : 0);
-
-    // Header with active count and Clear All button
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
-    const headerText = document.createElement('span');
-    headerText.textContent = '\u2699\uFE0F ' + t('columnFilters') + (totalActive > 0 ? ' (' + totalActive + ' ' + t('active') + ')' : '');
-    header.appendChild(headerText);
-
-    if (totalActive > 0) {
-      const clearAllBtn = document.createElement('button');
-      clearAllBtn.className = 'filter-clear-btn';
-      clearAllBtn.textContent = '\u274C ' + t('clearAll');
-      clearAllBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
-        state.globalFilter = '';
-        const filterInput = document.getElementById('filterInput');
-        if (filterInput) filterInput.value = '';
-        onChange();
-        // Re-render the popup in place
-        const parent = root.parentElement;
-        const newContent = createFilterPopupContent(onChange, focusColId);
-        if (parent) {
-          parent.replaceChild(newContent, root);
-        }
-      });
-      header.appendChild(clearAllBtn);
-    }
-
-    // Language toggle
-    const langBtn = document.createElement('button');
-    langBtn.className = 'filter-clear-btn';
-    langBtn.textContent = '\uD83C\uDF10 ' + t('lang');
-    langBtn.title = 'Toggle EN/JA';
-    langBtn.addEventListener('click', (e) => {
-      e.stopPropagation(); // Prevent global click handler from closing popup
-      const next = currentLang === 'en' ? 'ja' : 'en';
-      saveLangPref(next);
-      // Re-render popup content in place without closing
-      const parent = root.parentElement;
-      const newContent = createFilterPopupContent(onChange, focusColId);
-      if (parent) {
-        parent.replaceChild(newContent, root);
-      }
-    });
-    header.appendChild(langBtn);
-
+    header.textContent = `Column Filters (${getActiveFilterCount()} active)`;
     root.appendChild(header);
 
     const list = document.createElement('div');
     list.className = 'filter-popup-list';
 
     const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
-
-    // Group columns by category for better organization
-    const groups = [
-      { title: '\u23F1\uFE0F ' + t('timing'), ids: ['clientStart', 'serverDone', 'duration'] },
-      { title: '\u27A1\uFE0F ' + t('request'), ids: ['method', 'url', 'domain', 'path'] },
-      { title: '\u2B05\uFE0F ' + t('response'), ids: ['status', 'type', 'size', 'body'] },
-      { title: '\uD83D\uDD27 ' + t('other'), ids: ['id', 'initiator'] },
-    ];
-
-    for (const group of groups) {
-      // Check if any column in group has an active filter
-      const hasActive = group.ids.some((id) => isRuleActive(state.columnFilterRules[id]));
-
-      const sectionTitle = document.createElement('div');
-      sectionTitle.className = 'filter-popup-section-title';
-      sectionTitle.textContent = group.title + (hasActive ? ' \u2705' : '');
-      list.appendChild(sectionTitle);
-
-      for (const colId of group.ids) {
-        // body is a pseudo-column, not in state.columns
-        const col = state.columns.find((c) => c.id === colId);
-        const label = col ? col.label : (colId === 'body' ? '\uD83D\uDCC4 ' + t('respBody') : colId);
-
-        const row = document.createElement('div');
-        row.className = 'filter-popup-row';
-        if (focusColId && focusColId === colId) row.classList.add('focus-target');
-        if (isRuleActive(state.columnFilterRules[colId])) row.classList.add('has-active-filter');
-
-        const labelEl = document.createElement('div');
-        labelEl.className = 'filter-popup-label';
-        labelEl.textContent = label;
-        row.appendChild(labelEl);
-
-        const control = createColumnFilterControl(colId, debouncedOnChange);
-        row.appendChild(control);
-        list.appendChild(row);
-      }
-    }
-
-    // Show any columns not in groups (e.g. waterfall, custom columns)
-    const groupedIds = new Set(groups.flatMap((g) => g.ids));
     for (const col of state.columns) {
-      if (!groupedIds.has(col.id)) {
-        const row = document.createElement('div');
-        row.className = 'filter-popup-row';
-        if (isRuleActive(state.columnFilterRules[col.id])) row.classList.add('has-active-filter');
-        const labelEl = document.createElement('div');
-        labelEl.className = 'filter-popup-label';
-        labelEl.textContent = col.label;
-        row.appendChild(labelEl);
-        row.appendChild(createColumnFilterControl(col.id, debouncedOnChange));
-        list.appendChild(row);
-      }
+      const row = document.createElement('div');
+      row.className = 'filter-popup-row';
+      if (focusColId && focusColId === col.id) row.classList.add('focus-target');
+
+      const label = document.createElement('div');
+      label.className = 'filter-popup-label';
+      label.textContent = col.label;
+      row.appendChild(label);
+
+      const control = createColumnFilterControl(col.id, debouncedOnChange);
+      row.appendChild(control);
+      list.appendChild(row);
     }
 
     root.appendChild(list);
@@ -1682,7 +1212,7 @@ const _NetworkPlus = (function () {
 
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
-    header.textContent = '\uD83D\uDD0D ' + col.label + ' ' + t('filter');
+    header.textContent = col.label + ' Filter';
     root.appendChild(header);
 
     const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
@@ -1871,84 +1401,9 @@ const _NetworkPlus = (function () {
     }
   }
 
-  function computeStats(rows) {
-    const stats = { total: rows.length, methods: {}, statuses: {}, totalSize: 0, totalDuration: 0 };
-    for (const r of rows) {
-      stats.methods[r.method] = (stats.methods[r.method] || 0) + 1;
-      const bucket = r.status >= 500 ? '5xx' : r.status >= 400 ? '4xx' : r.status >= 300 ? '3xx' : r.status >= 200 ? '2xx' : 'other';
-      stats.statuses[bucket] = (stats.statuses[bucket] || 0) + 1;
-      stats.totalSize += r.size || 0;
-      stats.totalDuration += r.duration || 0;
-    }
-    stats.avgDuration = stats.total > 0 ? stats.totalDuration / stats.total : 0;
-    return stats;
-  }
-
-  function renderStatsBar() {
-    const bar = document.getElementById('stats-bar');
-    if (!bar || !bar.classList.contains('visible')) return;
-    bar.textContent = '';
-
-    // Use selected rows if any, otherwise all filtered rows
-    const hasSelection = state.selectedRows.size > 0;
-    const rows = hasSelection ? [...state.selectedRows] : state.filteredRows;
-    const s = computeStats(rows);
-
-    const addBadge = (label, value, color) => {
-      const badge = document.createElement('span');
-      badge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;background:var(--bg);border:1px solid var(--border);font-size:11px;white-space:nowrap';
-      const labelSpan = document.createElement('span');
-      labelSpan.style.cssText = 'color:var(--muted);font-weight:400';
-      labelSpan.textContent = label;
-      const valueSpan = document.createElement('span');
-      valueSpan.style.cssText = 'font-weight:700;font-variant-numeric:tabular-nums;color:' + (color || 'var(--fg)');
-      valueSpan.textContent = value;
-      badge.appendChild(labelSpan);
-      badge.appendChild(valueSpan);
-      bar.appendChild(badge);
-    };
-
-    // Scope indicator
-    if (hasSelection) {
-      const scopeBadge = document.createElement('span');
-      scopeBadge.style.cssText = 'display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:var(--accent-dim);border:1px solid var(--accent);font-size:10px;font-weight:700;color:var(--accent);white-space:nowrap';
-      scopeBadge.textContent = '\uD83D\uDCCC Selected: ' + state.selectedRows.size;
-      bar.appendChild(scopeBadge);
-    }
-
-    addBadge('Requests', String(s.total), 'var(--accent)');
-    addBadge('Size', fmtBytes(s.totalSize), 'var(--accent)');
-    addBadge('Avg', fmtTime(s.avgDuration), s.avgDuration > 1000 ? 'var(--dur-slow)' : s.avgDuration > 300 ? 'var(--dur-med)' : 'var(--dur-ok)');
-
-    // Status badges with color coding
-    const statusColors = { '2xx': 'var(--status-2xx)', '3xx': 'var(--status-3xx)', '4xx': 'var(--status-4xx)', '5xx': 'var(--status-5xx)' };
-    for (const [bucket, count] of Object.entries(s.statuses)) {
-      addBadge(bucket, String(count), statusColors[bucket] || 'var(--fg)');
-    }
-
-    // Top methods
-    const methodEntries = Object.entries(s.methods).sort((a, b) => b[1] - a[1]);
-    if (methodEntries.length > 0) {
-      const sep = document.createElement('span');
-      sep.style.cssText = 'width:1px;height:16px;background:var(--border);margin:0 2px';
-      bar.appendChild(sep);
-      for (const [method, count] of methodEntries.slice(0, 4)) {
-        addBadge(method, String(count), 'var(--muted)');
-      }
-    }
-  }
-
   function render() {
     renderHeader();
     renderBody();
-    renderStatsBar();
-    // Update Filters button badge
-    const fBtn = document.getElementById('filterBtn');
-    if (fBtn) {
-      const cnt = getActiveFilterCount() + (isRuleActive(state.columnFilterRules['body']) ? 1 : 0);
-      fBtn.textContent = '\u2699\uFE0F Filters' + (cnt > 0 ? ' (' + cnt + ')' : '');
-      fBtn.classList.toggle('active', cnt > 0);
-    }
   }
 
   // ============================================================
@@ -2128,7 +1583,6 @@ const _NetworkPlus = (function () {
         state.selectedRows.add(row);
       }
       renderBody(); // Update row styling only
-      renderStatsBar(); // Update stats for selection
       return; // Don't update detail panel
     }
 
@@ -2143,7 +1597,6 @@ const _NetworkPlus = (function () {
           state.selectedRows.add(filtered[i]);
         }
         renderBody(); // Update row styling only
-        renderStatsBar(); // Update stats for selection
         return; // Don't update detail panel
       }
     }
@@ -2152,7 +1605,6 @@ const _NetworkPlus = (function () {
     state.selectedRows.clear();
     state.selectedRow = row;
     renderBody();
-    renderStatsBar(); // Update stats (back to all)
     if (!row) return;
 
     const tableWrap = $('#tableWrap');
@@ -2512,28 +1964,16 @@ const _NetworkPlus = (function () {
   // ============================================================
   function init() {
     loadColumnPrefs();
-    loadLangPref();
     setStatus('panel.js loaded');
 
-    // Global Search Ctrl+F
+    // Global Search Ctrl+F — open deep search bar
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
-        $('#filterInput').focus();
+        e.stopPropagation();
+        toggleDeepSearchBar(true);
       }
-      // Help overlay: ? key
-      if (e.key === '?' && !e.target.matches('input, textarea, select')) {
-        e.preventDefault();
-        toggleHelpOverlay();
-      }
-      // Escape closes help overlay
-      if (e.key === 'Escape') {
-        const overlay = document.getElementById('help-overlay');
-        if (overlay && overlay.style.display !== 'none') {
-          overlay.style.display = 'none';
-        }
-      }
-    });
+    }, true);
 
     // Theme init
     loadThemePref((pref) => applyTheme(pref));
@@ -2554,6 +1994,10 @@ const _NetworkPlus = (function () {
       state.selectedRow = null;
       state.selectedRows.clear();
       state.highlightedRows.clear();
+      // Reset deep search
+      state.deepSearch.query = '';
+      state.deepSearch.matches = [];
+      state.deepSearch.currentIndex = -1;
       render();
       setStatus('Cleared');
     });
@@ -2608,11 +2052,7 @@ const _NetworkPlus = (function () {
       } else {
         filterPopup.appendChild(createFilterPopupContent(renderBody, null));
       }
-      // Position: clamp to viewport to prevent overflow
-      const vpW = document.documentElement.clientWidth;
-      const popupW = 660; // max-width
-      const safeX = Math.min(x, vpW - popupW - 10);
-      filterPopup.style.left = Math.max(5, safeX) + 'px';
+      filterPopup.style.left = x + 'px';
       filterPopup.style.top = y + 'px';
       filterPopup.style.display = 'block';
       filterPopup.classList.add('show');
@@ -2702,133 +2142,6 @@ const _NetworkPlus = (function () {
       }
     });
 
-    // --- Filter Presets UI ---
-    const presetsBtn = $('#presetsBtn');
-    if (presetsBtn) {
-      const presetsDropdown = document.createElement('div');
-      presetsDropdown.className = 'filter-dropdown-content dropdown-content';
-      presetsDropdown.style.cssText = 'position:absolute;min-width:240px;max-height:360px;overflow-y:auto';
-      document.body.appendChild(presetsDropdown);
-
-      const refreshPresetsList = () => {
-        presetsDropdown.textContent = '';
-
-        // Inline name input for saving
-        const saveRow = document.createElement('div');
-        saveRow.style.cssText = 'display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--border)';
-
-        const nameInput = document.createElement('input');
-        nameInput.type = 'text';
-        nameInput.placeholder = t('presetName');
-        nameInput.style.cssText = 'flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:11px';
-
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'filter-add-btn';
-        saveBtn.style.cssText = 'width:auto;margin:0;padding:4px 12px;font-size:11px';
-        saveBtn.textContent = t('save');
-
-        const doSave = () => {
-          const name = nameInput.value.trim();
-          if (!name) {
-            nameInput.style.borderColor = 'var(--status-5xx)';
-            nameInput.focus();
-            return;
-          }
-          loadFilterPresets((presets) => {
-            presets.unshift({ name, ...captureCurrentFilterState() });
-            saveFilterPresets(presets);
-            nameInput.value = '';
-            nameInput.style.borderColor = 'var(--border)';
-            // Show success feedback
-            const toast = document.createElement('div');
-            toast.style.cssText = 'padding:6px 10px;background:var(--status-2xx);color:#fff;border-radius:6px;font-size:11px;font-weight:600;text-align:center;margin:4px 8px';
-            toast.textContent = t('saved') + ': ' + name;
-            presetsDropdown.insertBefore(toast, saveRow.nextSibling);
-            setTimeout(() => { toast.remove(); refreshPresetsList(); }, 1500);
-            setStatus('Preset saved: ' + name);
-          });
-        };
-
-        saveBtn.addEventListener('click', doSave);
-        nameInput.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') doSave();
-        });
-
-        saveRow.appendChild(nameInput);
-        saveRow.appendChild(saveBtn);
-        presetsDropdown.appendChild(saveRow);
-
-        // Load presets
-        loadFilterPresets((presets) => {
-          if (presets.length === 0) {
-            const empty = document.createElement('div');
-            empty.style.cssText = 'padding:10px 8px;color:var(--muted);font-size:11px;text-align:center';
-            empty.textContent = t('noPresets');
-            presetsDropdown.appendChild(empty);
-            return;
-          }
-          const sep = document.createElement('div');
-          sep.style.cssText = 'border-top:1px solid var(--border);margin:2px 0';
-          presetsDropdown.appendChild(sep);
-
-          const listTitle = document.createElement('div');
-          listTitle.style.cssText = 'padding:4px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted)';
-          listTitle.textContent = t('savedPresets') + ' (' + presets.length + ')';
-          presetsDropdown.appendChild(listTitle);
-
-          for (let i = 0; i < presets.length; i++) {
-            const preset = presets[i];
-            const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:4px';
-
-            const applyBtn = document.createElement('button');
-            applyBtn.className = 'context-menu-item';
-            applyBtn.style.flex = '1';
-            applyBtn.textContent = preset.name;
-            applyBtn.addEventListener('click', () => {
-              applyFilterPreset(preset);
-              presetsDropdown.style.display = 'none';
-              presetsDropdown.classList.remove('show');
-            });
-            row.appendChild(applyBtn);
-
-            const delBtn = document.createElement('button');
-            delBtn.className = 'filter-remove-btn';
-            delBtn.textContent = '×';
-            delBtn.title = 'Delete preset';
-            ((idx) => {
-              delBtn.addEventListener('click', () => {
-                loadFilterPresets((p) => {
-                  p.splice(idx, 1);
-                  saveFilterPresets(p);
-                  refreshPresetsList();
-                });
-              });
-            })(i);
-            row.appendChild(delBtn);
-
-            presetsDropdown.appendChild(row);
-          }
-        });
-      };
-
-      presetsBtn.addEventListener('click', (e) => {
-        const isVisible = presetsDropdown.classList.contains('show');
-        $all('.dropdown-content').forEach((d) => {
-          d.style.display = 'none';
-          d.classList.remove('show');
-        });
-        if (!isVisible) {
-          refreshPresetsList();
-          const rect = e.currentTarget.getBoundingClientRect();
-          presetsDropdown.style.left = rect.left + 'px';
-          presetsDropdown.style.top = rect.bottom + 'px';
-          presetsDropdown.style.display = 'block';
-          presetsDropdown.classList.add('show');
-        }
-      });
-    }
-
     // Tab switching for inspector panels
     const initTabBar = (barId) => {
       const bar = $('#' + barId);
@@ -2852,32 +2165,13 @@ const _NetworkPlus = (function () {
     initTabBar('req-tab-bar');
     initTabBar('res-tab-bar');
 
-    // Restore last applied preset (if any)
-    try {
-      const lastPresetName = localStorage.getItem(LAST_PRESET_KEY);
-      if (lastPresetName) {
-        loadFilterPresets((presets) => {
-          const preset = presets.find((p) => p.name === lastPresetName);
-          if (preset) {
-            applyFilterPreset(preset);
-            setStatus('Restored preset: ' + preset.name);
-          } else {
-            render();
-          }
-        });
-      } else {
-        render();
-      }
-    } catch (_e) {
-      render();
-    }
+    render();
 
     // Global click handler to close dropdowns
     window.addEventListener('click', (e) => {
       if (
         e.target.closest('#filterBtn') ||
         e.target.closest('#columnsBtn') ||
-        e.target.closest('#presetsBtn') ||
         e.target.closest('.filter-btn') ||
         e.target.closest('.dropdown-content')
       ) return;
@@ -2886,20 +2180,6 @@ const _NetworkPlus = (function () {
         d.style.display = 'none';
       });
     });
-
-    // Stats toggle button
-    const statsBtn = $('#statsBtn');
-    if (statsBtn) {
-      statsBtn.addEventListener('click', () => {
-        const bar = document.getElementById('stats-bar');
-        if (!bar) return;
-        bar.classList.toggle('visible');
-        if (bar.classList.contains('visible')) {
-          renderStatsBar();
-        }
-        statsBtn.classList.toggle('active', bar.classList.contains('visible'));
-      });
-    }
 
     // Auto-scroll button
     const autoScrollBtn = document.createElement('button');
@@ -2915,18 +2195,6 @@ const _NetworkPlus = (function () {
     // [U6] Keyboard navigation
     const tableWrap = $('#tableWrap');
     tableWrap.setAttribute('tabindex', '0');
-
-    // Auto-scroll: disable when user manually scrolls up, re-enable at bottom
-    tableWrap.addEventListener('scroll', () => {
-      if (!state.autoScroll) return;
-      const atBottom = tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD - 40;
-      const autoScrollBtn = document.getElementById('autoScrollBtn');
-      if (!atBottom && state.rows.length > 0) {
-        state.autoScroll = false;
-        if (autoScrollBtn) autoScrollBtn.classList.remove('active');
-      }
-    });
-
     tableWrap.addEventListener('keydown', (e) => {
       if (!state.filteredRows.length) return;
       const currentIdx = state.selectedRow ? state.filteredRows.indexOf(state.selectedRow) : -1;
@@ -3068,42 +2336,6 @@ const _NetworkPlus = (function () {
         contextMenu.appendChild(deleteBtn);
       }
 
-      // Compare selected (diff) — available when exactly 2 rows selected
-      if (state.selectedRows.size === 2) {
-        const diffBtn = document.createElement('button');
-        diffBtn.textContent = 'Compare Selected (Diff)';
-        diffBtn.className = 'context-menu-item';
-        diffBtn.addEventListener('click', () => {
-          const [rowA, rowB] = [...state.selectedRows];
-          showDiffOverlay(rowA, rowB);
-          contextMenu.style.display = 'none';
-        });
-        contextMenu.appendChild(diffBtn);
-      }
-
-      // Copy as cURL / fetch / PowerShell
-      const copySep = document.createElement('div');
-      copySep.style.cssText = 'border-top:1px solid var(--border);margin:4px 0';
-      contextMenu.appendChild(copySep);
-
-      const copyFormats = [
-        { label: 'Copy as cURL', fn: generateCurl },
-        { label: 'Copy as fetch', fn: generateFetch },
-        { label: 'Copy as PowerShell', fn: generatePowerShell },
-      ];
-      for (const fmt of copyFormats) {
-        const btn = document.createElement('button');
-        btn.textContent = fmt.label;
-        btn.className = 'context-menu-item';
-        btn.addEventListener('click', () => {
-          const text = fmt.fn(contextMenuRow);
-          navigator.clipboard.writeText(text).catch((_e) => {});
-          contextMenu.style.display = 'none';
-          setStatus(fmt.label + ' copied');
-        });
-        contextMenu.appendChild(btn);
-      }
-
       // Show menu
       contextMenu.style.left = e.pageX + 'px';
       contextMenu.style.top = e.pageY + 'px';
@@ -3170,6 +2402,139 @@ const _NetworkPlus = (function () {
         document.addEventListener('mouseup', handleUp);
       });
     }
+
+    // ---- Deep Search Feature ----
+    const deepSearchBar = $('#deepSearchBar');
+    const deepSearchInput = $('#deepSearchInput');
+    const deepSearchCount = $('#deepSearchCount');
+    const deepSearchPrev = $('#deepSearchPrev');
+    const deepSearchNext = $('#deepSearchNext');
+    const deepSearchClose = $('#deepSearchClose');
+    const deepSearchBtn = $('#deepSearchBtn');
+    const dsReqBody = $('#dsReqBody');
+    const dsResBody = $('#dsResBody');
+    const dsReqHeaders = $('#dsReqHeaders');
+    const dsResHeaders = $('#dsResHeaders');
+    const contentEl = $('#content');
+
+    function toggleDeepSearchBar(forceOpen) {
+      const ds = state.deepSearch;
+      const shouldShow = forceOpen != null ? forceOpen : !ds.visible;
+      ds.visible = shouldShow;
+      deepSearchBar.style.display = shouldShow ? 'flex' : 'none';
+      contentEl.classList.toggle('with-search-bar', shouldShow);
+      if (shouldShow) {
+        deepSearchInput.focus();
+        deepSearchInput.select();
+      } else {
+        // Clear search state and re-render to remove highlights
+        ds.query = '';
+        ds.matches = [];
+        ds.currentIndex = -1;
+        deepSearchInput.value = '';
+        deepSearchCount.textContent = '';
+        renderBody();
+      }
+    }
+
+    function executeDeepSearch() {
+      const ds = state.deepSearch;
+      const query = deepSearchInput.value.trim();
+      ds.query = query;
+      ds.scope.reqBody = dsReqBody.checked;
+      ds.scope.resBody = dsResBody.checked;
+      ds.scope.reqHeaders = dsReqHeaders.checked;
+      ds.scope.resHeaders = dsResHeaders.checked;
+
+      if (!query) {
+        ds.matches = [];
+        ds.currentIndex = -1;
+        deepSearchCount.textContent = '';
+        renderBody();
+        return;
+      }
+
+      // Search across all rows (not just filtered)
+      const sorted = getSortedRows(state.filteredRows);
+      ds.matches = sorted.filter((row) => deepSearchMatch(row, query, ds.scope));
+      ds.currentIndex = ds.matches.length > 0 ? 0 : -1;
+      updateDeepSearchUI();
+      renderBody();
+      scrollToDeepSearchMatch();
+    }
+
+    function updateDeepSearchUI() {
+      const ds = state.deepSearch;
+      if (ds.matches.length === 0 && ds.query) {
+        deepSearchCount.textContent = 'No matches';
+        deepSearchCount.style.color = 'var(--status-5xx)';
+      } else if (ds.matches.length > 0) {
+        deepSearchCount.textContent = (ds.currentIndex + 1) + ' / ' + ds.matches.length;
+        deepSearchCount.style.color = '';
+      } else {
+        deepSearchCount.textContent = '';
+        deepSearchCount.style.color = '';
+      }
+      deepSearchPrev.disabled = ds.matches.length === 0;
+      deepSearchNext.disabled = ds.matches.length === 0;
+    }
+
+    function scrollToDeepSearchMatch() {
+      const ds = state.deepSearch;
+      if (ds.currentIndex < 0 || ds.currentIndex >= ds.matches.length) return;
+      const matchRow = ds.matches[ds.currentIndex];
+      const matchTr = $('#tableWrap').querySelector('tr[data-row-id="' + matchRow.id + '"]');
+      if (matchTr) {
+        matchTr.scrollIntoView({ block: 'nearest' });
+        // Auto-select the current match row
+        selectRow(matchRow);
+      }
+    }
+
+    function navigateDeepSearch(direction) {
+      const ds = state.deepSearch;
+      if (ds.matches.length === 0) return;
+      ds.currentIndex += direction;
+      if (ds.currentIndex >= ds.matches.length) ds.currentIndex = 0;
+      if (ds.currentIndex < 0) ds.currentIndex = ds.matches.length - 1;
+      updateDeepSearchUI();
+      renderBody();
+      scrollToDeepSearchMatch();
+    }
+
+    const debouncedDeepSearch = debounce(() => executeDeepSearch(), DEEP_SEARCH_DEBOUNCE_MS);
+    deepSearchInput.addEventListener('input', debouncedDeepSearch);
+
+    deepSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateDeepSearch(-1);
+        } else {
+          navigateDeepSearch(1);
+        }
+      } else if (e.key === 'Escape') {
+        toggleDeepSearchBar(false);
+      }
+    });
+
+    deepSearchPrev.addEventListener('click', () => navigateDeepSearch(-1));
+    deepSearchNext.addEventListener('click', () => navigateDeepSearch(1));
+    deepSearchClose.addEventListener('click', () => toggleDeepSearchBar(false));
+    deepSearchBtn.addEventListener('click', () => toggleDeepSearchBar());
+
+    // Re-run search when scope checkboxes change
+    dsReqBody.addEventListener('change', debouncedDeepSearch);
+    dsResBody.addEventListener('change', debouncedDeepSearch);
+    dsReqHeaders.addEventListener('change', debouncedDeepSearch);
+    dsResHeaders.addEventListener('change', debouncedDeepSearch);
+
+    // Esc to close deep search bar (global)
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && state.deepSearch.visible) {
+        toggleDeepSearchBar(false);
+      }
+    });
 
     // Import Feature (HAR / SAZ)
     const importBtn = $('#importBtn');
@@ -3366,40 +2731,16 @@ const _NetworkPlus = (function () {
         if (state.paused) return;
         const row = buildRowFromRequest(request);
         cacheResponseContent(row); // [U1]
+        const wasAtBottom =
+          state.autoScroll &&
+          tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
         state.rows.push(row);
 
-        // Incremental add: if default sort (id asc) and row passes filter, just append
-        const isDefaultSort = state.sort.colId === 'id' && state.sort.direction === 'asc';
-        filterRows();
-        const passesFilter = state.filteredRows.indexOf(row) !== -1;
+        // Re-render to keep sort order and advanced filter state consistent.
+        renderBody();
 
-        if (isDefaultSort && passesFilter) {
-          // Append single row without full re-render
-          const tbody = $('#tbody');
-          const emptyState = document.getElementById('empty-state-msg');
-          if (emptyState) emptyState.style.display = 'none';
-          const tr = createTableRow(row, (e) => selectRow(row, e));
-          tbody.appendChild(tr);
-          // Update counters
-          const rows = state.filteredRows;
-          $('#counter').textContent = rows.length + ' requests';
-          let totalBytes = 0;
-          for (let i = 0; i < rows.length; i++) totalBytes += rows[i].size || 0;
-          const totalSizeEl = $('#totalSize');
-          if (totalSizeEl) totalSizeEl.textContent = totalBytes > 0 ? fmtBytes(totalBytes) + ' transferred' : '';
-          renderStatsBar();
-        } else {
-          // Full re-render needed (sort active or row filtered out)
-          renderBody();
-          renderStatsBar();
-        }
-
-        // Auto-scroll only if enabled and user was already at bottom before this request
-        if (state.autoScroll) {
-          const isAtBottom = tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD - 40;
-          if (isAtBottom) {
-            tableWrap.scrollTop = tableWrap.scrollHeight;
-          }
+        if (wasAtBottom) {
+          tableWrap.scrollTop = tableWrap.scrollHeight;
         }
       });
       setStatus('Capturing...');
@@ -3429,10 +2770,7 @@ const _NetworkPlus = (function () {
     highlightText,
     getRowFilterValue,
     evaluateFilterRule,
-    generateCurl,
-    generateFetch,
-    generatePowerShell,
-    computeStats,
+    deepSearchMatch,
     DEFAULT_METHOD_FILTERS,
   };
 })();

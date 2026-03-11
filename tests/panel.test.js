@@ -369,109 +369,84 @@ describe('DEFAULT_METHOD_FILTERS', () => {
   });
 });
 
-describe('generateCurl', () => {
-  test('returns empty string for null/undefined', () => {
-    expect(np.generateCurl(null)).toBe('');
-    expect(np.generateCurl(undefined)).toBe('');
+describe('deepSearchMatch', () => {
+  const allScope = { reqBody: true, resBody: true, reqHeaders: true, resHeaders: true };
+  const noScope = { reqBody: false, resBody: false, reqHeaders: false, resHeaders: false };
+
+  const makeRow = (overrides) => ({
+    requestPostData: null,
+    responseContent: null,
+    requestHeaders: [],
+    responseHeaders: [],
+    ...overrides,
   });
 
-  test('generates GET cURL command', () => {
-    const row = { method: 'GET', url: 'https://example.com/api', requestHeaders: [] };
-    const result = np.generateCurl(row);
-    expect(result).toContain('curl');
-    expect(result).toContain('https://example.com/api');
-    expect(result).not.toContain('-X');
+  test('returns false for empty query', () => {
+    const row = makeRow({ responseContent: 'hello world' });
+    expect(np.deepSearchMatch(row, '', allScope)).toBe(false);
   });
 
-  test('generates POST cURL with headers and body', () => {
-    const row = {
-      method: 'POST',
-      url: 'https://example.com/api',
-      requestHeaders: [{ name: 'Content-Type', value: 'application/json' }],
-      requestPostData: { text: '{"key":"value"}' },
-    };
-    const result = np.generateCurl(row);
-    expect(result).toContain('-X POST');
-    expect(result).toContain("-H 'Content-Type: application/json'");
-    expect(result).toContain('-d');
-  });
-});
-
-describe('generateFetch', () => {
-  test('returns empty string for null/undefined', () => {
-    expect(np.generateFetch(null)).toBe('');
-    expect(np.generateFetch(undefined)).toBe('');
+  test('matches request body (postData.text)', () => {
+    const row = makeRow({ requestPostData: { text: '{"username":"admin"}' } });
+    expect(np.deepSearchMatch(row, 'admin', allScope)).toBe(true);
+    expect(np.deepSearchMatch(row, 'password', allScope)).toBe(false);
   });
 
-  test('generates simple GET fetch', () => {
-    const row = { method: 'GET', url: 'https://example.com/api', requestHeaders: [] };
-    const result = np.generateFetch(row);
-    expect(result).toContain('fetch(');
-    expect(result).toContain('https://example.com/api');
+  test('matches response body', () => {
+    const row = makeRow({ responseContent: '{"result":"success","token":"abc123"}' });
+    expect(np.deepSearchMatch(row, 'abc123', allScope)).toBe(true);
+    expect(np.deepSearchMatch(row, 'failure', allScope)).toBe(false);
   });
 
-  test('generates POST fetch with headers and body', () => {
-    const row = {
-      method: 'POST',
-      url: 'https://example.com/api',
-      requestHeaders: [{ name: 'Content-Type', value: 'application/json' }],
-      requestPostData: { text: '{"key":"value"}' },
-    };
-    const result = np.generateFetch(row);
-    expect(result).toContain('"method": "POST"');
-    expect(result).toContain('"Content-Type"');
-  });
-});
-
-describe('generatePowerShell', () => {
-  test('returns empty string for null/undefined', () => {
-    expect(np.generatePowerShell(null)).toBe('');
-    expect(np.generatePowerShell(undefined)).toBe('');
+  test('matches request headers', () => {
+    const row = makeRow({
+      requestHeaders: [
+        { name: 'Authorization', value: 'Bearer tok_xyz' },
+        { name: 'Content-Type', value: 'application/json' },
+      ],
+    });
+    expect(np.deepSearchMatch(row, 'Bearer', allScope)).toBe(true);
+    expect(np.deepSearchMatch(row, 'authorization', allScope)).toBe(true); // case-insensitive
+    expect(np.deepSearchMatch(row, 'text/html', allScope)).toBe(false);
   });
 
-  test('generates GET PowerShell command', () => {
-    const row = { method: 'GET', url: 'https://example.com/api', requestHeaders: [] };
-    const result = np.generatePowerShell(row);
-    expect(result).toContain('Invoke-WebRequest');
-    expect(result).toContain('https://example.com/api');
-    expect(result).not.toContain('-Method');
+  test('matches response headers', () => {
+    const row = makeRow({
+      responseHeaders: [
+        { name: 'Set-Cookie', value: 'session=abc; Path=/' },
+      ],
+    });
+    expect(np.deepSearchMatch(row, 'session=abc', allScope)).toBe(true);
+    expect(np.deepSearchMatch(row, 'Set-Cookie', allScope)).toBe(true);
   });
 
-  test('generates POST PowerShell with headers', () => {
-    const row = {
-      method: 'POST',
-      url: 'https://example.com/api',
-      requestHeaders: [{ name: 'Content-Type', value: 'application/json' }],
-      requestPostData: { text: '{"key":"value"}' },
-    };
-    const result = np.generatePowerShell(row);
-    expect(result).toContain('-Method POST');
-    expect(result).toContain('-Headers');
-    expect(result).toContain('-Body');
-  });
-});
-
-describe('computeStats', () => {
-  test('returns empty stats for empty array', () => {
-    const result = np.computeStats([]);
-    expect(result.total).toBe(0);
-    expect(result.totalSize).toBe(0);
-    expect(result.avgDuration).toBe(0);
+  test('respects scope toggles', () => {
+    const row = makeRow({
+      requestPostData: { text: 'findme' },
+      responseContent: 'findme',
+      requestHeaders: [{ name: 'X-Find', value: 'findme' }],
+      responseHeaders: [{ name: 'X-Find', value: 'findme' }],
+    });
+    // Only reqBody
+    expect(np.deepSearchMatch(row, 'findme', { reqBody: true, resBody: false, reqHeaders: false, resHeaders: false })).toBe(true);
+    // Only resBody
+    expect(np.deepSearchMatch(row, 'findme', { reqBody: false, resBody: true, reqHeaders: false, resHeaders: false })).toBe(true);
+    // Only reqHeaders
+    expect(np.deepSearchMatch(row, 'findme', { reqBody: false, resBody: false, reqHeaders: true, resHeaders: false })).toBe(true);
+    // Only resHeaders
+    expect(np.deepSearchMatch(row, 'findme', { reqBody: false, resBody: false, reqHeaders: false, resHeaders: true })).toBe(true);
+    // None
+    expect(np.deepSearchMatch(row, 'findme', noScope)).toBe(false);
   });
 
-  test('computes correct statistics', () => {
-    const rows = [
-      { method: 'GET', status: 200, size: 1000, duration: 100 },
-      { method: 'POST', status: 201, size: 500, duration: 200 },
-      { method: 'GET', status: 404, size: 200, duration: 50 },
-    ];
-    const result = np.computeStats(rows);
-    expect(result.total).toBe(3);
-    expect(result.methods.GET).toBe(2);
-    expect(result.methods.POST).toBe(1);
-    expect(result.statuses['2xx']).toBe(2);
-    expect(result.statuses['4xx']).toBe(1);
-    expect(result.totalSize).toBe(1700);
-    expect(result.avgDuration).toBeCloseTo(116.67, 1);
+  test('handles null/empty fields gracefully', () => {
+    const row = makeRow({});
+    expect(np.deepSearchMatch(row, 'anything', allScope)).toBe(false);
+  });
+
+  test('case-insensitive matching', () => {
+    const row = makeRow({ responseContent: 'Hello World' });
+    expect(np.deepSearchMatch(row, 'HELLO', allScope)).toBe(true);
+    expect(np.deepSearchMatch(row, 'hello', allScope)).toBe(true);
   });
 });

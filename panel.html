@@ -10,24 +10,37 @@
   <header class="topbar">
     <div class="left">
       <strong>Network+</strong>
-      <input id="filterInput" type="text" placeholder="Global search (Ctrl+F)..."/>
+      <input id="filterInput" type="text" placeholder="Filter requests..."/>
       <div class="separator"></div>
       <button id="clearBtn" title="Clear requests" class="icon-btn">🚫</button>
       <button id="pauseBtn" title="Pause recording" class="icon-btn">⏸️</button>
       <button id="importBtn" title="Import (HAR/SAZ)" class="icon-btn">📥</button>
       <button id="exportHarBtn" title="Export (HAR)" class="icon-btn">📤</button>
-      <button id="statsBtn" title="Toggle statistics bar" class="icon-btn">📊</button>
       <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
       <div class="separator"></div>
+      <button id="deepSearchBtn" title="Deep Search (Ctrl+F)" class="icon-btn">🔍</button>
     </div>
     <div class="right">
       <button id="filterBtn">⚙️ Filters</button>
-      <button id="presetsBtn">💾 Presets</button>
       <button id="columnsBtn">🗂️ Columns</button>
       <button id="themeBtn">🌗 System</button>
     </div>
   </header>
-  <div id="stats-bar" class="stats-bar"></div>
+  <div class="deep-search-bar" id="deepSearchBar" style="display:none">
+    <div class="deep-search-left">
+      <input id="deepSearchInput" type="text" placeholder="Search in request/response bodies, headers..." />
+      <span id="deepSearchCount" class="deep-search-count"></span>
+      <button id="deepSearchPrev" class="deep-search-nav" title="Previous match (Shift+Enter)">&#9650;</button>
+      <button id="deepSearchNext" class="deep-search-nav" title="Next match (Enter)">&#9660;</button>
+    </div>
+    <div class="deep-search-right">
+      <label class="deep-search-scope"><input type="checkbox" id="dsReqBody" checked /> Req Body</label>
+      <label class="deep-search-scope"><input type="checkbox" id="dsResBody" checked /> Res Body</label>
+      <label class="deep-search-scope"><input type="checkbox" id="dsReqHeaders" checked /> Req Headers</label>
+      <label class="deep-search-scope"><input type="checkbox" id="dsResHeaders" checked /> Res Headers</label>
+      <button id="deepSearchClose" class="deep-search-close" title="Close (Esc)">&times;</button>
+    </div>
+  </div>
   <main class="content" id="content">
     <section class="tableWrap" id="tableWrap">
       <table class="grid" id="grid">

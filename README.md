@@ -18,6 +18,7 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 👁️ カラム表示/非表示 | ツールバーの `Columns` ボタンでカラムの表示切替。設定は `localStorage` に永続化 |
 | ↔️ カラムリサイズ | ドラッグでカラム幅を調整可能。設定は永続化 |
 | 🔎 グローバルフィルタ | URL, Method, Status, Type を横断検索 (debounce 付き) |
+| 🔍 ディープサーチ | リクエストBody、レスポンスBody、リクエストヘッダー、レスポンスヘッダーを横断検索。`Ctrl+F` または検索ボタンで検索バーを表示し、スコープ切替・前後ナビゲーション・マッチ数表示に対応 |
 | 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能 |
 | ↕️ カラムソート | ヘッダークリックでソート切替 (昇順 → 降順 → ソート解除) |
 | 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示 |
@@ -40,9 +41,6 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 network-plus-extension/
   .github/
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
-    agents/
-      NetworkPlusAgent.agent.md ... 統合オーケストレーター (8 ロール自動選択)
-      ui-review.agent.md     ... UI/UX レビューエージェント (6 軸検証)
   docs/
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
@@ -112,7 +110,8 @@ npm install
 1. DevTools を開き (F12)、「**Network+**」タブを選択
 2. ページをリロードすると、ネットワークリクエストがリアルタイムで一覧表示される
 3. **グローバルフィルタ**: テキスト入力で URL, Method, Status, Type を横断検索
-4. **カラム別フィルタ**: カラムヘッダー右クリック or ツールバーの `Filters` ボタンで詳細フィルタ設定
+4. **ディープサーチ**: `Ctrl+F` または `🔍` ボタンでリクエスト/レスポンスの Body・Headers を横断検索。Enter で次のマッチ、Shift+Enter で前のマッチに移動
+5. **カラム別フィルタ**: カラムヘッダー右クリック or ツールバーの `Filters` ボタンで詳細フィルタ設定
 5. **ソート**: カラムヘッダークリックで昇順/降順/解除を切替
 6. **リクエスト詳細**: 行クリックで Fiddler 風のタブ付きインスペクター (Request/Response) を表示
 7. **HAR エクスポート**: ツールバーの Export ボタンで HAR 1.2 形式ファイルをダウンロード
@@ -139,16 +138,7 @@ npm run format       # Prettier フォーマット
 | **エクスポート** | 手動テスト (HAR ファイルの内容検証) | - |
 
 テスト環境のモック設定は [tests/setup.js](tests/setup.js) を参照。
-## 🤖 Copilot エージェント
 
-| エージェント | 用途 |
-|---|---|
-| [NetworkPlusAgent](.github/agents/NetworkPlusAgent.agent.md) | **統合オーケストレーター**。JS Expert / Security / QA / Debug / UX Review / Feature Proposer / Janitor / Plan の 8 ロールを自動選択 |
-| [ui-review](.github/agents/ui-review.agent.md) | UI/UX レビュー。テーマ一貫性・レイアウト・操作性・XSS 安全性・データ表示品質・コード品質の 6 軸で検証 |
-
-呼び出し方:
-- `@NetworkPlusAgent` --- 全般的なリクエスト (機能実装、バグ修正、新機能提案等)
-- `@ui-review` --- UI/UX 専用レビュー
 ## 🧾 バージョニングルール
 
 - **方式**: Semantic Versioning (`MAJOR.MINOR.PATCH`)
@@ -199,8 +189,6 @@ npm run format       # Prettier フォーマット
 | ファイル | 説明 |
 |---|---|
 | [.github/copilot-instructions.md](.github/copilot-instructions.md) | Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針) |
-| [.github/agents/NetworkPlusAgent.agent.md](.github/agents/NetworkPlusAgent.agent.md) | 統合オーケストレーター (8 ロール) |
-| [.github/agents/ui-review.agent.md](.github/agents/ui-review.agent.md) | UI/UX レビューエージェント (6 軸検証) |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | package.json / manifest.json バージョン同期チェックスクリプト |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |

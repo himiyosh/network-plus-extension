@@ -86,7 +86,7 @@ Microsoft Edge DevTools
 ### 2.4 テスト可能な設計
 
 - 純粋関数 (副作用なし、DOM 非依存) は **Section 3: Pure Utility Functions** に配置し、IIFE の `return` でエクスポートする
-- 既存のエクスポート対象: `fmtBytes`, `fmtTime`, `extractUrlParts`, `formatInitiator`, `parseQueryString`, `guessMimeType`, `toHarHeaders`, `debounce`, `getRowFilterValue`, `evaluateFilterRule`, `DEFAULT_METHOD_FILTERS`
+- 既存のエクスポート対象: `fmtBytes`, `fmtTime`, `extractUrlParts`, `formatInitiator`, `parseQueryString`, `guessMimeType`, `toHarHeaders`, `debounce`, `getRowFilterValue`, `evaluateFilterRule`, `deepSearchMatch`, `DEFAULT_METHOD_FILTERS`
 - 新しい純粋関数を追加した場合は、`return` オブジェクトに追加し、対応するテストも追加すること
 
 ### 2.5 パフォーマンス
@@ -259,6 +259,11 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - [ ] Pause/Resume が動作する
 - [ ] カラムのリサイズが機能する
 - [ ] `Columns` ボタンでカラム表示切替メニューが出る
+- [ ] `Ctrl+F` または `🔍` ボタンでディープサーチバーが表示される
+- [ ] ディープサーチでリクエストBody・レスポンスBody・ヘッダーを検索できる
+- [ ] ディープサーチの Enter/Shift+Enter でマッチ間を移動できる
+- [ ] ディープサーチのスコープチェックボックスで検索対象を切り替えできる
+- [ ] Esc でディープサーチバーを閉じられる
 
 ---
 
