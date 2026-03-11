@@ -450,3 +450,54 @@ describe('deepSearchMatch', () => {
     expect(np.deepSearchMatch(row, 'hello', allScope)).toBe(true);
   });
 });
+
+describe('formatRowSummary', () => {
+  test('formats basic row summary', () => {
+    const row = {
+      id: 42,
+      method: 'POST',
+      url: 'https://api.example.com/users',
+      status: 201,
+      statusText: 'Created',
+      type: 'application/json',
+      duration: 150,
+      size: 2048,
+      clientStart: '14:30:05.123',
+      serverDone: '14:30:05.273',
+      domain: 'api.example.com',
+      initiator: { text: 'JS: app.js:42' },
+    };
+    const text = np.formatRowSummary(row);
+    expect(text).toContain('[42] POST https://api.example.com/users');
+    expect(text).toContain('Status: 201 Created');
+    expect(text).toContain('Type: application/json');
+    expect(text).toContain('Duration: 150 ms');
+    expect(text).toContain('Size: 2.0 KB');
+    expect(text).toContain('Time: 14:30:05.123 - 14:30:05.273');
+    expect(text).toContain('Domain: api.example.com');
+    expect(text).toContain('Initiator: JS: app.js:42');
+  });
+
+  test('handles missing optional fields', () => {
+    const row = {
+      id: 1,
+      method: 'GET',
+      url: 'https://example.com/',
+      status: 200,
+      statusText: '',
+      type: '',
+      duration: 0,
+      size: 0,
+      clientStart: '',
+      serverDone: '',
+      domain: '',
+      initiator: null,
+    };
+    const text = np.formatRowSummary(row);
+    expect(text).toContain('[1] GET https://example.com/');
+    expect(text).toContain('Status: 200');
+    expect(text).toContain('Type: (none)');
+    expect(text).not.toContain('Domain:');
+    expect(text).not.toContain('Initiator:');
+  });
+});

@@ -291,6 +291,23 @@ const _NetworkPlus = (function () {
     return false;
   }
 
+  /**
+   * Format a row's summary as human-readable text for clipboard copy.
+   * Pure function (no DOM/state dependency) — testable.
+   */
+  function formatRowSummary(row) {
+    const lines = [];
+    lines.push('[' + row.id + '] ' + row.method + ' ' + (row.url || ''));
+    lines.push('Status: ' + row.status + (row.statusText ? ' ' + row.statusText : ''));
+    lines.push('Type: ' + (row.type || '(none)'));
+    lines.push('Duration: ' + fmtTime(row.duration));
+    lines.push('Size: ' + fmtBytes(row.size));
+    lines.push('Time: ' + (row.clientStart || '') + ' - ' + (row.serverDone || ''));
+    if (row.domain) lines.push('Domain: ' + row.domain);
+    if (row.initiator && row.initiator.text) lines.push('Initiator: ' + row.initiator.text);
+    return lines.join('\n');
+  }
+
   // ============================================================
   // Section 4: State Management
   // ============================================================
@@ -2395,6 +2412,19 @@ const _NetworkPlus = (function () {
         const prevIdx = Math.max(currentIdx - 1, 0);
         selectRow(state.filteredRows[prevIdx]);
         scrollToSelectedRow();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        // Ctrl+C: copy selected row(s) summary to clipboard
+        const rows = state.selectedRows.size > 0
+          ? [...state.selectedRows]
+          : (state.selectedRow ? [state.selectedRow] : []);
+        if (rows.length === 0) return;
+        e.preventDefault();
+        const text = rows.map((r) => formatRowSummary(r)).join('\n\n---\n\n');
+        navigator.clipboard.writeText(text).then(() => {
+          showCopyToast(rows.length === 1 ? 'Copied 1 request' : 'Copied ' + rows.length + ' requests');
+        }).catch((_err) => {
+          setStatus('Copy failed');
+        });
       }
     });
 
@@ -2402,6 +2432,20 @@ const _NetworkPlus = (function () {
       if (!state.selectedRow) return;
       const selectedTr = tableWrap.querySelector(`tr[data-row-id="${state.selectedRow.id}"]`);
       if (selectedTr) selectedTr.scrollIntoView({ block: 'nearest' });
+    }
+
+    // Copy toast notification
+    const copyToast = document.createElement('div');
+    copyToast.className = 'copy-toast';
+    document.body.appendChild(copyToast);
+    let copyToastTimer = null;
+    function showCopyToast(msg) {
+      copyToast.textContent = msg;
+      copyToast.classList.add('show');
+      if (copyToastTimer) clearTimeout(copyToastTimer);
+      copyToastTimer = setTimeout(() => {
+        copyToast.classList.remove('show');
+      }, 1800);
     }
 
     // Right-click context menu for marking/selecting rows
@@ -2957,6 +3001,7 @@ const _NetworkPlus = (function () {
     getRowFilterValue,
     evaluateFilterRule,
     deepSearchMatch,
+    formatRowSummary,
     DEFAULT_METHOD_FILTERS,
   };
 })();

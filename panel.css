@@ -298,3 +298,7 @@ html[data-theme="dark"] .context-menu{box-shadow:0 10px 22px rgba(2,6,23,0.35)}
 .context-menu-item{display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:0;border-radius:6px;padding:7px 9px;font-size:12px;line-height:1.4;cursor:pointer}
 .context-menu-item + .context-menu-item{margin-top:2px}
 .context-menu-item:hover{background:var(--hover);color:var(--fg)}
+
+/* === Copy Toast === */
+.copy-toast{position:fixed;bottom:36px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--accent);color:#fff;padding:6px 18px;border-radius:8px;font-size:12px;font-weight:600;opacity:0;pointer-events:none;transition:opacity 0.2s,transform 0.2s;z-index:100;box-shadow:var(--shadow-md);white-space:nowrap}
+.copy-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
