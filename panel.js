@@ -14,6 +14,9 @@ const _NetworkPlus = (function () {
   const TRUNCATE_LIMIT = 2000;
   const FILTER_DEBOUNCE_MS = 150;
   const DEEP_SEARCH_DEBOUNCE_MS = 250;
+  const JSON_TREE_MAX_CHILDREN = 100;
+  const JSON_TREE_MAX_DEPTH = 20;
+  const JSON_TREE_PREVIEW_KEYS = 3;
 
   const THEME_KEY = 'networkPlus.theme';
   const THEMES = ['system', 'dark', 'light'];
@@ -1529,6 +1532,185 @@ const _NetworkPlus = (function () {
   }
 
   /**
+   * Render parsed JSON as a collapsible tree with syntax highlighting.
+   * Objects and arrays are wrapped in <details>/<summary> elements.
+   * Uses DOM API only (no innerHTML) for XSS safety.
+   */
+  function renderJsonTree(jsonText) {
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (_e) {
+      return null;
+    }
+
+    const container = document.createElement('div');
+    container.className = 'json-tree code-block';
+
+    function createValueSpan(val) {
+      const span = document.createElement('span');
+      if (val === null) {
+        span.className = 'syn-null';
+        span.textContent = 'null';
+      } else if (typeof val === 'boolean') {
+        span.className = 'syn-bool';
+        span.textContent = String(val);
+      } else if (typeof val === 'number') {
+        span.className = 'syn-num';
+        span.textContent = String(val);
+      } else {
+        span.className = 'syn-str';
+        span.textContent = JSON.stringify(val);
+      }
+      return span;
+    }
+
+    function childCount(val) {
+      if (Array.isArray(val)) return val.length;
+      if (val && typeof val === 'object') return Object.keys(val).length;
+      return 0;
+    }
+
+    function buildNode(value, keyName, isLast, depth) {
+      const isObj = value !== null && typeof value === 'object' && !Array.isArray(value);
+      const isArr = Array.isArray(value);
+      const comma = isLast ? '' : ',';
+
+      // Depth limit — render as flat JSON string
+      if ((isObj || isArr) && depth >= JSON_TREE_MAX_DEPTH) {
+        const line = document.createElement('div');
+        line.className = 'json-tree-line';
+        if (keyName !== undefined) {
+          const keySpan = document.createElement('span');
+          keySpan.className = 'syn-key';
+          keySpan.textContent = JSON.stringify(keyName);
+          line.appendChild(keySpan);
+          line.appendChild(document.createTextNode(': '));
+        }
+        const valSpan = document.createElement('span');
+        valSpan.className = 'syn-str';
+        valSpan.textContent = JSON.stringify(value);
+        line.appendChild(valSpan);
+        if (comma) line.appendChild(document.createTextNode(comma));
+        return line;
+      }
+
+      if (!isObj && !isArr) {
+        // Primitive value — single line
+        const line = document.createElement('div');
+        line.className = 'json-tree-line';
+        if (keyName !== undefined) {
+          const keySpan = document.createElement('span');
+          keySpan.className = 'syn-key';
+          keySpan.textContent = JSON.stringify(keyName);
+          line.appendChild(keySpan);
+          line.appendChild(document.createTextNode(': '));
+        }
+        line.appendChild(createValueSpan(value));
+        if (comma) line.appendChild(document.createTextNode(comma));
+        return line;
+      }
+
+      // Object or Array — collapsible
+      const count = childCount(value);
+      const openBrace = isArr ? '[' : '{';
+      const closeBrace = isArr ? ']' : '}';
+
+      if (count === 0) {
+        // Empty object/array — single line
+        const line = document.createElement('div');
+        line.className = 'json-tree-line';
+        if (keyName !== undefined) {
+          const keySpan = document.createElement('span');
+          keySpan.className = 'syn-key';
+          keySpan.textContent = JSON.stringify(keyName);
+          line.appendChild(keySpan);
+          line.appendChild(document.createTextNode(': '));
+        }
+        line.appendChild(document.createTextNode(openBrace + closeBrace + comma));
+        return line;
+      }
+
+      const details = document.createElement('details');
+      details.className = 'json-tree-node';
+      details.open = true;
+
+      const summary = document.createElement('summary');
+      summary.className = 'json-tree-summary';
+      if (keyName !== undefined) {
+        const keySpan = document.createElement('span');
+        keySpan.className = 'syn-key';
+        keySpan.textContent = JSON.stringify(keyName);
+        summary.appendChild(keySpan);
+        summary.appendChild(document.createTextNode(': '));
+      }
+      summary.appendChild(document.createTextNode(openBrace));
+      // Collapsed preview
+      const preview = document.createElement('span');
+      preview.className = 'json-tree-preview';
+      if (isArr) {
+        preview.textContent = ' ' + count + ' items ';
+      } else {
+        const keys = Object.keys(value);
+        const previewKeys = keys.slice(0, JSON_TREE_PREVIEW_KEYS).map((k) => JSON.stringify(k)).join(', ');
+        preview.textContent = ' ' + previewKeys + (keys.length > JSON_TREE_PREVIEW_KEYS ? ', ...' : '') + ' ';
+      }
+      summary.appendChild(preview);
+      details.appendChild(summary);
+
+      const childWrap = document.createElement('div');
+      childWrap.className = 'json-tree-children';
+      if (isArr) {
+        const renderCount = Math.min(value.length, JSON_TREE_MAX_CHILDREN);
+        for (let i = 0; i < renderCount; i++) {
+          childWrap.appendChild(buildNode(value[i], undefined, i === value.length - 1 && renderCount === value.length, depth + 1));
+        }
+        if (value.length > JSON_TREE_MAX_CHILDREN) {
+          const moreBtn = document.createElement('button');
+          moreBtn.className = 'link-btn json-tree-more';
+          moreBtn.textContent = '... Show all ' + value.length + ' items';
+          moreBtn.addEventListener('click', () => {
+            moreBtn.remove();
+            for (let i = renderCount; i < value.length; i++) {
+              childWrap.appendChild(buildNode(value[i], undefined, i === value.length - 1, depth + 1));
+            }
+          });
+          childWrap.appendChild(moreBtn);
+        }
+      } else {
+        const keys = Object.keys(value);
+        const renderCount = Math.min(keys.length, JSON_TREE_MAX_CHILDREN);
+        for (let i = 0; i < renderCount; i++) {
+          childWrap.appendChild(buildNode(value[keys[i]], keys[i], i === keys.length - 1 && renderCount === keys.length, depth + 1));
+        }
+        if (keys.length > JSON_TREE_MAX_CHILDREN) {
+          const moreBtn = document.createElement('button');
+          moreBtn.className = 'link-btn json-tree-more';
+          moreBtn.textContent = '... Show all ' + keys.length + ' properties';
+          moreBtn.addEventListener('click', () => {
+            moreBtn.remove();
+            for (let i = renderCount; i < keys.length; i++) {
+              childWrap.appendChild(buildNode(value[keys[i]], keys[i], i === keys.length - 1, depth + 1));
+            }
+          });
+          childWrap.appendChild(moreBtn);
+        }
+      }
+      details.appendChild(childWrap);
+
+      const closeLine = document.createElement('div');
+      closeLine.className = 'json-tree-close';
+      closeLine.textContent = closeBrace + comma;
+      details.appendChild(closeLine);
+
+      return details;
+    }
+
+    container.appendChild(buildNode(parsed, undefined, true, 0));
+    return container;
+  }
+
+  /**
    * Render raw HTTP text with syntax highlighting.
    * First line = status/request line (bold), header names colored, body as-is.
    */
@@ -1641,13 +1823,15 @@ const _NetworkPlus = (function () {
     reqBodyPane.textContent = '';
     if (row.requestPostData && row.requestPostData.text) {
       const text = row.requestPostData.text;
-      const formatted = formatJsonSafe(text);
-      const pre = formatted ? renderJsonHighlighted(formatted) : document.createElement('pre');
-      if (!formatted) {
+      const treeEl = renderJsonTree(text);
+      if (treeEl) {
+        reqBodyPane.appendChild(treeEl);
+      } else {
+        const pre = document.createElement('pre');
         pre.className = 'code-block';
         pre.textContent = text;
+        reqBodyPane.appendChild(pre);
       }
-      reqBodyPane.appendChild(pre);
 
       const copyBtn = document.createElement('button');
       copyBtn.className = 'copy-btn';
@@ -1736,10 +1920,9 @@ const _NetworkPlus = (function () {
 
         // Body tab — formatted text
         resBodyPane.textContent = '';
-        const formatted = formatJsonSafe(text);
-        if (formatted) {
-          const bodyPre = renderJsonHighlighted(formatted);
-          resBodyPane.appendChild(bodyPre);
+        const treeEl = renderJsonTree(text);
+        if (treeEl) {
+          resBodyPane.appendChild(treeEl);
         } else {
           const bodyPre = document.createElement('pre');
           bodyPre.className = 'code-block';
@@ -1781,10 +1964,13 @@ const _NetworkPlus = (function () {
           iframe.style.border = '1px solid var(--border)';
           iframe.srcdoc = text;
           resPreviewPane.appendChild(iframe);
-        } else if (formatted) {
-          resPreviewPane.appendChild(renderJsonHighlighted(formatted));
         } else {
-          resPreviewPane.textContent = '(no preview available)';
+          const previewFormatted = formatJsonSafe(text);
+          if (previewFormatted) {
+            resPreviewPane.appendChild(renderJsonHighlighted(previewFormatted));
+          } else {
+            resPreviewPane.textContent = '(no preview available)';
+          }
         }
 
         // Raw tab

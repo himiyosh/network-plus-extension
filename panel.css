@@ -113,6 +113,25 @@ html[data-theme="dark"] .topbar.recording #pauseBtn{color:#f87171}
 .syn-status-line{color:var(--syn-status);font-weight:700}
 .syn-hdr-name{color:var(--syn-hdr-name);font-weight:600}.syn-hdr-val{color:var(--syn-hdr-val)}
 
+/* === JSON Tree (collapsible) === */
+.json-tree{font-family:'Cascadia Code',Consolas,'Courier New',monospace;font-size:12px;line-height:1.6}
+.json-tree-node{margin:0;border:none}
+.json-tree-node[open] > .json-tree-summary .json-tree-preview{display:none}
+.json-tree-node:not([open]) > .json-tree-children{display:none}
+.json-tree-node:not([open]) > .json-tree-close{display:inline}
+.json-tree-node[open] > .json-tree-close{display:block}
+.json-tree-summary{cursor:pointer;list-style:none;outline:none;padding:1px 0;border-radius:3px;display:list-item}
+.json-tree-summary::-webkit-details-marker{display:none}
+.json-tree-summary::before{content:'';display:inline-block;width:0;height:0;border-style:solid;border-width:5px 0 5px 7px;border-color:transparent transparent transparent var(--muted);margin-right:4px;vertical-align:middle;transition:transform 0.15s}
+.json-tree-node[open] > .json-tree-summary::before{transform:rotate(90deg)}
+.json-tree-summary:hover{background:var(--hover)}
+.json-tree-summary:focus-visible{outline:2px solid var(--accent);outline-offset:-1px;border-radius:3px}
+.json-tree-preview{color:var(--muted);font-style:italic;font-size:11px}
+.json-tree-children{padding-left:18px;border-left:1px solid var(--border)}
+.json-tree-line{padding:1px 0}
+.json-tree-close{padding:1px 0}
+.json-tree-more{margin:2px 0;font-size:11px}
+
 /* === Timing Bar === */
 .timing-bar-wrap{display:flex;height:18px;margin:10px 0;border-radius:6px;overflow:hidden;background:var(--border);box-shadow:var(--shadow-sm)}
 .timing-bar-seg{height:100%;min-width:2px;transition:width 0.3s}
