@@ -449,6 +449,23 @@ describe('deepSearchMatch', () => {
     expect(np.deepSearchMatch(row, 'HELLO', allScope)).toBe(true);
     expect(np.deepSearchMatch(row, 'hello', allScope)).toBe(true);
   });
+
+  test('matches URL, domain, path, method, status, type fields when url scope enabled', () => {
+    const row = makeRow({ url: 'https://api.example.com/users?id=1', domain: 'api.example.com', path: '/users', method: 'POST', status: 201, type: 'xhr' });
+    const urlScope = { url: true, reqBody: false, resBody: false, reqHeaders: false, resHeaders: false };
+    expect(np.deepSearchMatch(row, 'example.com', urlScope)).toBe(true);
+    expect(np.deepSearchMatch(row, '/users', urlScope)).toBe(true);
+    expect(np.deepSearchMatch(row, 'POST', urlScope)).toBe(true);
+    expect(np.deepSearchMatch(row, '201', urlScope)).toBe(true);
+    expect(np.deepSearchMatch(row, 'xhr', urlScope)).toBe(true);
+    expect(np.deepSearchMatch(row, 'notfound', urlScope)).toBe(false);
+  });
+
+  test('url scope disabled skips URL fields', () => {
+    const row = makeRow({ url: 'https://api.example.com/test', domain: 'api.example.com', path: '/test', method: 'GET', status: 200 });
+    const noUrlScope = { url: false, reqBody: false, resBody: false, reqHeaders: false, resHeaders: false };
+    expect(np.deepSearchMatch(row, 'example.com', noUrlScope)).toBe(false);
+  });
 });
 
 describe('formatRowSummary', () => {

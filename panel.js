@@ -100,6 +100,16 @@ const _NetworkPlus = (function () {
     { name: 'Orange', cls: 'hl-orange' },
   ];
 
+  // Colors for search keyword rows (index matches search-hl-N / search-row-N)
+  const SEARCH_COLORS = [
+    { name: 'Yellow', hex: '#fbbf24' },
+    { name: 'Red', hex: '#ef4444' },
+    { name: 'Green', hex: '#22c55e' },
+    { name: 'Blue', hex: '#3b82f6' },
+    { name: 'Purple', hex: '#a855f7' },
+    { name: 'Orange', hex: '#f97316' },
+  ];
+
   // ============================================================
   // Section 2: DOM Helpers
   // ============================================================
@@ -249,6 +259,55 @@ const _NetworkPlus = (function () {
   }
 
   /**
+   * Highlight multiple keywords in text, each with its own color class.
+   * @param {string} text
+   * @param {Array<{query: string, colorIdx: number}>} keywords
+   * @returns {DocumentFragment}
+   */
+  function highlightTextMulti(text, keywords) {
+    const fragment = document.createDocumentFragment();
+    if (!text || !keywords || keywords.length === 0) {
+      fragment.appendChild(document.createTextNode(text || ''));
+      return fragment;
+    }
+
+    // Build combined regex from all keywords (escaped, case-insensitive)
+    const validKws = keywords.filter((kw) => kw.query && kw.query.trim());
+    if (validKws.length === 0) {
+      fragment.appendChild(document.createTextNode(text));
+      return fragment;
+    }
+
+    const escapedParts = validKws.map((kw) => kw.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const regex = new RegExp('(' + escapedParts.join('|') + ')', 'gi');
+
+    // Build a map from lowercase query to colorIdx
+    const queryColorMap = new Map();
+    for (const kw of validKws) {
+      queryColorMap.set(kw.query.toLowerCase(), kw.colorIdx);
+    }
+
+    let lastIndex = 0;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        fragment.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+      }
+      const mark = document.createElement('mark');
+      const matchedLc = match[0].toLowerCase();
+      const colorIdx = queryColorMap.get(matchedLc);
+      mark.className = 'search-hl-' + (colorIdx != null ? colorIdx : 0);
+      mark.textContent = match[0];
+      fragment.appendChild(mark);
+      lastIndex = regex.lastIndex;
+    }
+    if (lastIndex < text.length) {
+      fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
+    }
+    return fragment;
+  }
+
+  /**
    * Deep search: check if a row matches query in deep content fields.
    * Pure function (no DOM/state dependency) — testable.
    * @param {object} row - Row object from buildRowFromRequest
@@ -259,6 +318,14 @@ const _NetworkPlus = (function () {
   function deepSearchMatch(row, query, scope) {
     if (!query) return false;
     const lcq = query.toLowerCase();
+
+    // URL / Domain / Path search
+    if (scope.url !== false) {
+      const urlFields = [row.url, row.domain, row.path, row.method, String(row.status || ''), row.type];
+      for (let i = 0; i < urlFields.length; i++) {
+        if (urlFields[i] && urlFields[i].toLowerCase().indexOf(lcq) > -1) return true;
+      }
+    }
 
     if (scope.reqBody) {
       const postText = row.requestPostData && row.requestPostData.text ? row.requestPostData.text : '';
@@ -325,15 +392,17 @@ const _NetworkPlus = (function () {
     },
     nextId: 1,
     paused: false,
-    globalFilter: '',
     autoScroll: true,
-    // Deep search state
-    deepSearch: {
-      query: '',
-      matches: [],       // array of row references that match
-      currentIndex: -1,  // index into matches[]
-      scope: { reqBody: true, resBody: true, reqHeaders: true, resHeaders: true },
-      visible: false,    // search bar visibility
+    // Unified search state (replaces globalFilter + deepSearch)
+    search: {
+      keywords: [],       // array of {query: string, colorIdx: number}
+      matches: [],        // array of row references that match any keyword
+      currentIndex: -1,   // index into matches[] for navigation
+      scope: { url: true, reqBody: true, resBody: true, reqHeaders: true, resHeaders: true },
+      // Per-row match map: row -> Set of colorIdx values
+      rowColors: new Map(),
+      // Per-keyword matches: kwIndex -> { matches: [rows], currentIndex: number }
+      perKeyword: new Map(),
     },
   };
 
@@ -591,14 +660,6 @@ const _NetworkPlus = (function () {
 
   function filterRows() {
     state.filteredRows = state.rows.filter((r) => {
-      // Global filter
-      if (state.globalFilter) {
-        const lcf = state.globalFilter.toLowerCase();
-        const searchFields = [r.url, r.method, String(r.status), r.type];
-        const found = searchFields.some((field) => field && field.toLowerCase().indexOf(lcf) > -1);
-        if (!found) return false;
-      }
-
       // Per-column advanced filters
       for (const col of state.columns) {
         const colId = col.id;
@@ -720,15 +781,18 @@ const _NetworkPlus = (function () {
     tr.dataset.rowId = row.id;
 
     if (state.selectedRow === row) tr.classList.add('selected');
+    if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
+    // Manual highlight (context menu)
     const hlColor = state.highlightedRows.get(row);
     if (hlColor) tr.classList.add('highlighted-row', hlColor);
-    if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
-    // Deep search match highlight
-    const ds = state.deepSearch;
-    if (ds.query && ds.matches.indexOf(row) > -1) {
-      tr.classList.add('deep-search-match');
-      if (ds.currentIndex >= 0 && ds.matches[ds.currentIndex] === row) {
-        tr.classList.add('deep-search-current');
+    // Unified search match highlight — apply first matching keyword color
+    const srch = state.search;
+    const rowColorSet = srch.rowColors.get(row);
+    if (rowColorSet && rowColorSet.size > 0) {
+      const firstColor = rowColorSet.values().next().value;
+      tr.classList.add('search-match-row', 'search-row-' + firstColor);
+      if (srch.currentIndex >= 0 && srch.matches[srch.currentIndex] === row) {
+        tr.classList.add('search-match-current');
       }
     }
     if (row.method) {
@@ -759,17 +823,16 @@ const _NetworkPlus = (function () {
             e.stopPropagation();
             chrome.devtools.panels.openResource(initiator.url, initiator.lineNumber, () => {});
           });
-          // Highlight initiator text if search active
-          if (state.globalFilter) {
-            link.appendChild(highlightText(initiator.text, state.globalFilter));
+          if (srch.keywords.length > 0) {
+            link.appendChild(highlightTextMulti(initiator.text, srch.keywords));
           } else {
             link.textContent = initiator.text;
           }
           td.appendChild(link);
         } else {
           const txt = initiator ? initiator.text : '';
-          if (state.globalFilter) {
-            td.appendChild(highlightText(txt, state.globalFilter));
+          if (srch.keywords.length > 0) {
+            td.appendChild(highlightTextMulti(txt, srch.keywords));
           } else {
             td.textContent = txt;
           }
@@ -786,9 +849,8 @@ const _NetworkPlus = (function () {
           else if (row.duration > 100) td.classList.add('dur-ok');
         }
         const text = v == null ? '' : String(v);
-        // Highlight text if global filter active
-        if (state.globalFilter && text) {
-          td.appendChild(highlightText(text, state.globalFilter));
+        if (srch.keywords.length > 0 && text) {
+          td.appendChild(highlightTextMulti(text, srch.keywords));
         } else {
           td.textContent = text;
         }
@@ -1359,8 +1421,56 @@ const _NetworkPlus = (function () {
     thead.appendChild(tr);
   }
 
+  // Update search match state without triggering re-render.
+  // Called from renderBody() so new rows are included in search.
+  function refreshSearchMatches() {
+    const srch = state.search;
+    const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    if (activeKws.length === 0) {
+      srch.rowColors.clear();
+      srch.matches = [];
+      srch.perKeyword.clear();
+      return;
+    }
+    srch.rowColors.clear();
+    const sorted = getSortedRows(state.filteredRows);
+    const matchSet = new Set();
+    // Build per-keyword match lists
+    for (let ki = 0; ki < srch.keywords.length; ki++) {
+      const kw = srch.keywords[ki];
+      if (!kw.query || !kw.query.trim()) {
+        srch.perKeyword.set(ki, { matches: [], currentIndex: -1 });
+        continue;
+      }
+      const kwMatches = [];
+      for (const row of sorted) {
+        if (deepSearchMatch(row, kw.query, srch.scope)) {
+          matchSet.add(row);
+          if (!srch.rowColors.has(row)) srch.rowColors.set(row, new Set());
+          srch.rowColors.get(row).add(kw.colorIdx);
+          kwMatches.push(row);
+        }
+      }
+      const prev = srch.perKeyword.get(ki);
+      const prevIdx = prev ? prev.currentIndex : -1;
+      const clampedIdx = prevIdx >= kwMatches.length ? kwMatches.length - 1 : prevIdx;
+      srch.perKeyword.set(ki, { matches: kwMatches, currentIndex: clampedIdx });
+    }
+    // Remove stale per-keyword entries
+    for (const key of srch.perKeyword.keys()) {
+      if (key >= srch.keywords.length) srch.perKeyword.delete(key);
+    }
+    srch.matches = sorted.filter((r) => matchSet.has(r));
+    // Keep global currentIndex in bounds
+    if (srch.currentIndex >= srch.matches.length) {
+      srch.currentIndex = srch.matches.length > 0 ? srch.matches.length - 1 : -1;
+    }
+  }
+
   function renderBody() {
     filterRows();
+    // Refresh search matches so newly added rows are included
+    refreshSearchMatches();
     const tbody = $('#tbody');
     // [P2] Use DocumentFragment for batch insert
     const frag = document.createDocumentFragment();
@@ -1417,6 +1527,22 @@ const _NetworkPlus = (function () {
         selectedSizeEl.textContent = state.selectedRows.size + ' selected / ' + fmtBytes(selBytes);
       } else {
         selectedSizeEl.textContent = '';
+      }
+    }
+    // Update search count display for live updates during recording
+    const srch = state.search;
+    const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    const countEl = $('#searchCount');
+    if (countEl) {
+      if (srch.matches.length === 0 && activeKws.length > 0) {
+        countEl.textContent = 'No matches';
+        countEl.style.color = 'var(--status-5xx)';
+      } else if (srch.matches.length > 0) {
+        countEl.textContent = srch.matches.length + ' matches';
+        countEl.style.color = '';
+      } else {
+        countEl.textContent = '';
+        countEl.style.color = '';
       }
     }
   }
@@ -2169,15 +2295,6 @@ const _NetworkPlus = (function () {
     loadColumnPrefs();
     setStatus('panel.js loaded');
 
-    // Global Search Ctrl+F — open deep search bar
-    document.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleDeepSearchBar(true);
-      }
-    }, true);
-
     // Theme init
     loadThemePref((pref) => applyTheme(pref));
     $('#themeBtn').addEventListener('click', () => {
@@ -2197,10 +2314,12 @@ const _NetworkPlus = (function () {
       state.selectedRow = null;
       state.selectedRows.clear();
       state.highlightedRows.clear();
-      // Reset deep search
-      state.deepSearch.query = '';
-      state.deepSearch.matches = [];
-      state.deepSearch.currentIndex = -1;
+      // Reset search
+      state.search.keywords = [];
+      state.search.matches = [];
+      state.search.currentIndex = -1;
+      state.search.rowColors.clear();
+      state.search.perKeyword.clear();
       render();
       setStatus('Cleared');
     });
@@ -2228,13 +2347,6 @@ const _NetworkPlus = (function () {
     // Export
     $('#exportHarBtn').addEventListener('click', exportHAR);
 
-    // [P3] Global Filter — debounced
-    const debouncedGlobalFilter = debounce(() => renderBody(), FILTER_DEBOUNCE_MS);
-    $('#filterInput').addEventListener('input', (e) => {
-      state.globalFilter = e.target.value;
-      debouncedGlobalFilter();
-    });
-
     // Column Settings Context Menu
     const columnsContextMenu = document.createElement('div');
     columnsContextMenu.className = 'filter-dropdown-content dropdown-content';
@@ -2259,6 +2371,14 @@ const _NetworkPlus = (function () {
       filterPopup.style.top = y + 'px';
       filterPopup.style.display = 'block';
       filterPopup.classList.add('show');
+      // Clamp popup to viewport so <select> dropdowns are not clipped
+      const rect = filterPopup.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        filterPopup.style.left = Math.max(0, window.innerWidth - rect.width - 8) + 'px';
+      }
+      if (rect.bottom > window.innerHeight) {
+        filterPopup.style.top = Math.max(0, window.innerHeight - rect.height - 8) + 'px';
+      }
     };
 
     const renderColumnsContextMenu = () => {
@@ -2375,6 +2495,7 @@ const _NetworkPlus = (function () {
       if (
         e.target.closest('#filterBtn') ||
         e.target.closest('#columnsBtn') ||
+        e.target.closest('#searchScopeBtn') ||
         e.target.closest('.filter-btn') ||
         e.target.closest('.dropdown-content')
       ) return;
@@ -2393,7 +2514,7 @@ const _NetworkPlus = (function () {
       state.autoScroll = !state.autoScroll;
       autoScrollBtn.classList.toggle('active', state.autoScroll);
     });
-    pauseBtn.insertAdjacentElement('afterend', autoScrollBtn);
+    $('#exportHarBtn').insertAdjacentElement('afterend', autoScrollBtn);
 
     // [U6] Keyboard navigation
     const tableWrap = $('#tableWrap');
@@ -2633,138 +2754,326 @@ const _NetworkPlus = (function () {
       });
     }
 
-    // ---- Deep Search Feature ----
-    const deepSearchBar = $('#deepSearchBar');
-    const deepSearchInput = $('#deepSearchInput');
-    const deepSearchCount = $('#deepSearchCount');
-    const deepSearchPrev = $('#deepSearchPrev');
-    const deepSearchNext = $('#deepSearchNext');
-    const deepSearchClose = $('#deepSearchClose');
-    const deepSearchBtn = $('#deepSearchBtn');
-    const dsReqBody = $('#dsReqBody');
-    const dsResBody = $('#dsResBody');
-    const dsReqHeaders = $('#dsReqHeaders');
-    const dsResHeaders = $('#dsResHeaders');
+    // ---- Unified Search Feature (multi-keyword, multi-row with per-keyword colors) ----
+    const searchPanel = $('#searchPanel');
+    const searchRows = $('#searchRows');
+    const searchCount = $('#searchCount');
+    const searchToggleBtn = $('#searchToggleBtn');
+    const searchAddBtn = $('#searchAddBtn');
+    const searchScopeBtn = $('#searchScopeBtn');
     const contentEl = $('#content');
 
-    function toggleDeepSearchBar(forceOpen) {
-      const ds = state.deepSearch;
-      const shouldShow = forceOpen != null ? forceOpen : !ds.visible;
-      ds.visible = shouldShow;
-      deepSearchBar.style.display = shouldShow ? 'flex' : 'none';
-      contentEl.classList.toggle('with-search-bar', shouldShow);
+    // Track search panel visibility
+    let searchPanelVisible = false;
+
+    function toggleSearchPanel(forceOpen) {
+      const shouldShow = forceOpen != null ? forceOpen : !searchPanelVisible;
+      searchPanelVisible = shouldShow;
+      searchPanel.style.display = shouldShow ? 'block' : 'none';
+      searchToggleBtn.classList.toggle('active', shouldShow);
       if (shouldShow) {
-        deepSearchInput.focus();
-        deepSearchInput.select();
+        // Ensure at least one keyword row exists
+        if (state.search.keywords.length === 0) {
+          addKeywordRow();
+        }
+        renderSearchRows();
+        // Focus the first input
+        const firstInput = searchRows.querySelector('.search-keyword-input');
+        if (firstInput) firstInput.focus();
+      }
+      updateContentHeight();
+    }
+
+    function updateContentHeight() {
+      if (searchPanelVisible) {
+        const panelH = searchPanel.offsetHeight;
+        contentEl.style.height = 'calc(100vh - 72px - ' + panelH + 'px)';
       } else {
-        // Clear search state and re-render to remove highlights
-        ds.query = '';
-        ds.matches = [];
-        ds.currentIndex = -1;
-        deepSearchInput.value = '';
-        deepSearchCount.textContent = '';
-        renderBody();
+        contentEl.style.height = '';
       }
     }
 
-    function executeDeepSearch() {
-      const ds = state.deepSearch;
-      const query = deepSearchInput.value.trim();
-      ds.query = query;
-      ds.scope.reqBody = dsReqBody.checked;
-      ds.scope.resBody = dsResBody.checked;
-      ds.scope.reqHeaders = dsReqHeaders.checked;
-      ds.scope.resHeaders = dsResHeaders.checked;
+    // Scope popup (dynamically created)
+    const scopePopup = document.createElement('div');
+    scopePopup.className = 'search-scope-popup dropdown-content';
+    scopePopup.style.position = 'absolute';
+    scopePopup.style.display = 'none';
+    document.body.appendChild(scopePopup);
 
-      if (!query) {
-        ds.matches = [];
-        ds.currentIndex = -1;
-        deepSearchCount.textContent = '';
+    const scopeLabels = [
+      { key: 'url', text: 'URL / Method / Status / Type', checked: true },
+      { key: 'reqBody', text: 'Request Body', checked: true },
+      { key: 'resBody', text: 'Response Body', checked: true },
+      { key: 'reqHeaders', text: 'Request Headers', checked: true },
+      { key: 'resHeaders', text: 'Response Headers', checked: true },
+    ];
+
+    for (const sl of scopeLabels) {
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = sl.checked;
+      const span = document.createElement('span');
+      span.textContent = sl.text;
+      label.appendChild(cb);
+      label.appendChild(span);
+      scopePopup.appendChild(label);
+      cb.addEventListener('change', () => {
+        state.search.scope[sl.key] = cb.checked;
+        executeSearch();
+      });
+    }
+
+    searchScopeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isVisible = scopePopup.classList.contains('show');
+      $all('.dropdown-content').forEach((d) => { d.style.display = 'none'; d.classList.remove('show'); });
+      if (!isVisible) {
+        const rect = searchScopeBtn.getBoundingClientRect();
+        scopePopup.style.left = rect.left + window.scrollX + 'px';
+        scopePopup.style.top = rect.bottom + window.scrollY + 'px';
+        scopePopup.style.display = 'block';
+        scopePopup.classList.add('show');
+      }
+    });
+
+    // Color picker popup (shared, repositioned on open)
+    const colorPopup = document.createElement('div');
+    colorPopup.className = 'search-color-popup dropdown-content';
+    colorPopup.style.position = 'absolute';
+    colorPopup.style.display = 'none';
+    document.body.appendChild(colorPopup);
+
+    let colorPopupTargetIdx = -1;
+    for (let ci = 0; ci < SEARCH_COLORS.length; ci++) {
+      const swatch = document.createElement('button');
+      swatch.className = 'search-color-swatch';
+      swatch.style.background = SEARCH_COLORS[ci].hex;
+      swatch.title = SEARCH_COLORS[ci].name;
+      swatch.addEventListener('click', () => {
+        if (colorPopupTargetIdx >= 0 && colorPopupTargetIdx < state.search.keywords.length) {
+          state.search.keywords[colorPopupTargetIdx].colorIdx = ci;
+          renderSearchRows();
+          executeSearch();
+        }
+        colorPopup.style.display = 'none';
+        colorPopup.classList.remove('show');
+      });
+      colorPopup.appendChild(swatch);
+    }
+
+    function addKeywordRow() {
+      const colorIdx = state.search.keywords.length % SEARCH_COLORS.length;
+      state.search.keywords.push({ query: '', colorIdx: colorIdx });
+    }
+
+    function renderSearchRows() {
+      // Save focus state before destroying inputs
+      const activeEl = document.activeElement;
+      let focusedIdx = -1;
+      let selStart = 0;
+      let selEnd = 0;
+      if (activeEl && activeEl.classList.contains('search-keyword-input')) {
+        const inputs = searchRows.querySelectorAll('.search-keyword-input');
+        focusedIdx = Array.from(inputs).indexOf(activeEl);
+        selStart = activeEl.selectionStart || 0;
+        selEnd = activeEl.selectionEnd || 0;
+      }
+
+      searchRows.textContent = '';
+      for (let i = 0; i < state.search.keywords.length; i++) {
+        const kw = state.search.keywords[i];
+        const row = document.createElement('div');
+        row.className = 'search-keyword-row';
+
+        // Color button
+        const colorBtn = document.createElement('button');
+        colorBtn.className = 'search-color-btn';
+        colorBtn.style.background = SEARCH_COLORS[kw.colorIdx].hex;
+        colorBtn.title = 'Change color';
+        colorBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          colorPopupTargetIdx = i;
+          $all('.dropdown-content').forEach((d) => { d.style.display = 'none'; d.classList.remove('show'); });
+          // Highlight active swatch
+          colorPopup.querySelectorAll('.search-color-swatch').forEach((s, si) => {
+            s.classList.toggle('active', si === kw.colorIdx);
+          });
+          const rect = colorBtn.getBoundingClientRect();
+          colorPopup.style.left = rect.right + 4 + window.scrollX + 'px';
+          colorPopup.style.top = rect.top + window.scrollY + 'px';
+          colorPopup.style.display = 'flex';
+          colorPopup.classList.add('show');
+        });
+        row.appendChild(colorBtn);
+
+        // Text input
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'search-keyword-input';
+        input.placeholder = 'Enter search keyword...';
+        input.value = kw.query;
+        input.addEventListener('input', () => {
+          state.search.keywords[i].query = input.value;
+          debouncedSearch();
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            navigateKeywordSearch(i, e.shiftKey ? -1 : 1);
+          } else if (e.key === 'Escape') {
+            toggleSearchPanel(false);
+          }
+        });
+        row.appendChild(input);
+
+        // Per-keyword match count
+        const kwData = state.search.perKeyword.get(i);
+        const kwMatchCount = kwData ? kwData.matches.length : 0;
+        const kwCurIdx = kwData ? kwData.currentIndex : -1;
+        const countSpan = document.createElement('span');
+        countSpan.className = 'search-kw-count';
+        if (kw.query.trim() && kwMatchCount === 0) {
+          countSpan.textContent = '0';
+          countSpan.style.color = 'var(--status-5xx)';
+        } else if (kwMatchCount > 0) {
+          countSpan.textContent = (kwCurIdx + 1) + '/' + kwMatchCount;
+          countSpan.style.color = '';
+        } else {
+          countSpan.textContent = '';
+        }
+        row.appendChild(countSpan);
+
+        // Per-keyword nav buttons
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'search-kw-nav';
+        prevBtn.innerHTML = '&#9650;';
+        prevBtn.title = 'Previous match (Shift+Enter)';
+        prevBtn.disabled = kwMatchCount === 0;
+        prevBtn.addEventListener('click', () => navigateKeywordSearch(i, -1));
+        row.appendChild(prevBtn);
+
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'search-kw-nav';
+        nextBtn.innerHTML = '&#9660;';
+        nextBtn.title = 'Next match (Enter)';
+        nextBtn.disabled = kwMatchCount === 0;
+        nextBtn.addEventListener('click', () => navigateKeywordSearch(i, 1));
+        row.appendChild(nextBtn);
+
+        // Remove button (only if more than one row)
+        if (state.search.keywords.length > 1) {
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'search-remove-btn';
+          removeBtn.textContent = '×';
+          removeBtn.title = 'Remove keyword';
+          removeBtn.addEventListener('click', () => {
+            state.search.keywords.splice(i, 1);
+            renderSearchRows();
+            executeSearch();
+            updateContentHeight();
+          });
+          row.appendChild(removeBtn);
+        }
+
+        searchRows.appendChild(row);
+      }
+      // Restore focus to the same keyword input
+      if (focusedIdx >= 0) {
+        const inputs = searchRows.querySelectorAll('.search-keyword-input');
+        if (inputs[focusedIdx]) {
+          inputs[focusedIdx].focus();
+          inputs[focusedIdx].setSelectionRange(selStart, selEnd);
+        }
+      }
+      // Update panel height after rendering rows
+      requestAnimationFrame(() => updateContentHeight());
+    }
+
+    searchAddBtn.addEventListener('click', () => {
+      addKeywordRow();
+      renderSearchRows();
+      // Focus the new input
+      const inputs = searchRows.querySelectorAll('.search-keyword-input');
+      if (inputs.length > 0) inputs[inputs.length - 1].focus();
+    });
+
+    function executeSearch() {
+      const srch = state.search;
+      const activeKws = srch.keywords.filter((kw) => kw.query.trim());
+      if (activeKws.length === 0) {
+        srch.currentIndex = -1;
+        searchCount.textContent = '';
         renderBody();
         return;
       }
-
-      // Search across all rows (not just filtered)
-      const sorted = getSortedRows(state.filteredRows);
-      ds.matches = sorted.filter((row) => deepSearchMatch(row, query, ds.scope));
-      ds.currentIndex = ds.matches.length > 0 ? 0 : -1;
-      updateDeepSearchUI();
+      // refreshSearchMatches() is called inside renderBody()
+      srch.currentIndex = -1; // reset navigation to recalculate after render
       renderBody();
-      scrollToDeepSearchMatch();
+      srch.currentIndex = srch.matches.length > 0 ? 0 : -1;
+      updateSearchUI();
     }
 
-    function updateDeepSearchUI() {
-      const ds = state.deepSearch;
-      if (ds.matches.length === 0 && ds.query) {
-        deepSearchCount.textContent = 'No matches';
-        deepSearchCount.style.color = 'var(--status-5xx)';
-      } else if (ds.matches.length > 0) {
-        deepSearchCount.textContent = (ds.currentIndex + 1) + ' / ' + ds.matches.length;
-        deepSearchCount.style.color = '';
+    const debouncedSearch = debounce(() => executeSearch(), DEEP_SEARCH_DEBOUNCE_MS);
+
+    function updateSearchUI() {
+      const srch = state.search;
+      const activeKws = srch.keywords.filter((kw) => kw.query.trim());
+      if (srch.matches.length === 0 && activeKws.length > 0) {
+        searchCount.textContent = 'No matches';
+        searchCount.style.color = 'var(--status-5xx)';
+      } else if (srch.matches.length > 0) {
+        searchCount.textContent = srch.matches.length + ' matches';
+        searchCount.style.color = '';
       } else {
-        deepSearchCount.textContent = '';
-        deepSearchCount.style.color = '';
+        searchCount.textContent = '';
+        searchCount.style.color = '';
       }
-      deepSearchPrev.disabled = ds.matches.length === 0;
-      deepSearchNext.disabled = ds.matches.length === 0;
+      // Update per-keyword counts in search rows
+      renderSearchRows();
     }
 
-    function scrollToDeepSearchMatch() {
-      const ds = state.deepSearch;
-      if (ds.currentIndex < 0 || ds.currentIndex >= ds.matches.length) return;
-      const matchRow = ds.matches[ds.currentIndex];
+    function scrollToSearchMatch() {
+      const srch = state.search;
+      if (srch.currentIndex < 0 || srch.currentIndex >= srch.matches.length) return;
+      const matchRow = srch.matches[srch.currentIndex];
       const matchTr = $('#tableWrap').querySelector('tr[data-row-id="' + matchRow.id + '"]');
       if (matchTr) {
         matchTr.scrollIntoView({ block: 'nearest' });
-        // Auto-select the current match row
+        // Update detail panel without stealing focus
+        state.selectedRow = matchRow;
+        state.selectedRows.clear();
+        renderBody();
         selectRow(matchRow);
       }
     }
 
-    function navigateDeepSearch(direction) {
-      const ds = state.deepSearch;
-      if (ds.matches.length === 0) return;
-      ds.currentIndex += direction;
-      if (ds.currentIndex >= ds.matches.length) ds.currentIndex = 0;
-      if (ds.currentIndex < 0) ds.currentIndex = ds.matches.length - 1;
-      updateDeepSearchUI();
+    function navigateKeywordSearch(kwIndex, direction) {
+      const srch = state.search;
+      const kwData = srch.perKeyword.get(kwIndex);
+      if (!kwData || kwData.matches.length === 0) return;
+      kwData.currentIndex += direction;
+      if (kwData.currentIndex >= kwData.matches.length) kwData.currentIndex = 0;
+      if (kwData.currentIndex < 0) kwData.currentIndex = kwData.matches.length - 1;
+      // Also update global currentIndex to point at the same row
+      const targetRow = kwData.matches[kwData.currentIndex];
+      const globalIdx = srch.matches.indexOf(targetRow);
+      if (globalIdx >= 0) srch.currentIndex = globalIdx;
+      renderSearchRows();
       renderBody();
-      scrollToDeepSearchMatch();
+      scrollToSearchMatch();
     }
 
-    const debouncedDeepSearch = debounce(() => executeDeepSearch(), DEEP_SEARCH_DEBOUNCE_MS);
-    deepSearchInput.addEventListener('input', debouncedDeepSearch);
+    searchToggleBtn.addEventListener('click', () => toggleSearchPanel());
 
-    deepSearchInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          navigateDeepSearch(-1);
-        } else {
-          navigateDeepSearch(1);
-        }
-      } else if (e.key === 'Escape') {
-        toggleDeepSearchBar(false);
-      }
-    });
-
-    deepSearchPrev.addEventListener('click', () => navigateDeepSearch(-1));
-    deepSearchNext.addEventListener('click', () => navigateDeepSearch(1));
-    deepSearchClose.addEventListener('click', () => toggleDeepSearchBar(false));
-    deepSearchBtn.addEventListener('click', () => toggleDeepSearchBar());
-
-    // Re-run search when scope checkboxes change
-    dsReqBody.addEventListener('change', debouncedDeepSearch);
-    dsResBody.addEventListener('change', debouncedDeepSearch);
-    dsReqHeaders.addEventListener('change', debouncedDeepSearch);
-    dsResHeaders.addEventListener('change', debouncedDeepSearch);
-
-    // Esc to close deep search bar (global)
+    // Ctrl+F toggles search panel
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && state.deepSearch.visible) {
-        toggleDeepSearchBar(false);
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleSearchPanel(true);
       }
-    });
+    }, true);
 
     // Import Feature (HAR / SAZ)
     const importBtn = $('#importBtn');
@@ -2956,6 +3265,23 @@ const _NetworkPlus = (function () {
     }
 
     // Network subscription
+    // Throttle renderBody during heavy traffic to keep UI responsive
+    let pendingRender = false;
+    let pendingScrollToBottom = false;
+    const scheduleRender = (scrollToBottom) => {
+      if (scrollToBottom) pendingScrollToBottom = true;
+      if (pendingRender) return;
+      pendingRender = true;
+      requestAnimationFrame(() => {
+        pendingRender = false;
+        renderBody();
+        if (pendingScrollToBottom) {
+          pendingScrollToBottom = false;
+          tableWrap.scrollTop = tableWrap.scrollHeight;
+        }
+      });
+    };
+
     if (chrome && chrome.devtools && chrome.devtools.network && chrome.devtools.network.onRequestFinished) {
       chrome.devtools.network.onRequestFinished.addListener((request) => {
         if (state.paused) return;
@@ -2966,12 +3292,9 @@ const _NetworkPlus = (function () {
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
         state.rows.push(row);
 
-        // Re-render to keep sort order and advanced filter state consistent.
-        renderBody();
-
-        if (wasAtBottom) {
-          tableWrap.scrollTop = tableWrap.scrollHeight;
-        }
+        // Throttled re-render to keep sort order and filter state consistent
+        // without blocking the main thread during heavy traffic.
+        scheduleRender(wasAtBottom);
       });
       setStatus('Capturing...');
     } else {
