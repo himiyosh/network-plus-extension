@@ -9,25 +9,38 @@
 <body>
   <header class="topbar">
     <div class="left">
-      <strong>Network+</strong>
-      <input id="filterInput" type="text" placeholder="Global search (Ctrl+F)..."/>
-      <div class="separator"></div>
-      <button id="clearBtn" title="Clear requests" class="icon-btn">🚫</button>
       <button id="pauseBtn" title="Pause recording" class="icon-btn">⏸️</button>
+      <div class="separator"></div>
+      <div class="brand">
+        <span class="brand-icon">📡</span>
+        <span class="brand-text">Network<span class="brand-plus">+</span></span>
+        <span class="brand-sub">for DevTools</span>
+      </div>
+      <div class="separator"></div>
+      <button id="searchToggleBtn" title="Toggle search panel (Ctrl+F)">🔍 Search</button>
+      <span id="searchCount" class="search-count"></span>
+      <div class="separator"></div>
+      <button id="clearBtn" title="Clear all requests" class="icon-btn clear-btn-danger">🗑️</button>
+      <div class="separator"></div>
       <button id="importBtn" title="Import (HAR/SAZ)" class="icon-btn">📥</button>
       <button id="exportHarBtn" title="Export (HAR)" class="icon-btn">📤</button>
-      <button id="statsBtn" title="Toggle statistics bar" class="icon-btn">📊</button>
       <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
-      <div class="separator"></div>
     </div>
     <div class="right">
-      <button id="filterBtn">⚙️ Filters</button>
-      <button id="presetsBtn">💾 Presets</button>
+      <button id="filterBtn">⚙️ Column Filters</button>
       <button id="columnsBtn">🗂️ Columns</button>
+      <div class="separator"></div>
       <button id="themeBtn">🌗 System</button>
     </div>
   </header>
-  <div id="stats-bar" class="stats-bar"></div>
+  <div class="search-panel" id="searchPanel" style="display:none">
+    <div class="search-panel-rows" id="searchRows"></div>
+    <div class="search-panel-footer">
+      <button id="searchAddBtn" class="search-add-btn">+ Add keyword</button>
+      <div class="search-panel-spacer"></div>
+      <button id="searchScopeBtn" class="search-scope-btn" title="Search scope settings">⚙️ Scope</button>
+    </div>
+  </div>
   <main class="content" id="content">
     <section class="tableWrap" id="tableWrap">
       <table class="grid" id="grid">

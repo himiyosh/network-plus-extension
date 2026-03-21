@@ -13,145 +13,41 @@ const _NetworkPlus = (function () {
   const SCROLL_THRESHOLD = 10;
   const TRUNCATE_LIMIT = 2000;
   const FILTER_DEBOUNCE_MS = 150;
+  const DEEP_SEARCH_DEBOUNCE_MS = 250;
+  const JSON_TREE_MAX_CHILDREN = 100;
+  const JSON_TREE_MAX_DEPTH = 20;
+  const JSON_TREE_PREVIEW_KEYS = 3;
 
   const THEME_KEY = 'networkPlus.theme';
   const THEMES = ['system', 'dark', 'light'];
   const COL_PREF_KEY = 'networkPlus.cols';
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
-  const FILTER_PRESET_KEY = 'networkPlus.filterPresets';
-  const LAST_PRESET_KEY = 'networkPlus.lastPreset';
-  const MAX_FILTER_PRESETS = 20;
-  const LANG_KEY = 'networkPlus.lang';
-
-  // i18n dictionary
-  const I18N = {
-    en: {
-      columnFilters: 'Column Filters',
-      active: 'active',
-      clearAll: 'Clear All',
-      timing: 'Timing',
-      request: 'Request',
-      response: 'Response',
-      other: 'Other',
-      respBody: 'Resp. Body',
-      filter: 'Filter',
-      from: 'From',
-      to: 'To',
-      reset: 'Reset',
-      all: 'All',
-      none: 'None',
-      contains: 'contains',
-      notcontains: 'not contains',
-      equals: '==',
-      notequals: '!=',
-      startswith: 'starts with',
-      endswith: 'ends with',
-      regex: 'regex',
-      empty: 'is empty',
-      notempty: 'is not empty',
-      gt: '>',
-      gte: '>=',
-      lt: '<',
-      lte: '<=',
-      value: 'value',
-      addCondition: '+ Add',
-      remove: 'Del',
-      includeAny: 'Include (any)',
-      includeAll: 'Include (all)',
-      exclude: 'Exclude',
-      caseSensitive: 'Case sensitive',
-      savedPresets: 'Saved Presets',
-      presetName: 'Preset name...',
-      save: 'Save',
-      noPresets: 'No saved presets yet.',
-      saved: 'Saved',
-      applied: 'Preset applied',
-      lang: 'EN',
-    },
-    ja: {
-      columnFilters: '\u30AB\u30E9\u30E0\u30D5\u30A3\u30EB\u30BF',
-      active: '\u6709\u52B9',
-      clearAll: '\u5168\u89E3\u9664',
-      timing: '\u30BF\u30A4\u30DF\u30F3\u30B0',
-      request: '\u30EA\u30AF\u30A8\u30B9\u30C8',
-      response: '\u30EC\u30B9\u30DD\u30F3\u30B9',
-      other: '\u305D\u306E\u4ED6',
-      respBody: '\u30EC\u30B9\u30DD\u30F3\u30B9\u672C\u6587',
-      filter: '\u30D5\u30A3\u30EB\u30BF',
-      from: '\u958B\u59CB',
-      to: '\u7D42\u4E86',
-      reset: '\u30EA\u30BB\u30C3\u30C8',
-      all: '\u5168\u9078\u629E',
-      none: '\u5168\u89E3\u9664',
-      contains: '\u542B\u3080',
-      notcontains: '\u542B\u307E\u306A\u3044',
-      equals: '\u4E00\u81F4',
-      notequals: '\u4E0D\u4E00\u81F4',
-      startswith: '\u524D\u65B9\u4E00\u81F4',
-      endswith: '\u5F8C\u65B9\u4E00\u81F4',
-      regex: '\u6B63\u898F\u8868\u73FE',
-      empty: '\u7A7A',
-      notempty: '\u7A7A\u3067\u306A\u3044',
-      gt: '>\u3088\u308A\u5927',
-      gte: '>=\u4EE5\u4E0A',
-      lt: '<\u3088\u308A\u5C0F',
-      lte: '<=\u4EE5\u4E0B',
-      value: '\u5024',
-      addCondition: '+ \u8FFD\u52A0',
-      remove: '\u524A\u9664',
-      includeAny: '\u542B\u3080 (\u3044\u305A\u308C\u304B)',
-      includeAll: '\u542B\u3080 (\u3059\u3079\u3066)',
-      exclude: '\u9664\u5916',
-      caseSensitive: '\u5927\u6587\u5B57\u5C0F\u6587\u5B57\u3092\u533A\u5225',
-      savedPresets: '\u4FDD\u5B58\u6E08\u307F\u30D7\u30EA\u30BB\u30C3\u30C8',
-      presetName: '\u30D7\u30EA\u30BB\u30C3\u30C8\u540D...',
-      save: '\u4FDD\u5B58',
-      noPresets: '\u4FDD\u5B58\u6E08\u307F\u30D7\u30EA\u30BB\u30C3\u30C8\u306F\u3042\u308A\u307E\u305B\u3093',
-      saved: '\u4FDD\u5B58\u3057\u307E\u3057\u305F',
-      applied: '\u30D7\u30EA\u30BB\u30C3\u30C8\u9069\u7528\u6E08\u307F',
-      lang: 'JA',
-    },
-  };
-
-  let currentLang = 'en';
-  function t(key) { return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key; }
-
-  function loadLangPref() {
-    try {
-      const saved = localStorage.getItem(LANG_KEY);
-      if (saved && I18N[saved]) currentLang = saved;
-    } catch (_e) { /* ignore */ }
-  }
-  function saveLangPref(lang) {
-    currentLang = lang;
-    try { localStorage.setItem(LANG_KEY, lang); } catch (_e) { /* ignore */ }
-  }
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
   const DATE_COLUMNS = ['clientStart', 'serverDone'];
 
   const FILTER_OPERATORS_STRING = [
-    { value: 'contains', key: 'contains' },
-    { value: 'notcontains', key: 'notcontains' },
-    { value: 'equals', key: 'equals' },
-    { value: 'notequals', key: 'notequals' },
-    { value: 'startswith', key: 'startswith' },
-    { value: 'endswith', key: 'endswith' },
-    { value: 'regex', key: 'regex' },
-    { value: 'empty', key: 'empty' },
-    { value: 'notempty', key: 'notempty' },
+    { value: 'contains', label: 'contains' },
+    { value: 'notcontains', label: 'not contains' },
+    { value: 'equals', label: '==' },
+    { value: 'notequals', label: '!=' },
+    { value: 'startswith', label: 'startsWith' },
+    { value: 'endswith', label: 'endsWith' },
+    { value: 'regex', label: 'regex' },
+    { value: 'empty', label: 'isEmpty' },
+    { value: 'notempty', label: 'isNotEmpty' },
   ];
   const FILTER_OPERATORS_NUMERIC = [
-    { value: 'equals', key: 'equals' },
-    { value: 'notequals', key: 'notequals' },
-    { value: 'gt', key: 'gt' },
-    { value: 'gte', key: 'gte' },
-    { value: 'lt', key: 'lt' },
-    { value: 'lte', key: 'lte' },
-    { value: 'empty', key: 'empty' },
-    { value: 'notempty', key: 'notempty' },
+    { value: 'equals', label: '==' },
+    { value: 'notequals', label: '!=' },
+    { value: 'gt', label: '>' },
+    { value: 'gte', label: '>=' },
+    { value: 'lt', label: '<' },
+    { value: 'lte', label: '<=' },
+    { value: 'empty', label: 'isEmpty' },
+    { value: 'notempty', label: 'isNotEmpty' },
   ];
 
   const DEFAULT_COLUMNS = [
@@ -167,7 +63,6 @@ const _NetworkPlus = (function () {
     { id: 'size', label: 'Size', width: 90, visible: true },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
     { id: 'url', label: 'URL', width: 420, visible: false },
-    { id: 'waterfall', label: 'Waterfall', width: 180, visible: false },
   ];
 
   const DEFAULT_METHOD_FILTERS = () => ({
@@ -188,8 +83,6 @@ const _NetworkPlus = (function () {
         value: '',
       };
     }
-    // Body search pseudo-column
-    rules['body'] = { op: 'contains', value: '' };
     return rules;
   };
 
@@ -205,6 +98,16 @@ const _NetworkPlus = (function () {
     { name: 'Blue', cls: 'hl-blue' },
     { name: 'Purple', cls: 'hl-purple' },
     { name: 'Orange', cls: 'hl-orange' },
+  ];
+
+  // Colors for search keyword rows (index matches search-hl-N / search-row-N)
+  const SEARCH_COLORS = [
+    { name: 'Yellow', hex: '#fbbf24' },
+    { name: 'Red', hex: '#ef4444' },
+    { name: 'Green', hex: '#22c55e' },
+    { name: 'Blue', hex: '#3b82f6' },
+    { name: 'Purple', hex: '#a855f7' },
+    { name: 'Orange', hex: '#f97316' },
   ];
 
   // ============================================================
@@ -356,81 +259,120 @@ const _NetworkPlus = (function () {
   }
 
   /**
-   * Generate a cURL command string from a request row.
-   * @param {object} row - The request row object
-   * @returns {string} cURL command
+   * Highlight multiple keywords in text, each with its own color class.
+   * @param {string} text
+   * @param {Array<{query: string, colorIdx: number}>} keywords
+   * @returns {DocumentFragment}
    */
-  function generateCurl(row) {
-    if (!row) return '';
-    const parts = ['curl'];
-    if (row.method && row.method !== 'GET') {
-      parts.push('-X ' + row.method);
+  function highlightTextMulti(text, keywords) {
+    const fragment = document.createDocumentFragment();
+    if (!text || !keywords || keywords.length === 0) {
+      fragment.appendChild(document.createTextNode(text || ''));
+      return fragment;
     }
-    parts.push("'" + (row.url || '').replace(/'/g, "'\\''") + "'");
-    if (row.requestHeaders) {
-      for (const h of row.requestHeaders) {
-        const name = (h.name || '').replace(/'/g, "'\\''");
-        const value = (h.value || '').replace(/'/g, "'\\''");
-        parts.push("-H '" + name + ': ' + value + "'");
+
+    // Build combined regex from all keywords (escaped, case-insensitive)
+    const validKws = keywords.filter((kw) => kw.query && kw.query.trim());
+    if (validKws.length === 0) {
+      fragment.appendChild(document.createTextNode(text));
+      return fragment;
+    }
+
+    const escapedParts = validKws.map((kw) => kw.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const regex = new RegExp('(' + escapedParts.join('|') + ')', 'gi');
+
+    // Build a map from lowercase query to colorIdx
+    const queryColorMap = new Map();
+    for (const kw of validKws) {
+      queryColorMap.set(kw.query.toLowerCase(), kw.colorIdx);
+    }
+
+    let lastIndex = 0;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        fragment.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
       }
+      const mark = document.createElement('mark');
+      const matchedLc = match[0].toLowerCase();
+      const colorIdx = queryColorMap.get(matchedLc);
+      mark.className = 'search-hl-' + (colorIdx != null ? colorIdx : 0);
+      mark.textContent = match[0];
+      fragment.appendChild(mark);
+      lastIndex = regex.lastIndex;
     }
-    if (row.requestPostData && row.requestPostData.text) {
-      parts.push("-d '" + row.requestPostData.text.replace(/'/g, "'\\''") + "'");
+    if (lastIndex < text.length) {
+      fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
     }
-    return parts.join(' \\\n  ');
+    return fragment;
   }
 
   /**
-   * Generate a fetch() code snippet from a request row.
-   * @param {object} row - The request row object
-   * @returns {string} JavaScript fetch code
+   * Deep search: check if a row matches query in deep content fields.
+   * Pure function (no DOM/state dependency) — testable.
+   * @param {object} row - Row object from buildRowFromRequest
+   * @param {string} query - Search keyword (case-insensitive)
+   * @param {object} scope - { reqBody, resBody, reqHeaders, resHeaders }
+   * @returns {boolean}
    */
-  function generateFetch(row) {
-    if (!row) return '';
-    const opts = {};
-    if (row.method && row.method !== 'GET') opts.method = row.method;
-    if (row.requestHeaders && row.requestHeaders.length > 0) {
-      const headers = {};
-      for (const h of row.requestHeaders) {
-        headers[h.name || ''] = h.value || '';
+  function deepSearchMatch(row, query, scope) {
+    if (!query) return false;
+    const lcq = query.toLowerCase();
+
+    // URL / Domain / Path search
+    if (scope.url !== false) {
+      const urlFields = [row.url, row.domain, row.path, row.method, String(row.status || ''), row.type];
+      for (let i = 0; i < urlFields.length; i++) {
+        if (urlFields[i] && urlFields[i].toLowerCase().indexOf(lcq) > -1) return true;
       }
-      opts.headers = headers;
     }
-    if (row.requestPostData && row.requestPostData.text) {
-      opts.body = row.requestPostData.text;
+
+    if (scope.reqBody) {
+      const postText = row.requestPostData && row.requestPostData.text ? row.requestPostData.text : '';
+      if (postText && postText.toLowerCase().indexOf(lcq) > -1) return true;
     }
-    const url = JSON.stringify(row.url || '');
-    if (Object.keys(opts).length === 0) {
-      return 'fetch(' + url + ')';
+
+    if (scope.resBody) {
+      const resText = row.responseContent || '';
+      if (resText && resText.toLowerCase().indexOf(lcq) > -1) return true;
     }
-    return 'fetch(' + url + ', ' + JSON.stringify(opts, null, 2) + ')';
+
+    if (scope.reqHeaders) {
+      const reqH = row.requestHeaders || [];
+      for (let i = 0; i < reqH.length; i++) {
+        const h = reqH[i];
+        if ((h.name && h.name.toLowerCase().indexOf(lcq) > -1) ||
+            (h.value && h.value.toLowerCase().indexOf(lcq) > -1)) return true;
+      }
+    }
+
+    if (scope.resHeaders) {
+      const resH = row.responseHeaders || [];
+      for (let i = 0; i < resH.length; i++) {
+        const h = resH[i];
+        if ((h.name && h.name.toLowerCase().indexOf(lcq) > -1) ||
+            (h.value && h.value.toLowerCase().indexOf(lcq) > -1)) return true;
+      }
+    }
+
+    return false;
   }
 
   /**
-   * Generate a PowerShell Invoke-WebRequest command from a request row.
-   * @param {object} row - The request row object
-   * @returns {string} PowerShell command
+   * Format a row's summary as human-readable text for clipboard copy.
+   * Pure function (no DOM/state dependency) — testable.
    */
-  function generatePowerShell(row) {
-    if (!row) return '';
-    const parts = ['Invoke-WebRequest'];
-    parts.push("-Uri '" + (row.url || '').replace(/'/g, "''") + "'");
-    if (row.method && row.method !== 'GET') {
-      parts.push('-Method ' + row.method);
-    }
-    if (row.requestHeaders && row.requestHeaders.length > 0) {
-      const headerPairs = [];
-      for (const h of row.requestHeaders) {
-        const name = (h.name || '').replace(/'/g, "''");
-        const value = (h.value || '').replace(/'/g, "''");
-        headerPairs.push("'" + name + "'='" + value + "'");
-      }
-      parts.push('-Headers @{' + headerPairs.join('; ') + '}');
-    }
-    if (row.requestPostData && row.requestPostData.text) {
-      parts.push("-Body '" + row.requestPostData.text.replace(/'/g, "''") + "'");
-    }
-    return parts.join(' `\n  ');
+  function formatRowSummary(row) {
+    const lines = [];
+    lines.push('[' + row.id + '] ' + row.method + ' ' + (row.url || ''));
+    lines.push('Status: ' + row.status + (row.statusText ? ' ' + row.statusText : ''));
+    lines.push('Type: ' + (row.type || '(none)'));
+    lines.push('Duration: ' + fmtTime(row.duration));
+    lines.push('Size: ' + fmtBytes(row.size));
+    lines.push('Time: ' + (row.clientStart || '') + ' - ' + (row.serverDone || ''));
+    if (row.domain) lines.push('Domain: ' + row.domain);
+    if (row.initiator && row.initiator.text) lines.push('Initiator: ' + row.initiator.text);
+    return lines.join('\n');
   }
 
   // ============================================================
@@ -450,8 +392,18 @@ const _NetworkPlus = (function () {
     },
     nextId: 1,
     paused: false,
-    globalFilter: '',
     autoScroll: true,
+    // Unified search state (replaces globalFilter + deepSearch)
+    search: {
+      keywords: [],       // array of {query: string, colorIdx: number}
+      matches: [],        // array of row references that match any keyword
+      currentIndex: -1,   // index into matches[] for navigation
+      scope: { url: true, reqBody: true, resBody: true, reqHeaders: true, resHeaders: true },
+      // Per-row match map: row -> Set of colorIdx values
+      rowColors: new Map(),
+      // Per-keyword matches: kwIndex -> { matches: [rows], currentIndex: number }
+      perKeyword: new Map(),
+    },
   };
 
   // ============================================================
@@ -565,7 +517,6 @@ const _NetworkPlus = (function () {
     if (colId === 'initiator') return row.initiator ? row.initiator.text : '';
     if (colId === 'clientStart') return row.clientStartFilter || row.clientStart || '';
     if (colId === 'serverDone') return row.serverDoneFilter || row.serverDone || '';
-    if (colId === 'body') return row.responseContent || '';
     const v = row[colId];
     return v == null ? '' : v;
   }
@@ -709,14 +660,6 @@ const _NetworkPlus = (function () {
 
   function filterRows() {
     state.filteredRows = state.rows.filter((r) => {
-      // Global filter
-      if (state.globalFilter) {
-        const lcf = state.globalFilter.toLowerCase();
-        const searchFields = [r.url, r.method, String(r.status), r.type];
-        const found = searchFields.some((field) => field && field.toLowerCase().indexOf(lcf) > -1);
-        if (!found) return false;
-      }
-
       // Per-column advanced filters
       for (const col of state.columns) {
         const colId = col.id;
@@ -728,67 +671,6 @@ const _NetworkPlus = (function () {
       }
       return true;
     });
-  }
-
-  // --- Filter Presets ---
-  function loadFilterPresets(callback) {
-    if (chrome && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get([FILTER_PRESET_KEY], (result) => {
-        callback(result[FILTER_PRESET_KEY] || []);
-      });
-    } else {
-      try {
-        callback(JSON.parse(localStorage.getItem(FILTER_PRESET_KEY)) || []);
-      } catch (_e) {
-        callback([]);
-      }
-    }
-  }
-
-  function saveFilterPresets(presets) {
-    const trimmed = presets.slice(0, MAX_FILTER_PRESETS);
-    if (chrome && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ [FILTER_PRESET_KEY]: trimmed });
-    } else {
-      localStorage.setItem(FILTER_PRESET_KEY, JSON.stringify(trimmed));
-    }
-  }
-
-  function captureCurrentFilterState() {
-    const bar = document.getElementById('stats-bar');
-    return {
-      globalFilter: state.globalFilter,
-      columnFilterRules: JSON.parse(JSON.stringify(state.columnFilterRules)),
-      statsVisible: bar ? bar.classList.contains('visible') : false,
-      theme: document.documentElement.getAttribute('data-theme') || 'system',
-    };
-  }
-
-  function applyFilterPreset(preset) {
-    state.globalFilter = preset.globalFilter || '';
-    const filterInput = $('#filterInput');
-    if (filterInput) filterInput.value = state.globalFilter;
-    if (preset.columnFilterRules) {
-      state.columnFilterRules = JSON.parse(JSON.stringify(preset.columnFilterRules));
-    }
-    // Restore stats bar visibility
-    if (typeof preset.statsVisible === 'boolean') {
-      const bar = document.getElementById('stats-bar');
-      const sBtn = $('#statsBtn');
-      if (bar) {
-        bar.classList.toggle('visible', preset.statsVisible);
-        if (sBtn) sBtn.classList.toggle('active', preset.statsVisible);
-      }
-    }
-    // Restore theme
-    if (preset.theme) {
-      applyTheme(preset.theme);
-      saveThemePref(preset.theme);
-    }
-    // Remember last applied preset
-    try { localStorage.setItem(LAST_PRESET_KEY, preset.name); } catch (_e) { /* ignore */ }
-    render();
-    setStatus('Preset applied: ' + preset.name);
   }
 
   // ============================================================
@@ -899,9 +781,20 @@ const _NetworkPlus = (function () {
     tr.dataset.rowId = row.id;
 
     if (state.selectedRow === row) tr.classList.add('selected');
+    if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
+    // Manual highlight (context menu)
     const hlColor = state.highlightedRows.get(row);
     if (hlColor) tr.classList.add('highlighted-row', hlColor);
-    if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
+    // Unified search match highlight — apply first matching keyword color
+    const srch = state.search;
+    const rowColorSet = srch.rowColors.get(row);
+    if (rowColorSet && rowColorSet.size > 0) {
+      const firstColor = rowColorSet.values().next().value;
+      tr.classList.add('search-match-row', 'search-row-' + firstColor);
+      if (srch.currentIndex >= 0 && srch.matches[srch.currentIndex] === row) {
+        tr.classList.add('search-match-current');
+      }
+    }
     if (row.method) {
       const method = row.method.toUpperCase();
       if (HTTP_METHODS.indexOf(method) > -1) tr.classList.add('method-' + method);
@@ -930,43 +823,20 @@ const _NetworkPlus = (function () {
             e.stopPropagation();
             chrome.devtools.panels.openResource(initiator.url, initiator.lineNumber, () => {});
           });
-          // Highlight initiator text if search active
-          if (state.globalFilter) {
-            link.appendChild(highlightText(initiator.text, state.globalFilter));
+          if (srch.keywords.length > 0) {
+            link.appendChild(highlightTextMulti(initiator.text, srch.keywords));
           } else {
             link.textContent = initiator.text;
           }
           td.appendChild(link);
         } else {
           const txt = initiator ? initiator.text : '';
-          if (state.globalFilter) {
-            td.appendChild(highlightText(txt, state.globalFilter));
+          if (srch.keywords.length > 0) {
+            td.appendChild(highlightTextMulti(txt, srch.keywords));
           } else {
             td.textContent = txt;
           }
         }
-      } else if (c.id === 'waterfall') {
-        // Miniature timing waterfall bar
-        td.style.padding = '2px 4px';
-        const total = row.duration || 0;
-        if (total > 0 && row.timings) {
-          const bar = document.createElement('div');
-          bar.style.cssText = 'display:flex;height:14px;border-radius:3px;overflow:hidden;background:var(--border)';
-          const phases = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
-          const colors = ['#999', '#6cf', '#f90', '#c6f', '#9c6', '#6c9', '#69c'];
-          for (let pi = 0; pi < phases.length; pi++) {
-            const val = row.timings[phases[pi]];
-            if (typeof val === 'number' && val > 0) {
-              const seg = document.createElement('div');
-              seg.style.cssText = 'height:100%;min-width:1px;background:' + colors[pi];
-              seg.style.width = Math.max(1, (val / total) * 100) + '%';
-              seg.title = phases[pi] + ': ' + fmtTime(val);
-              bar.appendChild(seg);
-            }
-          }
-          td.appendChild(bar);
-        }
-        td.title = fmtTime(total);
       } else {
         let v = row[c.id];
         if (c.id === 'size') v = fmtBytes(row.size);
@@ -979,9 +849,8 @@ const _NetworkPlus = (function () {
           else if (row.duration > 100) td.classList.add('dur-ok');
         }
         const text = v == null ? '' : String(v);
-        // Highlight text if global filter active
-        if (state.globalFilter && text) {
-          td.appendChild(highlightText(text, state.globalFilter));
+        if (srch.keywords.length > 0 && text) {
+          td.appendChild(highlightTextMulti(text, srch.keywords));
         } else {
           td.textContent = text;
         }
@@ -996,174 +865,6 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 11: UI Components
   // ============================================================
-
-  function toggleHelpOverlay() {
-    let overlay = document.getElementById('help-overlay');
-    if (overlay) {
-      overlay.style.display = overlay.style.display === 'none' ? 'flex' : 'none';
-      return;
-    }
-    overlay = document.createElement('div');
-    overlay.id = 'help-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center';
-    const card = document.createElement('div');
-    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 28px;max-width:480px;width:90%;box-shadow:var(--shadow-md);color:var(--fg);font-size:13px;max-height:80vh;overflow-y:auto';
-    const title = document.createElement('h3');
-    title.style.cssText = 'margin:0 0 12px;font-size:16px;color:var(--accent)';
-    title.textContent = 'Keyboard Shortcuts';
-    card.appendChild(title);
-    const shortcuts = [
-      ['Ctrl+F', 'Focus global search'],
-      ['?', 'Show this help'],
-      ['Escape', 'Close help / dropdowns'],
-      ['Up / Down', 'Navigate rows'],
-      ['Ctrl+Click', 'Multi-select rows'],
-      ['Shift+Click', 'Range-select rows'],
-      ['Right-click', 'Context menu (highlight, copy as cURL/fetch/PS)'],
-      ['Delete', 'Clear all requests'],
-    ];
-    const table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse';
-    for (const [key, desc] of shortcuts) {
-      const tr = document.createElement('tr');
-      const tdKey = document.createElement('td');
-      tdKey.style.cssText = 'padding:5px 12px 5px 0;font-weight:700;white-space:nowrap;color:var(--accent);font-family:monospace;font-size:12px;width:120px';
-      tdKey.textContent = key;
-      const tdDesc = document.createElement('td');
-      tdDesc.style.cssText = 'padding:5px 0;color:var(--fg)';
-      tdDesc.textContent = desc;
-      tr.appendChild(tdKey);
-      tr.appendChild(tdDesc);
-      table.appendChild(tr);
-    }
-    card.appendChild(table);
-    const closeHint = document.createElement('div');
-    closeHint.style.cssText = 'margin-top:12px;text-align:center;font-size:11px;color:var(--muted)';
-    closeHint.textContent = 'Press ? or Escape to close';
-    card.appendChild(closeHint);
-    overlay.appendChild(card);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) overlay.style.display = 'none';
-    });
-    document.body.appendChild(overlay);
-  }
-
-  function showDiffOverlay(rowA, rowB) {
-    let overlay = document.getElementById('diff-overlay');
-    if (overlay) overlay.remove();
-    overlay = document.createElement('div');
-    overlay.id = 'diff-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center';
-    const card = document.createElement('div');
-    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;max-width:90vw;width:900px;box-shadow:var(--shadow-md);color:var(--fg);font-size:12px;max-height:85vh;overflow-y:auto';
-    const title = document.createElement('h3');
-    title.style.cssText = 'margin:0 0 12px;font-size:15px;color:var(--accent)';
-    title.textContent = 'Request Diff';
-    card.appendChild(title);
-
-    const subtitle = document.createElement('div');
-    subtitle.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:12px';
-    subtitle.textContent = '#' + rowA.id + ' ' + rowA.method + ' ' + (rowA.url || '').substring(0, 80) + '  vs  #' + rowB.id + ' ' + rowB.method + ' ' + (rowB.url || '').substring(0, 80);
-    card.appendChild(subtitle);
-
-    const sections = [
-      { label: 'URL', a: rowA.url || '', b: rowB.url || '' },
-      { label: 'Method', a: rowA.method || '', b: rowB.method || '' },
-      { label: 'Status', a: String(rowA.status || ''), b: String(rowB.status || '') },
-    ];
-
-    // Headers diff
-    const aHeaders = (rowA.requestHeaders || []).reduce((m, h) => { m[h.name] = h.value; return m; }, {});
-    const bHeaders = (rowB.requestHeaders || []).reduce((m, h) => { m[h.name] = h.value; return m; }, {});
-    const allHeaderKeys = new Set([...Object.keys(aHeaders), ...Object.keys(bHeaders)]);
-    for (const key of allHeaderKeys) {
-      if (aHeaders[key] !== bHeaders[key]) {
-        sections.push({ label: 'Header: ' + key, a: aHeaders[key] || '(absent)', b: bHeaders[key] || '(absent)' });
-      }
-    }
-
-    // Query params diff
-    const aParams = parseQueryString(rowA.url || '');
-    const bParams = parseQueryString(rowB.url || '');
-    const aMap = {};
-    for (const p of aParams) aMap[p.name] = p.value;
-    const bMap = {};
-    for (const p of bParams) bMap[p.name] = p.value;
-    const allParamKeys = new Set([...Object.keys(aMap), ...Object.keys(bMap)]);
-    for (const key of allParamKeys) {
-      if (aMap[key] !== bMap[key]) {
-        sections.push({ label: 'Query: ' + key, a: aMap[key] || '(absent)', b: bMap[key] || '(absent)' });
-      }
-    }
-
-    // Body diff
-    const aBody = (rowA.requestPostData && rowA.requestPostData.text) || '';
-    const bBody = (rowB.requestPostData && rowB.requestPostData.text) || '';
-    if (aBody !== bBody) {
-      sections.push({ label: 'Request Body', a: aBody.substring(0, 500) || '(empty)', b: bBody.substring(0, 500) || '(empty)' });
-    }
-
-    // Render diff table
-    const table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-family:monospace;font-size:11px';
-    const thead = document.createElement('tr');
-    for (const colText of ['Field', '#' + rowA.id, '#' + rowB.id]) {
-      const th = document.createElement('th');
-      th.style.cssText = 'padding:4px 8px;text-align:left;border-bottom:2px solid var(--border);color:var(--muted);font-size:10px;text-transform:uppercase';
-      th.textContent = colText;
-      thead.appendChild(th);
-    }
-    table.appendChild(thead);
-
-    for (const s of sections) {
-      const tr = document.createElement('tr');
-      const isDiff = s.a !== s.b;
-      tr.style.background = isDiff ? 'var(--accent-dim)' : 'transparent';
-      const tdLabel = document.createElement('td');
-      tdLabel.style.cssText = 'padding:4px 8px;font-weight:600;color:var(--syn-hdr-name);white-space:nowrap;border-bottom:1px solid var(--stripe)';
-      tdLabel.textContent = s.label;
-      const tdA = document.createElement('td');
-      tdA.style.cssText = 'padding:4px 8px;word-break:break-all;border-bottom:1px solid var(--stripe);max-width:350px;overflow:hidden;text-overflow:ellipsis';
-      tdA.textContent = s.a;
-      const tdB = document.createElement('td');
-      tdB.style.cssText = 'padding:4px 8px;word-break:break-all;border-bottom:1px solid var(--stripe);max-width:350px;overflow:hidden;text-overflow:ellipsis';
-      tdB.textContent = s.b;
-      if (isDiff) {
-        tdA.style.color = 'var(--status-5xx)';
-        tdB.style.color = 'var(--status-2xx)';
-      }
-      tr.appendChild(tdLabel);
-      tr.appendChild(tdA);
-      tr.appendChild(tdB);
-      table.appendChild(tr);
-    }
-
-    if (sections.filter((s) => s.a !== s.b).length === 0) {
-      const noChange = document.createElement('div');
-      noChange.style.cssText = 'padding:12px;color:var(--muted);text-align:center';
-      noChange.textContent = 'No differences found in URL, method, status, headers, query params, or body.';
-      card.appendChild(noChange);
-    } else {
-      card.appendChild(table);
-    }
-
-    const closeHint = document.createElement('div');
-    closeHint.style.cssText = 'margin-top:12px;text-align:center;font-size:11px;color:var(--muted)';
-    closeHint.textContent = 'Click outside or press Escape to close';
-    card.appendChild(closeHint);
-    overlay.appendChild(card);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) overlay.remove();
-    });
-    document.addEventListener('keydown', function closeDiff(e) {
-      if (e.key === 'Escape' && document.getElementById('diff-overlay')) {
-        document.getElementById('diff-overlay').remove();
-        document.removeEventListener('keydown', closeDiff);
-      }
-    });
-    document.body.appendChild(overlay);
-  }
-
   function createCheckboxItem(text, checked, onChange) {
     const label = document.createElement('label');
     const cb = document.createElement('input');
@@ -1193,7 +894,6 @@ const _NetworkPlus = (function () {
 
     // --- Time columns (clientStart / serverDone): time range picker with auto-range ---
     if (colId === 'clientStart' || colId === 'serverDone') {
-      wrap.className = 'filter-rule filter-rule--time';
       const filterField = colId === 'clientStart' ? 'clientStartFilter' : 'serverDoneFilter';
       const rule = state.columnFilterRules[colId];
       const isTimeRange = rule && rule.mode === 'timeRange';
@@ -1217,7 +917,7 @@ const _NetworkPlus = (function () {
       const endVal = isTimeRange && rule.end ? rule.end : autoEnd;
 
       const startLabel = document.createElement('span');
-      startLabel.textContent = t('from') + ' ';
+      startLabel.textContent = 'From ';
       const startInput = document.createElement('input');
       startInput.type = 'time';
       startInput.step = '1';
@@ -1225,7 +925,7 @@ const _NetworkPlus = (function () {
       startInput.value = startVal;
 
       const endLabel = document.createElement('span');
-      endLabel.textContent = ' ' + t('to') + ' ';
+      endLabel.textContent = ' To ';
       const endInput = document.createElement('input');
       endInput.type = 'time';
       endInput.step = '1';
@@ -1233,7 +933,7 @@ const _NetworkPlus = (function () {
       endInput.value = endVal;
 
       const clearBtn = document.createElement('button');
-      clearBtn.textContent = t('reset');
+      clearBtn.textContent = 'Reset';
       clearBtn.className = 'filter-clear-btn';
       clearBtn.addEventListener('click', () => {
         startInput.value = autoStart;
@@ -1267,7 +967,7 @@ const _NetworkPlus = (function () {
       const btnRow = document.createElement('div');
       btnRow.style.cssText = 'display:flex;gap:4px;margin-bottom:4px';
       const allBtn = document.createElement('button');
-      allBtn.textContent = t('all');
+      allBtn.textContent = 'All';
       allBtn.className = 'filter-clear-btn';
       allBtn.style.flex = '1';
       allBtn.addEventListener('click', () => {
@@ -1279,7 +979,7 @@ const _NetworkPlus = (function () {
         renderMethodCheckboxes();
       });
       const noneBtn = document.createElement('button');
-      noneBtn.textContent = t('none');
+      noneBtn.textContent = 'None';
       noneBtn.className = 'filter-clear-btn';
       noneBtn.style.flex = '1';
       noneBtn.addEventListener('click', () => {
@@ -1355,7 +1055,7 @@ const _NetworkPlus = (function () {
       const isAdv = rule && rule.mode === 'urlAdvanced';
 
       const inclAnyLabel = document.createElement('label');
-      inclAnyLabel.textContent = t('includeAny') + ':';
+      inclAnyLabel.textContent = 'Include ANY (comma-separated):';
       const inclAnyInput = document.createElement('input');
       inclAnyInput.type = 'text';
       inclAnyInput.className = 'filter-value';
@@ -1363,7 +1063,7 @@ const _NetworkPlus = (function () {
       inclAnyInput.value = isAdv ? rule.includeAny || '' : '';
 
       const inclAllLabel = document.createElement('label');
-      inclAllLabel.textContent = t('includeAll') + ':';
+      inclAllLabel.textContent = 'Include ALL (comma-separated):';
       const inclAllInput = document.createElement('input');
       inclAllInput.type = 'text';
       inclAllInput.className = 'filter-value';
@@ -1371,7 +1071,7 @@ const _NetworkPlus = (function () {
       inclAllInput.value = isAdv ? rule.includeAll || '' : '';
 
       const exclLabel = document.createElement('label');
-      exclLabel.textContent = t('exclude') + ':';
+      exclLabel.textContent = 'Exclude ANY (comma-separated):';
       const exclInput = document.createElement('input');
       exclInput.type = 'text';
       exclInput.className = 'filter-value';
@@ -1383,7 +1083,7 @@ const _NetworkPlus = (function () {
       csCb.type = 'checkbox';
       csCb.checked = isAdv ? !!rule.caseSensitive : false;
       csLabel.appendChild(csCb);
-      const csText = document.createTextNode(' ' + t('caseSensitive'));
+      const csText = document.createTextNode(' Case sensitive');
       csLabel.appendChild(csText);
 
       const update = () => {
@@ -1428,7 +1128,7 @@ const _NetworkPlus = (function () {
           for (const op of FILTER_OPERATORS_STRING) {
             const option = document.createElement('option');
             option.value = op.value;
-            option.textContent = t(op.key);
+            option.textContent = op.label;
             opSelect.appendChild(option);
           }
           opSelect.value = cond.op || 'contains';
@@ -1436,11 +1136,11 @@ const _NetworkPlus = (function () {
           const input = document.createElement('input');
           input.type = 'text';
           input.className = 'filter-value';
-          input.placeholder = t('value');
+          input.placeholder = 'value';
           input.value = cond.value || '';
 
           const removeBtn = document.createElement('button');
-          removeBtn.textContent = t('remove');
+          removeBtn.textContent = 'x';
           removeBtn.className = 'filter-remove-btn';
           removeBtn.addEventListener('click', () => {
             conditions.splice(idx, 1);
@@ -1468,7 +1168,7 @@ const _NetworkPlus = (function () {
         });
 
         const addBtn = document.createElement('button');
-        addBtn.textContent = t('addCondition');
+        addBtn.textContent = '+ Add condition';
         addBtn.className = 'filter-add-btn';
         addBtn.addEventListener('click', () => {
           conditions.push({ op: 'contains', value: '' });
@@ -1482,14 +1182,13 @@ const _NetworkPlus = (function () {
     }
 
     // --- Default: generic operator + value ---
-    wrap.className = 'filter-rule filter-rule--inline';
     const opSelect = document.createElement('select');
     opSelect.className = 'filter-op';
     const operators = getOperatorsForColumn(colId);
     for (const op of operators) {
       const option = document.createElement('option');
       option.value = op.value;
-      option.textContent = t(op.key);
+      option.textContent = op.label;
       opSelect.appendChild(option);
     }
 
@@ -1499,7 +1198,7 @@ const _NetworkPlus = (function () {
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'filter-value';
-    input.placeholder = t('value');
+    input.placeholder = 'value';
     input.value = rule.value || '';
 
     const updateInputState = () => {
@@ -1558,115 +1257,28 @@ const _NetworkPlus = (function () {
     const root = document.createElement('div');
     root.className = 'filter-popup-body';
 
-    const activeCount = getActiveFilterCount();
-    const bodyRule = state.columnFilterRules['body'];
-    const totalActive = activeCount + (isRuleActive(bodyRule) ? 1 : 0);
-
-    // Header with active count and Clear All button
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
-    const headerText = document.createElement('span');
-    headerText.textContent = '\u2699\uFE0F ' + t('columnFilters') + (totalActive > 0 ? ' (' + totalActive + ' ' + t('active') + ')' : '');
-    header.appendChild(headerText);
-
-    if (totalActive > 0) {
-      const clearAllBtn = document.createElement('button');
-      clearAllBtn.className = 'filter-clear-btn';
-      clearAllBtn.textContent = '\u274C ' + t('clearAll');
-      clearAllBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
-        state.globalFilter = '';
-        const filterInput = document.getElementById('filterInput');
-        if (filterInput) filterInput.value = '';
-        onChange();
-        // Re-render the popup in place
-        const parent = root.parentElement;
-        const newContent = createFilterPopupContent(onChange, focusColId);
-        if (parent) {
-          parent.replaceChild(newContent, root);
-        }
-      });
-      header.appendChild(clearAllBtn);
-    }
-
-    // Language toggle
-    const langBtn = document.createElement('button');
-    langBtn.className = 'filter-clear-btn';
-    langBtn.textContent = '\uD83C\uDF10 ' + t('lang');
-    langBtn.title = 'Toggle EN/JA';
-    langBtn.addEventListener('click', (e) => {
-      e.stopPropagation(); // Prevent global click handler from closing popup
-      const next = currentLang === 'en' ? 'ja' : 'en';
-      saveLangPref(next);
-      // Re-render popup content in place without closing
-      const parent = root.parentElement;
-      const newContent = createFilterPopupContent(onChange, focusColId);
-      if (parent) {
-        parent.replaceChild(newContent, root);
-      }
-    });
-    header.appendChild(langBtn);
-
+    header.textContent = `Column Filters (${getActiveFilterCount()} active)`;
     root.appendChild(header);
 
     const list = document.createElement('div');
     list.className = 'filter-popup-list';
 
     const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
-
-    // Group columns by category for better organization
-    const groups = [
-      { title: '\u23F1\uFE0F ' + t('timing'), ids: ['clientStart', 'serverDone', 'duration'] },
-      { title: '\u27A1\uFE0F ' + t('request'), ids: ['method', 'url', 'domain', 'path'] },
-      { title: '\u2B05\uFE0F ' + t('response'), ids: ['status', 'type', 'size', 'body'] },
-      { title: '\uD83D\uDD27 ' + t('other'), ids: ['id', 'initiator'] },
-    ];
-
-    for (const group of groups) {
-      // Check if any column in group has an active filter
-      const hasActive = group.ids.some((id) => isRuleActive(state.columnFilterRules[id]));
-
-      const sectionTitle = document.createElement('div');
-      sectionTitle.className = 'filter-popup-section-title';
-      sectionTitle.textContent = group.title + (hasActive ? ' \u2705' : '');
-      list.appendChild(sectionTitle);
-
-      for (const colId of group.ids) {
-        // body is a pseudo-column, not in state.columns
-        const col = state.columns.find((c) => c.id === colId);
-        const label = col ? col.label : (colId === 'body' ? '\uD83D\uDCC4 ' + t('respBody') : colId);
-
-        const row = document.createElement('div');
-        row.className = 'filter-popup-row';
-        if (focusColId && focusColId === colId) row.classList.add('focus-target');
-        if (isRuleActive(state.columnFilterRules[colId])) row.classList.add('has-active-filter');
-
-        const labelEl = document.createElement('div');
-        labelEl.className = 'filter-popup-label';
-        labelEl.textContent = label;
-        row.appendChild(labelEl);
-
-        const control = createColumnFilterControl(colId, debouncedOnChange);
-        row.appendChild(control);
-        list.appendChild(row);
-      }
-    }
-
-    // Show any columns not in groups (e.g. waterfall, custom columns)
-    const groupedIds = new Set(groups.flatMap((g) => g.ids));
     for (const col of state.columns) {
-      if (!groupedIds.has(col.id)) {
-        const row = document.createElement('div');
-        row.className = 'filter-popup-row';
-        if (isRuleActive(state.columnFilterRules[col.id])) row.classList.add('has-active-filter');
-        const labelEl = document.createElement('div');
-        labelEl.className = 'filter-popup-label';
-        labelEl.textContent = col.label;
-        row.appendChild(labelEl);
-        row.appendChild(createColumnFilterControl(col.id, debouncedOnChange));
-        list.appendChild(row);
-      }
+      const row = document.createElement('div');
+      row.className = 'filter-popup-row';
+      if (focusColId && focusColId === col.id) row.classList.add('focus-target');
+
+      const label = document.createElement('div');
+      label.className = 'filter-popup-label';
+      label.textContent = col.label;
+      row.appendChild(label);
+
+      const control = createColumnFilterControl(col.id, debouncedOnChange);
+      row.appendChild(control);
+      list.appendChild(row);
     }
 
     root.appendChild(list);
@@ -1682,7 +1294,7 @@ const _NetworkPlus = (function () {
 
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
-    header.textContent = '\uD83D\uDD0D ' + col.label + ' ' + t('filter');
+    header.textContent = col.label + ' Filter';
     root.appendChild(header);
 
     const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
@@ -1809,8 +1421,56 @@ const _NetworkPlus = (function () {
     thead.appendChild(tr);
   }
 
+  // Update search match state without triggering re-render.
+  // Called from renderBody() so new rows are included in search.
+  function refreshSearchMatches() {
+    const srch = state.search;
+    const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    if (activeKws.length === 0) {
+      srch.rowColors.clear();
+      srch.matches = [];
+      srch.perKeyword.clear();
+      return;
+    }
+    srch.rowColors.clear();
+    const sorted = getSortedRows(state.filteredRows);
+    const matchSet = new Set();
+    // Build per-keyword match lists
+    for (let ki = 0; ki < srch.keywords.length; ki++) {
+      const kw = srch.keywords[ki];
+      if (!kw.query || !kw.query.trim()) {
+        srch.perKeyword.set(ki, { matches: [], currentIndex: -1 });
+        continue;
+      }
+      const kwMatches = [];
+      for (const row of sorted) {
+        if (deepSearchMatch(row, kw.query, srch.scope)) {
+          matchSet.add(row);
+          if (!srch.rowColors.has(row)) srch.rowColors.set(row, new Set());
+          srch.rowColors.get(row).add(kw.colorIdx);
+          kwMatches.push(row);
+        }
+      }
+      const prev = srch.perKeyword.get(ki);
+      const prevIdx = prev ? prev.currentIndex : -1;
+      const clampedIdx = prevIdx >= kwMatches.length ? kwMatches.length - 1 : prevIdx;
+      srch.perKeyword.set(ki, { matches: kwMatches, currentIndex: clampedIdx });
+    }
+    // Remove stale per-keyword entries
+    for (const key of srch.perKeyword.keys()) {
+      if (key >= srch.keywords.length) srch.perKeyword.delete(key);
+    }
+    srch.matches = sorted.filter((r) => matchSet.has(r));
+    // Keep global currentIndex in bounds
+    if (srch.currentIndex >= srch.matches.length) {
+      srch.currentIndex = srch.matches.length > 0 ? srch.matches.length - 1 : -1;
+    }
+  }
+
   function renderBody() {
     filterRows();
+    // Refresh search matches so newly added rows are included
+    refreshSearchMatches();
     const tbody = $('#tbody');
     // [P2] Use DocumentFragment for batch insert
     const frag = document.createDocumentFragment();
@@ -1869,71 +1529,20 @@ const _NetworkPlus = (function () {
         selectedSizeEl.textContent = '';
       }
     }
-  }
-
-  function computeStats(rows) {
-    const stats = { total: rows.length, methods: {}, statuses: {}, totalSize: 0, totalDuration: 0 };
-    for (const r of rows) {
-      stats.methods[r.method] = (stats.methods[r.method] || 0) + 1;
-      const bucket = r.status >= 500 ? '5xx' : r.status >= 400 ? '4xx' : r.status >= 300 ? '3xx' : r.status >= 200 ? '2xx' : 'other';
-      stats.statuses[bucket] = (stats.statuses[bucket] || 0) + 1;
-      stats.totalSize += r.size || 0;
-      stats.totalDuration += r.duration || 0;
-    }
-    stats.avgDuration = stats.total > 0 ? stats.totalDuration / stats.total : 0;
-    return stats;
-  }
-
-  function renderStatsBar() {
-    const bar = document.getElementById('stats-bar');
-    if (!bar || !bar.classList.contains('visible')) return;
-    bar.textContent = '';
-
-    // Use selected rows if any, otherwise all filtered rows
-    const hasSelection = state.selectedRows.size > 0;
-    const rows = hasSelection ? [...state.selectedRows] : state.filteredRows;
-    const s = computeStats(rows);
-
-    const addBadge = (label, value, color) => {
-      const badge = document.createElement('span');
-      badge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;background:var(--bg);border:1px solid var(--border);font-size:11px;white-space:nowrap';
-      const labelSpan = document.createElement('span');
-      labelSpan.style.cssText = 'color:var(--muted);font-weight:400';
-      labelSpan.textContent = label;
-      const valueSpan = document.createElement('span');
-      valueSpan.style.cssText = 'font-weight:700;font-variant-numeric:tabular-nums;color:' + (color || 'var(--fg)');
-      valueSpan.textContent = value;
-      badge.appendChild(labelSpan);
-      badge.appendChild(valueSpan);
-      bar.appendChild(badge);
-    };
-
-    // Scope indicator
-    if (hasSelection) {
-      const scopeBadge = document.createElement('span');
-      scopeBadge.style.cssText = 'display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:var(--accent-dim);border:1px solid var(--accent);font-size:10px;font-weight:700;color:var(--accent);white-space:nowrap';
-      scopeBadge.textContent = '\uD83D\uDCCC Selected: ' + state.selectedRows.size;
-      bar.appendChild(scopeBadge);
-    }
-
-    addBadge('Requests', String(s.total), 'var(--accent)');
-    addBadge('Size', fmtBytes(s.totalSize), 'var(--accent)');
-    addBadge('Avg', fmtTime(s.avgDuration), s.avgDuration > 1000 ? 'var(--dur-slow)' : s.avgDuration > 300 ? 'var(--dur-med)' : 'var(--dur-ok)');
-
-    // Status badges with color coding
-    const statusColors = { '2xx': 'var(--status-2xx)', '3xx': 'var(--status-3xx)', '4xx': 'var(--status-4xx)', '5xx': 'var(--status-5xx)' };
-    for (const [bucket, count] of Object.entries(s.statuses)) {
-      addBadge(bucket, String(count), statusColors[bucket] || 'var(--fg)');
-    }
-
-    // Top methods
-    const methodEntries = Object.entries(s.methods).sort((a, b) => b[1] - a[1]);
-    if (methodEntries.length > 0) {
-      const sep = document.createElement('span');
-      sep.style.cssText = 'width:1px;height:16px;background:var(--border);margin:0 2px';
-      bar.appendChild(sep);
-      for (const [method, count] of methodEntries.slice(0, 4)) {
-        addBadge(method, String(count), 'var(--muted)');
+    // Update search count display for live updates during recording
+    const srch = state.search;
+    const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    const countEl = $('#searchCount');
+    if (countEl) {
+      if (srch.matches.length === 0 && activeKws.length > 0) {
+        countEl.textContent = 'No matches';
+        countEl.style.color = 'var(--status-5xx)';
+      } else if (srch.matches.length > 0) {
+        countEl.textContent = srch.matches.length + ' matches';
+        countEl.style.color = '';
+      } else {
+        countEl.textContent = '';
+        countEl.style.color = '';
       }
     }
   }
@@ -1941,14 +1550,6 @@ const _NetworkPlus = (function () {
   function render() {
     renderHeader();
     renderBody();
-    renderStatsBar();
-    // Update Filters button badge
-    const fBtn = document.getElementById('filterBtn');
-    if (fBtn) {
-      const cnt = getActiveFilterCount() + (isRuleActive(state.columnFilterRules['body']) ? 1 : 0);
-      fBtn.textContent = '\u2699\uFE0F Filters' + (cnt > 0 ? ' (' + cnt + ')' : '');
-      fBtn.classList.toggle('active', cnt > 0);
-    }
   }
 
   // ============================================================
@@ -2074,6 +1675,185 @@ const _NetworkPlus = (function () {
   }
 
   /**
+   * Render parsed JSON as a collapsible tree with syntax highlighting.
+   * Objects and arrays are wrapped in <details>/<summary> elements.
+   * Uses DOM API only (no innerHTML) for XSS safety.
+   */
+  function renderJsonTree(jsonText) {
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (_e) {
+      return null;
+    }
+
+    const container = document.createElement('div');
+    container.className = 'json-tree code-block';
+
+    function createValueSpan(val) {
+      const span = document.createElement('span');
+      if (val === null) {
+        span.className = 'syn-null';
+        span.textContent = 'null';
+      } else if (typeof val === 'boolean') {
+        span.className = 'syn-bool';
+        span.textContent = String(val);
+      } else if (typeof val === 'number') {
+        span.className = 'syn-num';
+        span.textContent = String(val);
+      } else {
+        span.className = 'syn-str';
+        span.textContent = JSON.stringify(val);
+      }
+      return span;
+    }
+
+    function childCount(val) {
+      if (Array.isArray(val)) return val.length;
+      if (val && typeof val === 'object') return Object.keys(val).length;
+      return 0;
+    }
+
+    function buildNode(value, keyName, isLast, depth) {
+      const isObj = value !== null && typeof value === 'object' && !Array.isArray(value);
+      const isArr = Array.isArray(value);
+      const comma = isLast ? '' : ',';
+
+      // Depth limit — render as flat JSON string
+      if ((isObj || isArr) && depth >= JSON_TREE_MAX_DEPTH) {
+        const line = document.createElement('div');
+        line.className = 'json-tree-line';
+        if (keyName !== undefined) {
+          const keySpan = document.createElement('span');
+          keySpan.className = 'syn-key';
+          keySpan.textContent = JSON.stringify(keyName);
+          line.appendChild(keySpan);
+          line.appendChild(document.createTextNode(': '));
+        }
+        const valSpan = document.createElement('span');
+        valSpan.className = 'syn-str';
+        valSpan.textContent = JSON.stringify(value);
+        line.appendChild(valSpan);
+        if (comma) line.appendChild(document.createTextNode(comma));
+        return line;
+      }
+
+      if (!isObj && !isArr) {
+        // Primitive value — single line
+        const line = document.createElement('div');
+        line.className = 'json-tree-line';
+        if (keyName !== undefined) {
+          const keySpan = document.createElement('span');
+          keySpan.className = 'syn-key';
+          keySpan.textContent = JSON.stringify(keyName);
+          line.appendChild(keySpan);
+          line.appendChild(document.createTextNode(': '));
+        }
+        line.appendChild(createValueSpan(value));
+        if (comma) line.appendChild(document.createTextNode(comma));
+        return line;
+      }
+
+      // Object or Array — collapsible
+      const count = childCount(value);
+      const openBrace = isArr ? '[' : '{';
+      const closeBrace = isArr ? ']' : '}';
+
+      if (count === 0) {
+        // Empty object/array — single line
+        const line = document.createElement('div');
+        line.className = 'json-tree-line';
+        if (keyName !== undefined) {
+          const keySpan = document.createElement('span');
+          keySpan.className = 'syn-key';
+          keySpan.textContent = JSON.stringify(keyName);
+          line.appendChild(keySpan);
+          line.appendChild(document.createTextNode(': '));
+        }
+        line.appendChild(document.createTextNode(openBrace + closeBrace + comma));
+        return line;
+      }
+
+      const details = document.createElement('details');
+      details.className = 'json-tree-node';
+      details.open = true;
+
+      const summary = document.createElement('summary');
+      summary.className = 'json-tree-summary';
+      if (keyName !== undefined) {
+        const keySpan = document.createElement('span');
+        keySpan.className = 'syn-key';
+        keySpan.textContent = JSON.stringify(keyName);
+        summary.appendChild(keySpan);
+        summary.appendChild(document.createTextNode(': '));
+      }
+      summary.appendChild(document.createTextNode(openBrace));
+      // Collapsed preview
+      const preview = document.createElement('span');
+      preview.className = 'json-tree-preview';
+      if (isArr) {
+        preview.textContent = ' ' + count + ' items ';
+      } else {
+        const keys = Object.keys(value);
+        const previewKeys = keys.slice(0, JSON_TREE_PREVIEW_KEYS).map((k) => JSON.stringify(k)).join(', ');
+        preview.textContent = ' ' + previewKeys + (keys.length > JSON_TREE_PREVIEW_KEYS ? ', ...' : '') + ' ';
+      }
+      summary.appendChild(preview);
+      details.appendChild(summary);
+
+      const childWrap = document.createElement('div');
+      childWrap.className = 'json-tree-children';
+      if (isArr) {
+        const renderCount = Math.min(value.length, JSON_TREE_MAX_CHILDREN);
+        for (let i = 0; i < renderCount; i++) {
+          childWrap.appendChild(buildNode(value[i], undefined, i === value.length - 1 && renderCount === value.length, depth + 1));
+        }
+        if (value.length > JSON_TREE_MAX_CHILDREN) {
+          const moreBtn = document.createElement('button');
+          moreBtn.className = 'link-btn json-tree-more';
+          moreBtn.textContent = '... Show all ' + value.length + ' items';
+          moreBtn.addEventListener('click', () => {
+            moreBtn.remove();
+            for (let i = renderCount; i < value.length; i++) {
+              childWrap.appendChild(buildNode(value[i], undefined, i === value.length - 1, depth + 1));
+            }
+          });
+          childWrap.appendChild(moreBtn);
+        }
+      } else {
+        const keys = Object.keys(value);
+        const renderCount = Math.min(keys.length, JSON_TREE_MAX_CHILDREN);
+        for (let i = 0; i < renderCount; i++) {
+          childWrap.appendChild(buildNode(value[keys[i]], keys[i], i === keys.length - 1 && renderCount === keys.length, depth + 1));
+        }
+        if (keys.length > JSON_TREE_MAX_CHILDREN) {
+          const moreBtn = document.createElement('button');
+          moreBtn.className = 'link-btn json-tree-more';
+          moreBtn.textContent = '... Show all ' + keys.length + ' properties';
+          moreBtn.addEventListener('click', () => {
+            moreBtn.remove();
+            for (let i = renderCount; i < keys.length; i++) {
+              childWrap.appendChild(buildNode(value[keys[i]], keys[i], i === keys.length - 1, depth + 1));
+            }
+          });
+          childWrap.appendChild(moreBtn);
+        }
+      }
+      details.appendChild(childWrap);
+
+      const closeLine = document.createElement('div');
+      closeLine.className = 'json-tree-close';
+      closeLine.textContent = closeBrace + comma;
+      details.appendChild(closeLine);
+
+      return details;
+    }
+
+    container.appendChild(buildNode(parsed, undefined, true, 0));
+    return container;
+  }
+
+  /**
    * Render raw HTTP text with syntax highlighting.
    * First line = status/request line (bold), header names colored, body as-is.
    */
@@ -2128,7 +1908,6 @@ const _NetworkPlus = (function () {
         state.selectedRows.add(row);
       }
       renderBody(); // Update row styling only
-      renderStatsBar(); // Update stats for selection
       return; // Don't update detail panel
     }
 
@@ -2143,7 +1922,6 @@ const _NetworkPlus = (function () {
           state.selectedRows.add(filtered[i]);
         }
         renderBody(); // Update row styling only
-        renderStatsBar(); // Update stats for selection
         return; // Don't update detail panel
       }
     }
@@ -2152,7 +1930,6 @@ const _NetworkPlus = (function () {
     state.selectedRows.clear();
     state.selectedRow = row;
     renderBody();
-    renderStatsBar(); // Update stats (back to all)
     if (!row) return;
 
     const tableWrap = $('#tableWrap');
@@ -2189,13 +1966,15 @@ const _NetworkPlus = (function () {
     reqBodyPane.textContent = '';
     if (row.requestPostData && row.requestPostData.text) {
       const text = row.requestPostData.text;
-      const formatted = formatJsonSafe(text);
-      const pre = formatted ? renderJsonHighlighted(formatted) : document.createElement('pre');
-      if (!formatted) {
+      const treeEl = renderJsonTree(text);
+      if (treeEl) {
+        reqBodyPane.appendChild(treeEl);
+      } else {
+        const pre = document.createElement('pre');
         pre.className = 'code-block';
         pre.textContent = text;
+        reqBodyPane.appendChild(pre);
       }
-      reqBodyPane.appendChild(pre);
 
       const copyBtn = document.createElement('button');
       copyBtn.className = 'copy-btn';
@@ -2284,10 +2063,9 @@ const _NetworkPlus = (function () {
 
         // Body tab — formatted text
         resBodyPane.textContent = '';
-        const formatted = formatJsonSafe(text);
-        if (formatted) {
-          const bodyPre = renderJsonHighlighted(formatted);
-          resBodyPane.appendChild(bodyPre);
+        const treeEl = renderJsonTree(text);
+        if (treeEl) {
+          resBodyPane.appendChild(treeEl);
         } else {
           const bodyPre = document.createElement('pre');
           bodyPre.className = 'code-block';
@@ -2329,10 +2107,13 @@ const _NetworkPlus = (function () {
           iframe.style.border = '1px solid var(--border)';
           iframe.srcdoc = text;
           resPreviewPane.appendChild(iframe);
-        } else if (formatted) {
-          resPreviewPane.appendChild(renderJsonHighlighted(formatted));
         } else {
-          resPreviewPane.textContent = '(no preview available)';
+          const previewFormatted = formatJsonSafe(text);
+          if (previewFormatted) {
+            resPreviewPane.appendChild(renderJsonHighlighted(previewFormatted));
+          } else {
+            resPreviewPane.textContent = '(no preview available)';
+          }
         }
 
         // Raw tab
@@ -2512,28 +2293,7 @@ const _NetworkPlus = (function () {
   // ============================================================
   function init() {
     loadColumnPrefs();
-    loadLangPref();
     setStatus('panel.js loaded');
-
-    // Global Search Ctrl+F
-    document.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault();
-        $('#filterInput').focus();
-      }
-      // Help overlay: ? key
-      if (e.key === '?' && !e.target.matches('input, textarea, select')) {
-        e.preventDefault();
-        toggleHelpOverlay();
-      }
-      // Escape closes help overlay
-      if (e.key === 'Escape') {
-        const overlay = document.getElementById('help-overlay');
-        if (overlay && overlay.style.display !== 'none') {
-          overlay.style.display = 'none';
-        }
-      }
-    });
 
     // Theme init
     loadThemePref((pref) => applyTheme(pref));
@@ -2554,6 +2314,12 @@ const _NetworkPlus = (function () {
       state.selectedRow = null;
       state.selectedRows.clear();
       state.highlightedRows.clear();
+      // Reset search
+      state.search.keywords = [];
+      state.search.matches = [];
+      state.search.currentIndex = -1;
+      state.search.rowColors.clear();
+      state.search.perKeyword.clear();
       render();
       setStatus('Cleared');
     });
@@ -2581,13 +2347,6 @@ const _NetworkPlus = (function () {
     // Export
     $('#exportHarBtn').addEventListener('click', exportHAR);
 
-    // [P3] Global Filter — debounced
-    const debouncedGlobalFilter = debounce(() => renderBody(), FILTER_DEBOUNCE_MS);
-    $('#filterInput').addEventListener('input', (e) => {
-      state.globalFilter = e.target.value;
-      debouncedGlobalFilter();
-    });
-
     // Column Settings Context Menu
     const columnsContextMenu = document.createElement('div');
     columnsContextMenu.className = 'filter-dropdown-content dropdown-content';
@@ -2608,14 +2367,18 @@ const _NetworkPlus = (function () {
       } else {
         filterPopup.appendChild(createFilterPopupContent(renderBody, null));
       }
-      // Position: clamp to viewport to prevent overflow
-      const vpW = document.documentElement.clientWidth;
-      const popupW = 660; // max-width
-      const safeX = Math.min(x, vpW - popupW - 10);
-      filterPopup.style.left = Math.max(5, safeX) + 'px';
+      filterPopup.style.left = x + 'px';
       filterPopup.style.top = y + 'px';
       filterPopup.style.display = 'block';
       filterPopup.classList.add('show');
+      // Clamp popup to viewport so <select> dropdowns are not clipped
+      const rect = filterPopup.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        filterPopup.style.left = Math.max(0, window.innerWidth - rect.width - 8) + 'px';
+      }
+      if (rect.bottom > window.innerHeight) {
+        filterPopup.style.top = Math.max(0, window.innerHeight - rect.height - 8) + 'px';
+      }
     };
 
     const renderColumnsContextMenu = () => {
@@ -2702,133 +2465,6 @@ const _NetworkPlus = (function () {
       }
     });
 
-    // --- Filter Presets UI ---
-    const presetsBtn = $('#presetsBtn');
-    if (presetsBtn) {
-      const presetsDropdown = document.createElement('div');
-      presetsDropdown.className = 'filter-dropdown-content dropdown-content';
-      presetsDropdown.style.cssText = 'position:absolute;min-width:240px;max-height:360px;overflow-y:auto';
-      document.body.appendChild(presetsDropdown);
-
-      const refreshPresetsList = () => {
-        presetsDropdown.textContent = '';
-
-        // Inline name input for saving
-        const saveRow = document.createElement('div');
-        saveRow.style.cssText = 'display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--border)';
-
-        const nameInput = document.createElement('input');
-        nameInput.type = 'text';
-        nameInput.placeholder = t('presetName');
-        nameInput.style.cssText = 'flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:11px';
-
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'filter-add-btn';
-        saveBtn.style.cssText = 'width:auto;margin:0;padding:4px 12px;font-size:11px';
-        saveBtn.textContent = t('save');
-
-        const doSave = () => {
-          const name = nameInput.value.trim();
-          if (!name) {
-            nameInput.style.borderColor = 'var(--status-5xx)';
-            nameInput.focus();
-            return;
-          }
-          loadFilterPresets((presets) => {
-            presets.unshift({ name, ...captureCurrentFilterState() });
-            saveFilterPresets(presets);
-            nameInput.value = '';
-            nameInput.style.borderColor = 'var(--border)';
-            // Show success feedback
-            const toast = document.createElement('div');
-            toast.style.cssText = 'padding:6px 10px;background:var(--status-2xx);color:#fff;border-radius:6px;font-size:11px;font-weight:600;text-align:center;margin:4px 8px';
-            toast.textContent = t('saved') + ': ' + name;
-            presetsDropdown.insertBefore(toast, saveRow.nextSibling);
-            setTimeout(() => { toast.remove(); refreshPresetsList(); }, 1500);
-            setStatus('Preset saved: ' + name);
-          });
-        };
-
-        saveBtn.addEventListener('click', doSave);
-        nameInput.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') doSave();
-        });
-
-        saveRow.appendChild(nameInput);
-        saveRow.appendChild(saveBtn);
-        presetsDropdown.appendChild(saveRow);
-
-        // Load presets
-        loadFilterPresets((presets) => {
-          if (presets.length === 0) {
-            const empty = document.createElement('div');
-            empty.style.cssText = 'padding:10px 8px;color:var(--muted);font-size:11px;text-align:center';
-            empty.textContent = t('noPresets');
-            presetsDropdown.appendChild(empty);
-            return;
-          }
-          const sep = document.createElement('div');
-          sep.style.cssText = 'border-top:1px solid var(--border);margin:2px 0';
-          presetsDropdown.appendChild(sep);
-
-          const listTitle = document.createElement('div');
-          listTitle.style.cssText = 'padding:4px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted)';
-          listTitle.textContent = t('savedPresets') + ' (' + presets.length + ')';
-          presetsDropdown.appendChild(listTitle);
-
-          for (let i = 0; i < presets.length; i++) {
-            const preset = presets[i];
-            const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:4px';
-
-            const applyBtn = document.createElement('button');
-            applyBtn.className = 'context-menu-item';
-            applyBtn.style.flex = '1';
-            applyBtn.textContent = preset.name;
-            applyBtn.addEventListener('click', () => {
-              applyFilterPreset(preset);
-              presetsDropdown.style.display = 'none';
-              presetsDropdown.classList.remove('show');
-            });
-            row.appendChild(applyBtn);
-
-            const delBtn = document.createElement('button');
-            delBtn.className = 'filter-remove-btn';
-            delBtn.textContent = '×';
-            delBtn.title = 'Delete preset';
-            ((idx) => {
-              delBtn.addEventListener('click', () => {
-                loadFilterPresets((p) => {
-                  p.splice(idx, 1);
-                  saveFilterPresets(p);
-                  refreshPresetsList();
-                });
-              });
-            })(i);
-            row.appendChild(delBtn);
-
-            presetsDropdown.appendChild(row);
-          }
-        });
-      };
-
-      presetsBtn.addEventListener('click', (e) => {
-        const isVisible = presetsDropdown.classList.contains('show');
-        $all('.dropdown-content').forEach((d) => {
-          d.style.display = 'none';
-          d.classList.remove('show');
-        });
-        if (!isVisible) {
-          refreshPresetsList();
-          const rect = e.currentTarget.getBoundingClientRect();
-          presetsDropdown.style.left = rect.left + 'px';
-          presetsDropdown.style.top = rect.bottom + 'px';
-          presetsDropdown.style.display = 'block';
-          presetsDropdown.classList.add('show');
-        }
-      });
-    }
-
     // Tab switching for inspector panels
     const initTabBar = (barId) => {
       const bar = $('#' + barId);
@@ -2852,32 +2488,14 @@ const _NetworkPlus = (function () {
     initTabBar('req-tab-bar');
     initTabBar('res-tab-bar');
 
-    // Restore last applied preset (if any)
-    try {
-      const lastPresetName = localStorage.getItem(LAST_PRESET_KEY);
-      if (lastPresetName) {
-        loadFilterPresets((presets) => {
-          const preset = presets.find((p) => p.name === lastPresetName);
-          if (preset) {
-            applyFilterPreset(preset);
-            setStatus('Restored preset: ' + preset.name);
-          } else {
-            render();
-          }
-        });
-      } else {
-        render();
-      }
-    } catch (_e) {
-      render();
-    }
+    render();
 
     // Global click handler to close dropdowns
     window.addEventListener('click', (e) => {
       if (
         e.target.closest('#filterBtn') ||
         e.target.closest('#columnsBtn') ||
-        e.target.closest('#presetsBtn') ||
+        e.target.closest('#searchScopeBtn') ||
         e.target.closest('.filter-btn') ||
         e.target.closest('.dropdown-content')
       ) return;
@@ -2886,20 +2504,6 @@ const _NetworkPlus = (function () {
         d.style.display = 'none';
       });
     });
-
-    // Stats toggle button
-    const statsBtn = $('#statsBtn');
-    if (statsBtn) {
-      statsBtn.addEventListener('click', () => {
-        const bar = document.getElementById('stats-bar');
-        if (!bar) return;
-        bar.classList.toggle('visible');
-        if (bar.classList.contains('visible')) {
-          renderStatsBar();
-        }
-        statsBtn.classList.toggle('active', bar.classList.contains('visible'));
-      });
-    }
 
     // Auto-scroll button
     const autoScrollBtn = document.createElement('button');
@@ -2910,23 +2514,11 @@ const _NetworkPlus = (function () {
       state.autoScroll = !state.autoScroll;
       autoScrollBtn.classList.toggle('active', state.autoScroll);
     });
-    pauseBtn.insertAdjacentElement('afterend', autoScrollBtn);
+    $('#exportHarBtn').insertAdjacentElement('afterend', autoScrollBtn);
 
     // [U6] Keyboard navigation
     const tableWrap = $('#tableWrap');
     tableWrap.setAttribute('tabindex', '0');
-
-    // Auto-scroll: disable when user manually scrolls up, re-enable at bottom
-    tableWrap.addEventListener('scroll', () => {
-      if (!state.autoScroll) return;
-      const atBottom = tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD - 40;
-      const autoScrollBtn = document.getElementById('autoScrollBtn');
-      if (!atBottom && state.rows.length > 0) {
-        state.autoScroll = false;
-        if (autoScrollBtn) autoScrollBtn.classList.remove('active');
-      }
-    });
-
     tableWrap.addEventListener('keydown', (e) => {
       if (!state.filteredRows.length) return;
       const currentIdx = state.selectedRow ? state.filteredRows.indexOf(state.selectedRow) : -1;
@@ -2941,6 +2533,19 @@ const _NetworkPlus = (function () {
         const prevIdx = Math.max(currentIdx - 1, 0);
         selectRow(state.filteredRows[prevIdx]);
         scrollToSelectedRow();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        // Ctrl+C: copy selected row(s) summary to clipboard
+        const rows = state.selectedRows.size > 0
+          ? [...state.selectedRows]
+          : (state.selectedRow ? [state.selectedRow] : []);
+        if (rows.length === 0) return;
+        e.preventDefault();
+        const text = rows.map((r) => formatRowSummary(r)).join('\n\n---\n\n');
+        navigator.clipboard.writeText(text).then(() => {
+          showCopyToast(rows.length === 1 ? 'Copied 1 request' : 'Copied ' + rows.length + ' requests');
+        }).catch((_err) => {
+          setStatus('Copy failed');
+        });
       }
     });
 
@@ -2948,6 +2553,20 @@ const _NetworkPlus = (function () {
       if (!state.selectedRow) return;
       const selectedTr = tableWrap.querySelector(`tr[data-row-id="${state.selectedRow.id}"]`);
       if (selectedTr) selectedTr.scrollIntoView({ block: 'nearest' });
+    }
+
+    // Copy toast notification
+    const copyToast = document.createElement('div');
+    copyToast.className = 'copy-toast';
+    document.body.appendChild(copyToast);
+    let copyToastTimer = null;
+    function showCopyToast(msg) {
+      copyToast.textContent = msg;
+      copyToast.classList.add('show');
+      if (copyToastTimer) clearTimeout(copyToastTimer);
+      copyToastTimer = setTimeout(() => {
+        copyToast.classList.remove('show');
+      }, 1800);
     }
 
     // Right-click context menu for marking/selecting rows
@@ -3068,42 +2687,6 @@ const _NetworkPlus = (function () {
         contextMenu.appendChild(deleteBtn);
       }
 
-      // Compare selected (diff) — available when exactly 2 rows selected
-      if (state.selectedRows.size === 2) {
-        const diffBtn = document.createElement('button');
-        diffBtn.textContent = 'Compare Selected (Diff)';
-        diffBtn.className = 'context-menu-item';
-        diffBtn.addEventListener('click', () => {
-          const [rowA, rowB] = [...state.selectedRows];
-          showDiffOverlay(rowA, rowB);
-          contextMenu.style.display = 'none';
-        });
-        contextMenu.appendChild(diffBtn);
-      }
-
-      // Copy as cURL / fetch / PowerShell
-      const copySep = document.createElement('div');
-      copySep.style.cssText = 'border-top:1px solid var(--border);margin:4px 0';
-      contextMenu.appendChild(copySep);
-
-      const copyFormats = [
-        { label: 'Copy as cURL', fn: generateCurl },
-        { label: 'Copy as fetch', fn: generateFetch },
-        { label: 'Copy as PowerShell', fn: generatePowerShell },
-      ];
-      for (const fmt of copyFormats) {
-        const btn = document.createElement('button');
-        btn.textContent = fmt.label;
-        btn.className = 'context-menu-item';
-        btn.addEventListener('click', () => {
-          const text = fmt.fn(contextMenuRow);
-          navigator.clipboard.writeText(text).catch((_e) => {});
-          contextMenu.style.display = 'none';
-          setStatus(fmt.label + ' copied');
-        });
-        contextMenu.appendChild(btn);
-      }
-
       // Show menu
       contextMenu.style.left = e.pageX + 'px';
       contextMenu.style.top = e.pageY + 'px';
@@ -3170,6 +2753,327 @@ const _NetworkPlus = (function () {
         document.addEventListener('mouseup', handleUp);
       });
     }
+
+    // ---- Unified Search Feature (multi-keyword, multi-row with per-keyword colors) ----
+    const searchPanel = $('#searchPanel');
+    const searchRows = $('#searchRows');
+    const searchCount = $('#searchCount');
+    const searchToggleBtn = $('#searchToggleBtn');
+    const searchAddBtn = $('#searchAddBtn');
+    const searchScopeBtn = $('#searchScopeBtn');
+    const contentEl = $('#content');
+
+    // Track search panel visibility
+    let searchPanelVisible = false;
+
+    function toggleSearchPanel(forceOpen) {
+      const shouldShow = forceOpen != null ? forceOpen : !searchPanelVisible;
+      searchPanelVisible = shouldShow;
+      searchPanel.style.display = shouldShow ? 'block' : 'none';
+      searchToggleBtn.classList.toggle('active', shouldShow);
+      if (shouldShow) {
+        // Ensure at least one keyword row exists
+        if (state.search.keywords.length === 0) {
+          addKeywordRow();
+        }
+        renderSearchRows();
+        // Focus the first input
+        const firstInput = searchRows.querySelector('.search-keyword-input');
+        if (firstInput) firstInput.focus();
+      }
+      updateContentHeight();
+    }
+
+    function updateContentHeight() {
+      if (searchPanelVisible) {
+        const panelH = searchPanel.offsetHeight;
+        contentEl.style.height = 'calc(100vh - 72px - ' + panelH + 'px)';
+      } else {
+        contentEl.style.height = '';
+      }
+    }
+
+    // Scope popup (dynamically created)
+    const scopePopup = document.createElement('div');
+    scopePopup.className = 'search-scope-popup dropdown-content';
+    scopePopup.style.position = 'absolute';
+    scopePopup.style.display = 'none';
+    document.body.appendChild(scopePopup);
+
+    const scopeLabels = [
+      { key: 'url', text: 'URL / Method / Status / Type', checked: true },
+      { key: 'reqBody', text: 'Request Body', checked: true },
+      { key: 'resBody', text: 'Response Body', checked: true },
+      { key: 'reqHeaders', text: 'Request Headers', checked: true },
+      { key: 'resHeaders', text: 'Response Headers', checked: true },
+    ];
+
+    for (const sl of scopeLabels) {
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = sl.checked;
+      const span = document.createElement('span');
+      span.textContent = sl.text;
+      label.appendChild(cb);
+      label.appendChild(span);
+      scopePopup.appendChild(label);
+      cb.addEventListener('change', () => {
+        state.search.scope[sl.key] = cb.checked;
+        executeSearch();
+      });
+    }
+
+    searchScopeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isVisible = scopePopup.classList.contains('show');
+      $all('.dropdown-content').forEach((d) => { d.style.display = 'none'; d.classList.remove('show'); });
+      if (!isVisible) {
+        const rect = searchScopeBtn.getBoundingClientRect();
+        scopePopup.style.left = rect.left + window.scrollX + 'px';
+        scopePopup.style.top = rect.bottom + window.scrollY + 'px';
+        scopePopup.style.display = 'block';
+        scopePopup.classList.add('show');
+      }
+    });
+
+    // Color picker popup (shared, repositioned on open)
+    const colorPopup = document.createElement('div');
+    colorPopup.className = 'search-color-popup dropdown-content';
+    colorPopup.style.position = 'absolute';
+    colorPopup.style.display = 'none';
+    document.body.appendChild(colorPopup);
+
+    let colorPopupTargetIdx = -1;
+    for (let ci = 0; ci < SEARCH_COLORS.length; ci++) {
+      const swatch = document.createElement('button');
+      swatch.className = 'search-color-swatch';
+      swatch.style.background = SEARCH_COLORS[ci].hex;
+      swatch.title = SEARCH_COLORS[ci].name;
+      swatch.addEventListener('click', () => {
+        if (colorPopupTargetIdx >= 0 && colorPopupTargetIdx < state.search.keywords.length) {
+          state.search.keywords[colorPopupTargetIdx].colorIdx = ci;
+          renderSearchRows();
+          executeSearch();
+        }
+        colorPopup.style.display = 'none';
+        colorPopup.classList.remove('show');
+      });
+      colorPopup.appendChild(swatch);
+    }
+
+    function addKeywordRow() {
+      const colorIdx = state.search.keywords.length % SEARCH_COLORS.length;
+      state.search.keywords.push({ query: '', colorIdx: colorIdx });
+    }
+
+    function renderSearchRows() {
+      // Save focus state before destroying inputs
+      const activeEl = document.activeElement;
+      let focusedIdx = -1;
+      let selStart = 0;
+      let selEnd = 0;
+      if (activeEl && activeEl.classList.contains('search-keyword-input')) {
+        const inputs = searchRows.querySelectorAll('.search-keyword-input');
+        focusedIdx = Array.from(inputs).indexOf(activeEl);
+        selStart = activeEl.selectionStart || 0;
+        selEnd = activeEl.selectionEnd || 0;
+      }
+
+      searchRows.textContent = '';
+      for (let i = 0; i < state.search.keywords.length; i++) {
+        const kw = state.search.keywords[i];
+        const row = document.createElement('div');
+        row.className = 'search-keyword-row';
+
+        // Color button
+        const colorBtn = document.createElement('button');
+        colorBtn.className = 'search-color-btn';
+        colorBtn.style.background = SEARCH_COLORS[kw.colorIdx].hex;
+        colorBtn.title = 'Change color';
+        colorBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          colorPopupTargetIdx = i;
+          $all('.dropdown-content').forEach((d) => { d.style.display = 'none'; d.classList.remove('show'); });
+          // Highlight active swatch
+          colorPopup.querySelectorAll('.search-color-swatch').forEach((s, si) => {
+            s.classList.toggle('active', si === kw.colorIdx);
+          });
+          const rect = colorBtn.getBoundingClientRect();
+          colorPopup.style.left = rect.right + 4 + window.scrollX + 'px';
+          colorPopup.style.top = rect.top + window.scrollY + 'px';
+          colorPopup.style.display = 'flex';
+          colorPopup.classList.add('show');
+        });
+        row.appendChild(colorBtn);
+
+        // Text input
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'search-keyword-input';
+        input.placeholder = 'Enter search keyword...';
+        input.value = kw.query;
+        input.addEventListener('input', () => {
+          state.search.keywords[i].query = input.value;
+          debouncedSearch();
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            navigateKeywordSearch(i, e.shiftKey ? -1 : 1);
+          } else if (e.key === 'Escape') {
+            toggleSearchPanel(false);
+          }
+        });
+        row.appendChild(input);
+
+        // Per-keyword match count
+        const kwData = state.search.perKeyword.get(i);
+        const kwMatchCount = kwData ? kwData.matches.length : 0;
+        const kwCurIdx = kwData ? kwData.currentIndex : -1;
+        const countSpan = document.createElement('span');
+        countSpan.className = 'search-kw-count';
+        if (kw.query.trim() && kwMatchCount === 0) {
+          countSpan.textContent = '0';
+          countSpan.style.color = 'var(--status-5xx)';
+        } else if (kwMatchCount > 0) {
+          countSpan.textContent = (kwCurIdx + 1) + '/' + kwMatchCount;
+          countSpan.style.color = '';
+        } else {
+          countSpan.textContent = '';
+        }
+        row.appendChild(countSpan);
+
+        // Per-keyword nav buttons
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'search-kw-nav';
+        prevBtn.innerHTML = '&#9650;';
+        prevBtn.title = 'Previous match (Shift+Enter)';
+        prevBtn.disabled = kwMatchCount === 0;
+        prevBtn.addEventListener('click', () => navigateKeywordSearch(i, -1));
+        row.appendChild(prevBtn);
+
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'search-kw-nav';
+        nextBtn.innerHTML = '&#9660;';
+        nextBtn.title = 'Next match (Enter)';
+        nextBtn.disabled = kwMatchCount === 0;
+        nextBtn.addEventListener('click', () => navigateKeywordSearch(i, 1));
+        row.appendChild(nextBtn);
+
+        // Remove button (only if more than one row)
+        if (state.search.keywords.length > 1) {
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'search-remove-btn';
+          removeBtn.textContent = '×';
+          removeBtn.title = 'Remove keyword';
+          removeBtn.addEventListener('click', () => {
+            state.search.keywords.splice(i, 1);
+            renderSearchRows();
+            executeSearch();
+            updateContentHeight();
+          });
+          row.appendChild(removeBtn);
+        }
+
+        searchRows.appendChild(row);
+      }
+      // Restore focus to the same keyword input
+      if (focusedIdx >= 0) {
+        const inputs = searchRows.querySelectorAll('.search-keyword-input');
+        if (inputs[focusedIdx]) {
+          inputs[focusedIdx].focus();
+          inputs[focusedIdx].setSelectionRange(selStart, selEnd);
+        }
+      }
+      // Update panel height after rendering rows
+      requestAnimationFrame(() => updateContentHeight());
+    }
+
+    searchAddBtn.addEventListener('click', () => {
+      addKeywordRow();
+      renderSearchRows();
+      // Focus the new input
+      const inputs = searchRows.querySelectorAll('.search-keyword-input');
+      if (inputs.length > 0) inputs[inputs.length - 1].focus();
+    });
+
+    function executeSearch() {
+      const srch = state.search;
+      const activeKws = srch.keywords.filter((kw) => kw.query.trim());
+      if (activeKws.length === 0) {
+        srch.currentIndex = -1;
+        searchCount.textContent = '';
+        renderBody();
+        return;
+      }
+      // refreshSearchMatches() is called inside renderBody()
+      srch.currentIndex = -1; // reset navigation to recalculate after render
+      renderBody();
+      srch.currentIndex = srch.matches.length > 0 ? 0 : -1;
+      updateSearchUI();
+    }
+
+    const debouncedSearch = debounce(() => executeSearch(), DEEP_SEARCH_DEBOUNCE_MS);
+
+    function updateSearchUI() {
+      const srch = state.search;
+      const activeKws = srch.keywords.filter((kw) => kw.query.trim());
+      if (srch.matches.length === 0 && activeKws.length > 0) {
+        searchCount.textContent = 'No matches';
+        searchCount.style.color = 'var(--status-5xx)';
+      } else if (srch.matches.length > 0) {
+        searchCount.textContent = srch.matches.length + ' matches';
+        searchCount.style.color = '';
+      } else {
+        searchCount.textContent = '';
+        searchCount.style.color = '';
+      }
+      // Update per-keyword counts in search rows
+      renderSearchRows();
+    }
+
+    function scrollToSearchMatch() {
+      const srch = state.search;
+      if (srch.currentIndex < 0 || srch.currentIndex >= srch.matches.length) return;
+      const matchRow = srch.matches[srch.currentIndex];
+      const matchTr = $('#tableWrap').querySelector('tr[data-row-id="' + matchRow.id + '"]');
+      if (matchTr) {
+        matchTr.scrollIntoView({ block: 'nearest' });
+        // Update detail panel without stealing focus
+        state.selectedRow = matchRow;
+        state.selectedRows.clear();
+        renderBody();
+        selectRow(matchRow);
+      }
+    }
+
+    function navigateKeywordSearch(kwIndex, direction) {
+      const srch = state.search;
+      const kwData = srch.perKeyword.get(kwIndex);
+      if (!kwData || kwData.matches.length === 0) return;
+      kwData.currentIndex += direction;
+      if (kwData.currentIndex >= kwData.matches.length) kwData.currentIndex = 0;
+      if (kwData.currentIndex < 0) kwData.currentIndex = kwData.matches.length - 1;
+      // Also update global currentIndex to point at the same row
+      const targetRow = kwData.matches[kwData.currentIndex];
+      const globalIdx = srch.matches.indexOf(targetRow);
+      if (globalIdx >= 0) srch.currentIndex = globalIdx;
+      renderSearchRows();
+      renderBody();
+      scrollToSearchMatch();
+    }
+
+    searchToggleBtn.addEventListener('click', () => toggleSearchPanel());
+
+    // Ctrl+F toggles search panel
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleSearchPanel(true);
+      }
+    }, true);
 
     // Import Feature (HAR / SAZ)
     const importBtn = $('#importBtn');
@@ -3361,46 +3265,36 @@ const _NetworkPlus = (function () {
     }
 
     // Network subscription
+    // Throttle renderBody during heavy traffic to keep UI responsive
+    let pendingRender = false;
+    let pendingScrollToBottom = false;
+    const scheduleRender = (scrollToBottom) => {
+      if (scrollToBottom) pendingScrollToBottom = true;
+      if (pendingRender) return;
+      pendingRender = true;
+      requestAnimationFrame(() => {
+        pendingRender = false;
+        renderBody();
+        if (pendingScrollToBottom) {
+          pendingScrollToBottom = false;
+          tableWrap.scrollTop = tableWrap.scrollHeight;
+        }
+      });
+    };
+
     if (chrome && chrome.devtools && chrome.devtools.network && chrome.devtools.network.onRequestFinished) {
       chrome.devtools.network.onRequestFinished.addListener((request) => {
         if (state.paused) return;
         const row = buildRowFromRequest(request);
         cacheResponseContent(row); // [U1]
+        const wasAtBottom =
+          state.autoScroll &&
+          tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
         state.rows.push(row);
 
-        // Incremental add: if default sort (id asc) and row passes filter, just append
-        const isDefaultSort = state.sort.colId === 'id' && state.sort.direction === 'asc';
-        filterRows();
-        const passesFilter = state.filteredRows.indexOf(row) !== -1;
-
-        if (isDefaultSort && passesFilter) {
-          // Append single row without full re-render
-          const tbody = $('#tbody');
-          const emptyState = document.getElementById('empty-state-msg');
-          if (emptyState) emptyState.style.display = 'none';
-          const tr = createTableRow(row, (e) => selectRow(row, e));
-          tbody.appendChild(tr);
-          // Update counters
-          const rows = state.filteredRows;
-          $('#counter').textContent = rows.length + ' requests';
-          let totalBytes = 0;
-          for (let i = 0; i < rows.length; i++) totalBytes += rows[i].size || 0;
-          const totalSizeEl = $('#totalSize');
-          if (totalSizeEl) totalSizeEl.textContent = totalBytes > 0 ? fmtBytes(totalBytes) + ' transferred' : '';
-          renderStatsBar();
-        } else {
-          // Full re-render needed (sort active or row filtered out)
-          renderBody();
-          renderStatsBar();
-        }
-
-        // Auto-scroll only if enabled and user was already at bottom before this request
-        if (state.autoScroll) {
-          const isAtBottom = tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD - 40;
-          if (isAtBottom) {
-            tableWrap.scrollTop = tableWrap.scrollHeight;
-          }
-        }
+        // Throttled re-render to keep sort order and filter state consistent
+        // without blocking the main thread during heavy traffic.
+        scheduleRender(wasAtBottom);
       });
       setStatus('Capturing...');
     } else {
@@ -3429,10 +3323,8 @@ const _NetworkPlus = (function () {
     highlightText,
     getRowFilterValue,
     evaluateFilterRule,
-    generateCurl,
-    generateFetch,
-    generatePowerShell,
-    computeStats,
+    deepSearchMatch,
+    formatRowSummary,
     DEFAULT_METHOD_FILTERS,
   };
 })();
