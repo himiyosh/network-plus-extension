@@ -17,8 +17,7 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 🧱 カスタムカラム (11種) | ID, Time, Method, Status, Domain, Path, Type, Duration, Size, Initiator, URL |
 | 👁️ カラム表示/非表示 | ツールバーの `Columns` ボタンでカラムの表示切替。設定は `localStorage` に永続化 |
 | ↔️ カラムリサイズ | ドラッグでカラム幅を調整可能。設定は永続化 |
-| 🔎 グローバルフィルタ | URL, Method, Status, Type を横断検索 (debounce 付き) |
-| 🔍 ディープサーチ | リクエストBody、レスポンスBody、リクエストヘッダー、レスポンスヘッダーを横断検索。`Ctrl+F` または検索ボタンで検索バーを表示し、スコープ切替・前後ナビゲーション・マッチ数表示に対応 |
+| � 統合キーワード検索 | 複数キーワードをそれぞれ独立した入力欄で設定可能。URL/Domain/Path、リクエスト/レスポンスの Body・Headers を横断検索。各キーワードごとに 6 色のハイライトカラーを選択でき、マッチ行はキーワード色で表示。キーワードごとの ▲▼ ナビゲーション・マッチ数表示に対応。`Ctrl+F` で検索パネルを開閉。検索スコープ (URL/Body/Headers) は ⚙️ Scope ボタンで切替可能 |
 | 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能 |
 | ↕️ カラムソート | ヘッダークリックでソート切替 (昇順 → 降順 → ソート解除) |
 | 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示 |
@@ -109,9 +108,8 @@ npm install
 
 1. DevTools を開き (F12)、「**Network+**」タブを選択
 2. ページをリロードすると、ネットワークリクエストがリアルタイムで一覧表示される
-3. **グローバルフィルタ**: テキスト入力で URL, Method, Status, Type を横断検索
-4. **ディープサーチ**: `Ctrl+F` または `🔍` ボタンでリクエスト/レスポンスの Body・Headers を横断検索。Enter で次のマッチ、Shift+Enter で前のマッチに移動
-5. **カラム別フィルタ**: カラムヘッダー右クリック or ツールバーの `Filters` ボタンで詳細フィルタ設定
+3. **統合キーワード検索**: `Ctrl+F` または `🔍 Search` ボタンで検索パネルを開く。複数キーワードを入力し、各キーワードの ▲▼ ボタンでマッチ間を移動。色ボタンでハイライトカラーを変更可能
+4. **カラム別フィルタ**: カラムヘッダー右クリック or ツールバーの `Column Filters` ボタンで詳細フィルタ設定
 5. **ソート**: カラムヘッダークリックで昇順/降順/解除を切替
 6. **リクエスト詳細**: 行クリックで Fiddler 風のタブ付きインスペクター (Request/Response) を表示
 7. **HAR エクスポート**: ツールバーの Export ボタンで HAR 1.2 形式ファイルをダウンロード
@@ -143,7 +141,7 @@ npm run format       # Prettier フォーマット
 
 - **方式**: Semantic Versioning (`MAJOR.MINOR.PATCH`)
 - **同期対象**: [manifest.json](manifest.json) と [package.json](package.json) の `version` を必ず同一値にする
-- **現在バージョン**: `1.4.0`
+- **現在バージョン**: `1.5.0`
 
 | 変更種別 | 上げる番号 | 例 |
 |---|---|---|
@@ -195,6 +193,21 @@ npm run format       # Prettier フォーマット
 
 <details>
 <summary>📋 変更履歴 (クリックで展開)</summary>
+
+### v1.5.0
+
+- グローバルフィルタとディープサーチを統合し、複数キーワード対応の統合検索機能に刷新
+- 各キーワードに独立した入力欄・色選択・マッチ数表示・▲▼ナビゲーションを配置
+- 検索対象: URL/Domain/Path/Method/Status/Type + Request/Response Body + Headers (スコープ切替可)
+- 6 色 (Yellow/Red/Green/Blue/Purple/Orange) のキーワード別ハイライト (行背景 + テキスト)
+- カラムヘッダーの sticky 表示が機能しない問題を修正
+- フィルター設定の operator ドロップダウンが contains 以外表示されない問題を修正
+- 大量通信時の描画パフォーマンスを requestAnimationFrame によるスロットリングで改善
+- 全消去ボタンのアイコン (🗑️) とデザインを変更し、取得停止ボタンと明確に区別
+- 記録停止/再生ボタンをトップバー左端に配置
+- ブランドロゴ (📡 Network+ for DevTools) をグラデーション背景で表示
+- 検索入力中のカーソル消失問題を修正 (フォーカス・カーソル位置の保存/復元)
+- 新規リクエスト到着時に検索結果がリアルタイム更新されない問題を修正
 
 ### v1.4.0
 

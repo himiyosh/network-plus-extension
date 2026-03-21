@@ -1,6 +1,6 @@
 {
   "name": "network-plus-extension",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Enhanced Network panel extension for Microsoft Edge DevTools with filtering, export, theme, sorting, and advanced filters.",
   "main": "devtools.js",
   "scripts": {
