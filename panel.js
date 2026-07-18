@@ -217,6 +217,16 @@ const _NetworkPlus = (function () {
     };
   }
 
+  function getNextTabIndex(currentIndex, itemCount, key) {
+    if (itemCount <= 0) return -1;
+    const index = currentIndex >= 0 && currentIndex < itemCount ? currentIndex : 0;
+    if (key === 'Home') return 0;
+    if (key === 'End') return itemCount - 1;
+    if (key === 'ArrowRight') return (index + 1) % itemCount;
+    if (key === 'ArrowLeft') return (index - 1 + itemCount) % itemCount;
+    return index;
+  }
+
   /**
    * Highlight search matches in text (XSS-safe, DOM-only)
    * @param {string} text - Text to search in
@@ -1556,6 +1566,13 @@ const _NetworkPlus = (function () {
   // Section 13: Detail Panel — Fiddler-style tabbed inspector
   // ============================================================
 
+  function clearDetailsPanel() {
+    $('#detailsTitle').textContent = 'Select a request...';
+    $all('.tab-pane', $('#details')).forEach((pane) => {
+      pane.textContent = '';
+    });
+  }
+
   function parseCookieHeader(headerValue) {
     if (!headerValue) return [];
     return headerValue.split(';').map((part) => {
@@ -2321,6 +2338,7 @@ const _NetworkPlus = (function () {
       state.search.rowColors.clear();
       state.search.perKeyword.clear();
       render();
+      clearDetailsPanel();
       setStatus('Cleared');
     });
 
@@ -2329,6 +2347,9 @@ const _NetworkPlus = (function () {
     const topbar = $('.topbar');
     const updateRecordState = () => {
       pauseBtn.innerHTML = state.paused ? PLAY_ICON_SVG : PAUSE_ICON_SVG;
+      const actionLabel = state.paused ? 'Resume recording' : 'Pause recording';
+      pauseBtn.title = actionLabel;
+      pauseBtn.setAttribute('aria-label', actionLabel);
       if (state.paused) {
         topbar.classList.add('paused');
         topbar.classList.remove('recording');
@@ -2469,21 +2490,42 @@ const _NetworkPlus = (function () {
     const initTabBar = (barId) => {
       const bar = $('#' + barId);
       if (!bar) return;
+      const buttons = $all('.tab-btn', bar);
+      const contentArea = bar.nextElementSibling;
+
+      const activateTab = (btn, moveFocus) => {
+        const tabId = btn.dataset.tab;
+        buttons.forEach((candidate) => {
+          const isActive = candidate === btn;
+          candidate.classList.toggle('active', isActive);
+          candidate.setAttribute('aria-selected', String(isActive));
+          candidate.tabIndex = isActive ? 0 : -1;
+        });
+        if (contentArea) {
+          contentArea.querySelectorAll('.tab-pane').forEach((pane) => {
+            const isActive = pane.id === tabId;
+            pane.classList.toggle('active', isActive);
+            pane.hidden = !isActive;
+          });
+        }
+        if (moveFocus) btn.focus();
+      };
+
       bar.addEventListener('click', (e) => {
         const btn = e.target.closest('.tab-btn');
-        if (!btn) return;
-        const tabId = btn.dataset.tab;
-        // Deactivate siblings
-        bar.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-        btn.classList.add('active');
-        // Show target pane, hide others
-        const contentArea = bar.nextElementSibling;
-        if (contentArea) {
-          contentArea.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
-          const target = contentArea.querySelector('#' + tabId);
-          if (target) target.classList.add('active');
-        }
+        if (btn) activateTab(btn, false);
       });
+      bar.addEventListener('keydown', (e) => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+        const current = e.target.closest('.tab-btn');
+        const nextIndex = getNextTabIndex(buttons.indexOf(current), buttons.length, e.key);
+        if (nextIndex < 0) return;
+        e.preventDefault();
+        activateTab(buttons[nextIndex], true);
+      });
+
+      const activeButton = buttons.find((btn) => btn.classList.contains('active')) || buttons[0];
+      if (activeButton) activateTab(activeButton, false);
     };
     initTabBar('req-tab-bar');
     initTabBar('res-tab-bar');
@@ -2509,16 +2551,30 @@ const _NetworkPlus = (function () {
     const autoScrollBtn = document.createElement('button');
     autoScrollBtn.id = 'autoScrollBtn';
     autoScrollBtn.textContent = 'Auto-scroll';
-    if (state.autoScroll) autoScrollBtn.classList.add('active');
+    const updateAutoScrollButton = () => {
+      autoScrollBtn.classList.toggle('active', state.autoScroll);
+      autoScrollBtn.setAttribute('aria-pressed', String(state.autoScroll));
+      autoScrollBtn.title = state.autoScroll ? 'Disable automatic scrolling' : 'Enable automatic scrolling';
+    };
     autoScrollBtn.addEventListener('click', () => {
       state.autoScroll = !state.autoScroll;
-      autoScrollBtn.classList.toggle('active', state.autoScroll);
+      updateAutoScrollButton();
     });
+    updateAutoScrollButton();
     $('#exportHarBtn').insertAdjacentElement('afterend', autoScrollBtn);
 
     // [U6] Keyboard navigation
     const tableWrap = $('#tableWrap');
     tableWrap.setAttribute('tabindex', '0');
+    let previousTableScrollTop = tableWrap.scrollTop;
+    tableWrap.addEventListener('scroll', () => {
+      const currentScrollTop = tableWrap.scrollTop;
+      if (state.autoScroll && currentScrollTop < previousTableScrollTop) {
+        state.autoScroll = false;
+        updateAutoScrollButton();
+      }
+      previousTableScrollTop = currentScrollTop;
+    });
     tableWrap.addEventListener('keydown', (e) => {
       if (!state.filteredRows.length) return;
       const currentIdx = state.selectedRow ? state.filteredRows.indexOf(state.selectedRow) : -1;
@@ -3096,8 +3152,7 @@ const _NetworkPlus = (function () {
             const data = JSON.parse(text);
             if (data && data.log && data.log.entries) {
               state.paused = true;
-              pauseBtn.textContent = '▶️';
-              pauseBtn.title = 'Resume recording';
+              updateRecordState();
 
               state.rows = [];
               state.selectedRows.clear();
@@ -3150,7 +3205,7 @@ const _NetworkPlus = (function () {
             }
 
             state.paused = true;
-            pauseBtn.textContent = '▶️';
+            updateRecordState();
             state.rows = [];
             state.selectedRows.clear();
             state.highlightedRows.clear();
@@ -3278,6 +3333,7 @@ const _NetworkPlus = (function () {
         if (pendingScrollToBottom) {
           pendingScrollToBottom = false;
           tableWrap.scrollTop = tableWrap.scrollHeight;
+          previousTableScrollTop = tableWrap.scrollTop;
         }
       });
     };
@@ -3326,6 +3382,7 @@ const _NetworkPlus = (function () {
     deepSearchMatch,
     formatRowSummary,
     DEFAULT_METHOD_FILTERS,
+    getNextTabIndex,
   };
 })();
 

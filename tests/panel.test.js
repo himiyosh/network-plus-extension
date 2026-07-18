@@ -179,6 +179,24 @@ describe('debounce', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 });
+describe('getNextTabIndex', () => {
+  test('moves and wraps between tabs', () => {
+    expect(np.getNextTabIndex(0, 5, 'ArrowRight')).toBe(1);
+    expect(np.getNextTabIndex(4, 5, 'ArrowRight')).toBe(0);
+    expect(np.getNextTabIndex(0, 5, 'ArrowLeft')).toBe(4);
+  });
+
+  test('supports Home and End keys', () => {
+    expect(np.getNextTabIndex(3, 5, 'Home')).toBe(0);
+    expect(np.getNextTabIndex(1, 5, 'End')).toBe(4);
+  });
+
+  test('handles empty and unsupported navigation', () => {
+    expect(np.getNextTabIndex(0, 0, 'ArrowRight')).toBe(-1);
+    expect(np.getNextTabIndex(2, 5, 'Enter')).toBe(2);
+  });
+});
+
 
 describe('getRowFilterValue [U3]', () => {
   test('returns initiator text for initiator column', () => {

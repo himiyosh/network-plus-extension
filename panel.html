@@ -7,9 +7,9 @@
   <link rel="stylesheet" href="panel.css"/>
 </head>
 <body>
-  <header class="topbar">
+  <header class="topbar" role="toolbar" aria-label="Network controls">
     <div class="left">
-      <button id="pauseBtn" title="Pause recording" class="icon-btn">⏸️</button>
+      <button id="pauseBtn" title="Pause recording" aria-label="Pause recording" class="icon-btn">⏸️</button>
       <div class="separator"></div>
       <div class="brand">
         <span class="brand-icon">📡</span>
@@ -17,13 +17,13 @@
         <span class="brand-sub">for DevTools</span>
       </div>
       <div class="separator"></div>
-      <button id="searchToggleBtn" title="Toggle search panel (Ctrl+F)">🔍 Search</button>
+      <button id="searchToggleBtn" title="Toggle search panel (Ctrl+F)" aria-keyshortcuts="Control+F Meta+F">🔍 Search</button>
       <span id="searchCount" class="search-count"></span>
       <div class="separator"></div>
-      <button id="clearBtn" title="Clear all requests" class="icon-btn clear-btn-danger">🗑️</button>
+      <button id="clearBtn" title="Clear all requests" aria-label="Clear all requests" class="icon-btn clear-btn-danger">🗑️</button>
       <div class="separator"></div>
-      <button id="importBtn" title="Import (HAR/SAZ)" class="icon-btn">📥</button>
-      <button id="exportHarBtn" title="Export (HAR)" class="icon-btn">📤</button>
+      <button id="importBtn" title="Import (HAR/SAZ)" aria-label="Import HAR or SAZ" class="icon-btn">📥</button>
+      <button id="exportHarBtn" title="Export (HAR)" aria-label="Export HAR" class="icon-btn">📤</button>
       <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
     </div>
     <div class="right">
@@ -42,51 +42,51 @@
     </div>
   </div>
   <main class="content" id="content">
-    <section class="tableWrap" id="tableWrap">
+    <section class="tableWrap" id="tableWrap" aria-label="Network requests">
       <table class="grid" id="grid">
         <thead id="thead"></thead>
         <tbody id="tbody"></tbody>
       </table>
     </section>
     <div class="resizer" id="resizer"></div>
-    <aside class="details" id="details">
+    <aside class="details" id="details" aria-label="Request details">
       <div class="details-header"><div id="detailsTitle">Select a request...</div></div>
       <div class="inspector-panels">
         <div class="inspector-half" id="inspector-request">
           <div class="inspector-label">Request</div>
-          <div class="tab-bar" id="req-tab-bar">
-            <button class="tab-btn active" data-tab="req-headers">Headers</button>
-            <button class="tab-btn" data-tab="req-body">Body</button>
-            <button class="tab-btn" data-tab="req-query">Query</button>
-            <button class="tab-btn" data-tab="req-cookies">Cookies</button>
-            <button class="tab-btn" data-tab="req-raw">Raw</button>
+          <div class="tab-bar" id="req-tab-bar" role="tablist" aria-label="Request details">
+            <button id="req-tab-headers" class="tab-btn active" data-tab="req-headers" role="tab" aria-selected="true" aria-controls="req-headers" tabindex="0">Headers</button>
+            <button id="req-tab-body" class="tab-btn" data-tab="req-body" role="tab" aria-selected="false" aria-controls="req-body" tabindex="-1">Body</button>
+            <button id="req-tab-query" class="tab-btn" data-tab="req-query" role="tab" aria-selected="false" aria-controls="req-query" tabindex="-1">Query</button>
+            <button id="req-tab-cookies" class="tab-btn" data-tab="req-cookies" role="tab" aria-selected="false" aria-controls="req-cookies" tabindex="-1">Cookies</button>
+            <button id="req-tab-raw" class="tab-btn" data-tab="req-raw" role="tab" aria-selected="false" aria-controls="req-raw" tabindex="-1">Raw</button>
           </div>
           <div class="tab-content-area">
-            <div class="tab-pane active" id="req-headers"></div>
-            <div class="tab-pane" id="req-body"></div>
-            <div class="tab-pane" id="req-query"></div>
-            <div class="tab-pane" id="req-cookies"></div>
-            <div class="tab-pane" id="req-raw"></div>
+            <div class="tab-pane active" id="req-headers" role="tabpanel" aria-labelledby="req-tab-headers"></div>
+            <div class="tab-pane" id="req-body" role="tabpanel" aria-labelledby="req-tab-body" hidden></div>
+            <div class="tab-pane" id="req-query" role="tabpanel" aria-labelledby="req-tab-query" hidden></div>
+            <div class="tab-pane" id="req-cookies" role="tabpanel" aria-labelledby="req-tab-cookies" hidden></div>
+            <div class="tab-pane" id="req-raw" role="tabpanel" aria-labelledby="req-tab-raw" hidden></div>
           </div>
         </div>
         <div class="inspector-divider" id="inspector-divider"></div>
         <div class="inspector-half" id="inspector-response">
           <div class="inspector-label">Response</div>
-          <div class="tab-bar" id="res-tab-bar">
-            <button class="tab-btn active" data-tab="res-headers">Headers</button>
-            <button class="tab-btn" data-tab="res-body">Body</button>
-            <button class="tab-btn" data-tab="res-preview">Preview</button>
-            <button class="tab-btn" data-tab="res-cookies">Cookies</button>
-            <button class="tab-btn" data-tab="res-timing">Timing</button>
-            <button class="tab-btn" data-tab="res-raw">Raw</button>
+          <div class="tab-bar" id="res-tab-bar" role="tablist" aria-label="Response details">
+            <button id="res-tab-headers" class="tab-btn active" data-tab="res-headers" role="tab" aria-selected="true" aria-controls="res-headers" tabindex="0">Headers</button>
+            <button id="res-tab-body" class="tab-btn" data-tab="res-body" role="tab" aria-selected="false" aria-controls="res-body" tabindex="-1">Body</button>
+            <button id="res-tab-preview" class="tab-btn" data-tab="res-preview" role="tab" aria-selected="false" aria-controls="res-preview" tabindex="-1">Preview</button>
+            <button id="res-tab-cookies" class="tab-btn" data-tab="res-cookies" role="tab" aria-selected="false" aria-controls="res-cookies" tabindex="-1">Cookies</button>
+            <button id="res-tab-timing" class="tab-btn" data-tab="res-timing" role="tab" aria-selected="false" aria-controls="res-timing" tabindex="-1">Timing</button>
+            <button id="res-tab-raw" class="tab-btn" data-tab="res-raw" role="tab" aria-selected="false" aria-controls="res-raw" tabindex="-1">Raw</button>
           </div>
           <div class="tab-content-area">
-            <div class="tab-pane active" id="res-headers"></div>
-            <div class="tab-pane" id="res-body"></div>
-            <div class="tab-pane" id="res-preview"></div>
-            <div class="tab-pane" id="res-cookies"></div>
-            <div class="tab-pane" id="res-timing"></div>
-            <div class="tab-pane" id="res-raw"></div>
+            <div class="tab-pane active" id="res-headers" role="tabpanel" aria-labelledby="res-tab-headers"></div>
+            <div class="tab-pane" id="res-body" role="tabpanel" aria-labelledby="res-tab-body" hidden></div>
+            <div class="tab-pane" id="res-preview" role="tabpanel" aria-labelledby="res-tab-preview" hidden></div>
+            <div class="tab-pane" id="res-cookies" role="tabpanel" aria-labelledby="res-tab-cookies" hidden></div>
+            <div class="tab-pane" id="res-timing" role="tabpanel" aria-labelledby="res-tab-timing" hidden></div>
+            <div class="tab-pane" id="res-raw" role="tabpanel" aria-labelledby="res-tab-raw" hidden></div>
           </div>
         </div>
       </div>
