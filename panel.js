@@ -2350,6 +2350,7 @@ const _NetworkPlus = (function () {
       const actionLabel = state.paused ? 'Resume recording' : 'Pause recording';
       pauseBtn.title = actionLabel;
       pauseBtn.setAttribute('aria-label', actionLabel);
+      pauseBtn.setAttribute('aria-pressed', String(state.paused));
       if (state.paused) {
         topbar.classList.add('paused');
         topbar.classList.remove('recording');
@@ -2458,7 +2459,9 @@ const _NetworkPlus = (function () {
       openFilterPopup(e.pageX, e.pageY, focusColId);
     });
 
-    $('#columnsBtn').addEventListener('click', (e) => {
+    const columnsBtn = $('#columnsBtn');
+    const filterBtn = $('#filterBtn');
+    columnsBtn.addEventListener('click', (e) => {
       const isVisible = columnsContextMenu.classList.contains('show');
       $all('.dropdown-content').forEach((d) => {
         d.style.display = 'none';
@@ -2472,9 +2475,11 @@ const _NetworkPlus = (function () {
         columnsContextMenu.style.display = 'block';
         columnsContextMenu.classList.add('show');
       }
+      columnsBtn.setAttribute('aria-expanded', String(!isVisible));
+      filterBtn.setAttribute('aria-expanded', 'false');
     });
 
-    $('#filterBtn').addEventListener('click', (e) => {
+    filterBtn.addEventListener('click', (e) => {
       const isVisible = filterPopup.classList.contains('show');
       $all('.dropdown-content').forEach((d) => {
         d.style.display = 'none';
@@ -2484,6 +2489,8 @@ const _NetworkPlus = (function () {
         const rect = e.currentTarget.getBoundingClientRect();
         openFilterPopup(rect.left + window.scrollX, rect.bottom + window.scrollY, null);
       }
+      filterBtn.setAttribute('aria-expanded', String(!isVisible));
+      columnsBtn.setAttribute('aria-expanded', 'false');
     });
 
     // Tab switching for inspector panels
@@ -2545,6 +2552,8 @@ const _NetworkPlus = (function () {
         d.classList.remove('show');
         d.style.display = 'none';
       });
+      columnsBtn.setAttribute('aria-expanded', 'false');
+      filterBtn.setAttribute('aria-expanded', 'false');
     });
 
     // Auto-scroll button
@@ -2817,8 +2826,6 @@ const _NetworkPlus = (function () {
     const searchToggleBtn = $('#searchToggleBtn');
     const searchAddBtn = $('#searchAddBtn');
     const searchScopeBtn = $('#searchScopeBtn');
-    const contentEl = $('#content');
-
     // Track search panel visibility
     let searchPanelVisible = false;
 
@@ -2827,6 +2834,7 @@ const _NetworkPlus = (function () {
       searchPanelVisible = shouldShow;
       searchPanel.style.display = shouldShow ? 'block' : 'none';
       searchToggleBtn.classList.toggle('active', shouldShow);
+      searchToggleBtn.setAttribute('aria-expanded', String(shouldShow));
       if (shouldShow) {
         // Ensure at least one keyword row exists
         if (state.search.keywords.length === 0) {
@@ -2837,17 +2845,8 @@ const _NetworkPlus = (function () {
         const firstInput = searchRows.querySelector('.search-keyword-input');
         if (firstInput) firstInput.focus();
       }
-      updateContentHeight();
     }
 
-    function updateContentHeight() {
-      if (searchPanelVisible) {
-        const panelH = searchPanel.offsetHeight;
-        contentEl.style.height = 'calc(100vh - 72px - ' + panelH + 'px)';
-      } else {
-        contentEl.style.height = '';
-      }
-    }
 
     // Scope popup (dynamically created)
     const scopePopup = document.createElement('div');
@@ -3027,7 +3026,6 @@ const _NetworkPlus = (function () {
             state.search.keywords.splice(i, 1);
             renderSearchRows();
             executeSearch();
-            updateContentHeight();
           });
           row.appendChild(removeBtn);
         }
@@ -3042,8 +3040,6 @@ const _NetworkPlus = (function () {
           inputs[focusedIdx].setSelectionRange(selStart, selEnd);
         }
       }
-      // Update panel height after rendering rows
-      requestAnimationFrame(() => updateContentHeight());
     }
 
     searchAddBtn.addEventListener('click', () => {
@@ -3327,7 +3323,7 @@ const _NetworkPlus = (function () {
       if (scrollToBottom) pendingScrollToBottom = true;
       if (pendingRender) return;
       pendingRender = true;
-      requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
         pendingRender = false;
         renderBody();
         if (pendingScrollToBottom) {
