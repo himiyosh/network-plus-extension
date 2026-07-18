@@ -23,6 +23,13 @@ DevTools パネルという特殊な環境での表示品質・操作性・一�
 | UI 変更のコミット前 | panel.css / panel.html / panel.js の UI 関連セクション変更時 |
 | 「批判して」「チェックして」 | 自己批判モードとして起動 |
 
+### Hallmark との連携
+
+- DevTools パネルのビジュアル監査では、補助的に **`/hallmark audit <target>`** を使用する。Hallmark audit は非編集で実行し、結果を本エージェントの 6 軸へ統合する。
+- 新規設計は `/hallmark`、再設計は `/hallmark redesign <target> [--mood <name>]`、参考デザイン抽出は `/hallmark study <screenshot \| URL>` として Primary Agent (`NetworkPlusAgent`) へルーティングする。スキル本文は転載しない。
+- `.github/copilot-instructions.md` と本ファイルの 6 軸が Hallmark より優先する。System/Dark/Light、密度、キーボード、XSS、データ正確性、IIFE、テストのいずれかを損なう Hallmark 提案は不採用とする。
+- ブラウザーでの検証対象は Edge DevTools 内の実パネル (`panel.html` / `panel.css` / `panel.js`) のみ。README、エージェント文書、Hallmark 文書、デモサイトを UI 対象に含めない。
+
 ---
 
 ## 🔍 レビューフレームワーク (6 軸)
@@ -195,3 +202,4 @@ DevTools パネルという特殊な環境での表示品質・操作性・一�
 | 純粋関数・テスト | `tests/panel.test.js` |
 | コーディング規約 | `.github/copilot-instructions.md` --- Section 2 |
 | 手動テストチェックリスト | `.github/copilot-instructions.md` --- Section 6.6 |
+| 補助デザイン監査 | `.github/skills/hallmark/SKILL.md` (`/hallmark audit`) |

@@ -39,7 +39,11 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 ```
 network-plus-extension/
   .github/
+    agents/
+      NetworkPlusAgent.agent.md ... Primary project agent (Hallmark routing included)
+      ui-review.agent.md        ... Network+ 6-axis UI/UX review agent
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
+    skills/hallmark/         ... Hallmark 1.1.0 design skill (pinned vendored copy)
   docs/
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
@@ -126,6 +130,12 @@ npm run version:check # package.json と manifest.json の version 同期チェ�
 npm run format       # Prettier フォーマット
 ```
 
+## 🤖 Copilot カスタマイズ
+
+Primary Agent は [NetworkPlusAgent](.github/agents/NetworkPlusAgent.agent.md)、UI 品質ゲートは [UI/UX Review Agent](.github/agents/ui-review.agent.md) です。UI デザインには vendored Hallmark 1.1.0 を **`/hallmark`** で呼び出し、`audit` / `redesign` / `study` verb を利用できます。
+
+Hallmark は実際の Edge DevTools パネルだけに適用します。Network+ の 3 テーマ、密度、キーボード、XSS、データ正確性、IIFE、テスト、および既存 6 軸レビューが Hallmark より優先します。固定元と更新手順は [UPSTREAM.md](.github/skills/hallmark/UPSTREAM.md) を参照してください。
+
 ## 🧪 テスト
 
 | 対象 | 手法 | 場所 |
@@ -187,6 +197,10 @@ npm run format       # Prettier フォーマット
 | ファイル | 説明 |
 |---|---|
 | [.github/copilot-instructions.md](.github/copilot-instructions.md) | Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針) |
+| [.github/agents/NetworkPlusAgent.agent.md](.github/agents/NetworkPlusAgent.agent.md) | Primary project agent と Hallmark ルーティング |
+| [.github/agents/ui-review.agent.md](.github/agents/ui-review.agent.md) | Network+ 固有の 6 軸 UI/UX 品質ゲート |
+| [.github/skills/hallmark/SKILL.md](.github/skills/hallmark/SKILL.md) | Hallmark 1.1.0 (`/hallmark`) |
+| [.github/skills/hallmark/UPSTREAM.md](.github/skills/hallmark/UPSTREAM.md) | Hallmark の固定元、parity、更新手順 |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | package.json / manifest.json バージョン同期チェックスクリプト |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
