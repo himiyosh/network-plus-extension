@@ -39,6 +39,8 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 
 ```
 network-plus-extension/
+  .impeccable/
+    design.json              ... DESIGN.md の拡張トークンとコンポーネント定義
   .github/
     agents/
       NetworkPlusAgent.agent.md ... Primary project agent (Hallmark routing included)
@@ -46,6 +48,8 @@ network-plus-extension/
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
     skills/hallmark/         ... Hallmark 1.1.0 design skill (pinned vendored copy)
   docs/
+    DESIGN.md                ... UI トークン、コンポーネント、テーマ運用ルール
+    PRODUCT.md               ... 製品戦略、対象ユーザー、設計原則、アクセシビリティ基準
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
     check-version-sync.js    ... package.json / manifest.json バージョン同期チェック
@@ -202,6 +206,8 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | [.github/agents/ui-review.agent.md](.github/agents/ui-review.agent.md) | Network+ 固有の 6 軸 UI/UX 品質ゲート |
 | [.github/skills/hallmark/SKILL.md](.github/skills/hallmark/SKILL.md) | Hallmark 1.1.0 (`/hallmark`) |
 | [.github/skills/hallmark/UPSTREAM.md](.github/skills/hallmark/UPSTREAM.md) | Hallmark の固定元、parity、更新手順 |
+| [docs/DESIGN.md](docs/DESIGN.md) | UI トークン、コンポーネント、テーマ運用ルール |
+| [docs/PRODUCT.md](docs/PRODUCT.md) | 対象ユーザー、製品目的、設計原則、WCAG 2.2 AA 基準 |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | package.json / manifest.json バージョン同期チェックスクリプト |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |

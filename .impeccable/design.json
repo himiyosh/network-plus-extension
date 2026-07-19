@@ -1,0 +1,309 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-19T07:33:49Z",
+  "title": "Design System: Network+ for DevTools",
+  "extensions": {
+    "colorMeta": {
+      "signal-indigo": {
+        "role": "primary",
+        "displayName": "Signal Indigo",
+        "canonical": "#6366f1",
+        "tonalRamp": [
+          "oklch(15% 0.09 275)",
+          "oklch(27% 0.12 275)",
+          "oklch(39% 0.15 275)",
+          "oklch(51% 0.18 275)",
+          "oklch(63% 0.18 275)",
+          "oklch(75% 0.14 275)",
+          "oklch(87% 0.08 275)",
+          "oklch(95% 0.03 275)"
+        ]
+      },
+      "canvas-light": {
+        "role": "neutral",
+        "displayName": "Inspection Canvas",
+        "canonical": "#fafbfc",
+        "tonalRamp": [
+          "oklch(15% 0.008 250)",
+          "oklch(27% 0.008 250)",
+          "oklch(39% 0.008 250)",
+          "oklch(51% 0.008 250)",
+          "oklch(63% 0.008 250)",
+          "oklch(75% 0.008 250)",
+          "oklch(87% 0.008 250)",
+          "oklch(95% 0.008 250)"
+        ]
+      },
+      "surface-light": {
+        "role": "neutral",
+        "displayName": "Workbench Surface",
+        "canonical": "#f0f2f5",
+        "tonalRamp": [
+          "oklch(15% 0.012 250)",
+          "oklch(27% 0.012 250)",
+          "oklch(39% 0.012 250)",
+          "oklch(51% 0.012 250)",
+          "oklch(63% 0.012 250)",
+          "oklch(75% 0.012 250)",
+          "oklch(87% 0.012 250)",
+          "oklch(95% 0.012 250)"
+        ]
+      },
+      "ink-light": {
+        "role": "neutral",
+        "displayName": "Evidence Ink",
+        "canonical": "#1a1a2e",
+        "tonalRamp": [
+          "oklch(15% 0.025 275)",
+          "oklch(27% 0.025 275)",
+          "oklch(39% 0.025 275)",
+          "oklch(51% 0.025 275)",
+          "oklch(63% 0.025 275)",
+          "oklch(75% 0.025 275)",
+          "oklch(87% 0.025 275)",
+          "oklch(95% 0.025 275)"
+        ]
+      },
+      "canvas-dark": {
+        "role": "neutral",
+        "displayName": "Night Inspection Canvas",
+        "canonical": "#0f172a",
+        "tonalRamp": [
+          "oklch(15% 0.025 255)",
+          "oklch(27% 0.025 255)",
+          "oklch(39% 0.025 255)",
+          "oklch(51% 0.025 255)",
+          "oklch(63% 0.025 255)",
+          "oklch(75% 0.025 255)",
+          "oklch(87% 0.025 255)",
+          "oklch(95% 0.025 255)"
+        ]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Night Workbench Surface",
+        "canonical": "#1e293b",
+        "tonalRamp": [
+          "oklch(15% 0.02 255)",
+          "oklch(27% 0.02 255)",
+          "oklch(39% 0.02 255)",
+          "oklch(51% 0.02 255)",
+          "oklch(63% 0.02 255)",
+          "oklch(75% 0.02 255)",
+          "oklch(87% 0.02 255)",
+          "oklch(95% 0.02 255)"
+        ]
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "Night Evidence Ink",
+        "canonical": "#e2e8f0",
+        "tonalRamp": [
+          "oklch(15% 0.012 250)",
+          "oklch(27% 0.012 250)",
+          "oklch(39% 0.012 250)",
+          "oklch(51% 0.012 250)",
+          "oklch(63% 0.012 250)",
+          "oklch(75% 0.012 250)",
+          "oklch(87% 0.012 250)",
+          "oklch(95% 0.012 250)"
+        ]
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Success Green",
+        "canonical": "#059669",
+        "tonalRamp": [
+          "oklch(15% 0.07 160)",
+          "oklch(27% 0.1 160)",
+          "oklch(39% 0.13 160)",
+          "oklch(51% 0.15 160)",
+          "oklch(63% 0.14 160)",
+          "oklch(75% 0.11 160)",
+          "oklch(87% 0.07 160)",
+          "oklch(95% 0.03 160)"
+        ]
+      },
+      "caution": {
+        "role": "tertiary",
+        "displayName": "Caution Amber",
+        "canonical": "#d97706",
+        "tonalRamp": [
+          "oklch(15% 0.07 65)",
+          "oklch(27% 0.1 65)",
+          "oklch(39% 0.13 65)",
+          "oklch(51% 0.16 65)",
+          "oklch(63% 0.15 65)",
+          "oklch(75% 0.12 65)",
+          "oklch(87% 0.07 65)",
+          "oklch(95% 0.03 65)"
+        ]
+      },
+      "error": {
+        "role": "tertiary",
+        "displayName": "Error Red",
+        "canonical": "#dc2626",
+        "tonalRamp": [
+          "oklch(15% 0.08 25)",
+          "oklch(27% 0.12 25)",
+          "oklch(39% 0.16 25)",
+          "oklch(51% 0.2 25)",
+          "oklch(63% 0.18 25)",
+          "oklch(75% 0.13 25)",
+          "oklch(87% 0.08 25)",
+          "oklch(95% 0.03 25)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Compact Title",
+        "purpose": "Product identity and panel titles."
+      },
+      "body": {
+        "displayName": "Workbench Body",
+        "purpose": "Inspector content and explanatory text."
+      },
+      "label": {
+        "displayName": "Operational Label",
+        "purpose": "Table headers, controls, and status metadata."
+      },
+      "mono": {
+        "displayName": "Evidence Mono",
+        "purpose": "Raw headers, payloads, commands, and JSON."
+      }
+    },
+    "shadows": [
+      {
+        "name": "docked-control-light",
+        "value": "0 1px 3px rgba(0,0,0,0.06)",
+        "purpose": "Separates the sticky toolbar from live data."
+      },
+      {
+        "name": "transient-light",
+        "value": "0 4px 12px rgba(0,0,0,0.1)",
+        "purpose": "Menus, filter panels, and toasts."
+      },
+      {
+        "name": "transient-dark",
+        "value": "0 4px 12px rgba(0,0,0,0.4)",
+        "purpose": "Menus, filter panels, and toasts on dark surfaces."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "150ms ease",
+        "purpose": "Button, tab, divider, and hover feedback."
+      },
+      {
+        "name": "state-standard",
+        "value": "200ms ease",
+        "purpose": "Input focus and toast feedback."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow-panel",
+        "value": "600px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Toolbar Button",
+      "kind": "button",
+      "refersTo": "toolbar-button",
+      "description": "Compact neutral action used in the persistent toolbar.",
+      "html": "<button class=\"ds-toolbar-button\">Column Filters</button>",
+      "css": ".ds-toolbar-button { min-height: 32px; padding: 5px 12px; border: 1px solid var(--border, #dde1e6); border-radius: 8px; background: var(--bg, #fafbfc); color: var(--fg, #1a1a2e); font: 12px/1.5 'Segoe UI', system-ui, sans-serif; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; } .ds-toolbar-button:hover { border-color: var(--accent, #6366f1); color: var(--accent, #6366f1); } .ds-toolbar-button:focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: -2px; }"
+    },
+    {
+      "name": "Active Toolbar Button",
+      "kind": "button",
+      "refersTo": "toolbar-button-active",
+      "description": "Persistent toggle with explicit pressed state.",
+      "html": "<button class=\"ds-toolbar-button-active\" aria-pressed=\"true\">Auto-scroll on</button>",
+      "css": ".ds-toolbar-button-active { min-height: 32px; padding: 5px 12px; border: 1px solid var(--accent, #6366f1); border-radius: 8px; background: var(--accent-dim, rgba(99,102,241,0.12)); color: var(--accent, #6366f1); font: 600 12px/1.5 'Segoe UI', system-ui, sans-serif; cursor: pointer; } .ds-toolbar-button-active:hover { background: var(--hover, rgba(99,102,241,0.06)); } .ds-toolbar-button-active:focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: 2px; }"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "search-input",
+      "description": "Compact keyword field for request evidence.",
+      "html": "<input class=\"ds-search-input\" type=\"search\" placeholder=\"Filter requests\" />",
+      "css": ".ds-search-input { min-width: 220px; padding: 4px 8px; border: 1px solid var(--border, #dde1e6); border-radius: 6px; background: var(--bg, #fafbfc); color: var(--fg, #1a1a2e); font: 12px 'Segoe UI', system-ui, sans-serif; transition: border-color 200ms ease, box-shadow 200ms ease; } .ds-search-input:focus { outline: none; border-color: var(--accent, #6366f1); box-shadow: 0 0 0 2px var(--accent-dim, rgba(99,102,241,0.12)); } .ds-search-input:disabled { opacity: 0.5; cursor: not-allowed; }"
+    },
+    {
+      "name": "Active Inspector Tab",
+      "kind": "nav",
+      "refersTo": "tab-active",
+      "description": "Current request or response inspector section.",
+      "html": "<button class=\"ds-tab-active\" role=\"tab\" aria-selected=\"true\">Headers</button>",
+      "css": ".ds-tab-active { padding: 5px 12px; border: 0; border-bottom: 2px solid var(--accent, #6366f1); background: var(--accent-dim, rgba(99,102,241,0.12)); color: var(--accent, #6366f1); font: 700 12px 'Segoe UI', system-ui, sans-serif; cursor: pointer; } .ds-tab-active:hover { color: var(--fg, #1a1a2e); } .ds-tab-active:focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: -2px; }"
+    },
+    {
+      "name": "Request Grid",
+      "kind": "custom",
+      "description": "Dense evidence table with opaque sticky headers and semantic status text.",
+      "html": "<table class=\"ds-request-grid\"><thead><tr><th>Method</th><th>Status</th><th>URL</th></tr></thead><tbody><tr aria-selected=\"true\"><td>GET</td><td class=\"ds-status-success\">200</td><td>/api/orders</td></tr></tbody></table>",
+      "css": ".ds-request-grid { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; color: var(--fg, #1a1a2e); font: 12px 'Segoe UI', system-ui, sans-serif; } .ds-request-grid th { padding: 7px 8px; border-bottom: 2px solid var(--th-border, #d0d4db); background: var(--th-bg, #eef0f4); color: var(--muted, #606d7b); text-align: left; text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; } .ds-request-grid td { padding: 5px 8px; border-bottom: 1px solid var(--stripe, rgba(0,0,0,0.018)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-request-grid tr[aria-selected=\"true\"] { background: var(--selected, rgba(99,102,241,0.14)); box-shadow: inset 3px 0 0 var(--accent, #6366f1); } .ds-status-success { color: var(--status-2xx, #059669); font-weight: 700; }"
+    },
+    {
+      "name": "Context Menu Item",
+      "kind": "custom",
+      "description": "Reachable transient command with a familiar menu affordance.",
+      "html": "<button class=\"ds-context-menu-item\">Copy as cURL</button>",
+      "css": ".ds-context-menu-item { display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--fg, #1a1a2e); text-align: left; font: 12px/1.4 'Segoe UI', system-ui, sans-serif; cursor: pointer; } .ds-context-menu-item:hover { background: var(--hover, rgba(99,102,241,0.06)); } .ds-context-menu-item:focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: -2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Network Forensics Workbench",
+    "overview": "Network+ is a precise instrument panel, not a destination page. It should feel like a trusted workbench where evidence is captured, narrowed, inspected, and exported without visual ceremony. Dense information is welcome when hierarchy, alignment, and state make the next action obvious.\n\nThe interface inherits familiar Edge DevTools patterns and strengthens them with clearer selection, filtering, and inspection states. It rejects marketing-page composition, decorative novelty, and anything that slows a user who is already diagnosing a live problem.",
+    "keyCharacteristics": [
+      "Restrained neutral surfaces with one signal accent",
+      "Compact controls and stable, high-density geometry",
+      "Explicit keyboard focus, selection, recording, and filtering states",
+      "Monospaced evidence views inside a familiar system-sans workbench",
+      "System, Dark, and Light behavior treated as one design contract"
+    ],
+    "rules": [
+      {
+        "name": "The Signal-Not-Decoration Rule",
+        "body": "Signal Indigo is reserved for action, focus, selection, or navigation state. It is never ambient decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Four-Theme Parity Rule",
+        "body": "Every new semantic color must be defined for light default, system dark, forced dark, and forced light behavior before it ships.",
+        "section": "colors"
+      },
+      {
+        "name": "The Evidence Monospace Rule",
+        "body": "Use monospace only when character alignment or source fidelity helps diagnosis. Buttons, navigation, and general labels remain system sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-Until-Transient Rule",
+        "body": "Persistent panels use borders and tone. Shadows are reserved for controls that temporarily overlap another work area.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do preserve compact 11px to 13px typography and 32px toolbar controls.",
+      "Do use Signal Indigo only for action, focus, selection, or navigation state.",
+      "Do keep sticky surfaces opaque and distinguish them with borders or inset shadows.",
+      "Do verify every UI change in System, Dark, and Light themes at wide and approximately 600px panel widths.",
+      "Do pair semantic colors with labels, shape, icons, or ARIA state.",
+      "Do honor prefers-reduced-motion for every transition that is not essential to understanding state."
+    ],
+    "donts": [
+      "Don't use marketing-site heroes, low-density card grids, or excessive whitespace.",
+      "Don't use decorative glassmorphism, gradient text, or motion without state meaning.",
+      "Don't rely on color alone to communicate recording, selection, filtering, success, warning, or failure.",
+      "Don't break Edge DevTools conventions merely to look distinctive or prioritize branding over data.",
+      "Don't use colored side-stripe borders greater than 1px; use an inset indicator, full outline, icon, or state label.",
+      "Don't introduce display fonts, oversized type, or fluid heading scales into this product interface."
+    ]
+  }
+}
