@@ -555,6 +555,33 @@ const _NetworkPlus = (function () {
     return Object.values(rules).filter((rule) => isRuleActive(rule)).length;
   }
 
+  function isIncrementalAppendEligible(sort, activeFilterCount, searchKeywords, renderedActiveFilterCount) {
+    const hasNaturalOrder =
+      !sort || !sort.colId || !sort.direction || (sort.colId === 'id' && sort.direction === 'asc');
+    const hasActiveSearch =
+      Array.isArray(searchKeywords) && searchKeywords.some((keyword) => keyword && String(keyword.query || '').trim());
+    const synchronizedFilterCount =
+      Number.isFinite(renderedActiveFilterCount) ? renderedActiveFilterCount : activeFilterCount;
+    return (
+      hasNaturalOrder &&
+      activeFilterCount === 0 &&
+      activeFilterCount === synchronizedFilterCount &&
+      !hasActiveSearch
+    );
+  }
+
+  function getIncrementalAppendBatch(queuedRows, renderedRowIds) {
+    const renderedIds = new Set((renderedRowIds || []).map((id) => String(id)));
+    const queuedIds = new Set();
+    return (queuedRows || []).filter((row) => {
+      if (!row || row.id == null) return false;
+      const rowId = String(row.id);
+      if (renderedIds.has(rowId) || queuedIds.has(rowId)) return false;
+      queuedIds.add(rowId);
+      return true;
+    });
+  }
+
   /** Debounce wrapper */
   function debounce(fn, ms) {
     let timer = null;
@@ -739,6 +766,8 @@ const _NetworkPlus = (function () {
     columns: DEFAULT_COLUMNS.map((c) => ({ ...c })),
     rows: [],
     filteredRows: [], // [U5] cache for filtered rows
+    visibleBytes: 0,
+    renderedActiveFilterCount: 0,
     selectedRow: null, // [U5] track by row object reference, not index
     focusedRow: null,
     pendingRowFocusId: null,
@@ -2014,112 +2043,82 @@ const _NetworkPlus = (function () {
     }
   }
 
-  function renderBody() {
-    filterRows();
-    // Refresh search matches so newly added rows are included
-    refreshSearchMatches();
-    const tbody = $('#tbody');
-    const activeRow = document.activeElement && document.activeElement.closest
-      ? document.activeElement.closest('tr[data-row-id]')
-      : null;
-    const focusRowId = state.pendingRowFocusId || (activeRow ? activeRow.dataset.rowId : null);
-    state.pendingRowFocusId = null;
-    // [P2] Use DocumentFragment for batch insert
-    const frag = document.createDocumentFragment();
-    tbody.textContent = '';
-
-    const rows = getSortedRows(state.filteredRows);
-    const tabStopRow = rows.includes(state.focusedRow)
-      ? state.focusedRow
-      : (rows.includes(state.selectedRow) ? state.selectedRow : rows[0]);
-
-    if (rows.length === 0 && !state.paused) {
-      if ($('#tableWrap')) {
-        let emptyState = document.getElementById('empty-state-msg');
-        if (!emptyState) {
-          emptyState = document.createElement('div');
-          emptyState.id = 'empty-state-msg';
-          emptyState.className = 'empty-state';
-          const icon = document.createElement('div');
-          icon.className = 'icon';
-          icon.textContent = '📡';
-          const text1 = document.createElement('div');
-          text1.textContent = 'Recording network activity...';
-          const text2 = document.createElement('div');
-          text2.style.fontSize = '0.8em';
-          text2.style.marginTop = '10px';
-          text2.textContent = 'Perform a request or reload the page to see activity.';
-          emptyState.appendChild(icon);
-          emptyState.appendChild(text1);
-          emptyState.appendChild(text2);
-          $('#tableWrap').appendChild(emptyState);
-        }
-        emptyState.style.display = 'flex';
+  function updateEmptyState(visibleRowCount) {
+    const tableWrap = $('#tableWrap');
+    if (!tableWrap) return;
+    let emptyState = document.getElementById('empty-state-msg');
+    if (visibleRowCount === 0 && !state.paused) {
+      if (!emptyState) {
+        emptyState = document.createElement('div');
+        emptyState.id = 'empty-state-msg';
+        emptyState.className = 'empty-state';
+        const icon = document.createElement('div');
+        icon.className = 'icon';
+        icon.textContent = '📡';
+        const text1 = document.createElement('div');
+        text1.textContent = 'Recording network activity...';
+        const text2 = document.createElement('div');
+        text2.style.fontSize = '0.8em';
+        text2.style.marginTop = '10px';
+        text2.textContent = 'Perform a request or reload the page to see activity.';
+        emptyState.appendChild(icon);
+        emptyState.appendChild(text1);
+        emptyState.appendChild(text2);
+        tableWrap.appendChild(emptyState);
       }
-    } else {
-      const emptyState = document.getElementById('empty-state-msg');
-      if (emptyState) emptyState.style.display = 'none';
+      emptyState.style.display = 'flex';
+    } else if (emptyState) {
+      emptyState.style.display = 'none';
     }
+  }
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const tr = createTableRow(row, (e) => selectRow(row, e), row === tabStopRow);
-      frag.appendChild(tr);
-    }
-    tbody.appendChild(frag);
-    if (focusRowId) {
-      const requestedRow = tbody.querySelector('tr[data-row-id="' + focusRowId + '"]');
-      const fallbackRow = tabStopRow
-        ? tbody.querySelector('tr[data-row-id="' + tabStopRow.id + '"]')
-        : null;
-      const rowToFocus = requestedRow || fallbackRow;
-      if (rowToFocus) rowToFocus.focus({ preventScroll: true });
-    }
+  function updateTableSummary(visibleRowCount, visibleBytes) {
+    if (Number.isFinite(visibleBytes)) state.visibleBytes = visibleBytes;
     const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
     const requestCountText =
-      rows.length +
+      visibleRowCount +
       ' / ' +
       state.rows.length +
       ' requests · ' +
       activeFilterCount +
       ' active column ' +
       (activeFilterCount === 1 ? 'filter' : 'filters');
-    $('#counter').textContent = requestCountText;
+    const counter = $('#counter');
+    if (counter) counter.textContent = requestCountText;
     queueRequestCountAnnouncement(requestCountText);
     const filterButton = $('#filterBtn');
-    filterButton.textContent =
-      activeFilterCount > 0 ? '⚙️ Column Filters (' + activeFilterCount + ')' : '⚙️ Column Filters';
-    filterButton.setAttribute(
-      'aria-label',
-      activeFilterCount > 0
-        ? 'Column Filters, ' + activeFilterCount + ' active'
-        : 'Column Filters, no active filters',
-    );
-    // Update total size
-    let totalBytes = 0;
-    for (let i = 0; i < rows.length; i++) totalBytes += rows[i].size || 0;
+    if (filterButton) {
+      filterButton.textContent =
+        activeFilterCount > 0 ? '⚙️ Column Filters (' + activeFilterCount + ')' : '⚙️ Column Filters';
+      filterButton.setAttribute(
+        'aria-label',
+        activeFilterCount > 0
+          ? 'Column Filters, ' + activeFilterCount + ' active'
+          : 'Column Filters, no active filters',
+      );
+    }
     const totalSizeEl = $('#totalSize');
-    if (totalSizeEl) totalSizeEl.textContent = totalBytes > 0 ? fmtBytes(totalBytes) + ' transferred' : '';
-    // Update selected rows size
+    if (totalSizeEl) {
+      totalSizeEl.textContent = state.visibleBytes > 0 ? fmtBytes(state.visibleBytes) + ' transferred' : '';
+    }
     const selectedSizeEl = $('#selectedSize');
     if (selectedSizeEl) {
       if (state.selectedRows.size > 0) {
-        let selBytes = 0;
-        for (const r of state.selectedRows) selBytes += r.size || 0;
-        selectedSizeEl.textContent = state.selectedRows.size + ' selected / ' + fmtBytes(selBytes);
+        let selectedBytes = 0;
+        for (const row of state.selectedRows) selectedBytes += row.size || 0;
+        selectedSizeEl.textContent = state.selectedRows.size + ' selected / ' + fmtBytes(selectedBytes);
       } else {
         selectedSizeEl.textContent = '';
       }
     }
-    // Update search count display for live updates during recording
     const srch = state.search;
-    const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    const activeKeywords = srch.keywords.filter((keyword) => keyword.query && keyword.query.trim());
     const countEl = $('#searchCount');
     if (countEl) {
-      if (srch.matches.length === 0 && activeKws.length > 0) {
+      if (srch.matches.length === 0 && activeKeywords.length > 0) {
         countEl.textContent = 'No matches';
         countEl.style.color = 'var(--status-5xx-text)';
-      } else if (srch.matches.length > 0) {
+      } else if (srch.matches.length > 0 && activeKeywords.length > 0) {
         countEl.textContent = srch.matches.length + ' matches';
         countEl.style.color = '';
       } else {
@@ -2128,6 +2127,125 @@ const _NetworkPlus = (function () {
       }
       queueSearchCountAnnouncement(countEl.textContent);
     }
+  }
+
+  function appendIncrementalRows(queuedRows) {
+    const tbody = $('#tbody');
+    if (!tbody) return false;
+    const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
+    if (
+      !isIncrementalAppendEligible(
+        state.sort,
+        activeFilterCount,
+        state.search.keywords,
+        state.renderedActiveFilterCount,
+      )
+    ) {
+      return false;
+    }
+    const currentRows = queuedRows.filter((row) => state.rows.includes(row));
+    const renderedRowIds = $all('tr[data-row-id]', tbody).map((rowElement) => rowElement.dataset.rowId);
+    const rowsToAppend = getIncrementalAppendBatch(currentRows, renderedRowIds);
+    refreshSearchMatches();
+    if (rowsToAppend.length === 0) {
+      updateEmptyState(state.filteredRows.length);
+      updateTableSummary(state.filteredRows.length);
+      return true;
+    }
+    const filteredSet = new Set(state.filteredRows);
+    for (const row of rowsToAppend) {
+      if (!filteredSet.has(row)) {
+        state.filteredRows.push(row);
+        filteredSet.add(row);
+      }
+    }
+    const fragment = document.createDocumentFragment();
+    const currentTabStop = tbody.querySelector(`tr[tabindex="0"]`);
+    const tabStopRow = currentTabStop
+      ? null
+      : rowsToAppend.includes(state.focusedRow)
+        ? state.focusedRow
+        : rowsToAppend.includes(state.selectedRow)
+          ? state.selectedRow
+          : rowsToAppend[0];
+    for (const row of rowsToAppend) {
+      fragment.appendChild(createTableRow(row, (event) => selectRow(row, event), row === tabStopRow));
+    }
+    tbody.appendChild(fragment);
+    state.visibleBytes += rowsToAppend.reduce((total, row) => total + (row.size || 0), 0);
+    updateEmptyState(state.filteredRows.length);
+    updateTableSummary(state.filteredRows.length);
+    return true;
+  }
+
+  function replaceRenderedRowStates(rows) {
+    const tbody = $('#tbody');
+    if (!tbody) return false;
+    const activeRow =
+      document.activeElement && document.activeElement.closest
+        ? document.activeElement.closest('tr[data-row-id]')
+        : null;
+    const focusRowId = state.pendingRowFocusId || (activeRow ? activeRow.dataset.rowId : null);
+    state.pendingRowFocusId = null;
+    const affectedRows = Array.from(new Set(rows.filter(Boolean)));
+    const tabStopRow = state.filteredRows.includes(state.focusedRow)
+      ? state.focusedRow
+      : state.filteredRows.includes(state.selectedRow)
+        ? state.selectedRow
+        : state.filteredRows[0];
+    for (const row of affectedRows) {
+      const renderedRow = tbody.querySelector(`tr[data-row-id="${row.id}"]`);
+      if (!renderedRow) {
+        if (state.filteredRows.includes(row)) return false;
+        continue;
+      }
+      const replacement = createTableRow(row, (event) => selectRow(row, event), row === tabStopRow);
+      renderedRow.replaceWith(replacement);
+    }
+    if (focusRowId) {
+      const rowToFocus = tbody.querySelector(`tr[data-row-id="${focusRowId}"]`);
+      if (rowToFocus) rowToFocus.focus({ preventScroll: true });
+    }
+    updateTableSummary(state.filteredRows.length);
+    return true;
+  }
+
+  function renderBody() {
+    filterRows();
+    state.renderedActiveFilterCount = countActiveColumnFilters(state.columnFilterRules);
+    refreshSearchMatches();
+    const rows = getSortedRows(state.filteredRows);
+    const visibleBytes = rows.reduce((total, row) => total + (row.size || 0), 0);
+    updateEmptyState(rows.length);
+    const tbody = $('#tbody');
+    const activeRow =
+      document.activeElement && document.activeElement.closest
+        ? document.activeElement.closest('tr[data-row-id]')
+        : null;
+    const focusRowId = state.pendingRowFocusId || (activeRow ? activeRow.dataset.rowId : null);
+    state.pendingRowFocusId = null;
+    if (!tbody) {
+      updateTableSummary(rows.length, visibleBytes);
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    tbody.textContent = '';
+    const tabStopRow = rows.includes(state.focusedRow)
+      ? state.focusedRow
+      : rows.includes(state.selectedRow)
+        ? state.selectedRow
+        : rows[0];
+    for (const row of rows) {
+      fragment.appendChild(createTableRow(row, (event) => selectRow(row, event), row === tabStopRow));
+    }
+    tbody.appendChild(fragment);
+    if (focusRowId) {
+      const requestedRow = tbody.querySelector(`tr[data-row-id="${focusRowId}"]`);
+      const fallbackRow = tabStopRow ? tbody.querySelector(`tr[data-row-id="${tabStopRow.id}"]`) : null;
+      const rowToFocus = requestedRow || fallbackRow;
+      if (rowToFocus) rowToFocus.focus({ preventScroll: true });
+    }
+    updateTableSummary(rows.length, visibleBytes);
   }
 
   function render() {
@@ -2489,39 +2607,37 @@ const _NetworkPlus = (function () {
   }
 
   function selectRow(row, event, moveFocus) {
+    const previousFocusedRow = state.focusedRow;
+    const previousSelectedRow = state.selectedRow;
     if (row) state.focusedRow = row;
     if (moveFocus && row) state.pendingRowFocusId = String(row.id);
     // Multi-row selection support
     if (event && (event.ctrlKey || event.metaKey)) {
-      // Ctrl+Click: toggle multi-selection
       if (state.selectedRows.has(row)) {
         state.selectedRows.delete(row);
       } else {
         state.selectedRows.add(row);
       }
-      renderBody(); // Update row styling only
-      return; // Don't update detail panel
+      if (!replaceRenderedRowStates([previousFocusedRow, row])) renderBody();
+      return; // Do not update the detail panel for a toggle.
     }
-
     if (event && event.shiftKey && state.selectedRow) {
-      // Shift+Click: range selection
+      // Shift+Click may update many rows, so use the safe full render.
       const filtered = getSortedRows(state.filteredRows);
       const lastIdx = filtered.indexOf(state.selectedRow);
       const currentIdx = filtered.indexOf(row);
       if (lastIdx !== -1 && currentIdx !== -1) {
         const [start, end] = lastIdx < currentIdx ? [lastIdx, currentIdx] : [currentIdx, lastIdx];
-        for (let i = start; i <= end; i++) {
-          state.selectedRows.add(filtered[i]);
-        }
-        renderBody(); // Update row styling only
-        return; // Don't update detail panel
+        for (let i = start; i <= end; i++) state.selectedRows.add(filtered[i]);
+        renderBody();
+        return; // Do not update the detail panel for a range selection.
       }
     }
-
-    // Normal click: clear multi-selection and show detail
+    // Normal click: update only rows whose primary or multi-selection state changed.
+    const affectedRows = [previousFocusedRow, previousSelectedRow, row, ...state.selectedRows];
     state.selectedRows.clear();
     state.selectedRow = row;
-    renderBody();
+    if (!replaceRenderedRowStates(affectedRows)) renderBody();
     if (!row) return;
 
     const titleParts = [];
@@ -2907,6 +3023,14 @@ const _NetworkPlus = (function () {
     loadColumnPrefs();
     setStatus('panel.js loaded');
 
+    const pendingLiveRows = [];
+    let pendingLiveFrame = false;
+    let pendingScrollToBottom = false;
+    const resetPendingLiveRows = () => {
+      pendingLiveRows.length = 0;
+      pendingScrollToBottom = false;
+    };
+
     // Theme init
     loadThemePref((pref) => applyTheme(pref));
     $('#themeBtn').addEventListener('click', () => {
@@ -2919,6 +3043,7 @@ const _NetworkPlus = (function () {
 
     // [U4] Clear — reset filters properly, keeping method defaults
     $('#clearBtn').addEventListener('click', () => {
+      resetPendingLiveRows();
       state.rows = [];
       state.filteredRows = [];
       state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
@@ -3831,6 +3956,7 @@ const _NetworkPlus = (function () {
               state.paused = true;
               updateRecordState();
 
+              resetPendingLiveRows();
               state.rows = [];
               state.selectedRow = null;
               state.focusedRow = null;
@@ -3886,6 +4012,7 @@ const _NetworkPlus = (function () {
 
             state.paused = true;
             updateRecordState();
+            resetPendingLiveRows();
             state.rows = [];
             state.selectedRow = null;
             state.focusedRow = null;
@@ -4002,18 +4129,25 @@ const _NetworkPlus = (function () {
     }
 
     // Network subscription
-    // Throttle renderBody during heavy traffic to keep UI responsive
-    let pendingRender = false;
-    let pendingScrollToBottom = false;
-    const scheduleRender = (scrollToBottom) => {
+    // Batch live rows into one frame. Eligibility is deliberately checked again at flush time.
+    const scheduleLiveRows = (scrollToBottom) => {
       if (scrollToBottom) pendingScrollToBottom = true;
-      if (pendingRender) return;
-      pendingRender = true;
+      if (pendingLiveFrame) return;
+      pendingLiveFrame = true;
       window.requestAnimationFrame(() => {
-        pendingRender = false;
-        renderBody();
-        if (pendingScrollToBottom) {
-          pendingScrollToBottom = false;
+        pendingLiveFrame = false;
+        const queuedRows = pendingLiveRows.splice(0, pendingLiveRows.length);
+        const shouldScrollToBottom = pendingScrollToBottom && state.autoScroll;
+        pendingScrollToBottom = false;
+        const fastPathEligible = isIncrementalAppendEligible(
+          state.sort,
+          countActiveColumnFilters(state.columnFilterRules),
+          state.search.keywords,
+          state.renderedActiveFilterCount,
+        );
+        const liveRows = queuedRows.filter((row) => state.rows.includes(row));
+        if (!fastPathEligible || !appendIncrementalRows(liveRows)) renderBody();
+        if (shouldScrollToBottom && state.autoScroll) {
           tableWrap.scrollTop = tableWrap.scrollHeight;
           previousTableScrollTop = tableWrap.scrollTop;
         }
@@ -4032,10 +4166,9 @@ const _NetworkPlus = (function () {
           state.autoScroll &&
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
         state.rows.push(row);
+        pendingLiveRows.push(row);
 
-        // Throttled re-render to keep sort order and filter state consistent
-        // without blocking the main thread during heavy traffic.
-        scheduleRender(wasAtBottom);
+        scheduleLiveRows(wasAtBottom);
       });
       setStatus('Capturing...');
     } else {
@@ -4087,6 +4220,8 @@ const _NetworkPlus = (function () {
     settleResponseContentForHar,
     isRuleActive,
     countActiveColumnFilters,
+    isIncrementalAppendEligible,
+    getIncrementalAppendBatch,
   };
 })();
 

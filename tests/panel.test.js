@@ -752,6 +752,51 @@ describe('formatRowSummary', () => {
 });
 
 
+describe('scale trust helpers', () => {
+  const eligible = (sort, activeFilterCount = 0, keywords = [], renderedActiveFilterCount = activeFilterCount) =>
+    np.isIncrementalAppendEligible(sort, activeFilterCount, keywords, renderedActiveFilterCount);
+
+  test('allows natural order with no sort or ID ascending', () => {
+    expect(eligible(null)).toBe(true);
+    expect(eligible({ colId: null, direction: null })).toBe(true);
+    expect(eligible({ colId: 'id', direction: 'asc' })).toBe(true);
+  });
+
+  test('rejects ID descending and other active sorts', () => {
+    expect(eligible({ colId: 'id', direction: 'desc' })).toBe(false);
+    expect(eligible({ colId: 'status', direction: 'asc' })).toBe(false);
+  });
+
+  test('rejects active column filters', () => {
+    expect(eligible({ colId: 'id', direction: 'asc' }, 1)).toBe(false);
+  });
+
+  test('rejects a relaxed filter until a full render synchronizes filtered rows', () => {
+    expect(eligible({ colId: 'id', direction: 'asc' }, 0, [], 1)).toBe(false);
+    expect(eligible({ colId: 'id', direction: 'asc' }, 0, [], 0)).toBe(true);
+  });
+
+  test('rejects active search keywords but ignores blank rows', () => {
+    expect(eligible(null, 0, [{ query: 'needle' }])).toBe(false);
+    expect(eligible(null, 0, [{ query: '   ' }])).toBe(true);
+  });
+
+  test('re-evaluates changed state instead of trusting an earlier decision', () => {
+    const schedulingState = { sort: null, filters: 0, keywords: [] };
+    expect(eligible(schedulingState.sort, schedulingState.filters, schedulingState.keywords)).toBe(true);
+    schedulingState.keywords.push({ query: 'changed before flush' });
+    expect(eligible(schedulingState.sort, schedulingState.filters, schedulingState.keywords)).toBe(false);
+  });
+
+  test('returns only missing rows for one append batch', () => {
+    const existingIds = Array.from({ length: 1000 }, (_, index) => index + 1);
+    const queuedRows = [{ id: 1000 }, { id: 1001 }, { id: 1002 }, { id: 1002 }];
+    const batch = np.getIncrementalAppendBatch(queuedRows, existingIds);
+    expect(batch.map((row) => row.id)).toEqual([1001, 1002]);
+    expect(batch).toHaveLength(2);
+  });
+});
+
 describe('clampPopupPosition', () => {
   test('clamps left and top overflow to the eight-pixel edge', () => {
     expect(np.clampPopupPosition(-20, -30, 120, 80, 500, 400)).toEqual({

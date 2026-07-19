@@ -161,6 +161,23 @@ describe('accessible workbench static contracts', () => {
 });
 
 
+describe('scale trust static contracts', () => {
+  test('batches live rows and targets selection updates without rebuilding existing rows', () => {
+    expect(js).toContain('pendingLiveRows.push(row);');
+    const frameBlock = js.slice(js.indexOf('window.requestAnimationFrame(() => {'), js.indexOf('if (chrome && chrome.devtools'));
+    expect(frameBlock).toContain('isIncrementalAppendEligible(');
+
+    const appendBlock = js.slice(js.indexOf('function appendIncrementalRows'), js.indexOf('function replaceRenderedRowStates'));
+    expect(appendBlock).toContain('document.createDocumentFragment()');
+    expect(appendBlock).not.toContain('tbody.textContent =');
+    expect(appendBlock).toContain('getIncrementalAppendBatch(currentRows, renderedRowIds)');
+
+    expect(js).toContain('renderedRow.replaceWith(replacement);');
+    const selectionBlock = js.slice(js.indexOf('function selectRow'), js.indexOf('const titleParts', js.indexOf('function selectRow')));
+    expect(selectionBlock).toContain('replaceRenderedRowStates');
+  });
+});
+
 describe('keyboard trust static contracts', () => {
   test('uses a selectable grid with native cells and stable focusable rows', () => {
     expect(html).toMatch(/<table class="grid" id="grid" role="grid"[^>]*aria-multiselectable="true"/);
