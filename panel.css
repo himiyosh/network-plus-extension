@@ -144,7 +144,8 @@ html[data-theme="dark"] .search-hl-5{background:color-mix(in srgb,var(--search-o
 .content{display:flex;flex:1 1 auto;min-width:0;min-height:0}
 .tableWrap{overflow:auto;flex:1 1 50%;min-width:0}
 .resizer{flex:0 0 4px;cursor:col-resize;background:var(--border);z-index:2;transition:background 0.15s}
-.resizer:hover{background:var(--accent)}
+.resizer:hover,.resizer:focus-visible{background:var(--accent)}
+.resizer:focus-visible,.inspector-divider:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* === Details Panel === */
 .details{display:flex;flex-direction:column;flex:0 0 50%;min-width:300px;min-height:0;overflow:hidden;border-left:1px solid var(--border)}
@@ -153,7 +154,7 @@ html[data-theme="dark"] .search-hl-5{background:color-mix(in srgb,var(--search-o
 .inspector-half{display:flex;flex-direction:column;flex:1;min-height:80px;overflow:hidden}
 .inspector-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;padding:4px 10px;background:var(--accent-dim);color:var(--text-accent);border-bottom:1px solid var(--border)}
 .inspector-divider{flex:0 0 3px;background:var(--border);cursor:row-resize}
-.inspector-divider:hover{background:var(--accent)}
+.inspector-divider:hover,.inspector-divider:focus-visible{background:var(--accent)}
 
 /* === Tabs === */
 .tab-bar{display:flex;flex-wrap:nowrap;overflow-x:auto;background:var(--surface);border-bottom:1px solid var(--border);gap:0;padding:0 6px;scrollbar-width:thin}
@@ -207,6 +208,7 @@ html[data-theme="dark"] .search-hl-5{background:color-mix(in srgb,var(--search-o
 .title-row th{position:sticky;top:0;background:var(--th-bg);border-bottom:2px solid var(--th-border);font-weight:700;text-align:left;padding:7px 8px;white-space:nowrap;z-index:2;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-muted)}
 .title-row th.sortable-header{cursor:pointer;-webkit-user-select:none;user-select:none}
 .title-row th.sortable-header:hover{background:var(--th-bg);color:var(--text-accent);box-shadow:inset 0 -2px 0 var(--accent)}
+.title-row th.sortable-header:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;color:var(--text-accent);box-shadow:inset 0 -2px 0 var(--accent)}
 .title-row th.drag-over-left{box-shadow:inset 3px 0 0 var(--accent)}
 .title-row th.drag-over-right{box-shadow:inset -3px 0 0 var(--accent)}
 .title-row th.dragging{opacity:0.4}
@@ -214,6 +216,7 @@ html[data-theme="dark"] .search-hl-5{background:color-mix(in srgb,var(--search-o
 .grid tbody tr:nth-child(even){background:var(--stripe)}
 .grid tbody tr:hover{background:var(--row-hover)}
 .grid tbody tr.selected{background:var(--selected);box-shadow:inset 3px 0 0 var(--accent)}
+.grid tbody tr:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* Status code colors */
 .grid tbody tr .status-cell{font-weight:700;font-variant-numeric:tabular-nums}
@@ -250,7 +253,8 @@ html[data-theme="dark"] .search-hl-5{background:color-mix(in srgb,var(--search-o
 
 /* === Column Resizer === */
 .col-resizer{position:absolute;top:0;right:0;width:5px;height:100%;cursor:col-resize;z-index:1}
-.col-resizer:hover{background:var(--accent-dim)}
+.col-resizer:hover,.col-resizer:focus-visible{background:var(--accent-dim)}
+.col-resizer:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* === Buttons === */
 .copy-btn{float:right;padding:3px 10px;margin-left:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;font-size:11px;transition:background-color 0.15s,border-color 0.15s,color 0.15s}
@@ -362,6 +366,8 @@ html[data-theme="dark"] .context-menu{box-shadow:0 10px 22px rgba(2,6,23,0.35)}
 .context-menu-item{display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:0;border-radius:6px;padding:7px 9px;font-size:12px;line-height:1.4;cursor:pointer}
 .context-menu-item + .context-menu-item{margin-top:2px}
 .context-menu-item:hover{background:var(--hover);color:var(--fg)}
+.context-menu-label{padding:7px 9px 2px;color:var(--text-muted);font-size:11px;font-weight:600}
+.context-menu-colors{display:flex;gap:4px;padding:4px 9px 6px;flex-wrap:wrap}
 
 /* === Copy Toast === */
 .copy-toast{position:fixed;bottom:36px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--accent-fill);color:var(--on-accent);padding:6px 18px;border-radius:8px;font-size:12px;font-weight:600;opacity:0;pointer-events:none;transition:opacity 0.2s,transform 0.2s;z-index:100;box-shadow:var(--shadow-md);white-space:nowrap}

@@ -27,8 +27,8 @@
       <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
     </div>
     <div class="right">
-      <button id="filterBtn" aria-label="Column Filters, no active filters" aria-haspopup="dialog" aria-expanded="false">⚙️ Column Filters</button>
-      <button id="columnsBtn" aria-haspopup="menu" aria-expanded="false">🗂️ Columns</button>
+      <button id="filterBtn" aria-label="Column Filters, no active filters" aria-haspopup="dialog" aria-controls="columnFilterPopup" aria-expanded="false">⚙️ Column Filters</button>
+      <button id="columnsBtn" aria-haspopup="menu" aria-controls="columnsMenu" aria-expanded="false">🗂️ Columns</button>
       <div class="separator"></div>
       <button id="themeBtn">🌗 System</button>
     </div>
@@ -38,17 +38,17 @@
     <div class="search-panel-footer">
       <button id="searchAddBtn" class="search-add-btn">+ Add keyword</button>
       <div class="search-panel-spacer"></div>
-      <button id="searchScopeBtn" class="search-scope-btn" title="Search scope settings">⚙️ Scope</button>
+      <button id="searchScopeBtn" class="search-scope-btn" title="Search scope settings" aria-haspopup="dialog" aria-controls="searchScopePopup" aria-expanded="false">⚙️ Scope</button>
     </div>
   </div>
   <main class="content" id="content">
     <section class="tableWrap" id="tableWrap" aria-label="Network requests">
-      <table class="grid" id="grid">
+      <table class="grid" id="grid" role="grid" aria-label="Network requests" aria-multiselectable="true">
         <thead id="thead"></thead>
         <tbody id="tbody"></tbody>
       </table>
     </section>
-    <div class="resizer" id="resizer" role="separator" aria-label="Resize request list and request details" aria-controls="tableWrap details" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"></div>
+    <div class="resizer" id="resizer" role="separator" tabindex="0" title="Resize request list and details with arrow keys" aria-label="Resize request list and request details" aria-controls="tableWrap details" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Request list 50 percent"></div>
     <aside class="details" id="details" aria-label="Request details">
       <div class="details-header"><div id="detailsTitle">Select a request...</div></div>
       <div class="inspector-panels">
@@ -69,7 +69,7 @@
             <div class="tab-pane" id="req-raw" role="tabpanel" aria-labelledby="req-tab-raw" hidden></div>
           </div>
         </div>
-        <div class="inspector-divider" id="inspector-divider"></div>
+        <div class="inspector-divider" id="inspector-divider" role="separator" tabindex="0" title="Resize request and response inspectors with arrow keys" aria-label="Resize request and response inspectors" aria-controls="inspector-request inspector-response" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Request inspector 50 percent"></div>
         <div class="inspector-half" id="inspector-response">
           <div class="inspector-label">Response</div>
           <div class="tab-bar" id="res-tab-bar" role="tablist" aria-label="Response details">

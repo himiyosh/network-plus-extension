@@ -131,7 +131,7 @@ describe('accessible workbench static contracts', () => {
     expect(css).toMatch(
       /\.filter-dropdown-content,\.search-color-popup,\.search-scope-popup,\.context-menu\{[^}]*max-width:calc\(100vw - 16px\)[^}]*max-height:calc\(100vh - 16px\)[^}]*overflow:auto/,
     );
-    expect((js.match(/showPopupAt\(/g) || []).length).toBeGreaterThanOrEqual(6);
+    expect((js.match(/showAccessiblePopupAt\(/g) || []).length).toBeGreaterThanOrEqual(6);
     expect(js).toContain('const rect = popup.getBoundingClientRect();');
     expect(js).toContain('reclampOpenPopups();');
     expect(js).not.toContain("'var(--status-5xx)'");
@@ -157,5 +157,64 @@ describe('accessible workbench static contracts', () => {
     expect(html).toMatch(/id="requestCountStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
     expect(html).toMatch(/id="copyToast"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
     expect(html).toMatch(/id="resizer"[^>]*role="separator"[^>]*aria-orientation="vertical"[^>]*aria-valuenow="50"/);
+  });
+});
+
+
+describe('keyboard trust static contracts', () => {
+  test('uses a selectable grid with native cells and stable focusable rows', () => {
+    expect(html).toMatch(/<table class="grid" id="grid" role="grid"[^>]*aria-multiselectable="true"/);
+    expect(js).toContain("tr.id = 'request-row-' + row.id;");
+    expect(js).toContain("tr.setAttribute('role', 'row');");
+    expect(js).toContain("td.setAttribute('role', 'gridcell');");
+    expect(js).toContain("tr.setAttribute('aria-selected', String(isSelected));");
+    expect(js).not.toContain("tr.setAttribute('aria-haspopup'");
+    expect(js).not.toContain("tr.setAttribute('aria-expanded'");
+    expect(js).not.toContain("tr.setAttribute('aria-label'");
+    expect(js).not.toContain("td.setAttribute('aria-label'");
+    expect(js).toContain('focus({ preventScroll: true })');
+  });
+
+  test('exposes sortable headers and keyboard column reordering', () => {
+    expect(js).toContain("th.setAttribute('aria-sort', sortState);");
+    expect(js).toContain("th.setAttribute('aria-label', c.label);");
+    expect(js).toContain("event.key === 'Enter' || event.key === ' '");
+    expect(js).toContain("event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')");
+    expect(js).toContain("state.pendingHeaderFocusId = c.id;");
+    expect(css).toContain('.title-row th.sortable-header:focus-visible');
+  });
+
+  test('makes all four divider classes focusable and keyboard adjustable', () => {
+    expect(html).toMatch(/id="resizer"[^>]*role="separator"[^>]*tabindex="0"/);
+    expect(html).toMatch(/id="inspector-divider"[^>]*role="separator"[^>]*tabindex="0"[^>]*aria-orientation="horizontal"/);
+    expect(js).toContain("columnResizer.setAttribute('role', 'separator');");
+    expect(js).toContain("columnResizer.setAttribute('aria-valuenow', String(c.width));");
+    expect(js).toContain("adjustMainSplitByKeyboard(currentPrimarySize, totalSize, isNarrow, event.key, event.shiftKey)");
+    expect(js).toContain("adjustInspectorSplitByKeyboard(");
+    expect(css).toContain('.col-resizer:focus-visible');
+  });
+
+  test('gives popup triggers matching roles, ownership, focus entry, and restoration', () => {
+    expect(html).toMatch(/id="filterBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="columnFilterPopup"/);
+    expect(html).toMatch(/id="columnsBtn"[^>]*aria-haspopup="menu"[^>]*aria-controls="columnsMenu"/);
+    expect(html).toMatch(/id="searchScopeBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="searchScopePopup"/);
+    expect(js).toContain("columnsContextMenu.setAttribute('role', 'menu');");
+    expect(js).toContain("filterPopup.setAttribute('role', 'dialog');");
+    expect(js).toContain("scopePopup.setAttribute('role', 'dialog');");
+    expect(js).toContain("colorPopup.setAttribute('role', 'menu');");
+    expect(js).toContain('showAccessiblePopupAt');
+    expect(js).toContain('closeAccessiblePopup');
+    expect(js).toContain('_networkPlusRestoreFocus');
+  });
+
+  test('supports complete row context-menu keyboard behavior', () => {
+    expect(js).toContain("event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')");
+    expect(js).toContain('suppressNextNativeContextMenuRowId');
+    expect(js).toContain("contextMenu.setAttribute('role', 'menu');");
+    expect(js).toContain("button.setAttribute('role', 'menuitem');");
+    expect(js).toContain("['ArrowUp', 'ArrowDown', 'Home', 'End']");
+    expect(js).toContain("event.key === 'Escape'");
+    expect(js).toContain('restoreContextMenuFocus');
+    expect(js).not.toContain('closeRowContextMenu(false)');
   });
 });

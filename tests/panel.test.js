@@ -809,3 +809,73 @@ describe('calculateMainSplit', () => {
     expect(np.calculateMainSplit(NaN, 500, true)).toBeNull();
   });
 });
+
+
+describe('keyboard trust helpers', () => {
+  test('exposes valid aria-sort values', () => {
+    expect(np.getAriaSortValue({ colId: 'status', direction: 'asc' }, 'status')).toBe('ascending');
+    expect(np.getAriaSortValue({ colId: 'status', direction: 'desc' }, 'status')).toBe('descending');
+    expect(np.getAriaSortValue({ colId: 'status', direction: 'asc' }, 'method')).toBe('none');
+    expect(np.getAriaSortValue(null, 'status')).toBe('none');
+  });
+
+  test('adjusts main split on the orientation-specific arrow keys', () => {
+    expect(np.adjustMainSplitByKeyboard(400, 1000, false, 'ArrowRight', false)).toEqual({
+      axis: 'width',
+      primarySize: 410,
+      detailsSize: 586,
+      primaryPercent: 41,
+    });
+    expect(np.adjustMainSplitByKeyboard(200, 500, true, 'ArrowUp', true)).toEqual({
+      axis: 'height',
+      primarySize: 160,
+      detailsSize: 336,
+      primaryPercent: 32,
+    });
+    expect(np.adjustMainSplitByKeyboard(400, 1000, false, 'ArrowDown', false)).toBeNull();
+  });
+
+  test('keeps inspector panes above minimum height', () => {
+    expect(np.calculateInspectorSplit(200, 500)).toEqual({
+      requestSize: 200,
+      responseSize: 297,
+      requestPercent: 40,
+    });
+    expect(np.calculateInspectorSplit(70, 500)).toBeNull();
+    expect(np.adjustInspectorSplitByKeyboard(200, 500, 'ArrowDown', true)).toEqual({
+      requestSize: 240,
+      responseSize: 257,
+      requestPercent: 48,
+    });
+    expect(np.adjustInspectorSplitByKeyboard(200, 500, 'ArrowLeft', false)).toBeNull();
+  });
+
+  test('clamps and steps column widths', () => {
+    expect(np.clampColumnWidth(5)).toBe(20);
+    expect(np.clampColumnWidth(5000)).toBe(1200);
+    expect(np.clampColumnWidth(NaN)).toBe(120);
+    expect(np.adjustColumnWidth(100, 'ArrowLeft', false)).toBe(90);
+    expect(np.adjustColumnWidth(100, 'ArrowRight', true)).toBe(140);
+    expect(np.adjustColumnWidth(100, 'ArrowUp', false)).toBeNull();
+  });
+
+  test('finds adjacent visible columns without selecting hidden columns', () => {
+    const columns = [
+      { id: 'id', visible: true },
+      { id: 'hidden', visible: false },
+      { id: 'method', visible: true },
+      { id: 'status', visible: true },
+    ];
+    expect(np.getAdjacentVisibleColumnId(columns, 'method', -1)).toBe('id');
+    expect(np.getAdjacentVisibleColumnId(columns, 'method', 1)).toBe('status');
+    expect(np.getAdjacentVisibleColumnId(columns, 'id', -1)).toBeNull();
+  });
+
+  test('cycles menu focus and supports Home and End', () => {
+    expect(np.getNextMenuItemIndex(0, 3, 'ArrowDown')).toBe(1);
+    expect(np.getNextMenuItemIndex(0, 3, 'ArrowUp')).toBe(2);
+    expect(np.getNextMenuItemIndex(2, 3, 'Home')).toBe(0);
+    expect(np.getNextMenuItemIndex(0, 3, 'End')).toBe(2);
+    expect(np.getNextMenuItemIndex(0, 0, 'ArrowDown')).toBe(-1);
+  });
+});
