@@ -21,6 +21,7 @@ docs/unified-project-rules.md
 # Logs / temp
 /logs/
 /tmp/
+.impeccable/hook.cache.json
 
 # Temporary / one-off scripts
 fix*.js

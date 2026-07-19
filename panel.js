@@ -9,7 +9,15 @@ const _NetworkPlus = (function () {
   const MIN_COL_WIDTH = 20;
   const MIN_DETAILS_WIDTH = 300;
   const MIN_TABLE_WIDTH = 240;
-  const RESIZER_WIDTH = 5;
+  const MIN_DETAILS_HEIGHT = 160;
+  const MIN_TABLE_HEIGHT = 120;
+  const RESIZER_WIDTH = 4;
+  const NARROW_PANEL_MAX_WIDTH = 700;
+  const POPUP_VIEWPORT_MARGIN = 8;
+  const TRANSIENT_POPUP_SELECTOR = '.dropdown-content,.search-scope-popup,.search-color-popup';
+  const REQUEST_COUNT_ANNOUNCE_MS = 1000;
+  const SEARCH_COUNT_ANNOUNCE_MS = 500;
+  const COPY_FEEDBACK_DURATION_MS = 1800;
   const SCROLL_THRESHOLD = 10;
   const TRUNCATE_LIMIT = 2000;
   const FILTER_DEBOUNCE_MS = 150;
@@ -106,12 +114,12 @@ const _NetworkPlus = (function () {
 
   // Colors for search keyword rows (index matches search-hl-N / search-row-N)
   const SEARCH_COLORS = [
-    { name: 'Yellow', hex: '#fbbf24' },
-    { name: 'Red', hex: '#ef4444' },
-    { name: 'Green', hex: '#22c55e' },
-    { name: 'Blue', hex: '#3b82f6' },
-    { name: 'Purple', hex: '#a855f7' },
-    { name: 'Orange', hex: '#f97316' },
+    { name: 'Yellow', cssColor: 'var(--search-yellow)' },
+    { name: 'Red', cssColor: 'var(--search-red)' },
+    { name: 'Green', cssColor: 'var(--search-green)' },
+    { name: 'Blue', cssColor: 'var(--search-blue)' },
+    { name: 'Purple', cssColor: 'var(--search-purple)' },
+    { name: 'Orange', cssColor: 'var(--search-orange)' },
   ];
 
   // ============================================================
@@ -125,9 +133,121 @@ const _NetworkPlus = (function () {
     if (el) el.textContent = t;
   }
 
+  let requestCountAnnouncementTimer = null;
+  function queueRequestCountAnnouncement(text) {
+    if (requestCountAnnouncementTimer) clearTimeout(requestCountAnnouncementTimer);
+    requestCountAnnouncementTimer = setTimeout(() => {
+      const el = $('#requestCountStatus');
+      if (el && el.textContent !== text) el.textContent = text;
+    }, REQUEST_COUNT_ANNOUNCE_MS);
+  }
+
+  let searchCountAnnouncementTimer = null;
+  function queueSearchCountAnnouncement(text) {
+    if (searchCountAnnouncementTimer) clearTimeout(searchCountAnnouncementTimer);
+    searchCountAnnouncementTimer = setTimeout(() => {
+      const el = $('#searchCountStatus');
+      if (el && el.textContent !== text) el.textContent = text;
+    }, SEARCH_COUNT_ANNOUNCE_MS);
+  }
+
+  let copyFeedbackTimer = null;
+  function showCopyFeedback(message) {
+    const toast = $('#copyToast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add('show');
+    if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer);
+    copyFeedbackTimer = setTimeout(() => {
+      toast.classList.remove('show');
+    }, COPY_FEEDBACK_DURATION_MS);
+  }
+
+  function copyTextWithFeedback(text, message) {
+    return navigator.clipboard.writeText(text).then(() => {
+      showCopyFeedback(message);
+    }).catch((_error) => {
+      setStatus('Copy failed');
+    });
+  }
+
+  function clampPopupToViewport(popup, x, y) {
+    const rect = popup.getBoundingClientRect();
+    const position = clampPopupPosition(
+      x,
+      y,
+      rect.width,
+      rect.height,
+      window.innerWidth,
+      window.innerHeight,
+      POPUP_VIEWPORT_MARGIN,
+    );
+    popup.style.left = position.left + 'px';
+    popup.style.top = position.top + 'px';
+    popup.style.maxWidth = position.maxWidth + 'px';
+    popup.style.maxHeight = position.maxHeight + 'px';
+  }
+
+  function showPopupAt(popup, x, y, displayValue) {
+    popup.classList.add('show');
+    popup.style.position = 'fixed';
+    popup.style.visibility = 'hidden';
+    popup.style.maxWidth = '';
+    popup.style.maxHeight = '';
+    popup.style.display = displayValue || 'block';
+    clampPopupToViewport(popup, x, y);
+    popup.style.visibility = '';
+  }
+
+  function reclampOpenPopups() {
+    $all(TRANSIENT_POPUP_SELECTOR).forEach((popup) => {
+      if (window.getComputedStyle(popup).display === 'none') return;
+      const rect = popup.getBoundingClientRect();
+      clampPopupToViewport(popup, rect.left, rect.top);
+    });
+  }
+
   // ============================================================
   // Section 3: Pure Utility Functions (testable)
   // ============================================================
+  function clampPopupPosition(x, y, popupWidth, popupHeight, viewportWidth, viewportHeight, margin) {
+    const edge = Number.isFinite(margin) && margin >= 0 ? margin : POPUP_VIEWPORT_MARGIN;
+    const viewportW = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
+    const viewportH = Number.isFinite(viewportHeight) ? Math.max(0, viewportHeight) : 0;
+    const maxWidth = Math.max(0, viewportW - edge * 2);
+    const maxHeight = Math.max(0, viewportH - edge * 2);
+    const width = Math.min(Number.isFinite(popupWidth) ? Math.max(0, popupWidth) : 0, maxWidth);
+    const height = Math.min(Number.isFinite(popupHeight) ? Math.max(0, popupHeight) : 0, maxHeight);
+    const desiredLeft = Number.isFinite(x) ? x : edge;
+    const desiredTop = Number.isFinite(y) ? y : edge;
+    const rightmostLeft = Math.max(edge, viewportW - edge - width);
+    const lowestTop = Math.max(edge, viewportH - edge - height);
+    return {
+      left: Math.min(Math.max(desiredLeft, edge), rightmostLeft),
+      top: Math.min(Math.max(desiredTop, edge), lowestTop),
+      maxWidth,
+      maxHeight,
+    };
+  }
+
+  function calculateMainSplit(pointerPosition, totalSize, isNarrow) {
+    if (!Number.isFinite(pointerPosition) || !Number.isFinite(totalSize) || totalSize <= RESIZER_WIDTH) {
+      return null;
+    }
+    const primarySize = Math.round(pointerPosition);
+    const detailsSize = Math.round(totalSize - primarySize - RESIZER_WIDTH);
+    const minPrimary = isNarrow ? MIN_TABLE_HEIGHT : MIN_TABLE_WIDTH;
+    const minDetails = isNarrow ? MIN_DETAILS_HEIGHT : MIN_DETAILS_WIDTH;
+    if (primarySize < minPrimary || detailsSize < minDetails) return null;
+    const availableSize = totalSize - RESIZER_WIDTH;
+    return {
+      axis: isNarrow ? 'height' : 'width',
+      primarySize,
+      detailsSize,
+      primaryPercent: Math.round((primarySize / availableSize) * 100),
+    };
+  }
+
   function fmtBytes(bytes) {
     if (bytes == null || isNaN(bytes)) return '';
     const units = ['B', 'KB', 'MB', 'GB'];
@@ -497,8 +617,9 @@ const _NetworkPlus = (function () {
       matches: [],        // array of row references that match any keyword
       currentIndex: -1,   // index into matches[] for navigation
       scope: { url: true, reqBody: true, resBody: true, reqHeaders: true, resHeaders: true },
-      // Per-row match map: row -> Set of colorIdx values
+      // Per-row match maps keep color and keyword correspondence lookup linear.
       rowColors: new Map(),
+      rowKeywords: new Map(),
       // Per-keyword matches: kwIndex -> { matches: [rows], currentIndex: number }
       perKeyword: new Map(),
     },
@@ -943,17 +1064,33 @@ const _NetworkPlus = (function () {
     tr.addEventListener('click', onClick);
     tr.dataset.rowId = row.id;
 
+    const isSelected = state.selectedRow === row || state.selectedRows.has(row);
     if (state.selectedRow === row) tr.classList.add('selected');
     if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
+    tr.setAttribute('aria-selected', String(isSelected));
+    const visibleStateBadges = [];
+    if (isSelected) {
+      visibleStateBadges.push({ text: '✓', label: 'Selected request' });
+    }
     // Manual highlight (context menu)
     const hlColor = state.highlightedRows.get(row);
-    if (hlColor) tr.classList.add('highlighted-row', hlColor);
+    if (hlColor) {
+      tr.classList.add('highlighted-row', hlColor);
+      visibleStateBadges.push({ text: '★', label: 'Highlighted request' });
+    }
     // Unified search match highlight — apply first matching keyword color
     const srch = state.search;
     const rowColorSet = srch.rowColors.get(row);
     if (rowColorSet && rowColorSet.size > 0) {
       const firstColor = rowColorSet.values().next().value;
       tr.classList.add('search-match-row', 'search-row-' + firstColor);
+      const rowKeywordSet = srch.rowKeywords.get(row) || new Set();
+      const keywordNumbers = Array.from(rowKeywordSet, (keywordIndex) => keywordIndex + 1);
+      const searchMatchBadge =
+        keywordNumbers.length > 1 ? 'K' + keywordNumbers[0] + '+' + (keywordNumbers.length - 1) : 'K' + keywordNumbers[0];
+      const searchMatchLabel = 'Matches search ' +
+        (keywordNumbers.length === 1 ? 'keyword ' : 'keywords ') + keywordNumbers.join(', ');
+      visibleStateBadges.push({ text: searchMatchBadge, label: searchMatchLabel });
       if (srch.currentIndex >= 0 && srch.matches[srch.currentIndex] === row) {
         tr.classList.add('search-match-current');
       }
@@ -1021,6 +1158,23 @@ const _NetworkPlus = (function () {
 
       if (c.id === 'url' || c.id === 'path') td.title = row[c.id] || '';
       tr.appendChild(td);
+    }
+    if (visibleStateBadges.length > 0) {
+      const firstCell = tr.querySelector('td');
+      if (firstCell) {
+        const badgeGroup = document.createElement('span');
+        badgeGroup.className = 'row-state-badges';
+        for (let i = 0; i < visibleStateBadges.length; i++) {
+          const stateBadge = visibleStateBadges[i];
+          const badge = document.createElement('span');
+          badge.className = 'row-state-badge';
+          badge.textContent = stateBadge.text;
+          badge.title = stateBadge.label;
+          badge.setAttribute('aria-label', stateBadge.label);
+          badgeGroup.appendChild(badge);
+        }
+        firstCell.insertBefore(badgeGroup, firstCell.firstChild);
+      }
     }
     return tr;
   }
@@ -1566,11 +1720,13 @@ const _NetworkPlus = (function () {
     const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
     if (activeKws.length === 0) {
       srch.rowColors.clear();
+      srch.rowKeywords.clear();
       srch.matches = [];
       srch.perKeyword.clear();
       return;
     }
     srch.rowColors.clear();
+    srch.rowKeywords.clear();
     const sorted = getSortedRows(state.filteredRows);
     const matchSet = new Set();
     // Build per-keyword match lists
@@ -1585,7 +1741,9 @@ const _NetworkPlus = (function () {
         if (deepSearchMatch(row, kw.query, srch.scope)) {
           matchSet.add(row);
           if (!srch.rowColors.has(row)) srch.rowColors.set(row, new Set());
+          if (!srch.rowKeywords.has(row)) srch.rowKeywords.set(row, new Set());
           srch.rowColors.get(row).add(kw.colorIdx);
+          srch.rowKeywords.get(row).add(ki);
           kwMatches.push(row);
         }
       }
@@ -1651,7 +1809,7 @@ const _NetworkPlus = (function () {
     }
     tbody.appendChild(frag);
     const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
-    $('#counter').textContent =
+    const requestCountText =
       rows.length +
       ' / ' +
       state.rows.length +
@@ -1659,6 +1817,8 @@ const _NetworkPlus = (function () {
       activeFilterCount +
       ' active column ' +
       (activeFilterCount === 1 ? 'filter' : 'filters');
+    $('#counter').textContent = requestCountText;
+    queueRequestCountAnnouncement(requestCountText);
     const filterButton = $('#filterBtn');
     filterButton.textContent =
       activeFilterCount > 0 ? '⚙️ Column Filters (' + activeFilterCount + ')' : '⚙️ Column Filters';
@@ -1691,7 +1851,7 @@ const _NetworkPlus = (function () {
     if (countEl) {
       if (srch.matches.length === 0 && activeKws.length > 0) {
         countEl.textContent = 'No matches';
-        countEl.style.color = 'var(--status-5xx)';
+        countEl.style.color = 'var(--status-5xx-text)';
       } else if (srch.matches.length > 0) {
         countEl.textContent = srch.matches.length + ' matches';
         countEl.style.color = '';
@@ -1699,6 +1859,7 @@ const _NetworkPlus = (function () {
         countEl.textContent = '';
         countEl.style.color = '';
       }
+      queueSearchCountAnnouncement(countEl.textContent);
     }
   }
 
@@ -2142,7 +2303,7 @@ const _NetworkPlus = (function () {
       copyBtn.className = 'copy-btn';
       copyBtn.textContent = 'Copy';
       copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(text).catch((e) => console.error(e));
+        copyTextWithFeedback(text, 'Copied request body');
       });
       reqBodyPane.insertBefore(copyBtn, reqBodyPane.firstChild);
     } else {
@@ -2178,7 +2339,7 @@ const _NetworkPlus = (function () {
     copyRawReq.className = 'copy-btn';
     copyRawReq.textContent = 'Copy';
     copyRawReq.addEventListener('click', () => {
-      navigator.clipboard.writeText(rawReqPre.textContent).catch((e) => console.error(e));
+      copyTextWithFeedback(rawReqPre.textContent, 'Copied raw request');
     });
     reqRawPane.appendChild(copyRawReq);
     reqRawPane.appendChild(rawReqPre);
@@ -2250,7 +2411,7 @@ const _NetworkPlus = (function () {
         copyBody.className = 'copy-btn';
         copyBody.textContent = 'Copy';
         copyBody.addEventListener('click', () => {
-          navigator.clipboard.writeText(text).catch((e) => console.error(e));
+          copyTextWithFeedback(text, 'Copied response body');
         });
         resBodyPane.insertBefore(copyBody, resBodyPane.firstChild);
 
@@ -2285,7 +2446,7 @@ const _NetworkPlus = (function () {
         copyRawRes.className = 'copy-btn';
         copyRawRes.textContent = 'Copy';
         copyRawRes.addEventListener('click', () => {
-          navigator.clipboard.writeText(rawResPre.textContent).catch((e) => console.error(e));
+          copyTextWithFeedback(rawResPre.textContent, 'Copied raw response');
         });
         resRawPane.appendChild(copyRawRes);
         resRawPane.appendChild(rawResPre);
@@ -2338,14 +2499,12 @@ const _NetworkPlus = (function () {
       barWrap.className = 'timing-bar-wrap';
       const segmentTotal = timingBreakdown.segments.reduce((sum, segment) => sum + segment.duration, 0);
       const visualTotal = Math.max(timingBreakdown.total, segmentTotal, 1);
-      const colors = ['#999', '#6cf', '#f90', '#c6f', '#9c6', '#6c9', '#69c'];
       for (let i = 0; i < timingBreakdown.segments.length; i++) {
         const segment = timingBreakdown.segments[i];
         if (segment.duration > 0) {
           const seg = document.createElement('div');
-          seg.className = 'timing-bar-seg';
+          seg.className = 'timing-bar-seg timing-phase-' + segment.label;
           seg.style.width = (segment.duration / visualTotal) * 100 + '%';
-          seg.style.background = colors[i];
           seg.title = segment.label + ': ' + fmtTime(segment.duration);
           barWrap.appendChild(seg);
         }
@@ -2359,8 +2518,7 @@ const _NetworkPlus = (function () {
         const item = document.createElement('span');
         item.className = 'timing-legend-item';
         const dot = document.createElement('span');
-        dot.className = 'timing-legend-dot';
-        dot.style.background = colors[i];
+        dot.className = 'timing-legend-dot timing-phase-' + timingBreakdown.segments[i].label;
         item.appendChild(dot);
         item.appendChild(document.createTextNode(timingBreakdown.segments[i].label));
         legend.appendChild(item);
@@ -2507,6 +2665,7 @@ const _NetworkPlus = (function () {
       state.search.matches = [];
       state.search.currentIndex = -1;
       state.search.rowColors.clear();
+      state.search.rowKeywords.clear();
       state.search.perKeyword.clear();
       render();
       clearDetailsPanel();
@@ -2543,13 +2702,13 @@ const _NetworkPlus = (function () {
     // Column Settings Context Menu
     const columnsContextMenu = document.createElement('div');
     columnsContextMenu.className = 'filter-dropdown-content dropdown-content';
-    columnsContextMenu.style.position = 'absolute';
+    columnsContextMenu.style.position = 'fixed';
     columnsContextMenu.style.display = 'none';
     document.body.appendChild(columnsContextMenu);
 
     const filterPopup = document.createElement('div');
     filterPopup.className = 'filter-popup dropdown-content';
-    filterPopup.style.position = 'absolute';
+    filterPopup.style.position = 'fixed';
     filterPopup.style.display = 'none';
     document.body.appendChild(filterPopup);
 
@@ -2560,18 +2719,7 @@ const _NetworkPlus = (function () {
       } else {
         filterPopup.appendChild(createFilterPopupContent(renderBody, null));
       }
-      filterPopup.style.left = x + 'px';
-      filterPopup.style.top = y + 'px';
-      filterPopup.style.display = 'block';
-      filterPopup.classList.add('show');
-      // Clamp popup to viewport so <select> dropdowns are not clipped
-      const rect = filterPopup.getBoundingClientRect();
-      if (rect.right > window.innerWidth) {
-        filterPopup.style.left = Math.max(0, window.innerWidth - rect.width - 8) + 'px';
-      }
-      if (rect.bottom > window.innerHeight) {
-        filterPopup.style.top = Math.max(0, window.innerHeight - rect.height - 8) + 'px';
-      }
+      showPopupAt(filterPopup, x, y);
     };
 
     const renderColumnsContextMenu = () => {
@@ -2627,7 +2775,7 @@ const _NetworkPlus = (function () {
       });
       const th = e.target.closest('th');
       const focusColId = th ? th.dataset.colId : null;
-      openFilterPopup(e.pageX, e.pageY, focusColId);
+      openFilterPopup(e.clientX, e.clientY, focusColId);
     });
 
     const columnsBtn = $('#columnsBtn');
@@ -2641,10 +2789,7 @@ const _NetworkPlus = (function () {
       if (!isVisible) {
         renderColumnsContextMenu();
         const rect = e.currentTarget.getBoundingClientRect();
-        columnsContextMenu.style.left = rect.left + window.scrollX + 'px';
-        columnsContextMenu.style.top = rect.bottom + window.scrollY + 'px';
-        columnsContextMenu.style.display = 'block';
-        columnsContextMenu.classList.add('show');
+        showPopupAt(columnsContextMenu, rect.left, rect.bottom);
       }
       columnsBtn.setAttribute('aria-expanded', String(!isVisible));
       filterBtn.setAttribute('aria-expanded', 'false');
@@ -2658,7 +2803,7 @@ const _NetworkPlus = (function () {
       });
       if (!isVisible) {
         const rect = e.currentTarget.getBoundingClientRect();
-        openFilterPopup(rect.left + window.scrollX, rect.bottom + window.scrollY, null);
+        openFilterPopup(rect.left, rect.bottom, null);
       }
       filterBtn.setAttribute('aria-expanded', String(!isVisible));
       columnsBtn.setAttribute('aria-expanded', 'false');
@@ -2777,11 +2922,10 @@ const _NetworkPlus = (function () {
         if (rows.length === 0) return;
         e.preventDefault();
         const text = rows.map((r) => formatRowSummary(r)).join('\n\n---\n\n');
-        navigator.clipboard.writeText(text).then(() => {
-          showCopyToast(rows.length === 1 ? 'Copied 1 request' : 'Copied ' + rows.length + ' requests');
-        }).catch((_err) => {
-          setStatus('Copy failed');
-        });
+        copyTextWithFeedback(
+          text,
+          rows.length === 1 ? 'Copied 1 request' : 'Copied ' + rows.length + ' requests',
+        );
       }
     });
 
@@ -2791,24 +2935,10 @@ const _NetworkPlus = (function () {
       if (selectedTr) selectedTr.scrollIntoView({ block: 'nearest' });
     }
 
-    // Copy toast notification
-    const copyToast = document.createElement('div');
-    copyToast.className = 'copy-toast';
-    document.body.appendChild(copyToast);
-    let copyToastTimer = null;
-    function showCopyToast(msg) {
-      copyToast.textContent = msg;
-      copyToast.classList.add('show');
-      if (copyToastTimer) clearTimeout(copyToastTimer);
-      copyToastTimer = setTimeout(() => {
-        copyToast.classList.remove('show');
-      }, 1800);
-    }
-
     // Right-click context menu for marking/selecting rows
     const contextMenu = document.createElement('div');
     contextMenu.className = 'filter-dropdown-content dropdown-content context-menu';
-    contextMenu.style.position = 'absolute';
+    contextMenu.style.position = 'fixed';
     contextMenu.style.display = 'none';
     contextMenu.style.zIndex = '1000';
     document.body.appendChild(contextMenu);
@@ -2845,6 +2975,7 @@ const _NetworkPlus = (function () {
         const swatch = document.createElement('button');
         swatch.className = 'hl-swatch ' + hc.cls;
         swatch.title = hc.name;
+        swatch.setAttribute('aria-label', 'Highlight ' + hc.name);
         swatch.addEventListener('click', () => {
           targetRows.forEach((r) => { state.highlightedRows.set(r, hc.cls); });
           renderBody();
@@ -2923,10 +3054,8 @@ const _NetworkPlus = (function () {
         contextMenu.appendChild(deleteBtn);
       }
 
-      // Show menu
-      contextMenu.style.left = e.pageX + 'px';
-      contextMenu.style.top = e.pageY + 'px';
-      contextMenu.style.display = 'block';
+      // Show menu after content has been measured.
+      showPopupAt(contextMenu, e.clientX, e.clientY);
     });
 
     // Close context menu on outside click
@@ -2936,18 +3065,40 @@ const _NetworkPlus = (function () {
       }
     });
 
-    // Resizer logic (left/right panel split)
+    // Main workbench divider: width in wide mode, height in narrow mode.
     const resizer = $('#resizer');
     const details = $('#details');
+    const content = $('#content');
+    let mainSplitIsNarrow = null;
 
-    resizer.addEventListener('mousedown', () => {
+    const syncMainDividerOrientation = () => {
+      const isNarrow = window.innerWidth <= NARROW_PANEL_MAX_WIDTH;
+      if (mainSplitIsNarrow != null && mainSplitIsNarrow !== isNarrow) {
+        details.style.flexBasis = '';
+        tableWrap.style.flexBasis = '';
+        resizer.setAttribute('aria-valuenow', '50');
+      }
+      mainSplitIsNarrow = isNarrow;
+      resizer.setAttribute('aria-orientation', isNarrow ? 'horizontal' : 'vertical');
+    };
+
+    syncMainDividerOrientation();
+    window.addEventListener('resize', () => {
+      syncMainDividerOrientation();
+      reclampOpenPopups();
+    });
+    resizer.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      const isNarrow = window.innerWidth <= NARROW_PANEL_MAX_WIDTH;
       const handleMouseMove = (e) => {
-        const totalWidth = $('#content').offsetWidth;
-        const newDetailsWidth = totalWidth - e.clientX;
-        if (newDetailsWidth > MIN_DETAILS_WIDTH && newDetailsWidth < totalWidth - MIN_TABLE_WIDTH) {
-          details.style.flexBasis = newDetailsWidth + 'px';
-          tableWrap.style.flexBasis = totalWidth - newDetailsWidth - RESIZER_WIDTH + 'px';
-        }
+        const contentRect = content.getBoundingClientRect();
+        const totalSize = isNarrow ? contentRect.height : contentRect.width;
+        const pointerPosition = isNarrow ? e.clientY - contentRect.top : e.clientX - contentRect.left;
+        const split = calculateMainSplit(pointerPosition, totalSize, isNarrow);
+        if (!split) return;
+        tableWrap.style.flexBasis = split.primarySize + 'px';
+        details.style.flexBasis = split.detailsSize + 'px';
+        resizer.setAttribute('aria-valuenow', String(split.primaryPercent));
       };
       const handleMouseUp = () => {
         document.removeEventListener('mousemove', handleMouseMove);
@@ -3022,7 +3173,7 @@ const _NetworkPlus = (function () {
     // Scope popup (dynamically created)
     const scopePopup = document.createElement('div');
     scopePopup.className = 'search-scope-popup dropdown-content';
-    scopePopup.style.position = 'absolute';
+    scopePopup.style.position = 'fixed';
     scopePopup.style.display = 'none';
     document.body.appendChild(scopePopup);
 
@@ -3056,17 +3207,14 @@ const _NetworkPlus = (function () {
       $all('.dropdown-content').forEach((d) => { d.style.display = 'none'; d.classList.remove('show'); });
       if (!isVisible) {
         const rect = searchScopeBtn.getBoundingClientRect();
-        scopePopup.style.left = rect.left + window.scrollX + 'px';
-        scopePopup.style.top = rect.bottom + window.scrollY + 'px';
-        scopePopup.style.display = 'block';
-        scopePopup.classList.add('show');
+        showPopupAt(scopePopup, rect.left, rect.bottom);
       }
     });
 
     // Color picker popup (shared, repositioned on open)
     const colorPopup = document.createElement('div');
     colorPopup.className = 'search-color-popup dropdown-content';
-    colorPopup.style.position = 'absolute';
+    colorPopup.style.position = 'fixed';
     colorPopup.style.display = 'none';
     document.body.appendChild(colorPopup);
 
@@ -3074,8 +3222,9 @@ const _NetworkPlus = (function () {
     for (let ci = 0; ci < SEARCH_COLORS.length; ci++) {
       const swatch = document.createElement('button');
       swatch.className = 'search-color-swatch';
-      swatch.style.background = SEARCH_COLORS[ci].hex;
+      swatch.style.background = SEARCH_COLORS[ci].cssColor;
       swatch.title = SEARCH_COLORS[ci].name;
+      swatch.setAttribute('aria-label', 'Use ' + SEARCH_COLORS[ci].name + ' search color');
       swatch.addEventListener('click', () => {
         if (colorPopupTargetIdx >= 0 && colorPopupTargetIdx < state.search.keywords.length) {
           state.search.keywords[colorPopupTargetIdx].colorIdx = ci;
@@ -3115,8 +3264,9 @@ const _NetworkPlus = (function () {
         // Color button
         const colorBtn = document.createElement('button');
         colorBtn.className = 'search-color-btn';
-        colorBtn.style.background = SEARCH_COLORS[kw.colorIdx].hex;
+        colorBtn.style.background = SEARCH_COLORS[kw.colorIdx].cssColor;
         colorBtn.title = 'Change color';
+        colorBtn.setAttribute('aria-label', 'Change color for search keyword ' + (i + 1));
         colorBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           colorPopupTargetIdx = i;
@@ -3126,10 +3276,7 @@ const _NetworkPlus = (function () {
             s.classList.toggle('active', si === kw.colorIdx);
           });
           const rect = colorBtn.getBoundingClientRect();
-          colorPopup.style.left = rect.right + 4 + window.scrollX + 'px';
-          colorPopup.style.top = rect.top + window.scrollY + 'px';
-          colorPopup.style.display = 'flex';
-          colorPopup.classList.add('show');
+          showPopupAt(colorPopup, rect.right + 4, rect.top, 'flex');
         });
         row.appendChild(colorBtn);
 
@@ -3161,7 +3308,7 @@ const _NetworkPlus = (function () {
         countSpan.className = 'search-kw-count';
         if (kw.query.trim() && kwMatchCount === 0) {
           countSpan.textContent = '0';
-          countSpan.style.color = 'var(--status-5xx)';
+          countSpan.style.color = 'var(--status-5xx-text)';
         } else if (kwMatchCount > 0) {
           countSpan.textContent = (kwCurIdx + 1) + '/' + kwMatchCount;
           countSpan.style.color = '';
@@ -3173,7 +3320,7 @@ const _NetworkPlus = (function () {
         // Per-keyword nav buttons
         const prevBtn = document.createElement('button');
         prevBtn.className = 'search-kw-nav';
-        prevBtn.innerHTML = '&#9650;';
+        prevBtn.textContent = '▲';
         prevBtn.title = 'Previous match (Shift+Enter)';
         prevBtn.disabled = kwMatchCount === 0;
         prevBtn.addEventListener('click', () => navigateKeywordSearch(i, -1));
@@ -3181,7 +3328,7 @@ const _NetworkPlus = (function () {
 
         const nextBtn = document.createElement('button');
         nextBtn.className = 'search-kw-nav';
-        nextBtn.innerHTML = '&#9660;';
+        nextBtn.textContent = '▼';
         nextBtn.title = 'Next match (Enter)';
         nextBtn.disabled = kwMatchCount === 0;
         nextBtn.addEventListener('click', () => navigateKeywordSearch(i, 1));
@@ -3244,7 +3391,7 @@ const _NetworkPlus = (function () {
       const activeKws = srch.keywords.filter((kw) => kw.query.trim());
       if (srch.matches.length === 0 && activeKws.length > 0) {
         searchCount.textContent = 'No matches';
-        searchCount.style.color = 'var(--status-5xx)';
+        searchCount.style.color = 'var(--status-5xx-text)';
       } else if (srch.matches.length > 0) {
         searchCount.textContent = srch.matches.length + ' matches';
         searchCount.style.color = '';
@@ -3252,6 +3399,7 @@ const _NetworkPlus = (function () {
         searchCount.textContent = '';
         searchCount.style.color = '';
       }
+      queueSearchCountAnnouncement(searchCount.textContent);
       // Update per-keyword counts in search rows
       renderSearchRows();
     }
@@ -3541,6 +3689,8 @@ const _NetworkPlus = (function () {
   return {
     fmtBytes,
     fmtTime,
+    clampPopupPosition,
+    calculateMainSplit,
     extractUrlParts,
     formatInitiator,
     parseQueryString,

@@ -19,6 +19,12 @@ colors:
   success: '#059669'
   caution: '#d97706'
   error: '#dc2626'
+  evidence-yellow: '#fbbf24'
+  evidence-red: '#ef4444'
+  evidence-green: '#22c55e'
+  evidence-blue: '#3b82f6'
+  evidence-purple: '#a855f7'
+  evidence-orange: '#f97316'
 typography:
   title:
     fontFamily: 'Segoe UI, system-ui, -apple-system, Roboto, sans-serif'
@@ -113,6 +119,15 @@ selection.
 
 - **Signal Indigo** (`#6366f1`): Primary actions, active tabs, focus rings, and current selection only.
 - **Signal Indigo Soft** (`#6366f11f`): Low-emphasis active and hover surfaces that preserve text contrast.
+
+### Secondary
+
+- **Evidence Yellow** (`#fbbf24`): Keyword identity and timing evidence; never a standalone status.
+- **Evidence Red** (`#ef4444`): Keyword identity and manual marking, distinct from semantic error text.
+- **Evidence Green** (`#22c55e`): Keyword identity and timing evidence, distinct from semantic success text.
+- **Evidence Blue** (`#3b82f6`): Keyword identity and DNS timing evidence.
+- **Evidence Purple** (`#a855f7`): Keyword identity and TLS timing evidence.
+- **Evidence Orange** (`#f97316`): Keyword identity and connection timing evidence.
 
 ### Neutral
 
@@ -213,6 +228,7 @@ changes remain unmistakable.
 - **Do** keep sticky surfaces opaque and distinguish them with borders or inset shadows.
 - **Do** verify every UI change in System, Dark, and Light themes at wide and approximately `600px` panel widths.
 - **Do** pair semantic colors with labels, shape, icons, or ARIA state.
+- **Do** pair every Evidence color with its visible `K1`-style keyword badge.
 - **Do** honor `prefers-reduced-motion` for every transition that is not essential to understanding state.
 
 ### Don't:

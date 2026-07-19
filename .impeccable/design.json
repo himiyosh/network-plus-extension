@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-07-19T07:33:49Z",
+  "generatedAt": "2026-07-19T08:48:04Z",
   "title": "Design System: Network+ for DevTools",
   "extensions": {
     "colorMeta": {
@@ -17,6 +17,96 @@
           "oklch(75% 0.14 275)",
           "oklch(87% 0.08 275)",
           "oklch(95% 0.03 275)"
+        ]
+      },
+      "evidence-yellow": {
+        "role": "secondary",
+        "displayName": "Evidence Yellow",
+        "canonical": "#fbbf24",
+        "tonalRamp": [
+          "oklch(15% 0.06 85)",
+          "oklch(27% 0.09 85)",
+          "oklch(39% 0.12 85)",
+          "oklch(51% 0.15 85)",
+          "oklch(63% 0.15 85)",
+          "oklch(75% 0.12 85)",
+          "oklch(87% 0.07 85)",
+          "oklch(95% 0.03 85)"
+        ]
+      },
+      "evidence-red": {
+        "role": "secondary",
+        "displayName": "Evidence Red",
+        "canonical": "#ef4444",
+        "tonalRamp": [
+          "oklch(15% 0.08 25)",
+          "oklch(27% 0.12 25)",
+          "oklch(39% 0.16 25)",
+          "oklch(51% 0.2 25)",
+          "oklch(63% 0.18 25)",
+          "oklch(75% 0.13 25)",
+          "oklch(87% 0.08 25)",
+          "oklch(95% 0.03 25)"
+        ]
+      },
+      "evidence-green": {
+        "role": "secondary",
+        "displayName": "Evidence Green",
+        "canonical": "#22c55e",
+        "tonalRamp": [
+          "oklch(15% 0.07 145)",
+          "oklch(27% 0.1 145)",
+          "oklch(39% 0.13 145)",
+          "oklch(51% 0.16 145)",
+          "oklch(63% 0.15 145)",
+          "oklch(75% 0.11 145)",
+          "oklch(87% 0.07 145)",
+          "oklch(95% 0.03 145)"
+        ]
+      },
+      "evidence-blue": {
+        "role": "secondary",
+        "displayName": "Evidence Blue",
+        "canonical": "#3b82f6",
+        "tonalRamp": [
+          "oklch(15% 0.07 250)",
+          "oklch(27% 0.1 250)",
+          "oklch(39% 0.14 250)",
+          "oklch(51% 0.18 250)",
+          "oklch(63% 0.17 250)",
+          "oklch(75% 0.13 250)",
+          "oklch(87% 0.08 250)",
+          "oklch(95% 0.03 250)"
+        ]
+      },
+      "evidence-purple": {
+        "role": "secondary",
+        "displayName": "Evidence Purple",
+        "canonical": "#a855f7",
+        "tonalRamp": [
+          "oklch(15% 0.08 310)",
+          "oklch(27% 0.12 310)",
+          "oklch(39% 0.16 310)",
+          "oklch(51% 0.2 310)",
+          "oklch(63% 0.18 310)",
+          "oklch(75% 0.13 310)",
+          "oklch(87% 0.08 310)",
+          "oklch(95% 0.03 310)"
+        ]
+      },
+      "evidence-orange": {
+        "role": "secondary",
+        "displayName": "Evidence Orange",
+        "canonical": "#f97316",
+        "tonalRamp": [
+          "oklch(15% 0.07 55)",
+          "oklch(27% 0.1 55)",
+          "oklch(39% 0.14 55)",
+          "oklch(51% 0.18 55)",
+          "oklch(63% 0.17 55)",
+          "oklch(75% 0.13 55)",
+          "oklch(87% 0.08 55)",
+          "oklch(95% 0.03 55)"
         ]
       },
       "canvas-light": {
@@ -295,6 +385,7 @@
       "Do keep sticky surfaces opaque and distinguish them with borders or inset shadows.",
       "Do verify every UI change in System, Dark, and Light themes at wide and approximately 600px panel widths.",
       "Do pair semantic colors with labels, shape, icons, or ARIA state.",
+      "Do pair every Evidence color with its visible K1-style keyword badge.",
       "Do honor prefers-reduced-motion for every transition that is not essential to understanding state."
     ],
     "donts": [

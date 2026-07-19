@@ -750,3 +750,62 @@ describe('formatRowSummary', () => {
     expect(text).not.toContain('Initiator:');
   });
 });
+
+
+describe('clampPopupPosition', () => {
+  test('clamps left and top overflow to the eight-pixel edge', () => {
+    expect(np.clampPopupPosition(-20, -30, 120, 80, 500, 400)).toEqual({
+      left: 8,
+      top: 8,
+      maxWidth: 484,
+      maxHeight: 384,
+    });
+  });
+
+  test('clamps right overflow after popup measurement', () => {
+    const result = np.clampPopupPosition(470, 40, 120, 80, 500, 400);
+    expect(result.left).toBe(372);
+    expect(result.top).toBe(40);
+  });
+
+  test('clamps bottom overflow after popup measurement', () => {
+    const result = np.clampPopupPosition(40, 370, 120, 80, 500, 400);
+    expect(result.left).toBe(40);
+    expect(result.top).toBe(312);
+  });
+
+  test('constrains oversized popups in small viewports', () => {
+    expect(np.clampPopupPosition(90, 60, 400, 300, 100, 70)).toEqual({
+      left: 8,
+      top: 8,
+      maxWidth: 84,
+      maxHeight: 54,
+    });
+  });
+});
+
+describe('calculateMainSplit', () => {
+  test('calculates a valid wide width split', () => {
+    expect(np.calculateMainSplit(400, 1000, false)).toEqual({
+      axis: 'width',
+      primarySize: 400,
+      detailsSize: 596,
+      primaryPercent: 40,
+    });
+  });
+
+  test('calculates a valid narrow height split', () => {
+    expect(np.calculateMainSplit(200, 500, true)).toEqual({
+      axis: 'height',
+      primarySize: 200,
+      detailsSize: 296,
+      primaryPercent: 40,
+    });
+  });
+
+  test('rejects splits that violate either pane minimum', () => {
+    expect(np.calculateMainSplit(100, 1000, false)).toBeNull();
+    expect(np.calculateMainSplit(350, 500, true)).toBeNull();
+    expect(np.calculateMainSplit(NaN, 500, true)).toBeNull();
+  });
+});
