@@ -368,6 +368,57 @@ describe('active column filter helpers', () => {
   });
 });
 
+describe('release trust helpers', () => {
+  test('detects only non-blank active search keywords', () => {
+    expect(np.hasActiveSearchKeywords(null)).toBe(false);
+    expect(np.hasActiveSearchKeywords([])).toBe(false);
+    expect(np.hasActiveSearchKeywords([{ query: '   ' }, null])).toBe(false);
+    expect(np.hasActiveSearchKeywords([{ query: 'needle' }])).toBe(true);
+  });
+
+  test('preserves the navigated row when new matches arrive before it', () => {
+    const first = { id: 1 };
+    const current = { id: 2 };
+    const late = { id: 3 };
+    expect(np.preserveMatchingRowIndex([first, current], 1, [late, first, current])).toBe(2);
+  });
+
+  test('clamps a missing navigated row without forcing first-match navigation', () => {
+    expect(np.preserveMatchingRowIndex([{ id: 1 }], 4, [{ id: 2 }, { id: 3 }])).toBe(1);
+    expect(np.preserveMatchingRowIndex([], -1, [{ id: 2 }])).toBe(-1);
+    expect(np.preserveMatchingRowIndex([{ id: 1 }], 0, [])).toBe(-1);
+  });
+
+  test('guards deferred detail rendering by selected row identity', () => {
+    const rowA = { id: 1 };
+    const rowB = { id: 2 };
+    expect(np.shouldRenderSelectedRow(rowA, rowA)).toBe(true);
+    expect(np.shouldRenderSelectedRow(rowB, rowA)).toBe(false);
+    expect(np.shouldRenderSelectedRow(null, rowA)).toBe(false);
+  });
+
+  test('settles a deferred response callback into the shared row cache', async () => {
+    let contentCallback;
+    const row = {
+      id: 9,
+      responseContent: null,
+      responseContentEncoding: '',
+      responseContentText: null,
+      responseContentError: null,
+      _responseContentPromise: null,
+      _reqObj: { getContent: jest.fn((callback) => { contentCallback = callback; }) },
+    };
+
+    const pending = np.cacheResponseContent(row);
+    expect(row.responseContent).toBeNull();
+    contentCallback('eyJsYXRlIjp0cnVlfQ==', 'base64');
+    await expect(pending).resolves.toBe(row);
+    expect(row.responseContent).toBe('eyJsYXRlIjp0cnVlfQ==');
+    expect(row.responseContentEncoding).toBe('base64');
+    expect(row.responseContentText).toBe('{"late":true}');
+  });
+});
+
 describe('debounce', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());

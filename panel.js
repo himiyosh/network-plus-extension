@@ -555,11 +555,32 @@ const _NetworkPlus = (function () {
     return Object.values(rules).filter((rule) => isRuleActive(rule)).length;
   }
 
+  function hasActiveSearchKeywords(searchKeywords) {
+    return (
+      Array.isArray(searchKeywords) &&
+      searchKeywords.some((keyword) => keyword && String(keyword.query || '').trim() !== '')
+    );
+  }
+
+  function preserveMatchingRowIndex(previousMatches, previousIndex, nextMatches) {
+    if (!Array.isArray(nextMatches) || nextMatches.length === 0) return -1;
+    const previousRow =
+      Array.isArray(previousMatches) && previousIndex >= 0 && previousIndex < previousMatches.length
+        ? previousMatches[previousIndex]
+        : null;
+    const preservedIndex = previousRow ? nextMatches.indexOf(previousRow) : -1;
+    if (preservedIndex >= 0) return preservedIndex;
+    return previousIndex >= 0 ? Math.min(previousIndex, nextMatches.length - 1) : -1;
+  }
+
+  function shouldRenderSelectedRow(selectedRow, resolvedRow) {
+    return !!resolvedRow && selectedRow === resolvedRow;
+  }
+
   function isIncrementalAppendEligible(sort, activeFilterCount, searchKeywords, renderedActiveFilterCount) {
     const hasNaturalOrder =
       !sort || !sort.colId || !sort.direction || (sort.colId === 'id' && sort.direction === 'asc');
-    const hasActiveSearch =
-      Array.isArray(searchKeywords) && searchKeywords.some((keyword) => keyword && String(keyword.query || '').trim());
+    const hasActiveSearch = hasActiveSearchKeywords(searchKeywords);
     const synchronizedFilterCount =
       Number.isFinite(renderedActiveFilterCount) ? renderedActiveFilterCount : activeFilterCount;
     return (
@@ -1406,6 +1427,8 @@ const _NetworkPlus = (function () {
   function createColumnFilterControl(colId, onChange) {
     const wrap = document.createElement('div');
     wrap.className = 'filter-rule';
+    const column = state.columns.find((candidate) => candidate.id === colId);
+    const columnLabel = column ? column.label : colId;
 
     // --- Time columns (clientStart / serverDone): time range picker with auto-range ---
     if (colId === 'clientStart' || colId === 'serverDone') {
@@ -1438,6 +1461,7 @@ const _NetworkPlus = (function () {
       startInput.step = '1';
       startInput.className = 'filter-value';
       startInput.value = startVal;
+      startInput.setAttribute('aria-label', columnLabel + ' filter start time');
 
       const endLabel = document.createElement('span');
       endLabel.textContent = ' To ';
@@ -1446,10 +1470,12 @@ const _NetworkPlus = (function () {
       endInput.step = '1';
       endInput.className = 'filter-value';
       endInput.value = endVal;
+      endInput.setAttribute('aria-label', columnLabel + ' filter end time');
 
       const clearBtn = document.createElement('button');
       clearBtn.textContent = 'Reset';
       clearBtn.className = 'filter-clear-btn';
+      clearBtn.setAttribute('aria-label', 'Reset ' + columnLabel + ' time filter');
       clearBtn.addEventListener('click', () => {
         startInput.value = autoStart;
         endInput.value = autoEnd;
@@ -1484,6 +1510,7 @@ const _NetworkPlus = (function () {
       const allBtn = document.createElement('button');
       allBtn.textContent = 'All';
       allBtn.className = 'filter-clear-btn';
+      allBtn.setAttribute('aria-label', 'Select all Method filter values');
       allBtn.style.flex = '1';
       allBtn.addEventListener('click', () => {
         HTTP_METHODS.forEach((m) => { include[m] = true; });
@@ -1496,6 +1523,7 @@ const _NetworkPlus = (function () {
       const noneBtn = document.createElement('button');
       noneBtn.textContent = 'None';
       noneBtn.className = 'filter-clear-btn';
+      noneBtn.setAttribute('aria-label', 'Deselect all Method filter values');
       noneBtn.style.flex = '1';
       noneBtn.addEventListener('click', () => {
         HTTP_METHODS.forEach((m) => { include[m] = false; });
@@ -1576,6 +1604,7 @@ const _NetworkPlus = (function () {
       inclAnyInput.className = 'filter-value';
       inclAnyInput.placeholder = 'keyword1, keyword2';
       inclAnyInput.value = isAdv ? rule.includeAny || '' : '';
+      inclAnyInput.setAttribute('aria-label', 'URL filter Include any');
 
       const inclAllLabel = document.createElement('label');
       inclAllLabel.textContent = 'Include ALL (comma-separated):';
@@ -1584,6 +1613,7 @@ const _NetworkPlus = (function () {
       inclAllInput.className = 'filter-value';
       inclAllInput.placeholder = 'must1, must2';
       inclAllInput.value = isAdv ? rule.includeAll || '' : '';
+      inclAllInput.setAttribute('aria-label', 'URL filter Include all');
 
       const exclLabel = document.createElement('label');
       exclLabel.textContent = 'Exclude ANY (comma-separated):';
@@ -1592,6 +1622,7 @@ const _NetworkPlus = (function () {
       exclInput.className = 'filter-value';
       exclInput.placeholder = 'exclude1, exclude2';
       exclInput.value = isAdv ? rule.excludeAny || '' : '';
+      exclInput.setAttribute('aria-label', 'URL filter Exclude any');
 
       const csLabel = document.createElement('label');
       const csCb = document.createElement('input');
@@ -1647,16 +1678,19 @@ const _NetworkPlus = (function () {
             opSelect.appendChild(option);
           }
           opSelect.value = cond.op || 'contains';
+          opSelect.setAttribute('aria-label', columnLabel + ' filter condition ' + (idx + 1) + ' operator');
 
           const input = document.createElement('input');
           input.type = 'text';
           input.className = 'filter-value';
           input.placeholder = 'value';
           input.value = cond.value || '';
+          input.setAttribute('aria-label', columnLabel + ' filter condition ' + (idx + 1) + ' value');
 
           const removeBtn = document.createElement('button');
           removeBtn.textContent = 'x';
           removeBtn.className = 'filter-remove-btn';
+          removeBtn.setAttribute('aria-label', 'Remove ' + columnLabel + ' filter condition ' + (idx + 1));
           removeBtn.addEventListener('click', () => {
             conditions.splice(idx, 1);
             if (conditions.length === 0) conditions.push({ op: 'contains', value: '' });
@@ -1685,6 +1719,7 @@ const _NetworkPlus = (function () {
         const addBtn = document.createElement('button');
         addBtn.textContent = '+ Add condition';
         addBtn.className = 'filter-add-btn';
+        addBtn.setAttribute('aria-label', 'Add ' + columnLabel + ' filter condition');
         addBtn.addEventListener('click', () => {
           conditions.push({ op: 'contains', value: '' });
           state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
@@ -1709,12 +1744,14 @@ const _NetworkPlus = (function () {
 
     const rule = state.columnFilterRules[colId] || { op: operators[0].value, value: '' };
     opSelect.value = rule.op;
+    opSelect.setAttribute('aria-label', columnLabel + ' filter operator');
 
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'filter-value';
     input.placeholder = 'value';
     input.value = rule.value || '';
+    input.setAttribute('aria-label', columnLabel + ' filter value');
 
     const updateInputState = () => {
       const noValueRequired = opSelect.value === 'empty' || opSelect.value === 'notempty';
@@ -1998,10 +2035,13 @@ const _NetworkPlus = (function () {
   function refreshSearchMatches() {
     const srch = state.search;
     const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    const previousMatches = srch.matches;
+    const previousIndex = srch.currentIndex;
     if (activeKws.length === 0) {
       srch.rowColors.clear();
       srch.rowKeywords.clear();
       srch.matches = [];
+      srch.currentIndex = -1;
       srch.perKeyword.clear();
       return;
     }
@@ -2009,7 +2049,7 @@ const _NetworkPlus = (function () {
     srch.rowKeywords.clear();
     const sorted = getSortedRows(state.filteredRows);
     const matchSet = new Set();
-    // Build per-keyword match lists
+    // Build per-keyword match lists while retaining each navigated row when it still matches.
     for (let ki = 0; ki < srch.keywords.length; ki++) {
       const kw = srch.keywords[ki];
       if (!kw.query || !kw.query.trim()) {
@@ -2027,20 +2067,20 @@ const _NetworkPlus = (function () {
           kwMatches.push(row);
         }
       }
-      const prev = srch.perKeyword.get(ki);
-      const prevIdx = prev ? prev.currentIndex : -1;
-      const clampedIdx = prevIdx >= kwMatches.length ? kwMatches.length - 1 : prevIdx;
-      srch.perKeyword.set(ki, { matches: kwMatches, currentIndex: clampedIdx });
+      const previousKeyword = srch.perKeyword.get(ki);
+      const currentIndex = preserveMatchingRowIndex(
+        previousKeyword ? previousKeyword.matches : [],
+        previousKeyword ? previousKeyword.currentIndex : -1,
+        kwMatches,
+      );
+      srch.perKeyword.set(ki, { matches: kwMatches, currentIndex });
     }
     // Remove stale per-keyword entries
     for (const key of srch.perKeyword.keys()) {
       if (key >= srch.keywords.length) srch.perKeyword.delete(key);
     }
-    srch.matches = sorted.filter((r) => matchSet.has(r));
-    // Keep global currentIndex in bounds
-    if (srch.currentIndex >= srch.matches.length) {
-      srch.currentIndex = srch.matches.length > 0 ? srch.matches.length - 1 : -1;
-    }
+    srch.matches = sorted.filter((row) => matchSet.has(row));
+    srch.currentIndex = preserveMatchingRowIndex(previousMatches, previousIndex, srch.matches);
   }
 
   function updateEmptyState(visibleRowCount) {
@@ -2606,6 +2646,91 @@ const _NetworkPlus = (function () {
     return pre;
   }
 
+  function setResponsePaneMessage(message) {
+    $('#res-body').textContent = message;
+    $('#res-preview').textContent = message;
+    $('#res-raw').textContent = message;
+  }
+
+  function renderCachedResponseContent(row) {
+    const resBodyPane = $('#res-body');
+    const resPreviewPane = $('#res-preview');
+    const resRawPane = $('#res-raw');
+    const rawContent = typeof row.responseContent === 'string' ? row.responseContent : '';
+    const encoding = row.responseContentEncoding === 'base64' ? 'base64' : '';
+    let text = row.responseContentText != null
+      ? row.responseContentText
+      : decodeResponseContent(rawContent, encoding);
+    if (encoding === 'base64' && rawContent && !text) text = '(could not decode base64 response)';
+
+    // Body tab — formatted text
+    resBodyPane.textContent = '';
+    const treeEl = renderJsonTree(text);
+    if (treeEl) {
+      resBodyPane.appendChild(treeEl);
+    } else {
+      const bodyPre = document.createElement('pre');
+      bodyPre.className = 'code-block';
+      if (text.length > TRUNCATE_LIMIT) {
+        bodyPre.textContent = text.substring(0, TRUNCATE_LIMIT);
+        const showMore = document.createElement('button');
+        showMore.textContent = '... Show all (' + fmtBytes(text.length) + ')';
+        showMore.className = 'link-btn';
+        showMore.addEventListener('click', () => {
+          bodyPre.textContent = text;
+        });
+        resBodyPane.appendChild(bodyPre);
+        resBodyPane.appendChild(showMore);
+      } else {
+        bodyPre.textContent = text || '(no response body)';
+        resBodyPane.appendChild(bodyPre);
+      }
+    }
+    const copyBody = document.createElement('button');
+    copyBody.className = 'copy-btn';
+    copyBody.textContent = 'Copy';
+    copyBody.addEventListener('click', () => {
+      copyTextWithFeedback(text, 'Copied response body');
+    });
+    resBodyPane.insertBefore(copyBody, resBodyPane.firstChild);
+
+    // Preview tab — image, sandboxed HTML, or formatted JSON
+    resPreviewPane.textContent = '';
+    if (encoding === 'base64' && row.type && row.type.startsWith('image/')) {
+      const img = document.createElement('img');
+      img.src = 'data:' + row.type + ';base64,' + rawContent;
+      img.style.maxWidth = '100%';
+      resPreviewPane.appendChild(img);
+    } else if (row.type && row.type.indexOf('html') > -1) {
+      const iframe = document.createElement('iframe');
+      iframe.sandbox = '';
+      iframe.style.width = '100%';
+      iframe.style.height = '300px';
+      iframe.style.border = '1px solid var(--border)';
+      iframe.srcdoc = text;
+      resPreviewPane.appendChild(iframe);
+    } else {
+      const previewFormatted = formatJsonSafe(text);
+      if (previewFormatted) {
+        resPreviewPane.appendChild(renderJsonHighlighted(previewFormatted));
+      } else {
+        resPreviewPane.textContent = '(no preview available)';
+      }
+    }
+
+    // Raw tab
+    resRawPane.textContent = '';
+    const rawResPre = renderRawHighlighted(buildRawResponseText(row, text));
+    const copyRawRes = document.createElement('button');
+    copyRawRes.className = 'copy-btn';
+    copyRawRes.textContent = 'Copy';
+    copyRawRes.addEventListener('click', () => {
+      copyTextWithFeedback(rawResPre.textContent, 'Copied raw response');
+    });
+    resRawPane.appendChild(copyRawRes);
+    resRawPane.appendChild(rawResPre);
+  }
+
   function selectRow(row, event, moveFocus) {
     const previousFocusedRow = state.focusedRow;
     const previousSelectedRow = state.selectedRow;
@@ -2747,97 +2872,19 @@ const _NetworkPlus = (function () {
       resHeadersPane.appendChild(createKvGrid(row.responseHeaders.map((h) => ({ key: h.name, value: h.value }))));
     }
 
-    // Response > Body, Preview, Raw — populated async
-    const resBodyPane = $('#res-body');
-    const resPreviewPane = $('#res-preview');
-    const resRawPane = $('#res-raw');
-    resBodyPane.textContent = '(loading...)';
-    resPreviewPane.textContent = '(loading...)';
-    resRawPane.textContent = '';
-
-    if (row._reqObj && typeof row._reqObj.getContent === 'function') {
-      row._reqObj.getContent((content, encoding) => {
-        let text = content || '';
-        if (encoding === 'base64') {
-          try {
-            text = atob(content);
-          } catch (_e) {
-            text = '(could not decode base64 response)';
-          }
-        }
-
-        // Body tab — formatted text
-        resBodyPane.textContent = '';
-        const treeEl = renderJsonTree(text);
-        if (treeEl) {
-          resBodyPane.appendChild(treeEl);
-        } else {
-          const bodyPre = document.createElement('pre');
-          bodyPre.className = 'code-block';
-          if (text.length > TRUNCATE_LIMIT) {
-            bodyPre.textContent = text.substring(0, TRUNCATE_LIMIT);
-            const showMore = document.createElement('button');
-            showMore.textContent = '... Show all (' + fmtBytes(text.length) + ')';
-            showMore.className = 'link-btn';
-            showMore.addEventListener('click', () => {
-              bodyPre.textContent = text;
-            });
-            resBodyPane.appendChild(bodyPre);
-            resBodyPane.appendChild(showMore);
-          } else {
-            bodyPre.textContent = text || '(no response body)';
-            resBodyPane.appendChild(bodyPre);
-          }
-        }
-        const copyBody = document.createElement('button');
-        copyBody.className = 'copy-btn';
-        copyBody.textContent = 'Copy';
-        copyBody.addEventListener('click', () => {
-          copyTextWithFeedback(text, 'Copied response body');
-        });
-        resBodyPane.insertBefore(copyBody, resBodyPane.firstChild);
-
-        // Preview tab — image or rendered HTML
-        resPreviewPane.textContent = '';
-        if (encoding === 'base64' && row.type && row.type.startsWith('image/')) {
-          const img = document.createElement('img');
-          img.src = 'data:' + row.type + ';base64,' + content;
-          img.style.maxWidth = '100%';
-          resPreviewPane.appendChild(img);
-        } else if (row.type && (row.type.indexOf('html') > -1)) {
-          const iframe = document.createElement('iframe');
-          iframe.sandbox = '';
-          iframe.style.width = '100%';
-          iframe.style.height = '300px';
-          iframe.style.border = '1px solid var(--border)';
-          iframe.srcdoc = text;
-          resPreviewPane.appendChild(iframe);
-        } else {
-          const previewFormatted = formatJsonSafe(text);
-          if (previewFormatted) {
-            resPreviewPane.appendChild(renderJsonHighlighted(previewFormatted));
-          } else {
-            resPreviewPane.textContent = '(no preview available)';
-          }
-        }
-
-        // Raw tab
-        resRawPane.textContent = '';
-        const rawResPre = renderRawHighlighted(buildRawResponseText(row, text));
-        const copyRawRes = document.createElement('button');
-        copyRawRes.className = 'copy-btn';
-        copyRawRes.textContent = 'Copy';
-        copyRawRes.addEventListener('click', () => {
-          copyTextWithFeedback(rawResPre.textContent, 'Copied raw response');
-        });
-        resRawPane.appendChild(copyRawRes);
-        resRawPane.appendChild(rawResPre);
+    // Response > Body, Preview, Raw — populated from the shared response cache
+    setResponsePaneMessage('(loading...)');
+    cacheResponseContent(row)
+      .then((cachedRow) => {
+        if (!shouldRenderSelectedRow(state.selectedRow, cachedRow)) return;
+        renderCachedResponseContent(cachedRow);
+      })
+      .catch((error) => {
+        if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
+        const message = error && error.message ? error.message : 'Response content is unavailable';
+        const stateLabel = /unavailable/i.test(message) ? 'unavailable' : 'error';
+        setResponsePaneMessage('(response body ' + stateLabel + ': ' + message + ')');
       });
-    } else {
-      resBodyPane.textContent = '(response body not available)';
-      resPreviewPane.textContent = '(response body not available)';
-      resRawPane.textContent = '(response body not available)';
-    }
 
     // Response > Cookies
     const resCookiesPane = $('#res-cookies');
@@ -3026,6 +3073,7 @@ const _NetworkPlus = (function () {
     const pendingLiveRows = [];
     let pendingLiveFrame = false;
     let pendingScrollToBottom = false;
+    let pendingResponseSearchFrame = false;
     const resetPendingLiveRows = () => {
       pendingLiveRows.length = 0;
       pendingScrollToBottom = false;
@@ -3773,6 +3821,7 @@ const _NetworkPlus = (function () {
         input.className = 'search-keyword-input';
         input.placeholder = 'Enter search keyword...';
         input.value = kw.query;
+        input.setAttribute('aria-label', 'Search keyword ' + (i + 1));
         input.addEventListener('input', () => {
           state.search.keywords[i].query = input.value;
           debouncedSearch();
@@ -3809,6 +3858,7 @@ const _NetworkPlus = (function () {
         prevBtn.className = 'search-kw-nav';
         prevBtn.textContent = '▲';
         prevBtn.title = 'Previous match (Shift+Enter)';
+        prevBtn.setAttribute('aria-label', 'Previous match for search keyword ' + (i + 1));
         prevBtn.disabled = kwMatchCount === 0;
         prevBtn.addEventListener('click', () => navigateKeywordSearch(i, -1));
         row.appendChild(prevBtn);
@@ -3817,6 +3867,7 @@ const _NetworkPlus = (function () {
         nextBtn.className = 'search-kw-nav';
         nextBtn.textContent = '▼';
         nextBtn.title = 'Next match (Enter)';
+        nextBtn.setAttribute('aria-label', 'Next match for search keyword ' + (i + 1));
         nextBtn.disabled = kwMatchCount === 0;
         nextBtn.addEventListener('click', () => navigateKeywordSearch(i, 1));
         row.appendChild(nextBtn);
@@ -3827,6 +3878,7 @@ const _NetworkPlus = (function () {
           removeBtn.className = 'search-remove-btn';
           removeBtn.textContent = '×';
           removeBtn.title = 'Remove keyword';
+          removeBtn.setAttribute('aria-label', 'Remove search keyword ' + (i + 1));
           removeBtn.addEventListener('click', () => {
             state.search.keywords.splice(i, 1);
             renderSearchRows();
@@ -4130,6 +4182,18 @@ const _NetworkPlus = (function () {
 
     // Network subscription
     // Batch live rows into one frame. Eligibility is deliberately checked again at flush time.
+    const scheduleResponseSearchRefresh = (row) => {
+      if (!state.rows.includes(row) || !hasActiveSearchKeywords(state.search.keywords)) return;
+      if (pendingResponseSearchFrame) return;
+      pendingResponseSearchFrame = true;
+      window.requestAnimationFrame(() => {
+        pendingResponseSearchFrame = false;
+        if (!hasActiveSearchKeywords(state.search.keywords)) return;
+        renderBody();
+        updateSearchUI();
+      });
+    };
+
     const scheduleLiveRows = (scrollToBottom) => {
       if (scrollToBottom) pendingScrollToBottom = true;
       if (pendingLiveFrame) return;
@@ -4158,10 +4222,12 @@ const _NetworkPlus = (function () {
       chrome.devtools.network.onRequestFinished.addListener((request) => {
         if (state.paused) return;
         const row = buildRowFromRequest(request);
-        cacheResponseContent(row).catch((error) => {
-          setStatus('Response content error: ' + error.message);
-          console.error(error);
-        }); // [U1]
+        cacheResponseContent(row)
+          .then(() => scheduleResponseSearchRefresh(row))
+          .catch((error) => {
+            setStatus('Response content error: ' + error.message);
+            console.error(error);
+          }); // [U1]
         const wasAtBottom =
           state.autoScroll &&
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
@@ -4220,6 +4286,9 @@ const _NetworkPlus = (function () {
     settleResponseContentForHar,
     isRuleActive,
     countActiveColumnFilters,
+    hasActiveSearchKeywords,
+    preserveMatchingRowIndex,
+    shouldRenderSelectedRow,
     isIncrementalAppendEligible,
     getIncrementalAppendBatch,
   };

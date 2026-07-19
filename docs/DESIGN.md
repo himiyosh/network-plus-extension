@@ -10,12 +10,16 @@ colors:
   ink-light: '#1a1a2e'
   muted-light: '#606d7b'
   border-light: '#dde1e6'
+  control-border-light: '#7c8794'
+  separator-light: '#7c8794'
   canvas-dark: '#0f172a'
   surface-dark: '#1e293b'
   content-dark: '#162032'
   ink-dark: '#e2e8f0'
   muted-dark: '#94a3b8'
   border-dark: '#334155'
+  control-border-dark: '#7c8794'
+  separator-dark: '#7c8794'
   success: '#059669'
   caution: '#d97706'
   error: '#dc2626'
@@ -46,6 +50,22 @@ typography:
     fontSize: '12px'
     fontWeight: 400
     lineHeight: 1.6
+  micro:
+    fontFamily: 'Segoe UI, system-ui, -apple-system, Roboto, sans-serif'
+    fontSize: '9px'
+    fontWeight: 700
+  caption:
+    fontFamily: 'Segoe UI, system-ui, -apple-system, Roboto, sans-serif'
+    fontSize: '10px'
+    fontWeight: 600
+  icon:
+    fontFamily: 'Segoe UI Emoji, Segoe UI Symbol, sans-serif'
+    fontSize: '16px'
+    fontWeight: 400
+  emptyStateIcon:
+    fontFamily: 'Segoe UI Emoji, Segoe UI Symbol, sans-serif'
+    fontSize: '32px'
+    fontWeight: 400
 rounded:
   xs: '3px'
   sm: '4px'
@@ -136,7 +156,9 @@ selection.
 - **Evidence Surface** (`#ffffff` light / `#162032` dark): Request and response content.
 - **Evidence Ink** (`#1a1a2e` light / `#e2e8f0` dark): Primary text and data.
 - **Operational Muted** (`#606d7b` light / `#94a3b8` dark): Labels and supporting metadata.
-- **Structural Border** (`#dde1e6` light / `#334155` dark): Dividers and control outlines.
+- **Structural Border** (`#dde1e6` light / `#334155` dark): Subtle table and panel dividers that do not identify controls.
+- **Control Boundary** (`#7c8794`): Enabled button, input, select, checkbox, and swatch outlines; at least `3:1` against every workbench layer.
+- **Workbench Separator** (`#7c8794`): Main and inspector split boundaries; at least `3:1` against every workbench layer.
 
 ### Tertiary
 
@@ -165,6 +187,8 @@ headers, payloads, generated commands, and structured evidence.
 - **Body** (400, 13px): Inspector content and explanatory text.
 - **Label** (700, 11px, 0.3px tracking): Table headers, control labels, and status metadata.
 - **Mono** (400, 12px, 1.6): Code, headers, raw traffic, and JSON structures.
+- **Micro / Caption** (700, 9px / 600, 10px): Dense badges, inspector labels, and timing legends.
+- **Icon** (400, 16px / 32px empty state): Operational glyphs; never body copy.
 
 **The Evidence Monospace Rule.** Use monospace only when character alignment or source fidelity helps diagnosis. Buttons,
 navigation, and general labels remain system sans.
@@ -198,7 +222,7 @@ changes remain unmistakable.
 
 ### Inputs / Fields
 
-- **Style:** One-pixel Structural Border, canvas background, `6px` radius, compact `4px 8px` padding.
+- **Style:** One-pixel Control Boundary, canvas background, `6px` radius, compact `4px 8px` padding.
 - **Focus:** Signal Indigo border plus a restrained soft ring.
 - **Error / Disabled:** Error text must be explicit; disabled state cannot rely on color alone.
 

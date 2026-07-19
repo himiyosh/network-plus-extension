@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-07-19T08:48:04Z",
+  "generatedAt": "2026-07-19T10:16:59Z",
   "title": "Design System: Network+ for DevTools",
   "extensions": {
     "colorMeta": {
@@ -184,6 +184,36 @@
           "oklch(95% 0.02 255)"
         ]
       },
+      "control-border": {
+        "role": "neutral",
+        "displayName": "Control Boundary",
+        "canonical": "#7c8794",
+        "tonalRamp": [
+          "oklch(15% 0.01 250)",
+          "oklch(27% 0.01 250)",
+          "oklch(39% 0.01 250)",
+          "oklch(51% 0.01 250)",
+          "oklch(63% 0.01 250)",
+          "oklch(75% 0.01 250)",
+          "oklch(87% 0.01 250)",
+          "oklch(95% 0.01 250)"
+        ]
+      },
+      "separator": {
+        "role": "neutral",
+        "displayName": "Workbench Separator",
+        "canonical": "#7c8794",
+        "tonalRamp": [
+          "oklch(15% 0.01 250)",
+          "oklch(27% 0.01 250)",
+          "oklch(39% 0.01 250)",
+          "oklch(51% 0.01 250)",
+          "oklch(63% 0.01 250)",
+          "oklch(75% 0.01 250)",
+          "oklch(87% 0.01 250)",
+          "oklch(95% 0.01 250)"
+        ]
+      },
       "ink-dark": {
         "role": "neutral",
         "displayName": "Night Evidence Ink",
@@ -261,6 +291,22 @@
       "mono": {
         "displayName": "Evidence Mono",
         "purpose": "Raw headers, payloads, commands, and JSON."
+      },
+      "micro": {
+        "displayName": "Micro Label",
+        "purpose": "Dense badges and inspector labels at 9px."
+      },
+      "caption": {
+        "displayName": "Compact Caption",
+        "purpose": "Timing legends and filter categories at 10px."
+      },
+      "icon": {
+        "displayName": "Operational Icon",
+        "purpose": "Toolbar and brand glyphs at 16px."
+      },
+      "emptyStateIcon": {
+        "displayName": "Empty State Icon",
+        "purpose": "The single 32px recording empty-state glyph."
       }
     },
     "shadows": [
@@ -306,7 +352,7 @@
       "refersTo": "toolbar-button",
       "description": "Compact neutral action used in the persistent toolbar.",
       "html": "<button class=\"ds-toolbar-button\">Column Filters</button>",
-      "css": ".ds-toolbar-button { min-height: 32px; padding: 5px 12px; border: 1px solid var(--border, #dde1e6); border-radius: 8px; background: var(--bg, #fafbfc); color: var(--fg, #1a1a2e); font: 12px/1.5 'Segoe UI', system-ui, sans-serif; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; } .ds-toolbar-button:hover { border-color: var(--accent, #6366f1); color: var(--accent, #6366f1); } .ds-toolbar-button:focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: -2px; }"
+      "css": ".ds-toolbar-button { min-height: 32px; padding: 5px 12px; border: 1px solid var(--control-border, #7c8794); border-radius: 8px; background: var(--bg, #fafbfc); color: var(--fg, #1a1a2e); font: 12px/1.5 'Segoe UI', system-ui, sans-serif; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; } .ds-toolbar-button:hover { border-color: var(--accent, #6366f1); color: var(--accent, #6366f1); } .ds-toolbar-button:focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: -2px; }"
     },
     {
       "name": "Active Toolbar Button",
@@ -322,7 +368,7 @@
       "refersTo": "search-input",
       "description": "Compact keyword field for request evidence.",
       "html": "<input class=\"ds-search-input\" type=\"search\" placeholder=\"Filter requests\" />",
-      "css": ".ds-search-input { min-width: 220px; padding: 4px 8px; border: 1px solid var(--border, #dde1e6); border-radius: 6px; background: var(--bg, #fafbfc); color: var(--fg, #1a1a2e); font: 12px 'Segoe UI', system-ui, sans-serif; transition: border-color 200ms ease, box-shadow 200ms ease; } .ds-search-input:focus { outline: none; border-color: var(--accent, #6366f1); box-shadow: 0 0 0 2px var(--accent-dim, rgba(99,102,241,0.12)); } .ds-search-input:disabled { opacity: 0.5; cursor: not-allowed; }"
+      "css": ".ds-search-input { min-width: 220px; padding: 4px 8px; border: 1px solid var(--control-border, #7c8794); border-radius: 6px; background: var(--bg, #fafbfc); color: var(--fg, #1a1a2e); font: 12px 'Segoe UI', system-ui, sans-serif; transition: border-color 200ms ease, box-shadow 200ms ease; } .ds-search-input:focus { outline: none; border-color: var(--accent, #6366f1); box-shadow: 0 0 0 2px var(--accent-dim, rgba(99,102,241,0.12)); } .ds-search-input:disabled { opacity: 0.5; cursor: not-allowed; }"
     },
     {
       "name": "Active Inspector Tab",

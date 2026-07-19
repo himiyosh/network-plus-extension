@@ -58,6 +58,8 @@ const searchColorTokens = [
   'search-purple',
   'search-orange',
 ];
+const nonTextContrastTokens = ['control-border', 'separator'];
+
 
 describe('accessible theme contract', () => {
   test('defines every text semantic token in all four theme locations', () => {
@@ -77,6 +79,39 @@ describe('accessible theme contract', () => {
       expect(forcedDark[token]).toBe(light[token]);
       expect(forcedLight[token]).toBe(light[token]);
     }
+  });
+
+  test('defines non-text contrast tokens with four-theme parity', () => {
+    for (const token of nonTextContrastTokens) {
+      for (const theme of [light, systemDark, forcedDark, forcedLight]) {
+        expect(theme[token]).toMatch(/^#[0-9a-f]{6}$/i);
+      }
+      expect(forcedLight[token]).toBe(light[token]);
+      expect(forcedDark[token]).toBe(systemDark[token]);
+    }
+  });
+
+  test('keeps control and separator boundaries at WCAG non-text contrast', () => {
+    for (const [themeName, theme] of [
+      ['light', light],
+      ['system dark', systemDark],
+      ['forced dark', forcedDark],
+      ['forced light', forcedLight],
+    ]) {
+      for (const token of nonTextContrastTokens) {
+        for (const background of ['bg', 'surface', 'content-bg']) {
+          const ratio = contrastRatio(theme[token], theme[background]);
+          expect({ themeName, token, background, ratio }).toEqual(
+            expect.objectContaining({ ratio: expect.any(Number) }),
+          );
+          expect(ratio).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+    expect(css).toContain('border:1px solid var(--control-border)');
+    expect(css).toContain('input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border)');
+    expect(css).toContain('.resizer{flex:0 0 4px;cursor:col-resize;background:var(--separator)');
+    expect(css).toContain('.inspector-divider{flex:0 0 3px;background:var(--separator)');
   });
 
   test('keeps representative small semantic text at WCAG AA contrast', () => {
@@ -143,7 +178,7 @@ describe('accessible workbench static contracts', () => {
     const narrow = css.slice(narrowStart, css.indexOf('@media (prefers-reduced-motion:reduce)', narrowStart));
     expect(narrow).toContain('.content{flex-direction:column}');
     expect(narrow).toContain('cursor:row-resize');
-    expect(narrow).toContain('border-top:1px solid var(--border)');
+    expect(narrow).toContain('border-top:1px solid var(--separator)');
     expect(js).toContain("isNarrow ? 'horizontal' : 'vertical'");
   });
 
@@ -160,6 +195,56 @@ describe('accessible workbench static contracts', () => {
   });
 });
 
+
+describe('release trust static contracts', () => {
+  test('gives every dynamic search and filter field a contextual accessible name', () => {
+    expect(js).toContain("input.setAttribute('aria-label', 'Search keyword ' + (i + 1));");
+    expect(js).toContain("startInput.setAttribute('aria-label', columnLabel + ' filter start time');");
+    expect(js).toContain("endInput.setAttribute('aria-label', columnLabel + ' filter end time');");
+    expect(js).toContain("inclAnyInput.setAttribute('aria-label', 'URL filter Include any');");
+    expect(js).toContain("inclAllInput.setAttribute('aria-label', 'URL filter Include all');");
+    expect(js).toContain("exclInput.setAttribute('aria-label', 'URL filter Exclude any');");
+    expect(js).toContain("opSelect.setAttribute('aria-label', columnLabel + ' filter condition ' + (idx + 1) + ' operator');");
+    expect(js).toContain("input.setAttribute('aria-label', columnLabel + ' filter condition ' + (idx + 1) + ' value');");
+    expect(js).toContain("removeBtn.setAttribute('aria-label', 'Remove ' + columnLabel + ' filter condition ' + (idx + 1));");
+    expect(js).toContain("opSelect.setAttribute('aria-label', columnLabel + ' filter operator');");
+    expect(js).toContain("input.setAttribute('aria-label', columnLabel + ' filter value');");
+    expect(js).toContain("prevBtn.setAttribute('aria-label', 'Previous match for search keyword ' + (i + 1));");
+    expect(js).toContain("nextBtn.setAttribute('aria-label', 'Next match for search keyword ' + (i + 1));");
+    expect(js).toContain("removeBtn.setAttribute('aria-label', 'Remove search keyword ' + (i + 1));");
+  });
+
+  test('renders selected response details only from the guarded shared cache', () => {
+    const selectStart = js.indexOf('function selectRow');
+    const selectEnd = js.indexOf('// Section 14: Export', selectStart);
+    const selectBlock = js.slice(selectStart, selectEnd);
+    expect(selectBlock).toContain('cacheResponseContent(row)');
+    expect(selectBlock).toContain('shouldRenderSelectedRow(state.selectedRow, cachedRow)');
+    expect(selectBlock).toContain('shouldRenderSelectedRow(state.selectedRow, row)');
+    expect(selectBlock).toContain('renderCachedResponseContent(cachedRow)');
+    expect(selectBlock).not.toContain('row._reqObj.getContent');
+    expect(js).toContain("iframe.sandbox = '';");
+    expect(js).toContain("encoding === 'base64' && row.type && row.type.startsWith('image/')");
+  });
+
+  test('coalesces late live-body search refreshes without resetting navigation', () => {
+    const scheduleStart = js.indexOf('const scheduleResponseSearchRefresh');
+    const scheduleEnd = js.indexOf('const scheduleLiveRows', scheduleStart);
+    const scheduleBlock = js.slice(scheduleStart, scheduleEnd);
+    expect(scheduleBlock).toContain('pendingResponseSearchFrame');
+    expect(scheduleBlock).toContain('window.requestAnimationFrame');
+    expect(scheduleBlock).toContain('hasActiveSearchKeywords(state.search.keywords)');
+    expect(scheduleBlock).toContain('renderBody();');
+    expect(scheduleBlock).toContain('updateSearchUI();');
+    expect(js).toContain('.then(() => scheduleResponseSearchRefresh(row))');
+
+    const refreshStart = js.indexOf('function refreshSearchMatches');
+    const refreshEnd = js.indexOf('function updateEmptyState', refreshStart);
+    const refreshBlock = js.slice(refreshStart, refreshEnd);
+    expect(refreshBlock).toContain('preserveMatchingRowIndex');
+    expect(refreshBlock).not.toContain('srch.currentIndex = srch.matches.length > 0 ? 0 : -1');
+  });
+});
 
 describe('scale trust static contracts', () => {
   test('batches live rows and targets selection updates without rebuilding existing rows', () => {
