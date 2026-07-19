@@ -18,10 +18,10 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 👁️ カラム表示/非表示 | ツールバーの `Columns` ボタンでカラムの表示切替。設定は `localStorage` に永続化 |
 | ↔️ カラムリサイズ | ドラッグでカラム幅を調整可能。設定は永続化 |
 | 🔍 統合キーワード検索 | 複数キーワードをそれぞれ独立した入力欄で設定可能。URL/Domain/Path、リクエスト/レスポンスの Body・Headers を横断検索。各キーワードごとに 6 色のハイライトカラーを選択でき、マッチ行はキーワード色で表示。キーワードごとの ▲▼ ナビゲーション・マッチ数表示に対応。`Ctrl+F` で検索パネルを開閉。検索スコープ (URL/Body/Headers) は ⚙️ Scope ボタンで切替可能 |
-| 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能 |
-| ↕️ カラムソート | ヘッダークリックでソート切替 (昇順 → 降順 → ソート解除) |
-| 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示 |
-|  HAR エクスポート | HAR 1.2 形式でヘッダー・タイミング・レスポンスボディ・クエリ文字列・PostData を含む完全なログを出力 |
+| 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能。ステータスバーとボタンに有効なカラムフィルタ数を表示 |
+| ↕️ カラムソート | ヘッダークリックでソート切替 (昇順 → 降順 → ソート解除)。時刻カラムは取得時のリクエスト epoch で正確に比較 |
+| 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示。Timing は SSL と Connect を重複させずに可視化 |
+|  HAR エクスポート | HAR 1.2 形式でヘッダー・タイミング・レスポンスボディ・クエリ文字列・PostData を含む完全なログを出力。レスポンス取得完了を待機し、base64 データと encoding を保持 |
 | 🎨 テーマ切替 | System / Dark / Light の3モードを循環切替。`chrome.storage.local` (Edge 互換 API) に永続化 |
 | ⏯️ 録画制御 | Pause / Resume ボタン。録画中は赤、一時停止中はグレーのインジケータ表示 |
 | ⬇️ 自動スクロール | 新規リクエスト到着時に自動的にテーブル末尾へスクロール。上方向へ手動スクロールすると自動的に OFF になり、ボタン状態にも反映 |

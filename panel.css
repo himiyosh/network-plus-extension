@@ -240,6 +240,7 @@ html[data-theme="dark"] .search-hl-5{background:rgba(249,115,22,0.2)}
 .statusbar .spacer{flex:1}
 #totalSize{margin-right:12px;font-weight:600;color:var(--accent)}
 #selectedSize{margin-right:12px;font-weight:600;color:var(--status-3xx)}
+#counter{white-space:nowrap;font-variant-numeric:tabular-nums}
 
 /* === Column Resizer === */
 .col-resizer{position:absolute;top:0;right:0;width:5px;height:100%;cursor:col-resize;z-index:1}

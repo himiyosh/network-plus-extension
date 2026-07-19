@@ -14,6 +14,7 @@ const _NetworkPlus = (function () {
   const TRUNCATE_LIMIT = 2000;
   const FILTER_DEBOUNCE_MS = 150;
   const DEEP_SEARCH_DEBOUNCE_MS = 250;
+  const RESPONSE_CONTENT_TIMEOUT_MS = 10000;
   const JSON_TREE_MAX_CHILDREN = 100;
   const JSON_TREE_MAX_DEPTH = 20;
   const JSON_TREE_PREVIEW_KEYS = 3;
@@ -27,6 +28,9 @@ const _NetworkPlus = (function () {
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
   const DATE_COLUMNS = ['clientStart', 'serverDone'];
+  const DATE_SORT_FIELDS = { clientStart: 'clientStartEpoch', serverDone: 'serverDoneEpoch' };
+  const INVALID_REQUEST_EPOCH = Number.MAX_SAFE_INTEGER;
+  const TIMING_PHASES = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
 
   const FILTER_OPERATORS_STRING = [
     { value: 'contains', label: 'contains' },
@@ -208,6 +212,90 @@ const _NetworkPlus = (function () {
     return out;
   }
 
+  function getRequestEpoch(startedDateTime, fallback) {
+    const fallbackEpoch = Number.isFinite(fallback) ? fallback : 0;
+    const epoch = typeof startedDateTime === 'number' ? startedDateTime : Date.parse(startedDateTime);
+    return Number.isFinite(epoch) ? epoch : fallbackEpoch;
+  }
+
+  function compareRequestTimes(a, b, colId) {
+    const sortField = DATE_SORT_FIELDS[colId];
+    if (!sortField) return 0;
+    const aEpoch = getRequestEpoch(a && a[sortField], INVALID_REQUEST_EPOCH);
+    const bEpoch = getRequestEpoch(b && b[sortField], INVALID_REQUEST_EPOCH);
+    if (aEpoch === bEpoch) return 0;
+    return aEpoch < bEpoch ? -1 : 1;
+  }
+
+  function calculateTimingSegments(timings, totalDuration) {
+    const source = timings || {};
+    const segments = TIMING_PHASES.map((label) => {
+      const rawDuration = source[label];
+      const available = typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration >= 0;
+      return { label, duration: available ? rawDuration : 0, available };
+    });
+    const connect = segments.find((segment) => segment.label === 'connect');
+    const ssl = segments.find((segment) => segment.label === 'ssl');
+    if (connect.available && ssl.available) {
+      connect.duration = Math.max(0, connect.duration - ssl.duration);
+    }
+    const segmentTotal = segments.reduce((sum, segment) => sum + segment.duration, 0);
+    const total = Number.isFinite(totalDuration) && totalDuration >= 0 ? totalDuration : segmentTotal;
+    return { total, segments };
+  }
+
+  function decodeResponseContent(content, encoding) {
+    const text = typeof content === 'string' ? content : '';
+    if (encoding !== 'base64') return text;
+    try {
+      return atob(text);
+    } catch (_e) {
+      return '';
+    }
+  }
+
+  function buildHarResponseContent(row) {
+    const content = {
+      size: row && row.size ? row.size : 0,
+      mimeType: guessMimeType(row || {}),
+      text: row && typeof row.responseContent === 'string' ? row.responseContent : '',
+    };
+    if (row && row.responseContentEncoding === 'base64') content.encoding = 'base64';
+    return content;
+  }
+
+  function isRuleActive(rule) {
+    if (!rule) return false;
+    if (rule.mode === 'methodSet') {
+      return rule.include ? HTTP_METHODS.some((method) => rule.include[method] !== true) : false;
+    }
+    if (rule.mode === 'statusSet') {
+      return rule.include ? Object.values(rule.include).some((value) => value === false) : false;
+    }
+    if (rule.mode === 'urlAdvanced') {
+      return [rule.includeAny, rule.includeAll, rule.excludeAny].some(
+        (value) => value != null && String(value).trim() !== '',
+      );
+    }
+    if (rule.mode === 'timeRange') {
+      return [rule.start, rule.end].some((value) => value != null && String(value).trim() !== '');
+    }
+    if (rule.mode === 'multiText') {
+      return rule.conditions
+        ? rule.conditions.some(
+          (condition) => condition.value != null && String(condition.value).trim() !== '',
+        )
+        : false;
+    }
+    if (rule.op === 'empty' || rule.op === 'notempty') return true;
+    return rule.value != null && String(rule.value).trim() !== '';
+  }
+
+  function countActiveColumnFilters(rules) {
+    if (!rules) return 0;
+    return Object.values(rules).filter((rule) => isRuleActive(rule)).length;
+  }
+
   /** Debounce wrapper */
   function debounce(fn, ms) {
     let timer = null;
@@ -343,7 +431,7 @@ const _NetworkPlus = (function () {
     }
 
     if (scope.resBody) {
-      const resText = row.responseContent || '';
+      const resText = row.responseContentText != null ? row.responseContentText : row.responseContent || '';
       if (resText && resText.toLowerCase().indexOf(lcq) > -1) return true;
     }
 
@@ -545,12 +633,7 @@ const _NetworkPlus = (function () {
     }
 
     if (DATE_COLUMNS.indexOf(colId) > -1) {
-      const da = new Date(av).getTime();
-      const db = new Date(bv).getTime();
-      if (isNaN(da) && isNaN(db)) return 0;
-      if (isNaN(da)) return 1;
-      if (isNaN(db)) return -1;
-      return da - db;
+      return compareRequestTimes(a, b, colId);
     }
 
     const sa = String(av).toLowerCase();
@@ -706,14 +789,19 @@ const _NetworkPlus = (function () {
 
   function buildRowFromRequest(req) {
     const isoStr = (req && req.startedDateTime) || '';
-    const durationMs = (req && req.time) || 0;
+    const durationMs = req && Number.isFinite(req.time) ? req.time : 0;
+    const clientStartEpoch = getRequestEpoch(isoStr, INVALID_REQUEST_EPOCH);
     let serverDoneIso = '';
-    if (isoStr && durationMs > 0) {
-      const startMs = new Date(isoStr).getTime();
-      if (!isNaN(startMs)) {
-        serverDoneIso = new Date(startMs + durationMs).toISOString();
-      }
+    let serverDoneEpoch = INVALID_REQUEST_EPOCH;
+    if (isoStr && durationMs > 0 && clientStartEpoch !== INVALID_REQUEST_EPOCH) {
+      serverDoneEpoch = clientStartEpoch + durationMs;
+      serverDoneIso = new Date(serverDoneEpoch).toISOString();
     }
+    const embeddedContent = req && req.response && req.response.content;
+    const embeddedResponseContent =
+      embeddedContent && typeof embeddedContent.text === 'string' ? embeddedContent.text : null;
+    const embeddedResponseEncoding =
+      embeddedResponseContent !== null && embeddedContent.encoding === 'base64' ? 'base64' : '';
     const r = {
       _reqObj: req,
       method: (req && req.request && req.request.method) || '',
@@ -728,6 +816,8 @@ const _NetworkPlus = (function () {
       serverDone: fmtLocalTime(serverDoneIso),
       clientStartFilter: fmtFilterTime(isoStr),
       serverDoneFilter: fmtFilterTime(serverDoneIso),
+      clientStartEpoch,
+      serverDoneEpoch,
       duration: durationMs,
       startedDateTime: isoStr,
       requestHeaders: (req && req.request && req.request.headers) || [],
@@ -735,7 +825,14 @@ const _NetworkPlus = (function () {
       requestPostData: (req && req.request && req.request.postData) || null,
       timings: (req && req.timings) || {},
       initiator: formatInitiator(req.initiator),
-      responseContent: null, // [U1] cache response body
+      responseContent: embeddedResponseContent,
+      responseContentEncoding: embeddedResponseEncoding,
+      responseContentText:
+        embeddedResponseContent === null
+          ? null
+          : decodeResponseContent(embeddedResponseContent, embeddedResponseEncoding),
+      _responseContentPromise: null,
+      responseContentError: null,
     };
     const p = extractUrlParts(r.url);
     r.domain = p.domain;
@@ -745,20 +842,76 @@ const _NetworkPlus = (function () {
   }
 
   // [U1] Pre-fetch response content for HAR export
-  function cacheResponseContent(row) {
-    if (row._reqObj && typeof row._reqObj.getContent === 'function') {
-      row._reqObj.getContent((content, encoding) => {
-        if (encoding === 'base64') {
-          try {
-            row.responseContent = atob(content);
-          } catch (_e) {
-            row.responseContent = content || '';
-          }
-        } else {
-          row.responseContent = content || '';
+  function cacheResponseContent(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
+    if (row._responseContentPromise) return row._responseContentPromise;
+    if (typeof row.responseContent === 'string') return Promise.resolve(row);
+
+    const requestLabel = row.id == null ? 'unknown request' : 'request ' + row.id;
+    let pending;
+    if (!row._reqObj || typeof row._reqObj.getContent !== 'function') {
+      const error = new Error('Response content is unavailable for ' + requestLabel);
+      row.responseContentError = error;
+      pending = Promise.reject(error);
+    } else {
+      pending = new Promise((resolve, reject) => {
+        let settled = false;
+        const timeoutId = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          const error = new Error('Timed out retrieving response content for ' + requestLabel);
+          row.responseContentError = error;
+          reject(error);
+        }, timeoutMs);
+
+        const fail = (message) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          const error = new Error(message);
+          row.responseContentError = error;
+          reject(error);
+        };
+
+        try {
+          row._reqObj.getContent((content, encoding) => {
+            if (settled) return;
+            const runtimeError =
+              typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError
+                ? chrome.runtime.lastError.message
+                : '';
+            if (runtimeError) {
+              fail('Failed to retrieve response content for ' + requestLabel + ': ' + runtimeError);
+              return;
+            }
+            settled = true;
+            clearTimeout(timeoutId);
+            row.responseContent = typeof content === 'string' ? content : '';
+            row.responseContentEncoding = encoding === 'base64' ? 'base64' : '';
+            row.responseContentText = decodeResponseContent(row.responseContent, row.responseContentEncoding);
+            row.responseContentError = null;
+            resolve(row);
+          });
+        } catch (error) {
+          fail('Failed to retrieve response content for ' + requestLabel + ': ' + error.message);
         }
       });
     }
+
+    row._responseContentPromise = pending;
+    pending.then(undefined, () => {
+      if (row._responseContentPromise === pending) row._responseContentPromise = null;
+    });
+    return pending;
+  }
+
+  async function settleResponseContentForHar(rows, loadResponseContent = cacheResponseContent) {
+    const settlements = await Promise.allSettled(
+      rows.map((row) => Promise.resolve().then(() => loadResponseContent(row))),
+    );
+    return {
+      settlements,
+      unavailableCount: settlements.filter((result) => result.status === 'rejected').length,
+    };
   }
 
   // ============================================================
@@ -1234,33 +1387,8 @@ const _NetworkPlus = (function () {
     return wrap;
   }
 
-  function isRuleActive(rule) {
-    if (!rule) return false;
-    if (rule.mode === 'methodSet') {
-      return rule.include ? Object.values(rule.include).some((v) => !v) : false;
-    }
-    if (rule.mode === 'statusSet') {
-      return rule.include ? Object.values(rule.include).some((v) => !v) : false;
-    }
-    if (rule.mode === 'urlAdvanced') {
-      return !!(rule.includeAny || '').trim() || !!(rule.includeAll || '').trim() || !!(rule.excludeAny || '').trim();
-    }
-    if (rule.mode === 'timeRange') {
-      return !!(rule.start || '').trim() || !!(rule.end || '').trim();
-    }
-    if (rule.mode === 'multiText') {
-      return rule.conditions ? rule.conditions.some((c) => (c.value || '').trim() !== '') : false;
-    }
-    if (rule.op === 'empty' || rule.op === 'notempty') return true;
-    return String(rule.value || '').trim() !== '';
-  }
-
   function getActiveFilterCount() {
-    let count = 0;
-    for (const col of state.columns) {
-      if (isRuleActive(state.columnFilterRules[col.id])) count++;
-    }
-    return count;
+    return countActiveColumnFilters(state.columnFilterRules);
   }
 
   function createFilterPopupContent(onChange, focusColId) {
@@ -1522,7 +1650,24 @@ const _NetworkPlus = (function () {
       frag.appendChild(tr);
     }
     tbody.appendChild(frag);
-    $('#counter').textContent = rows.length + ' requests';
+    const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
+    $('#counter').textContent =
+      rows.length +
+      ' / ' +
+      state.rows.length +
+      ' requests · ' +
+      activeFilterCount +
+      ' active column ' +
+      (activeFilterCount === 1 ? 'filter' : 'filters');
+    const filterButton = $('#filterBtn');
+    filterButton.textContent =
+      activeFilterCount > 0 ? '⚙️ Column Filters (' + activeFilterCount + ')' : '⚙️ Column Filters';
+    filterButton.setAttribute(
+      'aria-label',
+      activeFilterCount > 0
+        ? 'Column Filters, ' + activeFilterCount + ' active'
+        : 'Column Filters, no active filters',
+    );
     // Update total size
     let totalBytes = 0;
     for (let i = 0; i < rows.length; i++) totalBytes += rows[i].size || 0;
@@ -2169,10 +2314,15 @@ const _NetworkPlus = (function () {
     const resTimingPane = $('#res-timing');
     resTimingPane.textContent = '';
     const timingItems = [];
+    const timingBreakdown = calculateTimingSegments(row.timings, row.duration);
+    const timingSegmentMap = new Map(
+      timingBreakdown.segments.map((segment) => [segment.label, segment]),
+    );
     if (row.timings) {
       for (const key in row.timings) {
         if (typeof row.timings[key] === 'number' && row.timings[key] >= 0) {
-          timingItems.push({ name: key, value: fmtTime(row.timings[key]) });
+          const segment = timingSegmentMap.get(key);
+          timingItems.push({ name: key, value: fmtTime(segment ? segment.duration : row.timings[key]) });
         }
       }
     }
@@ -2186,17 +2336,17 @@ const _NetworkPlus = (function () {
     if (row.timings) {
       const barWrap = document.createElement('div');
       barWrap.className = 'timing-bar-wrap';
-      const total = row.duration || 1;
-      const phases = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
+      const segmentTotal = timingBreakdown.segments.reduce((sum, segment) => sum + segment.duration, 0);
+      const visualTotal = Math.max(timingBreakdown.total, segmentTotal, 1);
       const colors = ['#999', '#6cf', '#f90', '#c6f', '#9c6', '#6c9', '#69c'];
-      for (let i = 0; i < phases.length; i++) {
-        const val = row.timings[phases[i]];
-        if (typeof val === 'number' && val > 0) {
+      for (let i = 0; i < timingBreakdown.segments.length; i++) {
+        const segment = timingBreakdown.segments[i];
+        if (segment.duration > 0) {
           const seg = document.createElement('div');
           seg.className = 'timing-bar-seg';
-          seg.style.width = Math.max(1, (val / total) * 100) + '%';
+          seg.style.width = (segment.duration / visualTotal) * 100 + '%';
           seg.style.background = colors[i];
-          seg.title = phases[i] + ': ' + fmtTime(val);
+          seg.title = segment.label + ': ' + fmtTime(segment.duration);
           barWrap.appendChild(seg);
         }
       }
@@ -2205,14 +2355,14 @@ const _NetworkPlus = (function () {
       // Legend
       const legend = document.createElement('div');
       legend.className = 'timing-legend';
-      for (let i = 0; i < phases.length; i++) {
+      for (let i = 0; i < timingBreakdown.segments.length; i++) {
         const item = document.createElement('span');
         item.className = 'timing-legend-item';
         const dot = document.createElement('span');
         dot.className = 'timing-legend-dot';
         dot.style.background = colors[i];
         item.appendChild(dot);
-        item.appendChild(document.createTextNode(phases[i]));
+        item.appendChild(document.createTextNode(timingBreakdown.segments[i].label));
         legend.appendChild(item);
       }
       resTimingPane.appendChild(legend);
@@ -2228,10 +2378,9 @@ const _NetworkPlus = (function () {
     return state.filteredRows;
   }
 
-  function buildHarLogFromRows() {
+  function buildHarLogFromRows(rows) {
     const pageref = 'page_1';
     const entries = [];
-    const rows = getExportRows();
     for (const r of rows) {
       const started = r.startedDateTime || new Date().toISOString();
       const url = r.url || '';
@@ -2241,12 +2390,8 @@ const _NetworkPlus = (function () {
       const postData = r.requestPostData
         ? { mimeType: r.requestPostData.mimeType || '', text: r.requestPostData.text || '' }
         : null;
-      // [U1] Include response body text in HAR
-      const content = {
-        size: r.size || 0,
-        mimeType: guessMimeType(r),
-        text: r.responseContent || '',
-      };
+      // [U1] Preserve response body text and its transfer encoding in HAR.
+      const content = buildHarResponseContent(r);
       const timings = { blocked: -1, dns: -1, connect: -1, ssl: -1, send: -1, wait: -1, receive: -1 };
       const t = (r._reqObj && r._reqObj.timings) || {};
       for (const k in timings) {
@@ -2294,15 +2439,41 @@ const _NetworkPlus = (function () {
     };
   }
 
-  function exportHAR() {
-    const har = buildHarLogFromRows();
-    const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'network-plus.har';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  async function exportHAR() {
+    const rows = getExportRows().slice();
+    const exportButton = $('#exportHarBtn');
+    exportButton.disabled = true;
+    setStatus('Preparing HAR export for ' + rows.length + ' requests...');
+    try {
+      const contentResult = await settleResponseContentForHar(rows);
+      const har = buildHarLogFromRows(rows);
+      const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'network-plus.har';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (contentResult.unavailableCount > 0) {
+        setStatus(
+          'Exported ' +
+            rows.length +
+            ' requests to HAR; ' +
+            contentResult.unavailableCount +
+            ' response ' +
+            (contentResult.unavailableCount === 1 ? 'body was' : 'bodies were') +
+            ' unavailable',
+        );
+      } else {
+        setStatus('Exported ' + rows.length + ' requests to HAR');
+      }
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      setStatus('HAR export failed: ' + message);
+      console.error('HAR export failed', error);
+    } finally {
+      exportButton.disabled = false;
+    }
   }
 
   // ============================================================
@@ -3165,8 +3336,9 @@ const _NetworkPlus = (function () {
                 }
 
                 const row = buildRowFromRequest(entry);
-                if (entry.response && entry.response.content && entry.response.content.text) {
-                  row.responseContent = entry.response.content.text;
+                if (row.responseContent === null) {
+                  row.responseContent = '';
+                  row.responseContentText = '';
                 }
                 state.rows.push(row);
               });
@@ -3338,7 +3510,10 @@ const _NetworkPlus = (function () {
       chrome.devtools.network.onRequestFinished.addListener((request) => {
         if (state.paused) return;
         const row = buildRowFromRequest(request);
-        cacheResponseContent(row); // [U1]
+        cacheResponseContent(row).catch((error) => {
+          setStatus('Response content error: ' + error.message);
+          console.error(error);
+        }); // [U1]
         const wasAtBottom =
           state.autoScroll &&
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
@@ -3362,7 +3537,7 @@ const _NetworkPlus = (function () {
 
   document.addEventListener('DOMContentLoaded', init);
 
-  // Expose pure functions for testing
+  // Expose testable functions for Jest
   return {
     fmtBytes,
     fmtTime,
@@ -3379,6 +3554,15 @@ const _NetworkPlus = (function () {
     formatRowSummary,
     DEFAULT_METHOD_FILTERS,
     getNextTabIndex,
+    getRequestEpoch,
+    compareRequestTimes,
+    calculateTimingSegments,
+    decodeResponseContent,
+    buildHarResponseContent,
+    cacheResponseContent,
+    settleResponseContentForHar,
+    isRuleActive,
+    countActiveColumnFilters,
   };
 })();
 

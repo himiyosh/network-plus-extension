@@ -154,6 +154,220 @@ describe('toHarHeaders', () => {
   });
 });
 
+describe('getRequestEpoch and compareRequestTimes', () => {
+  test('uses captured ISO timestamps for chronological values', () => {
+    const earlier = np.getRequestEpoch('2026-07-19T01:00:00.000Z');
+    const later = np.getRequestEpoch('2026-07-19T12:00:00.000+09:00');
+    expect(earlier).toBe(Date.parse('2026-07-19T01:00:00.000Z'));
+    expect(later).toBe(Date.parse('2026-07-19T03:00:00.000Z'));
+    expect(earlier).toBeLessThan(later);
+  });
+
+  test('supports stable numeric fallbacks for invalid timestamps', () => {
+    expect(np.getRequestEpoch('not-a-date', 42)).toBe(42);
+    expect(np.getRequestEpoch(null, 17)).toBe(17);
+    expect(np.getRequestEpoch(undefined, NaN)).toBe(0);
+  });
+
+  test('compares client and server epochs for ascending and descending sorts', () => {
+    const earlier = { clientStartEpoch: 1000, serverDoneEpoch: 1200 };
+    const later = { clientStartEpoch: 2000, serverDoneEpoch: 2600 };
+    expect(np.compareRequestTimes(earlier, later, 'clientStart')).toBeLessThan(0);
+    expect(np.compareRequestTimes(earlier, later, 'serverDone')).toBeLessThan(0);
+    expect(np.compareRequestTimes(earlier, later, 'clientStart') * -1).toBeGreaterThan(0);
+    expect(np.compareRequestTimes({}, later, 'clientStart')).toBeGreaterThan(0);
+    expect(np.compareRequestTimes(earlier, later, 'method')).toBe(0);
+  });
+});
+
+describe('calculateTimingSegments', () => {
+  test('subtracts SSL from connect without changing the captured total', () => {
+    const result = np.calculateTimingSegments(
+      { blocked: 10, dns: 20, connect: 100, ssl: 40, send: 5, wait: 60, receive: 25 },
+      220,
+    );
+    const durations = Object.fromEntries(result.segments.map((segment) => [segment.label, segment.duration]));
+    expect(durations.connect).toBe(60);
+    expect(durations.ssl).toBe(40);
+    expect(result.segments.reduce((sum, segment) => sum + segment.duration, 0)).toBe(220);
+    expect(result.total).toBe(220);
+    expect(result.segments.map((segment) => segment.label)).toEqual([
+      'blocked',
+      'dns',
+      'connect',
+      'ssl',
+      'send',
+      'wait',
+      'receive',
+    ]);
+  });
+
+  test('keeps connect intact without SSL and handles invalid values', () => {
+    const result = np.calculateTimingSegments({ connect: 25, ssl: -1, wait: NaN }, NaN);
+    const connect = result.segments.find((segment) => segment.label === 'connect');
+    const ssl = result.segments.find((segment) => segment.label === 'ssl');
+    expect(connect).toEqual({ label: 'connect', duration: 25, available: true });
+    expect(ssl).toEqual({ label: 'ssl', duration: 0, available: false });
+    expect(result.total).toBe(25);
+  });
+
+  test('never produces a negative exclusive connect duration', () => {
+    const result = np.calculateTimingSegments({ connect: 10, ssl: 20 }, 20);
+    expect(result.segments.find((segment) => segment.label === 'connect').duration).toBe(0);
+  });
+});
+
+describe('response content helpers', () => {
+  test('decodes base64 only for display/search use', () => {
+    expect(np.decodeResponseContent('eyJvayI6dHJ1ZX0=', 'base64')).toBe('{"ok":true}');
+    expect(np.decodeResponseContent('plain text', '')).toBe('plain text');
+    expect(np.decodeResponseContent(null, 'base64')).toBe('');
+  });
+
+  test('handles base64 decode failures without exposing binary garbage', () => {
+    const atobSpy = jest.spyOn(global, 'atob').mockImplementationOnce(() => {
+      throw new Error('invalid base64');
+    });
+    expect(np.decodeResponseContent('invalid', 'base64')).toBe('');
+    atobSpy.mockRestore();
+  });
+
+  test('preserves base64 text and encoding in HAR content', () => {
+    const content = np.buildHarResponseContent({
+      size: 12,
+      type: 'application/octet-stream',
+      responseHeaders: [],
+      responseContent: 'AAEC/w==',
+      responseContentEncoding: 'base64',
+    });
+    expect(content).toEqual({
+      size: 12,
+      mimeType: 'application/octet-stream',
+      text: 'AAEC/w==',
+      encoding: 'base64',
+    });
+  });
+
+  test('keeps plain text plain and supplies safe empty fallbacks', () => {
+    const plain = np.buildHarResponseContent({
+      size: 4,
+      type: 'text/plain',
+      responseHeaders: [],
+      responseContent: 'test',
+      responseContentEncoding: '',
+    });
+    expect(plain).toEqual({ size: 4, mimeType: 'text/plain', text: 'test' });
+    expect(np.buildHarResponseContent(null)).toEqual({
+      size: 0,
+      mimeType: 'application/octet-stream',
+      text: '',
+    });
+  });
+
+  test('settles successful and failed response content preparation independently', async () => {
+    const rows = [{ id: 1 }, { id: 2 }];
+    const loadResponseContent = jest.fn((row) =>
+      row.id === 1 ? Promise.resolve(row) : Promise.reject(new Error('body unavailable')),
+    );
+
+    const result = await np.settleResponseContentForHar(rows, loadResponseContent);
+
+    expect(result.unavailableCount).toBe(1);
+    expect(result.settlements.map((settlement) => settlement.status)).toEqual(['fulfilled', 'rejected']);
+    expect(loadResponseContent).toHaveBeenCalledTimes(2);
+  });
+
+  test('clears a timed-out content promise so a later attempt can succeed', async () => {
+    jest.useFakeTimers();
+    try {
+      const getContent = jest
+        .fn()
+        .mockImplementationOnce(() => {})
+        .mockImplementationOnce((callback) => callback('retry succeeded', ''));
+      const row = {
+        id: 7,
+        responseContent: null,
+        responseContentEncoding: '',
+        responseContentError: null,
+        _responseContentPromise: null,
+        _reqObj: { getContent },
+      };
+
+      const firstResult = np.cacheResponseContent(row, 25).then(
+        () => null,
+        (error) => error,
+      );
+      await jest.advanceTimersByTimeAsync(25);
+
+      const timeoutError = await firstResult;
+      expect(timeoutError.message).toContain('Timed out retrieving response content');
+      expect(row._responseContentPromise).toBeNull();
+
+      await expect(np.cacheResponseContent(row, 25)).resolves.toBe(row);
+      expect(getContent).toHaveBeenCalledTimes(2);
+      expect(row.responseContent).toBe('retry succeeded');
+      expect(row.responseContentError).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('keeps successful base64 content cached without fetching it twice', async () => {
+    const getContent = jest.fn((callback) => callback('AAEC/w==', 'base64'));
+    const row = {
+      id: 8,
+      responseContent: null,
+      responseContentEncoding: '',
+      responseContentError: null,
+      _responseContentPromise: null,
+      _reqObj: { getContent },
+    };
+
+    const first = np.cacheResponseContent(row);
+    await expect(first).resolves.toBe(row);
+    const second = np.cacheResponseContent(row);
+    await expect(second).resolves.toBe(row);
+
+    expect(second).toBe(first);
+    expect(getContent).toHaveBeenCalledTimes(1);
+    expect(row.responseContent).toBe('AAEC/w==');
+    expect(row.responseContentEncoding).toBe('base64');
+  });
+});
+
+describe('active column filter helpers', () => {
+  test('does not count inactive and default rules', () => {
+    const allMethods = np.DEFAULT_METHOD_FILTERS();
+    expect(np.isRuleActive({ op: 'contains', value: '   ' })).toBe(false);
+    expect(np.isRuleActive({ op: 'equals', value: 0 })).toBe(true);
+    expect(np.isRuleActive({ mode: 'methodSet', include: allMethods })).toBe(false);
+    expect(np.isRuleActive({ mode: 'methodSet', include: { GET: true } })).toBe(true);
+    expect(np.isRuleActive({ mode: 'statusSet', include: { '200': true } })).toBe(false);
+    expect(np.isRuleActive({ mode: 'urlAdvanced', caseSensitive: true })).toBe(false);
+    expect(np.isRuleActive({ mode: 'timeRange', start: '', end: '' })).toBe(false);
+    expect(np.isRuleActive({ mode: 'multiText', conditions: [{ op: 'contains', value: '' }] })).toBe(false);
+  });
+
+  test('counts active columns once regardless of condition count', () => {
+    const rules = {
+      method: { mode: 'methodSet', include: { GET: true, POST: false } },
+      status: { mode: 'statusSet', include: { '200': true, '404': false } },
+      domain: {
+        mode: 'multiText',
+        conditions: [
+          { op: 'contains', value: 'api' },
+          { op: 'notcontains', value: 'internal' },
+        ],
+      },
+      url: { mode: 'urlAdvanced', includeAny: '', includeAll: '', excludeAny: '' },
+      size: { op: 'empty', value: '' },
+      path: { op: 'contains', value: '' },
+    };
+    expect(np.countActiveColumnFilters(rules)).toBe(4);
+    expect(np.countActiveColumnFilters(null)).toBe(0);
+  });
+});
+
 describe('debounce', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
