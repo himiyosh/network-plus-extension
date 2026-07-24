@@ -507,7 +507,9 @@ const _NetworkPlus = (function () {
     const text = typeof content === 'string' ? content : '';
     if (encoding !== 'base64') return text;
     try {
-      return atob(text);
+      const binary = atob(text);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
     } catch (_e) {
       return '';
     }
@@ -601,6 +603,11 @@ const _NetworkPlus = (function () {
       queuedIds.add(rowId);
       return true;
     });
+  }
+
+  function retainRowsByIdentity(candidateRows, currentRows) {
+    const currentRowSet = new Set(currentRows || []);
+    return (candidateRows || []).filter((row) => currentRowSet.has(row));
   }
 
   /** Debounce wrapper */
@@ -2169,7 +2176,7 @@ const _NetworkPlus = (function () {
     }
   }
 
-  function appendIncrementalRows(queuedRows) {
+  function appendIncrementalRows(liveRows) {
     const tbody = $('#tbody');
     if (!tbody) return false;
     const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
@@ -2183,9 +2190,8 @@ const _NetworkPlus = (function () {
     ) {
       return false;
     }
-    const currentRows = queuedRows.filter((row) => state.rows.includes(row));
     const renderedRowIds = $all('tr[data-row-id]', tbody).map((rowElement) => rowElement.dataset.rowId);
-    const rowsToAppend = getIncrementalAppendBatch(currentRows, renderedRowIds);
+    const rowsToAppend = getIncrementalAppendBatch(liveRows, renderedRowIds);
     refreshSearchMatches();
     if (rowsToAppend.length === 0) {
       updateEmptyState(state.filteredRows.length);
@@ -2699,11 +2705,13 @@ const _NetworkPlus = (function () {
     if (encoding === 'base64' && row.type && row.type.startsWith('image/')) {
       const img = document.createElement('img');
       img.src = 'data:' + row.type + ';base64,' + rawContent;
+      img.alt = 'Response image preview';
       img.style.maxWidth = '100%';
       resPreviewPane.appendChild(img);
     } else if (row.type && row.type.indexOf('html') > -1) {
       const iframe = document.createElement('iframe');
       iframe.sandbox = '';
+      iframe.title = 'Response HTML preview';
       iframe.style.width = '100%';
       iframe.style.height = '300px';
       iframe.style.border = '1px solid var(--border)';
@@ -3120,7 +3128,6 @@ const _NetworkPlus = (function () {
       const actionLabel = state.paused ? 'Resume recording' : 'Pause recording';
       pauseBtn.title = actionLabel;
       pauseBtn.setAttribute('aria-label', actionLabel);
-      pauseBtn.setAttribute('aria-pressed', String(state.paused));
       if (state.paused) {
         topbar.classList.add('paused');
         topbar.classList.remove('recording');
@@ -3486,11 +3493,18 @@ const _NetworkPlus = (function () {
     tableWrap.addEventListener('keydown', (event) => {
       const focusedTr = event.target.closest('tbody tr[data-row-id]');
       if (!focusedTr) return;
+      const focusedRowId = parseInt(focusedTr.dataset.rowId, 10);
+      const focusedRow = state.rows.find((candidate) => candidate.id === focusedRowId);
+      if (!focusedRow) return;
       const displayedRows = getSortedRows(state.filteredRows);
       const currentRow = state.focusedRow || state.selectedRow;
       const currentIndex = currentRow ? displayedRows.indexOf(currentRow) : -1;
 
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectRow(focusedRow, event, true);
+        scrollToSelectedRow();
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         if (displayedRows.length === 0) return;
         event.preventDefault();
         const nextIndex = event.key === 'ArrowDown'
@@ -3500,16 +3514,14 @@ const _NetworkPlus = (function () {
         scrollToSelectedRow();
       } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
         event.preventDefault();
-        const rowId = parseInt(focusedTr.dataset.rowId, 10);
-        const row = state.rows.find((candidate) => candidate.id === rowId);
         const rect = focusedTr.getBoundingClientRect();
-        suppressNextNativeContextMenuRowId = String(rowId);
+        suppressNextNativeContextMenuRowId = String(focusedRowId);
         setTimeout(() => {
-          if (suppressNextNativeContextMenuRowId === String(rowId)) {
+          if (suppressNextNativeContextMenuRowId === String(focusedRowId)) {
             suppressNextNativeContextMenuRowId = null;
           }
         }, 0);
-        openRowContextMenu(row, rect.left + ROW_CONTEXT_MENU_X_OFFSET, rect.top + Math.min(rect.height, ROW_CONTEXT_MENU_Y_OFFSET), focusedTr);
+        openRowContextMenu(focusedRow, rect.left + ROW_CONTEXT_MENU_X_OFFSET, rect.top + Math.min(rect.height, ROW_CONTEXT_MENU_Y_OFFSET), focusedTr);
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
         const rows = state.selectedRows.size > 0
           ? [...state.selectedRows]
@@ -4209,7 +4221,7 @@ const _NetworkPlus = (function () {
           state.search.keywords,
           state.renderedActiveFilterCount,
         );
-        const liveRows = queuedRows.filter((row) => state.rows.includes(row));
+        const liveRows = retainRowsByIdentity(queuedRows, state.rows);
         if (!fastPathEligible || !appendIncrementalRows(liveRows)) renderBody();
         if (shouldScrollToBottom && state.autoScroll) {
           tableWrap.scrollTop = tableWrap.scrollHeight;
@@ -4291,6 +4303,7 @@ const _NetworkPlus = (function () {
     shouldRenderSelectedRow,
     isIncrementalAppendEligible,
     getIncrementalAppendBatch,
+    retainRowsByIdentity,
   };
 })();
 

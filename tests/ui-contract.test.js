@@ -192,6 +192,8 @@ describe('accessible workbench static contracts', () => {
     expect(html).toMatch(/id="requestCountStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
     expect(html).toMatch(/id="copyToast"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
     expect(html).toMatch(/id="resizer"[^>]*role="separator"[^>]*aria-orientation="vertical"[^>]*aria-valuenow="50"/);
+    expect(html).not.toMatch(/id="pauseBtn"[^>]*aria-pressed/);
+    expect(js).not.toContain("pauseBtn.setAttribute('aria-pressed'");
   });
 });
 
@@ -224,6 +226,8 @@ describe('release trust static contracts', () => {
     expect(selectBlock).toContain('renderCachedResponseContent(cachedRow)');
     expect(selectBlock).not.toContain('row._reqObj.getContent');
     expect(js).toContain("iframe.sandbox = '';");
+    expect(js).toContain("iframe.title = 'Response HTML preview';");
+    expect(js).toContain("img.alt = 'Response image preview';");
     expect(js).toContain("encoding === 'base64' && row.type && row.type.startsWith('image/')");
   });
 
@@ -255,7 +259,8 @@ describe('scale trust static contracts', () => {
     const appendBlock = js.slice(js.indexOf('function appendIncrementalRows'), js.indexOf('function replaceRenderedRowStates'));
     expect(appendBlock).toContain('document.createDocumentFragment()');
     expect(appendBlock).not.toContain('tbody.textContent =');
-    expect(appendBlock).toContain('getIncrementalAppendBatch(currentRows, renderedRowIds)');
+    expect(appendBlock).toContain('getIncrementalAppendBatch(liveRows, renderedRowIds)');
+    expect(js).toContain('retainRowsByIdentity(queuedRows, state.rows)');
 
     expect(js).toContain('renderedRow.replaceWith(replacement);');
     const selectionBlock = js.slice(js.indexOf('function selectRow'), js.indexOf('const titleParts', js.indexOf('function selectRow')));
@@ -275,6 +280,9 @@ describe('keyboard trust static contracts', () => {
     expect(js).not.toContain("tr.setAttribute('aria-label'");
     expect(js).not.toContain("td.setAttribute('aria-label'");
     expect(js).toContain('focus({ preventScroll: true })');
+    const rowKeyboardBlock = js.slice(js.indexOf("tableWrap.addEventListener('keydown'"), js.indexOf('// Main workbench divider'));
+    expect(rowKeyboardBlock).toContain("event.key === 'Enter' || event.key === ' '");
+    expect(rowKeyboardBlock).toContain('selectRow(focusedRow, event, true);');
   });
 
   test('exposes sortable headers and keyboard column reordering', () => {

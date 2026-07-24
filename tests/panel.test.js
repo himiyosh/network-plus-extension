@@ -221,6 +221,9 @@ describe('response content helpers', () => {
   test('decodes base64 only for display/search use', () => {
     expect(np.decodeResponseContent('eyJvayI6dHJ1ZX0=', 'base64')).toBe('{"ok":true}');
     expect(np.decodeResponseContent('plain text', '')).toBe('plain text');
+    const unicodeText = 'caf\u00e9';
+    const unicodeBase64 = Buffer.from(unicodeText, 'utf8').toString('base64');
+    expect(np.decodeResponseContent(unicodeBase64, 'base64')).toBe(unicodeText);
     expect(np.decodeResponseContent(null, 'base64')).toBe('');
   });
 
@@ -845,6 +848,15 @@ describe('scale trust helpers', () => {
     const batch = np.getIncrementalAppendBatch(queuedRows, existingIds);
     expect(batch.map((row) => row.id)).toEqual([1001, 1002]);
     expect(batch).toHaveLength(2);
+  });
+
+  test('retains only current row identities without accepting stale clones', () => {
+    const first = { id: 1 };
+    const second = { id: 2 };
+    const staleClone = { id: 2 };
+
+    expect(np.retainRowsByIdentity([second, staleClone, first, second], [first, second]))
+      .toEqual([second, first, second]);
   });
 });
 
