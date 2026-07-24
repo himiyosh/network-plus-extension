@@ -204,8 +204,10 @@ describe('capture retention static contracts', () => {
     expect(html).toMatch(/<label for="retentionLimit">Maximum retained requests<\/label>/);
     expect(html).toMatch(/id="retentionUnlimited"[^>]*aria-describedby="retentionWarning"/);
     expect(html).toMatch(/id="retentionWarning"[^>]*role="alert"[^>]*hidden/);
-    expect(html).toMatch(/id="retentionStatus"[^>]*role="status"[^>]*aria-live="polite"/);
-    expect(css).toMatch(/#retentionDialog\{[^}]*width:min\(420px,calc\(100vw - 16px\)\)/);
+    expect(html).toMatch(/id="retentionStatus">Retention:/);
+    expect(html).not.toMatch(/id="retentionStatus"[^>]*(?:role|aria-live)=/);
+    expect(html).toMatch(/id="retentionAnnouncement"[^>]*class="sr-only"[^>]*role="status"[^>]*aria-live="polite"/);
+    expect(css).toMatch(/#retentionDialog\{[^}]*width:min\(420px,calc\(100vw - 16px\)\)[^}]*overflow:auto/);
   });
 
   test('persists named budgets and routes live and imported rows through one policy', () => {
@@ -213,12 +215,31 @@ describe('capture retention static contracts', () => {
     expect(js).toContain('const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;');
     expect(js).toContain('const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;');
     expect(js).toContain("const RETENTION_KEY = 'networkPlus.retention.v1';");
-    expect(js).toContain("addRowsWithRetention(importedRows, 'import')");
-    expect((js.match(/addRowsWithRetention\(importedRows, 'import'\)/g) || []).length).toBe(2);
+    expect(js).toContain("addRowsWithRetention(retainedCandidates, 'import')");
+    expect(js).toContain("addRowsWithRetention(chunk, 'import-buffer')");
     expect(js).toContain("addRowsWithRetention([row], 'live')");
     const clearBlock = js.slice(js.indexOf("$('#clearBtn').addEventListener"), js.indexOf('// Pause/Resume'));
     expect(clearBlock).toContain('clearStoredRows();');
     expect(clearBlock).not.toContain('state.nextId = 1');
+  });
+
+  test('uses constant-time row liveness and bounded import construction', () => {
+    expect(js).toContain('retainedRows: new Set()');
+    expect(js).not.toContain('state.rows.includes(row)');
+    expect(js).not.toContain('const importedRows = []');
+    expect(js).toContain('const importPlan = planImportRetention(');
+    expect(js).toContain('if (importChunk.length >= IMPORT_CHUNK_SIZE) flushImportChunk();');
+    expect(js).toContain("const renderedRows = $('#tbody') ? $all('tr[data-row-id]', $('#tbody')) : [];");
+    expect(js).not.toContain("document.querySelector('tr[data-row-id=\"' + row.id");
+  });
+
+  test('debounces meaningful retention announcements without making cache bytes live', () => {
+    expect(js).toContain('const RETENTION_ANNOUNCE_MS = 750;');
+    expect(js).toContain("const el = $('#retentionAnnouncement');");
+    const statusStart = js.indexOf('function updateRetentionStatus');
+    const statusEnd = js.indexOf('function updateTableSummary', statusStart);
+    expect(js.slice(statusStart, statusEnd)).not.toContain('queueRetentionAnnouncement');
+    expect(js).toContain("if (display.label === 'error')");
   });
 
   test('marks unavailable HAR content and incomplete body search explicitly', () => {
@@ -296,7 +317,7 @@ describe('scale trust static contracts', () => {
     expect(appendBlock).toContain('document.createDocumentFragment()');
     expect(appendBlock).not.toContain('tbody.textContent =');
     expect(appendBlock).toContain('getIncrementalAppendBatch(liveRows, renderedRowIds)');
-    expect(js).toContain('retainRowsByIdentity(queuedRows, state.rows)');
+    expect(js).toContain('queuedRows.filter((row) => isRetainedRow(row, state.retainedRows))');
 
     expect(js).toContain('renderedRow.replaceWith(replacement);');
     const selectionBlock = js.slice(js.indexOf('function selectRow'), js.indexOf('const titleParts', js.indexOf('function selectRow')));

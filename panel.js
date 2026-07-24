@@ -26,6 +26,7 @@ const _NetworkPlus = (function () {
   const TRANSIENT_POPUP_SELECTOR = '.dropdown-content,.search-scope-popup,.search-color-popup';
   const REQUEST_COUNT_ANNOUNCE_MS = 1000;
   const SEARCH_COUNT_ANNOUNCE_MS = 500;
+  const RETENTION_ANNOUNCE_MS = 750;
   const COPY_FEEDBACK_DURATION_MS = 1800;
   const SCROLL_THRESHOLD = 10;
   const TRUNCATE_LIMIT = 2000;
@@ -37,6 +38,7 @@ const _NetworkPlus = (function () {
   const MAX_REQUEST_RETENTION_LIMIT = 100000;
   const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;
   const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;
+  const IMPORT_CHUNK_SIZE = 256;
   const JSON_TREE_MAX_CHILDREN = 100;
   const JSON_TREE_MAX_DEPTH = 20;
   const JSON_TREE_PREVIEW_KEYS = 3;
@@ -164,6 +166,15 @@ const _NetworkPlus = (function () {
       const el = $('#searchCountStatus');
       if (el && el.textContent !== text) el.textContent = text;
     }, SEARCH_COUNT_ANNOUNCE_MS);
+  }
+
+  let retentionAnnouncementTimer = null;
+  function queueRetentionAnnouncement(text) {
+    if (retentionAnnouncementTimer) clearTimeout(retentionAnnouncementTimer);
+    retentionAnnouncementTimer = setTimeout(() => {
+      const el = $('#retentionAnnouncement');
+      if (el && el.textContent !== text) el.textContent = text;
+    }, RETENTION_ANNOUNCE_MS);
   }
 
   let copyFeedbackTimer = null;
@@ -675,6 +686,67 @@ const _NetworkPlus = (function () {
     };
   }
 
+  function isRetainedRow(row, retainedRows) {
+    return !!row && !!retainedRows && retainedRows.has(row) && row._retentionDisposed !== true;
+  }
+
+  function planImportRetention(totalCount, requestLimit, unlimited) {
+    const normalizedTotal = Number.isInteger(totalCount) && totalCount > 0 ? totalCount : 0;
+    const retainedCount = unlimited ? normalizedTotal : Math.min(normalizedTotal, requestLimit);
+    return {
+      startIndex: normalizedTotal - retainedCount,
+      retainedCount,
+      skippedCount: normalizedTotal - retainedCount,
+    };
+  }
+
+  function classifyImportedResponseContent(entry) {
+    const response = entry && entry.response ? entry.response : {};
+    const content = response.content && typeof response.content === 'object' ? response.content : {};
+    if (typeof content.text === 'string') {
+      return { state: 'embedded', reason: '' };
+    }
+    if (content._networkPlus && typeof content._networkPlus === 'object') {
+      const sourceStatus = content._networkPlus.status || 'unavailable';
+      const sourceReason = content._networkPlus.reason || 'The source HAR marked the response body unavailable.';
+      return {
+        state: 'unavailable',
+        reason: 'Imported HAR body is ' + sourceStatus + ': ' + sourceReason,
+      };
+    }
+    const declaredSizes = [content.size, response.bodySize].filter(
+      (value) => Number.isFinite(value) && value >= 0,
+    );
+    if (declaredSizes.length > 0 && declaredSizes.every((value) => value === 0)) {
+      return { state: 'empty', reason: '' };
+    }
+    const positiveSize = declaredSizes.find((value) => value > 0);
+    if (positiveSize !== undefined) {
+      return {
+        state: 'unavailable',
+        reason: 'Imported HAR declares a ' + positiveSize + '-byte response body but does not include content.text.',
+      };
+    }
+    return {
+      state: 'unavailable',
+      reason: 'Imported HAR does not include response content or an explicit zero body size.',
+    };
+  }
+
+  function describeResponseContentState(row, error) {
+    const rawState = row && row.responseContentState ? row.responseContentState : 'unavailable';
+    const state = rawState === 'row-evicted' ? 'evicted' : rawState;
+    const label = ['omitted', 'evicted', 'unavailable'].includes(state) ? state : 'error';
+    const fallback = label === 'error' ? 'Response content retrieval failed.' : 'Full response content is unavailable.';
+    return {
+      label,
+      reason:
+        (row && row.responseContentReason) ||
+        (error && error.message) ||
+        fallback,
+    };
+  }
+
   function getUtf8ByteLength(value) {
     return new TextEncoder().encode(typeof value === 'string' ? value : '').length;
   }
@@ -897,6 +969,7 @@ const _NetworkPlus = (function () {
   const state = {
     columns: DEFAULT_COLUMNS.map((c) => ({ ...c })),
     rows: [],
+    retainedRows: new Set(),
     filteredRows: [], // [U5] cache for filtered rows
     pendingLiveRows: [],
     retention: {
@@ -973,6 +1046,17 @@ const _NetworkPlus = (function () {
     }
   }
 
+  function queueRetentionSummary(action) {
+    const retention = state.retention;
+    queueRetentionAnnouncement(
+      action +
+        '. Totals: ' + retention.evictedRequests + ' requests evicted, ' +
+        retention.omittedBodies + ' bodies omitted, ' +
+        retention.evictedBodies + ' cached bodies evicted, and ' +
+        retention.truncatedBodies + ' previews truncated.',
+    );
+  }
+
   function releaseResponseContent(row, nextState, countEviction) {
     const cachedBytes = state.retention.responseCacheRows.get(row) || 0;
     if (cachedBytes > 0 || state.retention.responseCacheRows.has(row)) {
@@ -999,18 +1083,24 @@ const _NetworkPlus = (function () {
       if (!row._responseOmissionCounted) {
         row._responseOmissionCounted = true;
         state.retention.omittedBodies += 1;
+        queueRetentionSummary('Response body omitted by the 1 MiB retention limit');
       }
       updateRetentionStatus();
       throw new Error('Response body omitted for request ' + row.id + ': ' + row.responseContentReason);
     }
 
+    let evictedBodyCount = 0;
     while (state.retention.responseCacheBytes + payload.bytes > MAX_RESPONSE_CACHE_BYTES) {
       const oldestEntry = state.retention.responseCacheRows.entries().next().value;
       if (!oldestEntry) break;
       const oldestRow = oldestEntry[0];
       releaseResponseContent(oldestRow, 'evicted', true);
+      evictedBodyCount += 1;
       oldestRow.responseContentReason = 'Evicted from the bounded response-body cache; select or export to retry retrieval.';
       if (state.onResponseContentChanged) state.onResponseContentChanged(oldestRow);
+    }
+    if (evictedBodyCount > 0) {
+      queueRetentionSummary(evictedBodyCount + ' cached response bodies evicted by the 32 MiB cache limit');
     }
     releaseResponseContent(row, 'loading', false);
     row.responseContent = payload.content;
@@ -1070,6 +1160,12 @@ const _NetworkPlus = (function () {
       });
     }
 
+    const renderedRows = $('#tbody') ? $all('tr[data-row-id]', $('#tbody')) : [];
+    const evictedRowIds = new Set(Array.from(evictedSet, (row) => String(row.id)));
+    for (const renderedRow of renderedRows) {
+      if (evictedRowIds.has(renderedRow.dataset.rowId)) renderedRow.remove();
+    }
+
     let detailsWereCleared = false;
     for (const row of evictedRows) {
       search.rowColors.delete(row);
@@ -1077,9 +1173,8 @@ const _NetworkPlus = (function () {
       state.highlightedRows.delete(row);
       releaseResponseContent(row, 'row-evicted', false);
       row._retentionDisposed = true;
+      state.retainedRows.delete(row);
       row._reqObj = null;
-      const renderedRow = document.querySelector('tr[data-row-id="' + row.id + '"]');
-      if (renderedRow) renderedRow.remove();
       if (state.pendingRowFocusId === String(row.id)) state.pendingRowFocusId = null;
       if (state.selectedRow === row) {
         state.selectedRow = null;
@@ -1088,7 +1183,10 @@ const _NetworkPlus = (function () {
       if (state.focusedRow === row) state.focusedRow = null;
     }
     if (detailsWereCleared) clearDetailsPanel();
-    if (countRetention) state.retention.evictedRequests += evictedRows.length;
+    if (countRetention) {
+      state.retention.evictedRequests += evictedRows.length;
+      queueRetentionSummary(evictedRows.length + ' oldest requests evicted by the retention limit');
+    }
     updateRetentionStatus();
   }
 
@@ -1102,7 +1200,7 @@ const _NetworkPlus = (function () {
 
   function normalizeIncomingResponseContent(rows, source) {
     for (const row of rows) {
-      if (!state.rows.includes(row)) continue;
+      if (!isRetainedRow(row, state.retainedRows)) continue;
       if (typeof row.responseContent === 'string') {
         const payload = measureResponsePayload(row.responseContent, row.responseContentEncoding);
         releaseResponseContent(row, 'loading', false);
@@ -1118,17 +1216,28 @@ const _NetworkPlus = (function () {
 
   function addRowsWithRetention(rows, source) {
     const incomingRows = rows || [];
-    incomingRows.forEach((row) => { row._managedRetention = true; });
-    const result = appendRowsWithRetention(
-      state.rows,
-      incomingRows,
-      state.retention.requestLimit,
-      state.retention.unlimited,
-    );
-    state.rows = result.retainedRows;
-    cleanupEvictedRowReferences(result.evictedRows, true);
-    normalizeIncomingResponseContent(incomingRows, source);
-    return retainRowsByIdentity(incomingRows, state.rows);
+    for (const row of incomingRows) {
+      row._managedRetention = true;
+      row._retentionDisposed = false;
+      state.rows.push(row);
+      state.retainedRows.add(row);
+    }
+    const overflowCount = state.retention.unlimited
+      ? 0
+      : Math.max(0, state.rows.length - state.retention.requestLimit);
+    const evictedRows = overflowCount > 0 ? state.rows.splice(0, overflowCount) : [];
+    cleanupEvictedRowReferences(evictedRows, true);
+    const retainedIncomingRows = incomingRows.filter((row) => isRetainedRow(row, state.retainedRows));
+    if (source !== 'import-buffer') normalizeIncomingResponseContent(retainedIncomingRows, source);
+    return retainedIncomingRows;
+  }
+
+  function recordSkippedImportRows(skippedCount) {
+    if (!Number.isInteger(skippedCount) || skippedCount <= 0) return;
+    state.nextId += skippedCount;
+    state.retention.evictedRequests += skippedCount;
+    updateRetentionStatus();
+    queueRetentionSummary(skippedCount + ' imported requests skipped by the retention limit');
   }
 
   function clearStoredRows() {
@@ -1537,6 +1646,12 @@ const _NetworkPlus = (function () {
           new Error(row.responseContentReason || 'Response body exceeds the per-body cache limit.'),
       );
     }
+    if (
+      ['unavailable', 'evicted'].includes(row.responseContentState) &&
+      (!row._reqObj || typeof row._reqObj.getContent !== 'function')
+    ) {
+      return Promise.reject(new Error(row.responseContentReason || 'Response content is unavailable.'));
+    }
     if (typeof row.responseContent === 'string') {
       touchResponseCacheRow(row);
       return Promise.resolve(row);
@@ -1546,7 +1661,7 @@ const _NetworkPlus = (function () {
     const pending = fetchResponsePayload(row, timeoutMs)
       .then((payload) => {
         if (row._managedRetention) {
-          if (!state.rows.includes(row)) throw new Error('Response content arrived after its request was evicted');
+          if (!isRetainedRow(row, state.retainedRows)) throw new Error('Response content arrived after its request was evicted');
           return admitResponsePayload(row, payload);
         }
         row.responseContent = payload.content;
@@ -1560,7 +1675,11 @@ const _NetworkPlus = (function () {
       })
       .catch((error) => {
         row.responseContentError = error;
-        if (row.responseContentState !== 'omitted' && row.responseContentState !== 'row-evicted') {
+        if (
+          row.responseContentState !== 'omitted' &&
+          row.responseContentState !== 'row-evicted' &&
+          row.responseContentState !== 'unavailable'
+        ) {
           row.responseContentState = /unavailable/i.test(error.message) ? 'unavailable' : 'error';
           row.responseContentReason = error.message;
         }
@@ -3043,9 +3162,8 @@ const _NetworkPlus = (function () {
 
   function renderCachedResponseContent(row) {
     if (row.responseContentState !== 'cached') {
-      setResponsePaneMessage(
-        '(response body unavailable: ' + (row.responseContentReason || 'Full content is not cached.') + ')',
-      );
+      const display = describeResponseContentState(row);
+      setResponsePaneMessage('(response body ' + display.label + ': ' + display.reason + ')');
       return;
     }
     const resBodyPane = $('#res-body');
@@ -3074,6 +3192,7 @@ const _NetworkPlus = (function () {
           row._previewTruncationCounted = true;
           state.retention.truncatedBodies += 1;
           updateRetentionStatus();
+          queueRetentionSummary('Response preview truncated until explicitly expanded');
         }
         showMore.className = 'link-btn';
         showMore.addEventListener('click', () => {
@@ -3283,9 +3402,8 @@ const _NetworkPlus = (function () {
       })
       .catch((error) => {
         if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
-        const message = error && error.message ? error.message : 'Response content is unavailable';
-        const stateLabel = /unavailable/i.test(message) ? 'unavailable' : 'error';
-        setResponsePaneMessage('(response body ' + stateLabel + ': ' + message + ')');
+        const display = describeResponseContentState(row, error);
+        setResponsePaneMessage('(response body ' + display.label + ': ' + display.reason + ')');
       });
 
     // Response > Cookies
@@ -3558,6 +3676,11 @@ const _NetworkPlus = (function () {
       retentionDialog.close();
       renderBody();
       updateRetentionStatus();
+      queueRetentionSummary(
+        state.retention.unlimited
+          ? 'Unlimited request retention enabled'
+          : 'Request retention changed to ' + state.retention.requestLimit.toLocaleString() + ' requests',
+      );
       setStatus(
         settingSaved
           ? state.retention.unlimited
@@ -3567,6 +3690,7 @@ const _NetworkPlus = (function () {
       );
     });
     updateRetentionStatus();
+    if (state.retention.settingWarning) queueRetentionSummary(state.retention.settingWarning);
 
     // [U4] Clear — reset filters properly, keeping method defaults
     $('#clearBtn').addEventListener('click', () => {
@@ -4498,21 +4622,32 @@ const _NetworkPlus = (function () {
               state.selectedRows.clear();
               state.highlightedRows.clear();
 
-              const importedRows = [];
-              data.log.entries.forEach((entry) => {
-
+              const entries = data.log.entries;
+              const importPlan = planImportRetention(
+                entries.length,
+                state.retention.requestLimit,
+                state.retention.unlimited,
+              );
+              recordSkippedImportRows(importPlan.skippedCount);
+              const retainedCandidates = [];
+              for (let index = importPlan.startIndex; index < entries.length; index++) {
+                const entry = entries[index];
                 const row = buildRowFromRequest(entry);
-                if (row.responseContent === null) {
+                const availability = classifyImportedResponseContent(entry);
+                if (availability.state === 'empty') {
                   row.responseContent = '';
                   row.responseContentState = 'pending-admission';
+                } else if (availability.state === 'unavailable') {
+                  row.responseContentState = 'unavailable';
+                  row.responseContentReason = availability.reason;
                 }
-                importedRows.push(row);
-              });
-              const retainedImports = addRowsWithRetention(importedRows, 'import');
+                retainedCandidates.push(row);
+              }
+              const retainedImports = addRowsWithRetention(retainedCandidates, 'import');
 
               renderBody();
               setStatus(
-                `Imported ${data.log.entries.length} requests from HAR; retained ${retainedImports.length}`,
+                `Imported ${entries.length} requests from HAR; retained ${retainedImports.length}`,
               );
             } else {
               setStatus('Invalid HAR format');
@@ -4548,7 +4683,13 @@ const _NetworkPlus = (function () {
             state.focusedRow = null;
             state.selectedRows.clear();
             state.highlightedRows.clear();
-            const importedRows = [];
+            const importChunk = [];
+            let importedCount = 0;
+            const flushImportChunk = () => {
+              if (importChunk.length === 0) return;
+              const chunk = importChunk.splice(0, importChunk.length);
+              addRowsWithRetention(chunk, 'import-buffer');
+            };
 
             const parseHttpMessage = (uint8arr) => {
               const txt = new TextDecoder().decode(uint8arr);
@@ -4633,16 +4774,20 @@ const _NetworkPlus = (function () {
                   };
 
                   const row = buildRowFromRequest(entry);
-                  importedRows.push(row);
+                  importedCount += 1;
+                  importChunk.push(row);
+                  if (importChunk.length >= IMPORT_CHUNK_SIZE) flushImportChunk();
                 } catch (ex) {
                   console.error('Failed to parse SAZ pair', id, ex);
                 }
               });
 
-            const retainedImports = addRowsWithRetention(importedRows, 'import');
+            flushImportChunk();
+            normalizeIncomingResponseContent(state.rows, 'import');
+            const retainedImportCount = state.rows.length;
             renderBody();
             setStatus(
-              `Imported ${importedRows.length} requests from SAZ; retained ${retainedImports.length}`,
+              `Imported ${importedCount} requests from SAZ; retained ${retainedImportCount}`,
             );
           }
         } catch (err) {
@@ -4657,7 +4802,7 @@ const _NetworkPlus = (function () {
     // Network subscription
     // Batch live rows into one frame. Eligibility is deliberately checked again at flush time.
     const scheduleResponseSearchRefresh = (row) => {
-      if (!state.rows.includes(row) || !hasActiveSearchKeywords(state.search.keywords)) return;
+      if (!isRetainedRow(row, state.retainedRows) || !hasActiveSearchKeywords(state.search.keywords)) return;
       if (pendingResponseSearchFrame) return;
       pendingResponseSearchFrame = true;
       window.requestAnimationFrame(() => {
@@ -4688,7 +4833,7 @@ const _NetworkPlus = (function () {
           state.search.keywords,
           state.renderedActiveFilterCount,
         );
-        const liveRows = retainRowsByIdentity(queuedRows, state.rows);
+        const liveRows = queuedRows.filter((row) => isRetainedRow(row, state.retainedRows));
         if (!fastPathEligible || !appendIncrementalRows(liveRows)) renderBody();
         if (shouldScrollToBottom && state.autoScroll) {
           tableWrap.scrollTop = tableWrap.scrollHeight;
@@ -4701,14 +4846,17 @@ const _NetworkPlus = (function () {
       chrome.devtools.network.onRequestFinished.addListener((request) => {
         if (state.paused) return;
         const row = buildRowFromRequest(request);
-        const retainedRows = addRowsWithRetention([row], 'live');
-        if (!retainedRows.includes(row)) return;
+        addRowsWithRetention([row], 'live');
+        if (!isRetainedRow(row, state.retainedRows)) return;
         cacheResponseContent(row)
           .then(() => scheduleResponseSearchRefresh(row))
           .catch((error) => {
             scheduleResponseSearchRefresh(row);
-            setStatus('Response content error: ' + error.message);
-            console.error(error);
+            const display = describeResponseContentState(row, error);
+            if (display.label === 'error') {
+              setStatus('Response content error: ' + display.reason);
+              console.error(error);
+            }
           }); // [U1]
         const wasAtBottom =
           state.autoScroll &&
@@ -4775,6 +4923,10 @@ const _NetworkPlus = (function () {
     normalizeRetentionSetting,
     appendRowsWithRetention,
     createRowEvictionPlan,
+    isRetainedRow,
+    planImportRetention,
+    classifyImportedResponseContent,
+    describeResponseContentState,
     getUtf8ByteLength,
     measureResponsePayload,
     planResponseCacheAdmission,

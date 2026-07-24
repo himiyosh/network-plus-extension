@@ -461,6 +461,105 @@ describe('capture retention helpers', () => {
     await expect(np.cacheResponseContent(row)).rejects.toThrow('after its request was evicted');
     expect(row.responseContent).toBeNull();
   });
+
+  test('checks managed row liveness through constant-time Set membership', () => {
+    const row = { id: 1, _retentionDisposed: false };
+    const retainedRows = { has: jest.fn(() => true) };
+    expect(np.isRetainedRow(row, retainedRows)).toBe(true);
+    expect(retainedRows.has).toHaveBeenCalledTimes(1);
+    row._retentionDisposed = true;
+    expect(np.isRetainedRow(row, retainedRows)).toBe(false);
+    expect(np.isRetainedRow(null, retainedRows)).toBe(false);
+  });
+
+  test('plans a 100k import window without constructing discarded rows', () => {
+    expect(np.planImportRetention(100000, 5000, false)).toEqual({
+      startIndex: 95000,
+      retainedCount: 5000,
+      skippedCount: 95000,
+    });
+    expect(np.planImportRetention(100000, 5000, true)).toEqual({
+      startIndex: 0,
+      retainedCount: 100000,
+      skippedCount: 0,
+    });
+    expect(np.planImportRetention(-1, 5000, false)).toEqual({
+      startIndex: 0,
+      retainedCount: 0,
+      skippedCount: 0,
+    });
+  });
+
+  test('distinguishes embedded, empty, and unavailable imported HAR bodies', () => {
+    expect(np.classifyImportedResponseContent({ response: { content: { text: '' } } })).toEqual({
+      state: 'embedded',
+      reason: '',
+    });
+    expect(np.classifyImportedResponseContent({ response: { content: { size: 0 }, bodySize: 0 } })).toEqual({
+      state: 'empty',
+      reason: '',
+    });
+    const missing = np.classifyImportedResponseContent({
+      response: { content: { size: 512 }, bodySize: 512 },
+    });
+    expect(missing.state).toBe('unavailable');
+    expect(missing.reason).toContain('512-byte');
+    const reexported = np.buildHarResponseContent({
+      size: 512,
+      type: 'application/json',
+      responseHeaders: [],
+      responseContent: null,
+      responseContentState: missing.state,
+      responseContentReason: missing.reason,
+    });
+    expect(reexported.text).toBeUndefined();
+    expect(reexported._networkPlus).toEqual({
+      status: 'unavailable',
+      reason: missing.reason,
+    });
+    const marked = np.classifyImportedResponseContent({
+      response: { content: { _networkPlus: { status: 'omitted', reason: 'source limit' } } },
+    });
+    expect(marked).toEqual({
+      state: 'unavailable',
+      reason: 'Imported HAR body is omitted: source limit',
+    });
+    expect(np.classifyImportedResponseContent({ response: {} }).reason).toContain('explicit zero');
+  });
+
+  test('labels expected response retention states without treating them as errors', () => {
+    expect(np.describeResponseContentState({
+      responseContentState: 'omitted',
+      responseContentReason: 'over the limit',
+    })).toEqual({ label: 'omitted', reason: 'over the limit' });
+    expect(np.describeResponseContentState({ responseContentState: 'row-evicted' })).toEqual({
+      label: 'evicted',
+      reason: 'Full response content is unavailable.',
+    });
+    expect(np.describeResponseContentState({ responseContentState: 'loading' }, new Error('fetch failed'))).toEqual({
+      label: 'error',
+      reason: 'fetch failed',
+    });
+  });
+
+  test('preserves an imported unavailable reason without attempting retrieval', async () => {
+    const row = {
+      responseContent: null,
+      responseContentState: 'unavailable',
+      responseContentReason: 'The imported HAR omitted a declared body.',
+      responseContentError: null,
+      _responseContentPromise: null,
+      _reqObj: null,
+    };
+    await expect(np.cacheResponseContent(row)).rejects.toThrow('The imported HAR omitted a declared body.');
+    expect(row.responseContentState).toBe('unavailable');
+    expect(row.responseContentReason).toBe('The imported HAR omitted a declared body.');
+
+    row.responseContentState = 'evicted';
+    row.responseContentReason = 'Evicted from the bounded cache.';
+    await expect(np.cacheResponseContent(row)).rejects.toThrow('Evicted from the bounded cache.');
+    expect(np.describeResponseContentState(row).label).toBe('evicted');
+  });
 });
 
 describe('active column filter helpers', () => {
