@@ -23,7 +23,7 @@
       <button id="clearBtn" title="Clear all requests" aria-label="Clear all requests" class="icon-btn clear-btn-danger">🗑️</button>
       <div class="separator"></div>
       <button id="importBtn" title="Import (HAR/SAZ)" aria-label="Import HAR or SAZ" class="icon-btn">📥</button>
-      <button id="exportHarBtn" title="Export (HAR)" aria-label="Export HAR" class="icon-btn">📤</button>
+      <button id="exportHarBtn" title="Export network data (sanitized by default)" aria-label="Export network data; sanitized by default" class="icon-btn">📤</button>
       <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
     </div>
     <div class="right">
@@ -112,7 +112,43 @@
       </div>
     </form>
   </dialog>
-  <div id="copyToast" class="copy-toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <dialog id="dataSafetyDialog" aria-labelledby="dataSafetyDialogTitle" aria-describedby="dataSafetyDialogDetail">
+    <form method="dialog" class="data-safety-form">
+      <h2 id="dataSafetyDialogTitle">Export network data</h2>
+      <p id="dataSafetyDialogDetail">Sanitized output is the safe default.</p>
+      <div id="dataSafetyExportChoices" class="data-safety-choices">
+        <button id="dataSafetySanitizedBtn" type="button" class="data-safety-primary">Export sanitized HAR</button>
+        <button id="dataSafetyFullBtn" type="button">Review full HAR warning</button>
+      </div>
+      <div id="dataSafetyWarning" class="data-safety-warning" hidden>
+        <p>Sanitized output redacts every URL query and form-like fragment value, both URL userinfo components, Cookie values, and every header value outside a small structural allowlist.</p>
+        <strong>Full output bypasses those protections and can expose:</strong>
+        <ul>
+          <li>Authorization, proxy authorization, custom, security, trace, request-ID, and client-certificate headers</li>
+          <li>Cookie and Set-Cookie values</li>
+          <li>URL usernames, passwords, query values, and fragment values</li>
+          <li>Request and response bodies, including base64 content</li>
+        </ul>
+        <label id="dataSafetyCopyFormatLabel" for="dataSafetyCopyFormat" hidden>Full copy format</label>
+        <select id="dataSafetyCopyFormat" hidden>
+          <option value="summary">Request summary</option>
+          <option value="url">URL</option>
+          <option value="curl">cURL</option>
+          <option value="fetch">fetch</option>
+          <option value="powershell">PowerShell</option>
+          <option value="rawRequest">Raw request</option>
+          <option value="requestBody">Request body</option>
+        </select>
+        <p>This confirmation applies only to this action. Network+ does not save a full-output preference.</p>
+      </div>
+      <div class="data-safety-actions">
+        <button id="dataSafetyCancelBtn" type="button">Cancel</button>
+        <button id="dataSafetyConfirmBtn" type="button" class="data-safety-danger" hidden>Confirm full output</button>
+      </div>
+    </form>
+  </dialog>
+  <div id="copyToast" class="copy-toast" aria-hidden="true"></div>
+  <span id="dataSafetyStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
   <script src="vendor/fflate.js"></script>
   <script src="panel.js"></script>
 </body>

@@ -190,7 +190,8 @@ describe('accessible workbench static contracts', () => {
     expect(html).toMatch(/id="searchCountStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
     expect(html).toMatch(/id="counter"[^>]*aria-hidden="true"/);
     expect(html).toMatch(/id="requestCountStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
-    expect(html).toMatch(/id="copyToast"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
+    expect(html).toMatch(/id="copyToast"[^>]*aria-hidden="true"/);
+    expect(html).not.toMatch(/id="copyToast"[^>]*(?:role="status"|aria-live=)/);
     expect(html).toMatch(/id="resizer"[^>]*role="separator"[^>]*aria-orientation="vertical"[^>]*aria-valuenow="50"/);
     expect(html).not.toMatch(/id="pauseBtn"[^>]*aria-pressed/);
     expect(js).not.toContain("pauseBtn.setAttribute('aria-pressed'");
@@ -244,7 +245,7 @@ describe('capture retention static contracts', () => {
 
   test('marks unavailable HAR content and incomplete body search explicitly', () => {
     expect(js).toContain('content._networkPlus = {');
-    expect(js).toContain("' explicitly marked unavailable'");
+    expect(js).toContain('Redacted and omitted bodies are explicitly marked and are not complete source content.');
     expect(js).toContain('state.visibleBytes = Math.max(0, state.visibleBytes - evictedVisibleBytes);');
     expect(js).toContain('if (!shouldRenderSelectedRow(state.selectedRow, row)) return;');
     expect(js).toContain('renderCachedResponseContent(row);');
@@ -383,5 +384,123 @@ describe('keyboard trust static contracts', () => {
     expect(js).toContain("event.key === 'Escape'");
     expect(js).toContain('restoreContextMenuFocus');
     expect(js).not.toContain('closeRowContextMenu(false)');
+  });
+});
+
+describe('outbound data-safety static contracts', () => {
+  test('provides one narrow-safe native dialog with explicit per-action warning categories', () => {
+    expect(html).toMatch(/<dialog id="dataSafetyDialog"[^>]*aria-labelledby="dataSafetyDialogTitle"[^>]*aria-describedby="dataSafetyDialogDetail"/);
+    expect(html).toMatch(/id="dataSafetySanitizedBtn"[^>]*>Export sanitized HAR</);
+    expect(html).toMatch(/id="dataSafetyFullBtn"[^>]*>Review full HAR warning</);
+    expect(html).toMatch(/id="dataSafetyConfirmBtn"[^>]*hidden>Confirm full output</);
+    expect(html).toContain('every URL query and form-like fragment value');
+    expect(html).toContain('every header value outside a small structural allowlist');
+    expect(html).toContain('Authorization, proxy authorization, custom, security, trace, request-ID, and client-certificate headers');
+    expect(html).toContain('Cookie and Set-Cookie values');
+    expect(html).toContain('URL usernames, passwords, query values, and fragment values');
+    expect(html).toContain('Request and response bodies, including base64 content');
+    expect(html).toContain('does not save a full-output preference');
+    expect(html).toMatch(/id="dataSafetyStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
+    expect(css).toMatch(/#dataSafetyDialog\{[^}]*position:fixed[^}]*inset:0[^}]*width:min\(460px,calc\(100vw - 16px\)\)[^}]*max-height:calc\(100vh - 16px\)[^}]*overflow:auto/);
+    expect(css).toContain('@media (max-width:420px){.data-safety-choices{grid-template-columns:1fr}');
+  });
+
+  test('uses native dialog focus, Escape, close restoration, and debounced polite feedback', () => {
+    expect(js).toContain("if (!dialog.open) dialog.showModal();");
+    expect(js).toContain("dialog.addEventListener('cancel'");
+    expect(js).toContain("dialog.addEventListener('close'");
+    expect(js).toContain("if (event.target === dialog) dialog.close('backdrop');");
+    expect(js).toContain('if (trigger && trigger.focus && trigger.isConnected !== false) trigger.focus();');
+    expect(js).toContain('const DATA_SAFETY_ANNOUNCE_MS = 500;');
+    expect(js).toContain("const el = $('#dataSafetyStatus');");
+    expect(css).toContain('.data-safety-form button:disabled,.data-safety-form button[aria-busy="true"]');
+    expect(css).toContain('button:focus-visible');
+  });
+
+  test('routes every clipboard and download sink through the shared policy', () => {
+    expect((js.match(/navigator\.clipboard\.writeText/g) || [])).toHaveLength(1);
+    expect(js).toContain('function writeClipboardPayload(text, message)');
+    expect(js).not.toContain('copyTextWithFeedback');
+    expect((js.match(/\.download\s*=/g) || [])).toHaveLength(1);
+    expect(js).toContain('anchor.download = filename;');
+    expect(js).toContain("outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har'");
+    expect(js).toContain("const payload = buildClipboardPayload(action, row, { mode: 'sanitized', responseBody });");
+    expect(js).toContain("buildMultiRowClipboardPayload(rows, 'summary', { mode: 'sanitized' })");
+    expect(js).toContain("['url', 'Copy sanitized URL']");
+    expect(js).toContain("['curl', 'Copy sanitized cURL']");
+    expect(js).toContain("['fetch', 'Copy sanitized fetch']");
+    expect(js).toContain("['powershell', 'Copy sanitized PowerShell']");
+    expect((js.match(/label: 'Copy sanitized'/g) || []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  test('cannot build full clipboard or HAR output until a confirmation callback runs', () => {
+    expect(js).toContain("if (source.mode === 'full') {");
+    expect(js).toContain("if (!isFullOutputAuthorized(source)) throw new Error('Full output requires per-action confirmation.');");
+    expect(js).toMatch(/onConfirm: \(\) => \{\s*const payload = buildClipboardPayload\(action, row, \{\s*mode: 'full',\s*confirmed: true,/s);
+    expect(js).toContain("onConfirm: () => exportHAR({ mode: 'full', confirmed: true })");
+    expect(js).toContain("exportHAR({ mode: 'sanitized' });");
+    expect(js).not.toMatch(/addEventListener\('click',\s*exportHAR\)/);
+    expect(js).not.toMatch(/localStorage\.(?:setItem|getItem)\([^)]*(?:full|safety)/i);
+  });
+
+  test('fails clipboard, download, and sanitizer errors closed without secret-bearing logs', () => {
+    expect(js).toContain('Clipboard copy failed. No data was copied.');
+    expect(js).toContain('Sanitized copy failed closed. No data was copied.');
+    expect(js).toContain('HAR export failed. No file was downloaded.');
+    expect(js).not.toContain("console.error('HAR export failed'");
+    expect(js).not.toContain("setStatus('HAR export failed: ' + message)");
+    expect(js).toContain('return failClosed();');
+  });
+
+  test('keeps user-derived rendering out of innerHTML while adding safety controls', () => {
+    const innerHtmlAssignments = js.match(/\.innerHTML\s*=/g) || [];
+    expect(innerHtmlAssignments).toHaveLength(1);
+    expect(js).toContain('pauseBtn.innerHTML = state.paused ? PLAY_ICON_SVG : PAUSE_ICON_SVG;');
+    expect(js).not.toMatch(/dataSafety[^\n]*innerHTML|innerHTML[^\n]*dataSafety/);
+    expect(js).toContain("button.textContent = action.label;");
+    expect(js).toContain("$('#dataSafetyDialogDetail').textContent = detail;");
+  });
+
+  test('rejects unconfirmed full HAR before body preparation and fails sanitized export before Blob creation', () => {
+    const exportStart = js.indexOf('async function exportHAR(policy)');
+    const exportEnd = js.indexOf('// Section 15', exportStart);
+    const exportSource = js.slice(exportStart, exportEnd);
+    const authorizationGuard = exportSource.indexOf(
+      "outboundPolicy.mode === 'full' && !isFullOutputAuthorized(outboundPolicy)",
+    );
+    expect(authorizationGuard).toBeGreaterThan(-1);
+    expect(authorizationGuard).toBeLessThan(exportSource.indexOf('resolveHarResponseContent(row)'));
+    expect(exportSource.indexOf('har.log._networkPlus.failedClosed')).toBeLessThan(exportSource.indexOf('new Blob'));
+    expect(exportSource).toContain('const downloadUrl = objectUrl;');
+    expect(exportSource.indexOf('objectUrl = null;')).toBeLessThan(
+      exportSource.indexOf('triggerObjectUrlDownload('),
+    );
+    expect(js).toContain('schedule(revokeOnce, OBJECT_URL_REVOKE_DELAY_MS);');
+    expect(js).toMatch(/finally \{\s*revoker\.revokeOnFailure\(\);/s);
+  });
+
+  test('announces each outbound event through only one live region', () => {
+    expect(html).toMatch(/id="copyToast"[^>]*aria-hidden="true"/);
+    expect((js.match(/queueDataSafetyAnnouncement\(/g) || [])).toHaveLength(2);
+    const clipboardStart = js.indexOf('function writeClipboardPayload');
+    const clipboardEnd = js.indexOf('let pendingFullOutboundAction', clipboardStart);
+    const clipboardSource = js.slice(clipboardStart, clipboardEnd);
+    expect(clipboardSource.slice(0, clipboardSource.indexOf('.catch'))).toContain('queueDataSafetyAnnouncement(message);');
+    expect(clipboardSource.slice(clipboardSource.indexOf('.catch'))).not.toContain('queueDataSafetyAnnouncement');
+    const exportStart = js.indexOf('async function exportHAR(policy)');
+    const exportEnd = js.indexOf('// Section 15', exportStart);
+    expect(js.slice(exportStart, exportEnd)).not.toContain('queueDataSafetyAnnouncement');
+  });
+
+  test('reads the HAR creator version from the runtime manifest without a production literal', () => {
+    expect(js).toContain("runtime.getManifest()");
+    expect(js).toContain("typeof module !== 'undefined' && module.exports ? TEST_EXTENSION_VERSION_FALLBACK : 'unknown'");
+    expect(js).not.toContain("const EXTENSION_VERSION = '1.5.0'");
+    expect(js).toContain("creator: { name: 'Network+ for DevTools', version: getExtensionVersion() }");
+  });
+
+  test('consumes full confirmation synchronously to prevent double activation', () => {
+    expect(js).toContain("$('#dataSafetyConfirmBtn').disabled = true;");
+    expect(js).toContain('createOneTimeConfirmationAction(source.onConfirm)');
   });
 });

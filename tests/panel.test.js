@@ -1211,3 +1211,648 @@ describe('keyboard trust helpers', () => {
     expect(np.getNextMenuItemIndex(0, 0, 'ArrowDown')).toBe(-1);
   });
 });
+
+describe('outbound sensitive-data policy', () => {
+  const makeSensitiveRow = () => ({
+    id: 7,
+    method: 'POST',
+    url: 'https://alice:login-secret@example.com/api?keep=1&TOKEN=first&token=second#access_token=fragment-secret',
+    status: 200,
+    statusText: 'OK',
+    type: 'application/json',
+    protocol: 'HTTP/2',
+    size: 32,
+    duration: 12,
+    clientStart: '10:00:00.000',
+    serverDone: '10:00:00.012',
+    domain: 'example.com',
+    initiator: { text: 'JS: app.js:1' },
+    requestHeaders: [
+      { name: 'Authorization', value: 'Bearer request-secret' },
+      { name: 'proxy-authorization', value: 'Basic proxy-secret' },
+      { name: 'X-API-KEY', value: 'api-secret' },
+      { name: 'x-CsRf-ToKeN', value: 'csrf-secret' },
+      { name: 'Cookie', value: 'sid=cookie-secret' },
+      { name: 'Content-Type', value: 'application/json' },
+    ],
+    responseHeaders: [
+      { name: 'Set-Cookie', value: 'sid=response-cookie-secret' },
+      { name: 'Content-Type', value: 'application/json' },
+    ],
+    requestPostData: {
+      mimeType: 'application/json',
+      text: JSON.stringify({
+        username: 'visible',
+        password: 'body-secret',
+        nested: [{ access_token: 'array-secret' }, { ok: true }],
+      }),
+    },
+    responseContent: JSON.stringify({ result: 'visible', refresh_token: 'response-secret' }),
+    responseContentEncoding: '',
+    timings: { wait: 10, receive: 2 },
+    startedDateTime: '2026-07-25T00:00:00.000Z',
+  });
+
+  test('matches case-insensitive secret key variants without matching ordinary names', () => {
+    for (const key of [
+      'password',
+      'PASSWD',
+      'access_token',
+      'id-token',
+      'refreshToken',
+      'api key',
+      'X-Api-Key',
+      'client_secret',
+      'signature',
+      'auth',
+      'authorization',
+      'code',
+      'X-CSRF-Token',
+    ]) {
+      expect(np.isSensitiveKey(key)).toBe(true);
+    }
+    expect(np.isSensitiveKey('content-type')).toBe(false);
+    expect(np.isSensitiveKey('status-code')).toBe(false);
+  });
+
+  test('redacts sensitive headers and every HAR cookie without mutating inputs', () => {
+    const headers = [
+      { name: 'AUTHORIZATION', value: 'secret', extra: 'kept' },
+      { name: 'Set-Cookie', value: 'sid=secret' },
+      { name: 'Accept', value: 'application/json' },
+    ];
+    const cookies = [{ name: 'ordinaryName', value: 'cookie-secret', path: '/' }];
+    const headerSnapshot = JSON.parse(JSON.stringify(headers));
+    const cookieSnapshot = JSON.parse(JSON.stringify(cookies));
+    const sanitizedHeaders = np.sanitizeHeaders(headers);
+    const sanitizedCookies = np.sanitizeCookies(cookies);
+
+    expect(sanitizedHeaders.value).toEqual([
+      { name: 'AUTHORIZATION', value: np.REDACTION_MARKER },
+      { name: 'Set-Cookie', value: np.REDACTION_MARKER },
+      { name: 'Accept', value: 'application/json' },
+    ]);
+    expect(sanitizedCookies.value[0]).toEqual({
+      name: 'ordinaryName',
+      value: np.REDACTION_MARKER,
+      path: '/',
+    });
+    expect(sanitizedHeaders.summary.redactedHeaders).toBe(2);
+    expect(sanitizedCookies.summary.redactedCookies).toBe(1);
+    expect(headers).toEqual(headerSnapshot);
+    expect(cookies).toEqual(cookieSnapshot);
+  });
+
+  test('sanitizes URL userinfo, duplicate queries, and fragments while preserving shape', () => {
+    const result = np.sanitizeUrl(
+      'https://alice:password@example.com/path?keep=one&TOKEN=first&token=second#access_token=fragment',
+    );
+    const url = new URL(result.value);
+    expect(result.value).not.toContain('alice');
+    expect(result.value).not.toContain('password');
+    expect(url.searchParams.get('keep')).toBe(np.REDACTION_MARKER);
+    expect(url.searchParams.getAll('TOKEN').concat(url.searchParams.getAll('token'))).toEqual([
+      np.REDACTION_MARKER,
+      np.REDACTION_MARKER,
+    ]);
+    expect(new URLSearchParams(url.hash.substring(1)).get('access_token')).toBe(np.REDACTION_MARKER);
+    expect(result.summary.redactedQueryValues).toBe(4);
+    expect(result.summary.redactedUrlUsernames).toBe(1);
+    expect(result.summary.redactedUrlPasswords).toBe(1);
+    expect(result.summary.sanitizedUrls).toBe(1);
+
+    const opaqueFragment = np.sanitizeUrl('https://example.com/#opaque-secret');
+    expect(opaqueFragment.value).not.toContain('opaque-secret');
+    expect(np.sanitizeUrl('not a URL').value).toBe(np.OMISSION_MARKER);
+  });
+
+  test('recursively redacts bounded JSON objects and arrays without mutating parsed values', () => {
+    const source = {
+      account: { password: 'secret', profile: { displayName: 'kept' } },
+      values: [{ access_token: 'token' }, { ordinary: 2 }],
+    };
+    const snapshot = JSON.parse(JSON.stringify(source));
+    const result = np.sanitizeBody(JSON.stringify(source), 'application/json', '');
+    const parsed = JSON.parse(result.text);
+
+    expect(parsed.account.password).toBe(np.REDACTION_MARKER);
+    expect(parsed.account.profile.displayName).toBe(np.REDACTION_MARKER);
+    expect(parsed.values[0].access_token).toBe(np.REDACTION_MARKER);
+    expect(parsed.values[1].ordinary).toBe(2);
+    expect(result.summary.redactedBodyValues).toBe(3);
+    expect(result.omitted).toBe(false);
+    expect(source).toEqual(snapshot);
+  });
+
+  test('redacts duplicate form fields and omits invalid form input', () => {
+    const result = np.sanitizeBody(
+      'keep=one&TOKEN=first&token=second&password=third',
+      'application/x-www-form-urlencoded; charset=UTF-8',
+      '',
+    );
+    const params = new URLSearchParams(result.text);
+    expect(params.get('keep')).toBe(np.REDACTION_MARKER);
+    expect(params.getAll('TOKEN').concat(params.getAll('token'))).toEqual([
+      np.REDACTION_MARKER,
+      np.REDACTION_MARKER,
+    ]);
+    expect(params.get('password')).toBe(np.REDACTION_MARKER);
+    expect(result.summary.redactedBodyValues).toBe(4);
+
+    const invalid = np.sanitizeBody('token=%GG', 'application/x-www-form-urlencoded', '');
+    expect(invalid).toEqual(expect.objectContaining({
+      text: np.OMISSION_MARKER,
+      omitted: true,
+      reason: expect.stringContaining('invalid percent'),
+    }));
+    expect(invalid.summary.failures).toBe(1);
+  });
+
+  test('omits invalid, opaque, multipart, base64, deep, large, and high-node bodies', () => {
+    const cases = [
+      np.sanitizeBody('{invalid', 'application/json', ''),
+      np.sanitizeBody('plain secret', 'text/plain', ''),
+      np.sanitizeBody('--boundary', 'multipart/form-data; boundary=x', ''),
+      np.sanitizeBody('AAEC', 'application/octet-stream', 'base64'),
+      np.sanitizeBody('{"a":{"b":{"c":1}}}', 'application/json', '', { maxDepth: 1 }),
+      np.sanitizeBody('12345', 'application/json', '', { maxBytes: 4 }),
+      np.sanitizeBody('[1,2,3]', 'application/json', '', { maxNodes: 2 }),
+    ];
+    for (const result of cases) {
+      expect(result.text).toBe(np.OMISSION_MARKER);
+      expect(result.omitted).toBe(true);
+      expect(result.summary.omittedBodies).toBe(1);
+    }
+    expect(cases[3].reason).toContain('Base64');
+    expect(cases[5].reason).toContain('byte limit');
+  });
+
+  test('omits huge ASCII before UTF-8 allocation and keeps exact multibyte limits', () => {
+    const encodeSpy = jest.spyOn(TextEncoder.prototype, 'encode');
+    try {
+      encodeSpy.mockClear();
+      const huge = np.sanitizeBody('a'.repeat(1024), 'application/json', '', { maxBytes: 32 });
+      expect(huge.omitted).toBe(true);
+      expect(huge.reason).toContain('byte limit');
+      expect(encodeSpy).not.toHaveBeenCalled();
+
+      const multibyte = np.sanitizeBody('"éé"', 'application/json', '', { maxBytes: 5 });
+      expect(multibyte.omitted).toBe(true);
+      expect(multibyte.reason).toContain('byte limit');
+      expect(encodeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      encodeSpy.mockRestore();
+    }
+  });
+
+  test('sanitizes post data and response content immutably with explicit omission metadata', () => {
+    const postData = { mimeType: 'application/json', text: '{"client_secret":"secret"}' };
+    const content = { size: 4, mimeType: 'application/octet-stream', text: 'AAEC', encoding: 'base64' };
+    const postSnapshot = JSON.parse(JSON.stringify(postData));
+    const contentSnapshot = JSON.parse(JSON.stringify(content));
+
+    const postResult = np.sanitizeRequestPostData(postData, []);
+    const contentResult = np.sanitizeResponseContent(content, []);
+    expect(JSON.parse(postResult.value.text).client_secret).toBe(np.REDACTION_MARKER);
+    expect(contentResult.value.text).toBeUndefined();
+    expect(contentResult.value.encoding).toBeUndefined();
+    expect(contentResult.value._networkPlus).toEqual(expect.objectContaining({ status: 'omitted' }));
+    expect(postData).toEqual(postSnapshot);
+    expect(content).toEqual(contentSnapshot);
+  });
+
+  test('returns an outbound row with no captured request object or unknown raw properties', () => {
+    const row = makeSensitiveRow();
+    row._reqObj = { request: { headers: [{ name: 'Authorization', value: 'nested-secret' }] } };
+    row.unknownMetadata = { password: 'metadata-secret' };
+    const result = np.sanitizeRowForOutbound(row, row.responseContent);
+    const serialized = JSON.stringify(result.value);
+    expect(result.value._reqObj).toBeUndefined();
+    expect(result.value.unknownMetadata).toBeUndefined();
+    expect(serialized).not.toContain('nested-secret');
+    expect(serialized).not.toContain('metadata-secret');
+    expect(row._reqObj.request.headers[0].value).toBe('nested-secret');
+  });
+
+  test('keeps cURL, fetch, and PowerShell syntax valid after default sanitization', () => {
+    const row = makeSensitiveRow();
+    const curl = np.buildClipboardPayload('curl', row).text;
+    const fetch = np.buildClipboardPayload('fetch', row).text;
+    const powershell = np.buildClipboardPayload('powershell', row).text;
+    const combined = curl + fetch + powershell;
+
+    expect(curl).toMatch(/^curl --request 'POST' 'https:\/\//);
+    expect(curl).toContain("--header 'Authorization: [REDACTED]'");
+    expect(() => new Function(fetch)).not.toThrow();
+    expect(fetch).toMatch(/^fetch\("https:\/\//);
+    expect(powershell).toMatch(/^Invoke-WebRequest -Uri 'https:\/\//);
+    expect(powershell).toContain("'Authorization' = '[REDACTED]'");
+    for (const secret of [
+      'login-secret',
+      'request-secret',
+      'proxy-secret',
+      'api-secret',
+      'csrf-secret',
+      'cookie-secret',
+      'body-secret',
+      'array-secret',
+      'fragment-secret',
+    ]) {
+      expect(combined).not.toContain(secret);
+    }
+  });
+
+  test('blocks full clipboard builders until explicit per-action confirmation', () => {
+    const safeBuilder = jest.fn(() => 'safe');
+    const fullBuilder = jest.fn(() => 'full');
+    expect(np.createOutboundPayload({}, safeBuilder, fullBuilder)).toBe('safe');
+    expect(fullBuilder).not.toHaveBeenCalled();
+    expect(() => np.createOutboundPayload({ mode: 'full' }, safeBuilder, fullBuilder)).toThrow(
+      'per-action confirmation',
+    );
+    expect(fullBuilder).not.toHaveBeenCalled();
+    expect(np.createOutboundPayload({ mode: 'full', confirmed: true }, safeBuilder, fullBuilder)).toBe('full');
+    expect(fullBuilder).toHaveBeenCalledTimes(1);
+  });
+
+  test('defaults clipboard payloads to sanitized and exposes full values only after confirmation', () => {
+    const row = makeSensitiveRow();
+    const sanitized = np.buildClipboardPayload('rawRequest', row);
+    expect(sanitized.mode).toBe('sanitized');
+    expect(sanitized.text).toContain(np.REDACTION_MARKER);
+    expect(sanitized.text).not.toContain('request-secret');
+    expect(() => np.buildClipboardPayload('rawRequest', row, { mode: 'full' })).toThrow();
+    const full = np.buildClipboardPayload('rawRequest', row, { mode: 'full', confirmed: true });
+    expect(full.mode).toBe('full');
+    expect(full.text).toContain('request-secret');
+  });
+
+  test('sanitizes complete HAR structures with counts and incomplete-body metadata', () => {
+    const row = makeSensitiveRow();
+    const fullHar = np.buildHarLogFromRows(
+      [row],
+      new Map([[row, np.buildHarResponseContent(row)]]),
+    );
+    fullHar.log.entries[0].request.cookies = [{ name: 'sid', value: 'har-cookie-secret' }];
+    fullHar.log.entries[0].response.cookies = [{ name: 'sid', value: 'har-response-secret' }];
+    fullHar.log.entries[0]._networkPlus = {
+      sourceUrl: 'https://example.com/?access_token=metadata-secret',
+      client_secret: 'metadata-client-secret',
+      note: 'arbitrary metadata secret',
+    };
+    const snapshot = JSON.parse(JSON.stringify(fullHar));
+    const sanitized = np.sanitizeHar(fullHar);
+    const serialized = JSON.stringify(sanitized);
+    const metadata = sanitized.log._networkPlus;
+
+    expect(serialized).not.toContain('request-secret');
+    expect(serialized).not.toContain('har-cookie-secret');
+    expect(serialized).not.toContain('metadata-secret');
+    expect(serialized).not.toContain('metadata-client-secret');
+    expect(serialized).not.toContain('arbitrary metadata secret');
+    expect(sanitized.log.entries[0].request.cookies[0].value).toBe(np.REDACTION_MARKER);
+    expect(sanitized.log.entries[0].response.cookies[0].value).toBe(np.REDACTION_MARKER);
+    expect(metadata).toEqual(expect.objectContaining({
+      sanitized: true,
+      policyVersion: 1,
+      failedClosed: false,
+      redactionMarker: np.REDACTION_MARKER,
+      omissionMarker: np.OMISSION_MARKER,
+      counts: expect.objectContaining({
+        redactedValues: expect.any(Number),
+        redactedHeaders: expect.any(Number),
+        redactedCookies: 2,
+        redactedBodyValues: expect.any(Number),
+        redactedMetadataValues: expect.any(Number),
+      }),
+      bodyCompleteness: expect.stringContaining('not complete'),
+    }));
+    expect(metadata.counts.redactedValues).toBeGreaterThan(10);
+    expect(fullHar).toEqual(snapshot);
+  });
+
+  test('omits base64 and invalid HAR bodies but leaves full HAR behavior unchanged', () => {
+    const row = makeSensitiveRow();
+    const fullHar = np.buildHarLogFromRows([row], new Map([
+      [row, { size: 3, mimeType: 'application/octet-stream', text: 'AAEC', encoding: 'base64' }],
+    ]));
+    const sanitized = np.sanitizeHar(fullHar);
+    const content = sanitized.log.entries[0].response.content;
+    expect(fullHar.log.entries[0].response.content).toEqual({
+      size: 3,
+      mimeType: 'application/octet-stream',
+      text: 'AAEC',
+      encoding: 'base64',
+    });
+    expect(content.text).toBeUndefined();
+    expect(content.encoding).toBeUndefined();
+    expect(content._networkPlus).toEqual(expect.objectContaining({ status: 'omitted' }));
+    expect(sanitized.log._networkPlus.counts.omittedBodies).toBeGreaterThan(0);
+
+    const invalidHar = JSON.parse(JSON.stringify(fullHar));
+    invalidHar.log.entries[0].response.content = {
+      size: 8,
+      mimeType: 'application/json',
+      text: '{invalid',
+    };
+    expect(np.sanitizeHar(invalidHar).log.entries[0].response.content._networkPlus.status).toBe('omitted');
+  });
+
+  test('fails closed to an empty explicit HAR instead of returning source data', () => {
+    for (const invalid of [null, {}, { log: { entries: null } }]) {
+      const result = np.sanitizeHar(invalid);
+      expect(result.log.entries).toEqual([]);
+      expect(result.log._networkPlus).toEqual(expect.objectContaining({
+        sanitized: true,
+        failedClosed: true,
+        counts: expect.objectContaining({ failures: 1 }),
+      }));
+    }
+  });
+
+  test('covers conservative secret, credential, assertion, session, and PII key variants', () => {
+    for (const key of [
+      'x-amz-security-token',
+      'x-amz-credential',
+      'private-token',
+      'x-secret',
+      'x-forwarded-authorization',
+      'sig',
+      'key',
+      'jwt',
+      'saml-response',
+      'assertion',
+      'password-confirmation',
+      'service-token',
+      'database-secret',
+      'cloud-credential',
+      'forwarded-authorization',
+      'ticket',
+      'nonce',
+      'state',
+      'session',
+      'sid',
+      'email-address',
+      'phone_number',
+      'mobile',
+      'street-address',
+      'social-security-number',
+      'tax-id',
+      'national_id',
+      'date-of-birth',
+      'full-name',
+      'user-name',
+      'place-of-birth',
+      'employee-ssn',
+      'oauth-state',
+      'user-sid',
+    ]) {
+      expect(np.isSensitiveKey(key)).toBe(true);
+    }
+  });
+
+  test('redacts non-allowlisted headers and sanitizes simple URL-bearing headers', () => {
+    const headers = [
+      { name: 'Referer', value: 'https://example.com/source?access_token=secret&unknown=pii' },
+      { name: 'Location', value: '/callback?code=secret&sig=unknown' },
+      { name: 'Content-Location', value: 'https://example.com/item?sv=1&sp=read&se=tomorrow' },
+      { name: 'X-Original-URL', value: '/private?account=person' },
+      { name: 'X-Rewrite-URL', value: 'not a valid URL' },
+      { name: 'X-Amz-Security-Token', value: 'aws-secret' },
+      { name: 'X-Amz-Credential', value: 'aws-credential-secret' },
+      { name: 'X-Forwarded-Authorization', value: 'forwarded-secret' },
+      { name: 'private-token', value: 'private-secret' },
+      { name: 'x-secret', value: 'custom-secret' },
+      { name: 'traceparent', value: 'trace-secret' },
+      { name: 'x-request-id', value: 'request-secret' },
+      { name: 'x-client-cert', value: 'certificate-secret' },
+      { name: 'Link', value: '<https://example.com/?token=secret>; rel=next' },
+      { name: 'Refresh', value: '0; url=https://example.com/?code=secret' },
+      { name: 'Content-Type', value: 'application/json' },
+    ];
+    const snapshot = JSON.parse(JSON.stringify(headers));
+    const result = np.sanitizeHeaders(headers);
+    const byName = Object.fromEntries(result.value.map((header) => [header.name, header.value]));
+
+    expect(new URL(byName.Referer).searchParams.get('unknown')).toBe(np.REDACTION_MARKER);
+    expect(new URL(byName.Referer).searchParams.get('access_token')).toBe(np.REDACTION_MARKER);
+    expect(new URL(byName.Location, 'https://example.com').searchParams.get('code')).toBe(np.REDACTION_MARKER);
+    expect(new URL(byName['Content-Location']).searchParams.get('sv')).toBe(np.REDACTION_MARKER);
+    expect(new URL(byName['X-Original-URL'], 'https://example.com').searchParams.get('account')).toBe(
+      np.REDACTION_MARKER,
+    );
+    for (const name of [
+      'X-Rewrite-URL',
+      'X-Amz-Security-Token',
+      'X-Amz-Credential',
+      'X-Forwarded-Authorization',
+      'private-token',
+      'x-secret',
+      'traceparent',
+      'x-request-id',
+      'x-client-cert',
+      'Link',
+      'Refresh',
+    ]) {
+      expect(byName[name]).toBe(np.REDACTION_MARKER);
+    }
+    expect(byName['Content-Type']).toBe('application/json');
+    const serialized = JSON.stringify(result.value);
+    for (const secret of [
+      'aws-secret',
+      'aws-credential-secret',
+      'forwarded-secret',
+      'private-secret',
+      'custom-secret',
+      'trace-secret',
+      'request-secret',
+      'certificate-secret',
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
+    expect(headers).toEqual(snapshot);
+  });
+
+  test('redacts every URL query and form-like fragment value while preserving route shape', () => {
+    const result = np.sanitizeUrl(
+      'https://example.com/callback?sv=1&sp=read&se=tomorrow&unknown=person&unknown=duplicate#/oauth/callback?code=value&state=state-value',
+    );
+    const parsed = new URL(result.value);
+    expect(parsed.pathname).toBe('/callback');
+    expect(Array.from(parsed.searchParams.keys())).toEqual(['sv', 'sp', 'se', 'unknown', 'unknown']);
+    expect(Array.from(parsed.searchParams.values())).toEqual(Array(5).fill(np.REDACTION_MARKER));
+    expect(parsed.hash.startsWith('#/oauth/callback?')).toBe(true);
+    expect(Array.from(new URLSearchParams(parsed.hash.split('?')[1]).values())).toEqual(
+      Array(2).fill(np.REDACTION_MARKER),
+    );
+    expect(result.summary.redactedQueryValues).toBe(7);
+    expect(new URL(np.sanitizeUrl('https://example.com/#/safe/route').value).hash).toBe('#/safe/route');
+    expect(new URL(np.sanitizeUrl('https://example.com/#value%GG').value).hash).toContain(np.REDACTION_MARKER);
+  });
+
+  test('redacts nested secret and PII body fields defensively', () => {
+    const body = {
+      profile: {
+        email: 'person@example.com',
+        phone_number: '555-0100',
+        address: 'private address',
+        fullName: 'Private Person',
+        passwordConfirmation: 'password-copy',
+      },
+      items: [
+        { jwt: 'jwt-secret' },
+        { saml_response: 'saml-secret' },
+        { assertion: 'assertion-secret' },
+        { sig: 'signature-secret' },
+        { key: 'key-secret' },
+      ],
+      flow: { nonce: 'nonce-secret', state: 'state-secret', session: 'session-secret', sid: 'sid-secret' },
+      visible: 'kept',
+    };
+    const snapshot = JSON.parse(JSON.stringify(body));
+    const sanitized = JSON.parse(np.sanitizeBody(JSON.stringify(body), 'application/json', '').text);
+    expect(sanitized.profile).toEqual({
+      email: np.REDACTION_MARKER,
+      phone_number: np.REDACTION_MARKER,
+      address: np.REDACTION_MARKER,
+      fullName: np.REDACTION_MARKER,
+      passwordConfirmation: np.REDACTION_MARKER,
+    });
+    expect(sanitized.items.every((item) => Object.values(item)[0] === np.REDACTION_MARKER)).toBe(true);
+    expect(Object.values(sanitized.flow).every((value) => value === np.REDACTION_MARKER)).toBe(true);
+    expect(sanitized.visible).toBe('kept');
+    expect(body).toEqual(snapshot);
+  });
+
+  test('sanitizes only the surfaces required by each clipboard action', () => {
+    const row = makeSensitiveRow();
+    const summarySanitizers = {
+      sanitizeUrl: jest.fn(np.sanitizeUrl),
+      sanitizeHeaders: jest.fn(() => {
+        throw new Error('headers-must-not-run');
+      }),
+      sanitizeRequestPostData: jest.fn(() => {
+        throw new Error('request-body-must-not-run');
+      }),
+      sanitizeBody: jest.fn(() => {
+        throw new Error('response-body-must-not-run');
+      }),
+    };
+    expect(() => np.buildClipboardPayload('summary', row, { sanitizers: summarySanitizers })).not.toThrow();
+    expect(() => np.buildClipboardPayload('url', row, { sanitizers: summarySanitizers })).not.toThrow();
+    expect(summarySanitizers.sanitizeUrl).toHaveBeenCalledTimes(2);
+    expect(summarySanitizers.sanitizeHeaders).not.toHaveBeenCalled();
+    expect(summarySanitizers.sanitizeRequestPostData).not.toHaveBeenCalled();
+    expect(summarySanitizers.sanitizeBody).not.toHaveBeenCalled();
+
+    const requestSanitizers = {
+      sanitizeUrl: jest.fn(np.sanitizeUrl),
+      sanitizeHeaders: jest.fn(np.sanitizeHeaders),
+      sanitizeRequestPostData: jest.fn(np.sanitizeRequestPostData),
+      sanitizeBody: jest.fn(() => {
+        throw new Error('response-body-must-not-run');
+      }),
+    };
+    expect(() => np.buildClipboardPayload('rawRequest', row, { sanitizers: requestSanitizers })).not.toThrow();
+    expect(requestSanitizers.sanitizeRequestPostData).toHaveBeenCalledTimes(1);
+    expect(requestSanitizers.sanitizeBody).not.toHaveBeenCalled();
+
+    const responseSanitizers = {
+      sanitizeUrl: jest.fn(() => {
+        throw new Error('url-must-not-run');
+      }),
+      sanitizeHeaders: jest.fn(np.sanitizeHeaders),
+      sanitizeRequestPostData: jest.fn(() => {
+        throw new Error('request-body-must-not-run');
+      }),
+      sanitizeBody: jest.fn(np.sanitizeBody),
+    };
+    expect(() =>
+      np.buildClipboardPayload('rawResponse', row, {
+        responseBody: row.responseContent,
+        sanitizers: responseSanitizers,
+      }),
+    ).not.toThrow();
+    expect(responseSanitizers.sanitizeUrl).not.toHaveBeenCalled();
+    expect(responseSanitizers.sanitizeRequestPostData).not.toHaveBeenCalled();
+    expect(responseSanitizers.sanitizeBody).toHaveBeenCalledTimes(1);
+  });
+
+  test('fails a multi-row clipboard build closed before any partial payload can escape', () => {
+    const builder = jest.fn((action, row) => {
+      if (row.id === 2) throw new Error('secret-bearing sanitizer detail');
+      return { text: 'safe-' + action + '-' + row.id };
+    });
+    expect(np.buildMultiRowClipboardPayload([{ id: 1 }, { id: 2 }, { id: 3 }], 'summary', {}, builder)).toEqual({
+      ok: false,
+      text: '',
+    });
+    expect(builder).toHaveBeenCalledTimes(2);
+    expect(np.buildMultiRowClipboardPayload([{ id: 1 }, { id: 3 }], 'summary', {}, builder)).toEqual({
+      ok: true,
+      text: 'safe-summary-1\n\n---\n\nsafe-summary-3',
+    });
+  });
+
+  test('consumes each full-output confirmation action at most once', () => {
+    const callback = jest.fn(() => 'completed');
+    const action = np.createOneTimeConfirmationAction(callback);
+    expect(action()).toBe('completed');
+    expect(action()).toBeUndefined();
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(np.isFullOutputAuthorized({ mode: 'full', confirmed: true })).toBe(true);
+    expect(np.isFullOutputAuthorized({ mode: 'full' })).toBe(false);
+  });
+
+  test('defers successful download cleanup and revokes the object URL exactly once', () => {
+    const anchor = { href: '', download: '', click: jest.fn() };
+    const revoke = jest.fn();
+    const scheduled = [];
+    np.triggerObjectUrlDownload('blob:success', 'network-plus-sanitized.har', {
+      createAnchor: () => anchor,
+      revoke,
+      schedule: (callback, delay) => scheduled.push({ callback, delay }),
+    });
+
+    expect(anchor).toEqual(expect.objectContaining({
+      href: 'blob:success',
+      download: 'network-plus-sanitized.har',
+    }));
+    expect(anchor.click).toHaveBeenCalledTimes(1);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0].delay).toBe(1000);
+    scheduled[0].callback();
+    scheduled[0].callback();
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith('blob:success');
+  });
+
+  test('revokes immediately and only once when the download click fails', () => {
+    const revoke = jest.fn();
+    const schedule = jest.fn();
+    expect(() => np.triggerObjectUrlDownload('blob:failure', 'network-plus-sanitized.har', {
+      createAnchor: () => ({
+        click: () => { throw new Error('click-failed'); },
+      }),
+      revoke,
+      schedule,
+    })).toThrow('click-failed');
+    expect(schedule).not.toHaveBeenCalled();
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith('blob:failure');
+  });
+
+  test('reads HAR creator versions from the extension runtime with a Node-test fallback', () => {
+    expect(np.getExtensionVersion({ getManifest: () => ({ version: '9.8.7' }) })).toBe('9.8.7');
+    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.5.0');
+    expect(np.getExtensionVersion(null)).toBe('1.5.0');
+  });
+
+  test('uses the current extension version for full and sanitized HAR creators', () => {
+    const row = makeSensitiveRow();
+    const fullHar = np.buildHarLogFromRows([row], new Map([[row, np.buildHarResponseContent(row)]]));
+    expect(fullHar.log.creator.version).toBe('1.5.0');
+    expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.5.0');
+  });
+});

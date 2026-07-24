@@ -21,10 +21,11 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能。ステータスバーとボタンに有効なカラムフィルタ数を表示 |
 | ↕️ カラムソート | ヘッダーのクリックまたは `Enter` / `Space` でソート切替 (昇順 → 降順 → ソート解除)。`Alt+←` / `Alt+→` でカラムを並べ替え、順序を永続化。時刻カラムは取得時のリクエスト epoch で正確に比較 |
 | 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示。選択中レスポンスは上限付き共有 Body キャッシュから描画し、遅延完了した別リクエストによる表示上書きを防止。Body が省略・退避・取得不能の場合は理由を明示し、取得元が残る退避 Body は選択時に安全に再取得。Timing は SSL と Connect を重複させずに可視化 |
-| 📤 HAR エクスポート | HAR 1.2 形式でヘッダー・タイミング・レスポンスボディ・クエリ文字列・PostData を出力。キャッシュ外 Body は行ごとに一時取得して上限付きキャッシュへ戻さず、取得できない Body は空データを完全データとして扱わず `_networkPlus` メタデータで状態と理由を明示。base64 データと encoding を保持 |
+| 📤 安全な HAR エクスポート | 通常操作では `network-plus-sanitized.har` を出力し、機密値を置換して解析不能・不透明・base64・multipart・制限超過 Body を明示的に省略。`_networkPlus` に方針、件数、Body の不完全性を記録。`network-plus-full.har` は Authorization、Cookie、query、Body の警告を確認したその 1 回だけ出力 |
 | 🎨 テーマ切替 | System / Dark / Light の3モードを循環切替。小さいステータス・補助テキストは WCAG 2.2 AA、操作境界と主要セパレーターは 3:1 以上のコントラストを全テーマで維持し、設定は `chrome.storage.local` (Edge 互換 API) に永続化 |
 | ⏯️ 録画制御 | Pause / Resume ボタン。録画中は赤、一時停止中はグレーのインジケータ表示 |
 | ⬇️ 自動スクロール | 新規リクエスト到着時に自動的にテーブル末尾へスクロール。上方向へ手動スクロールすると自動的に OFF になり、ボタン状態にも反映 |
+| 📋 安全なクリップボードコピー | Summary、URL、request/response Body、Raw request/response、cURL、fetch、PowerShell は `Copy sanitized` が既定。完全コピーは同じ警告ダイアログで操作ごとに確認し、確認前に clipboard へ書き込まない |
 | 🔗 Initiator リンク | スクリプト起因のリクエストをクリックすると DevTools でソースファイルを表示 |
 | 🪟 パネルリサイズ | テーブルと詳細パネルの境界をドラッグまたは矢印キーで調整可能。幅 700px 以下では上下配置へ切り替わり、上下キーで高さを調整。Request/Response 境界も上下キーに対応 |
 | ⌨️ キーボードナビゲーション | フォーカス行を上下キーで選択して自動スクロール。`Context Menu` または `Shift+F10` で行アクションを開き、メニュー内は上下キー / Home / End / Escape で操作。詳細タブは左右キー / Home / End で移動可能 |
@@ -114,6 +115,20 @@ Microsoft Edge DevTools
 - これらはリクエスト行数とレスポンス Body 共有キャッシュの上限です。保持中の各行が参照する URL、ヘッダー、requestPostData、DevTools のリクエストオブジェクト、およびインポート解析中のファイルデータを含む拡張機能全体の絶対メモリ上限ではありません。機密データの編集・出力ポリシーは後続の data-safety 層で扱います。
 - 保存済み設定が不正または読み書き不能な場合は既定値へ戻し、その理由を保持ステータスまたは操作ステータスへ表示します。
 
+### 外向きデータの安全性
+
+Network+ は clipboard copy と HAR download を外向きデータ面として扱い、通常操作を常に sanitized output にします。確認済み full output はその操作 1 回にだけ有効で、設定や既定値として保存しません。
+
+- URL は username/password の両方と、名前に関係なく query および form-like fragment の全 value を `[REDACTED]` へ置換します。parameter 名、順序、重複、path、SPA fragment route は可能な範囲で維持し、解釈不能な fragment は全体を置換します。
+- Header は `Accept`、`Content-Type`、`Content-Length`、encoding、connection、cache directive などの小さな構造 allowlist だけ値を保持します。`Referer` / `Referrer` / `Location` / `Content-Location` / `X-Original-URL` / `X-Rewrite-URL` は URL sanitizer を通し、Cookie、custom `X-*`、auth/security/token/credential/signature/key/trace/request-ID/client-certificate header、`Link` / `Refresh` など安全に解析しない URL header は名前を保って値を置換します。
+- Cookie object の値は名前にかかわらず `[REDACTED]` へ置換します。
+- JSON Body は byte・depth・node 上限内だけ構造解析し、password の contains variant、token/secret/credential/authorization suffix、`sig` / `key` / `jwt` / SAML assertion / ticket / nonce / state / session、および email / phone / address / SSN / tax ID / national ID / birth date / name 系の PII key を防御的 heuristic で再帰置換します。false positive は sanitized mode で許容し、確認済み full output だけが原値を保持します。`application/x-www-form-urlencoded` Body は全 value を置換します。
+- invalid JSON/form、opaque/binary、multipart、base64、上限超過 Body は内容を推測せず `[OMITTED BY NETWORK+]` または HAR の `_networkPlus.status = "omitted"` で明示します。
+- Sanitizer が処理できない場合は fail closed とし、元データへ fallback しません。clipboard/download の失敗は内容を console、status、error text に含めず通知します。
+- cURL、fetch、PowerShell は置換・省略後も quote/escaping を適用し、command syntax を維持します。
+
+この方針は外向き copy/download の誤共有を減らすもので、DevTools 内の Request/Response 表示、ローカルキャプチャ、メモリ内データを秘匿・消去する機能ではありません。ローカル inspection では取得済みの完全値が表示される場合があります。
+
 ## 🚀 セットアップ
 
 ### 1. リポジトリの取得
@@ -149,7 +164,7 @@ npm ci
 4. **カラム別フィルタ**: カラムヘッダー右クリック or ツールバーの `Column Filters` ボタンで詳細フィルタ設定
 5. **ソート/並べ替え**: カラムヘッダーのクリックまたは `Enter` / `Space` で昇順/降順/解除を切替。`Alt+←` / `Alt+→` で順序を変更
 6. **リクエスト詳細**: 行クリックで Fiddler 風のタブ付きインスペクター (Request/Response) を表示
-7. **HAR エクスポート**: ツールバーの Export ボタンで HAR 1.2 形式ファイルをダウンロード
+7. **HAR エクスポート**: Export ダイアログでは `Export sanitized HAR` を通常利用する。`Export full HAR` は警告対象を確認し、その 1 回だけ完全データを出力
 8. **テーマ切替**: Theme ボタンで System/Dark/Light を循環切替
 9. **保持設定**: `Retention` ボタンで保持件数を変更。`Keep unlimited requests` は警告表示後にのみ保存でき、Body キャッシュの 1 MiB / 32 MiB 上限は無制限モードでも維持される
 10. **キーボード操作**: 上下キーで行選択、`Context Menu` / `Shift+F10` で行メニュー、各境界の矢印キーでサイズ調整。Filter / Columns / Scope / Color は開いた後に内容へフォーカスし、`Escape` で閉じてトリガーへ戻る
@@ -197,6 +212,8 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 - [ ] ヘッダーの `Enter` / `Space` で `aria-sort` と表示順が同期し、`Alt+←` / `Alt+→` 後も同じヘッダーへフォーカスが戻る
 - [ ] カラム、メイン分割、Request/Response 分割の各境界を矢印キーで変更でき、最小サイズを下回らない
 - [ ] 行の上下選択、`Ctrl` / `Cmd+C`、複数選択、`Context Menu` / `Shift+F10` のメニュー操作とフォーカス復帰が維持される
+- [ ] 通常の Summary / URL / Body / Raw / cURL / fetch / PowerShell copy が sanitized と表示され、完全 copy は警告確認後だけ clipboard へ書き込まれる
+- [ ] Export ダイアログの sanitized HAR と full HAR が別 filename になり、full HAR の確認状態が次の操作へ残らない
 - [ ] Filter / Columns / Scope / Color をキーボードで開閉でき、初期フォーカス、`Escape`、画面端でのクランプが機能する
 
 ### 大量通信・増分描画の手動テスト
