@@ -5,20 +5,22 @@
   "main": "devtools.js",
   "scripts": {
     "test": "jest --coverage",
-    "lint": "eslint panel.js",
-    "format": "prettier --write .",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/repository-integrity.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
+    "format:check": "prettier --check package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/repository-integrity.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
     "version:check": "node scripts/check-version-sync.js",
-    "build": "esbuild panel.js --bundle --minify --outfile=dist/panel.js"
+    "integrity:check": "node scripts/check-repository-integrity.js",
+    "text:check": "node scripts/check-text-integrity.js"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "esbuild": "^0.27.3",
-    "eslint": "^10.0.2",
-    "jest": "^30.2.0",
-    "prettier": "^3.8.1"
+    "eslint": "^10.7.0",
+    "globals": "^17.7.0",
+    "jest": "^30.4.2",
+    "prettier": "^3.9.5"
   },
   "jest": {
     "testEnvironment": "node",
