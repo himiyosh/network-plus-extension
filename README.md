@@ -45,10 +45,12 @@ network-plus-extension/
   scripts/
     check-version-sync.js    ... package.json / manifest.json バージョン同期チェック
     check-repository-integrity.js ... package-lock.json の provenance チェック
+    check-text-integrity.js  ... 変更差分の whitespace / encoding チェック
   tests/                     ... Jest ユニットテスト
     setup.js                 ... テスト用ブラウザ API モック
     panel.test.js            ... 純粋関数のユニットテスト
     repository-integrity.test.js ... リポジトリ整合性チェックのユニットテスト
+    text-integrity.test.js   ... 変更差分チェックのユニットテスト
   icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
   vendor/                    ... サードパーティライブラリ
   manifest.json              ... 拡張機能マニフェスト (Manifest V3, CSP 明示設定)
@@ -126,6 +128,7 @@ npm test                # Jest テスト実行 (カバレッジ付き)
 npm run lint            # 全 first-party JavaScript の ESLint 実行
 npm run version:check   # package.json と manifest.json の version 同期チェック
 npm run integrity:check # package-lock.json の provenance チェック
+npm run text:check -- --base <base-sha> --head <head-sha> # 変更差分の whitespace / encoding チェック
 npm run format:check    # CI 対象ファイルの Prettier チェック
 npm run format          # CI 対象ファイルの Prettier フォーマット
 ```
