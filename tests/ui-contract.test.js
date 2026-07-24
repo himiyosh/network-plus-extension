@@ -392,9 +392,11 @@ describe('outbound data-safety static contracts', () => {
     expect(html).toMatch(/id="dataSafetySanitizedBtn"[^>]*>Export sanitized HAR</);
     expect(html).toMatch(/id="dataSafetyFullBtn"[^>]*>Review full HAR warning</);
     expect(html).toMatch(/id="dataSafetyConfirmBtn"[^>]*hidden>Confirm full output</);
-    expect(html).toContain('Authorization, proxy authorization, API-key, auth-token, and CSRF headers');
+    expect(html).toContain('every URL query and form-like fragment value');
+    expect(html).toContain('every header value outside a small structural allowlist');
+    expect(html).toContain('Authorization, proxy authorization, custom, security, trace, request-ID, and client-certificate headers');
     expect(html).toContain('Cookie and Set-Cookie values');
-    expect(html).toContain('URL credentials, query values, and fragments');
+    expect(html).toContain('URL usernames, passwords, query values, and fragment values');
     expect(html).toContain('Request and response bodies, including base64 content');
     expect(html).toContain('does not save a full-output preference');
     expect(html).toMatch(/id="dataSafetyStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
@@ -421,7 +423,7 @@ describe('outbound data-safety static contracts', () => {
     expect((js.match(/\.download\s*=/g) || [])).toHaveLength(1);
     expect(js).toContain("a.download = outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har';");
     expect(js).toContain("const payload = buildClipboardPayload(action, row, { mode: 'sanitized', responseBody });");
-    expect(js).toContain("buildClipboardPayload('summary', selectedRow, { mode: 'sanitized' })");
+    expect(js).toContain("buildMultiRowClipboardPayload(rows, 'summary', { mode: 'sanitized' })");
     expect(js).toContain("['url', 'Copy sanitized URL']");
     expect(js).toContain("['curl', 'Copy sanitized cURL']");
     expect(js).toContain("['fetch', 'Copy sanitized fetch']");
@@ -431,7 +433,7 @@ describe('outbound data-safety static contracts', () => {
 
   test('cannot build full clipboard or HAR output until a confirmation callback runs', () => {
     expect(js).toContain("if (source.mode === 'full') {");
-    expect(js).toContain("if (source.confirmed !== true) throw new Error('Full output requires per-action confirmation.');");
+    expect(js).toContain("if (!isFullOutputAuthorized(source)) throw new Error('Full output requires per-action confirmation.');");
     expect(js).toMatch(/onConfirm: \(\) => \{\s*const payload = buildClipboardPayload\(action, row, \{\s*mode: 'full',\s*confirmed: true,/s);
     expect(js).toContain("onConfirm: () => exportHAR({ mode: 'full', confirmed: true })");
     expect(js).toContain("exportHAR({ mode: 'sanitized' });");
@@ -455,5 +457,23 @@ describe('outbound data-safety static contracts', () => {
     expect(js).not.toMatch(/dataSafety[^\n]*innerHTML|innerHTML[^\n]*dataSafety/);
     expect(js).toContain("button.textContent = action.label;");
     expect(js).toContain("$('#dataSafetyDialogDetail').textContent = detail;");
+  });
+
+  test('rejects unconfirmed full HAR before body preparation and fails sanitized export before Blob creation', () => {
+    const exportStart = js.indexOf('async function exportHAR(policy)');
+    const exportEnd = js.indexOf('// Section 15', exportStart);
+    const exportSource = js.slice(exportStart, exportEnd);
+    const authorizationGuard = exportSource.indexOf(
+      "outboundPolicy.mode === 'full' && !isFullOutputAuthorized(outboundPolicy)",
+    );
+    expect(authorizationGuard).toBeGreaterThan(-1);
+    expect(authorizationGuard).toBeLessThan(exportSource.indexOf('resolveHarResponseContent(row)'));
+    expect(exportSource.indexOf('har.log._networkPlus.failedClosed')).toBeLessThan(exportSource.indexOf('new Blob'));
+    expect(exportSource).toMatch(/finally \{\s*if \(objectUrl\) URL\.revokeObjectURL\(objectUrl\);/s);
+  });
+
+  test('consumes full confirmation synchronously to prevent double activation', () => {
+    expect(js).toContain("$('#dataSafetyConfirmBtn').disabled = true;");
+    expect(js).toContain('createOneTimeConfirmationAction(source.onConfirm)');
   });
 });

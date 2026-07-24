@@ -121,11 +121,12 @@
         <button id="dataSafetyFullBtn" type="button">Review full HAR warning</button>
       </div>
       <div id="dataSafetyWarning" class="data-safety-warning" hidden>
-        <strong>Full output can expose:</strong>
+        <p>Sanitized output redacts every URL query and form-like fragment value, both URL userinfo components, Cookie values, and every header value outside a small structural allowlist.</p>
+        <strong>Full output bypasses those protections and can expose:</strong>
         <ul>
-          <li>Authorization, proxy authorization, API-key, auth-token, and CSRF headers</li>
+          <li>Authorization, proxy authorization, custom, security, trace, request-ID, and client-certificate headers</li>
           <li>Cookie and Set-Cookie values</li>
-          <li>URL credentials, query values, and fragments</li>
+          <li>URL usernames, passwords, query values, and fragment values</li>
           <li>Request and response bodies, including base64 content</li>
         </ul>
         <label id="dataSafetyCopyFormatLabel" for="dataSafetyCopyFormat" hidden>Full copy format</label>

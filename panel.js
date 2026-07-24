@@ -63,6 +63,7 @@ const _NetworkPlus = (function () {
   const DATE_SORT_FIELDS = { clientStart: 'clientStartEpoch', serverDone: 'serverDoneEpoch' };
   const INVALID_REQUEST_EPOCH = Number.MAX_SAFE_INTEGER;
   const TIMING_PHASES = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
+  const EXTENSION_VERSION = '1.5.0';
   const SENSITIVE_KEY_NAMES = new Set([
     'authorization',
     'proxyauthorization',
@@ -79,20 +80,91 @@ const _NetworkPlus = (function () {
     'apikey',
     'clientsecret',
     'signature',
+    'sig',
+    'key',
     'auth',
     'authcode',
     'code',
     'secret',
     'secretkey',
+    'session',
     'sessionid',
     'sessiontoken',
+    'sid',
     'credential',
     'credentials',
     'csrf',
     'csrftoken',
     'xsrf',
     'xsrftoken',
+    'jwt',
+    'samlresponse',
+    'assertion',
+    'ticket',
+    'nonce',
+    'state',
+    'email',
+    'emailaddress',
+    'phone',
+    'phonenumber',
+    'mobile',
+    'mobilenumber',
+    'address',
+    'streetaddress',
+    'mailingaddress',
+    'ssn',
+    'socialsecurity',
+    'socialsecuritynumber',
+    'taxid',
+    'taxidentifier',
+    'nationalid',
+    'nationalidentifier',
+    'birth',
+    'birthdate',
+    'dateofbirth',
+    'dob',
+    'name',
+    'firstname',
+    'lastname',
+    'middlename',
+    'fullname',
+    'displayname',
+    'givenname',
+    'familyname',
   ]);
+  const SAFE_OUTBOUND_HEADER_NAMES = new Set([
+    'accept',
+    'acceptencoding',
+    'allow',
+    'cachecontrol',
+    'connection',
+    'contentencoding',
+    'contentlength',
+    'contenttype',
+    'date',
+    'expires',
+    'pragma',
+    'secfetchdest',
+    'secfetchmode',
+    'secfetchsite',
+    'secfetchuser',
+    'te',
+    'trailer',
+    'transferencoding',
+    'upgrade',
+    'vary',
+  ]);
+  const URL_VALUE_HEADER_NAMES = new Set([
+    'referer',
+    'referrer',
+    'location',
+    'contentlocation',
+    'xoriginalurl',
+    'xrewriteurl',
+  ]);
+  const COMPLEX_URL_HEADER_NAMES = new Set(['link', 'refresh']);
+  const REQUEST_CLIPBOARD_ACTIONS = new Set(['requestBody', 'rawRequest', 'curl', 'fetch', 'powershell']);
+  const RESPONSE_CLIPBOARD_ACTIONS = new Set(['responseBody', 'rawResponse']);
 
   const FILTER_OPERATORS_STRING = [
     { value: 'contains', label: 'contains' },
@@ -277,7 +349,7 @@ const _NetworkPlus = (function () {
     $('#dataSafetyDialogTitle').textContent = 'Export network data';
     setDataSafetyDialogMode(
       'export',
-      'Sanitized HAR is the safe default. It redacts secret-like values and explicitly marks omitted bodies.',
+      'Sanitized HAR redacts every URL query and form-like fragment value, URL userinfo, cookies, and every non-allowlisted header value. Omitted bodies are explicitly marked.',
       '',
       false,
     );
@@ -287,7 +359,9 @@ const _NetworkPlus = (function () {
 
   function requestFullOutboundAction(config) {
     const source = config || {};
-    pendingFullOutboundAction = typeof source.onConfirm === 'function' ? source.onConfirm : null;
+    pendingFullOutboundAction =
+      typeof source.onConfirm === 'function' ? createOneTimeConfirmationAction(source.onConfirm) : null;
+    $('#dataSafetyConfirmBtn').disabled = false;
     $('#dataSafetyDialogTitle').textContent = source.title || 'Confirm full output';
     setDataSafetyDialogMode(
       'full',
@@ -324,7 +398,8 @@ const _NetworkPlus = (function () {
     $('#dataSafetyFullBtn').addEventListener('click', () => {
       requestFullOutboundAction({
         title: 'Export full HAR?',
-        detail: 'A full HAR can expose credentials and complete request or response content.',
+        detail:
+          'A full HAR can expose Authorization, cookies, every query or fragment value, URL userinfo, non-allowlisted headers, and complete request or response bodies.',
         confirmLabel: 'Export full HAR',
         trigger: dataSafetyDialogTrigger,
         onConfirm: () => exportHAR({ mode: 'full', confirmed: true }),
@@ -333,6 +408,7 @@ const _NetworkPlus = (function () {
     $('#dataSafetyConfirmBtn').addEventListener('click', () => {
       const action = pendingFullOutboundAction;
       pendingFullOutboundAction = null;
+      $('#dataSafetyConfirmBtn').disabled = true;
       dialog.close('confirmed');
       if (!action) return;
       Promise.resolve()
@@ -646,6 +722,8 @@ const _NetworkPlus = (function () {
       sanitizedUrls: 0,
       omittedBodies: 0,
       failures: 0,
+      redactedUrlUsernames: 0,
+      redactedUrlPasswords: 0,
     };
   }
 
@@ -669,9 +747,41 @@ const _NetworkPlus = (function () {
     if (!key) return false;
     if (SENSITIVE_KEY_NAMES.has(key)) return true;
     return (
-      /(?:password|passwd|passphrase|accesstoken|idtoken|refreshtoken|apikey|apitoken|authtoken|clientsecret|secretkey|sessiontoken|csrftoken|xsrftoken|signature)$/.test(key) ||
-      /^(?:x)?(?:api|client)?(?:auth|authorization|authentication)/.test(key)
+      /(?:password|passwd|passphrase)/.test(key) ||
+      /(?:token|secret|credential|authorization|authentication|signature|assertion|ticket|nonce|state|session|sid|samlresponse|jwt)$/.test(
+        key,
+      ) ||
+      /(?:birth|birthdate|dateofbirth|dob|ssn|email|phone|mobile|address|socialsecurity|taxid|taxidentifier|nationalid|nationalidentifier|name)$/.test(
+        key,
+      ) ||
+      /^(?:x)?(?:api|client)?(?:auth|authorization|authentication)/.test(key) ||
+      /(?:api|secret|private|access|client|encryption|signing)key$/.test(key)
     );
+  }
+
+  function sanitizeUrlHeaderValue(rawValue) {
+    const source = typeof rawValue === 'string' ? rawValue : '';
+    try {
+      const absolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(source);
+      if (!absolute && !source.startsWith('/')) throw new Error('unsafe-relative-url');
+      const parsed = new URL(source, 'https://network-plus.invalid/');
+      const sanitized = sanitizeUrl(parsed.toString());
+      if (sanitized.value === OMISSION_MARKER) return sanitized;
+      if (absolute) return sanitized;
+      const relative = new URL(sanitized.value);
+      return {
+        value: relative.pathname + relative.search + relative.hash,
+        summary: sanitized.summary,
+      };
+    } catch (_error) {
+      return {
+        value: REDACTION_MARKER,
+        summary: mergeSanitizationSummaries(createSanitizationSummary(), {
+          sanitizedUrls: 1,
+          failures: 1,
+        }),
+      };
+    }
   }
 
   function sanitizeHeaders(headers) {
@@ -680,7 +790,22 @@ const _NetworkPlus = (function () {
       ? headers.map((header) => {
         const source = header && typeof header === 'object' ? header : {};
         const name = String(source.name || '');
-        if (!isSensitiveKey(name)) return { name, value: String(source.value == null ? '' : source.value) };
+        const normalizedName = normalizeSensitiveKey(name);
+        if (URL_VALUE_HEADER_NAMES.has(normalizedName)) {
+          const sanitizedUrl = sanitizeUrlHeaderValue(String(source.value == null ? '' : source.value));
+          summary = mergeSanitizationSummaries(summary, sanitizedUrl.summary);
+          if (sanitizedUrl.value === REDACTION_MARKER || sanitizedUrl.value === OMISSION_MARKER) {
+            summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedHeaders: 1 });
+            return { name, value: REDACTION_MARKER };
+          }
+          summary = mergeSanitizationSummaries(summary, {
+            redactedHeaders: sanitizedUrl.summary.redactedValues > 0 ? 1 : 0,
+          });
+          return { name, value: sanitizedUrl.value };
+        }
+        if (SAFE_OUTBOUND_HEADER_NAMES.has(normalizedName) && !COMPLEX_URL_HEADER_NAMES.has(normalizedName)) {
+          return { name, value: String(source.value == null ? '' : source.value) };
+        }
         summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedHeaders: 1 });
         return { name, value: REDACTION_MARKER };
       })
@@ -710,20 +835,57 @@ const _NetworkPlus = (function () {
     const value = Array.isArray(items)
       ? items.map((item) => {
         const source = item && typeof item === 'object' ? item : {};
-        const name = String(source.name || '');
-        if (!isSensitiveKey(name)) return { name, value: String(source.value == null ? '' : source.value) };
         summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedQueryValues: 1 });
-        return { name, value: REDACTION_MARKER };
+        return { name: String(source.name || ''), value: REDACTION_MARKER };
       })
       : [];
     return { value, summary };
   }
 
-
   function createUrlSearchParams(value) {
     const holder = new URL('https://network-plus.invalid/');
     holder.search = value ? '?' + value : '';
     return holder.searchParams;
+  }
+
+  function sanitizeUrlFragment(fragment) {
+    if (/%(?![0-9a-f]{2})/i.test(fragment)) {
+      return {
+        value: REDACTION_MARKER,
+        summary: mergeSanitizationSummaries(createSanitizationSummary(), {
+          redactedValues: 1,
+          redactedQueryValues: 1,
+          failures: 1,
+        }),
+      };
+    }
+    const queryIndex = fragment.indexOf('?');
+    if (queryIndex >= 0) {
+      const route = fragment.slice(0, queryIndex);
+      const querySource = fragment.slice(queryIndex + 1);
+      const params = createUrlSearchParams(querySource);
+      const sanitized = sanitizeNamedValues(Array.from(params.entries(), ([name, value]) => ({ name, value })));
+      const next = createUrlSearchParams('');
+      for (const item of sanitized.value) next.append(item.name, item.value);
+      return { value: route + '?' + next.toString(), summary: sanitized.summary };
+    }
+    if (fragment.includes('=')) {
+      const params = createUrlSearchParams(fragment);
+      const sanitized = sanitizeNamedValues(Array.from(params.entries(), ([name, value]) => ({ name, value })));
+      const next = createUrlSearchParams('');
+      for (const item of sanitized.value) next.append(item.name, item.value);
+      return { value: next.toString(), summary: sanitized.summary };
+    }
+    if (/^\/[a-z0-9._~!$&'()*+,;:@%/-]*$/i.test(fragment)) {
+      return { value: fragment, summary: createSanitizationSummary() };
+    }
+    return {
+      value: REDACTION_MARKER,
+      summary: mergeSanitizationSummaries(createSanitizationSummary(), {
+        redactedValues: 1,
+        redactedQueryValues: 1,
+      }),
+    };
   }
 
   function sanitizeUrl(rawUrl) {
@@ -732,35 +894,29 @@ const _NetworkPlus = (function () {
       const parsed = new URL(source);
       let summary = createSanitizationSummary();
       let changed = false;
-      if (parsed.username || parsed.password) {
+      if (parsed.username) {
         parsed.username = REDACTION_MARKER;
-        parsed.password = '';
-        summary = mergeSanitizationSummaries(summary, { redactedValues: 1 });
+        summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedUrlUsernames: 1 });
         changed = true;
       }
-      const query = sanitizeNamedValues(Array.from(parsed.searchParams.entries(), ([name, value]) => ({ name, value })));
+      if (parsed.password) {
+        parsed.password = REDACTION_MARKER;
+        summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedUrlPasswords: 1 });
+        changed = true;
+      }
+      const query = sanitizeNamedValues(
+        Array.from(parsed.searchParams.entries(), ([name, value]) => ({ name, value })),
+      );
       parsed.search = '';
       for (const item of query.value) parsed.searchParams.append(item.name, item.value);
       if (query.summary.redactedQueryValues > 0) changed = true;
       summary = mergeSanitizationSummaries(summary, query.summary);
 
       if (parsed.hash) {
-        const fragment = parsed.hash.substring(1);
-        if (fragment.includes('=')) {
-          const fragmentParams = createUrlSearchParams(fragment);
-          const sanitizedFragment = sanitizeNamedValues(
-            Array.from(fragmentParams.entries(), ([name, value]) => ({ name, value })),
-          );
-          const nextFragment = createUrlSearchParams('');
-          for (const item of sanitizedFragment.value) nextFragment.append(item.name, item.value);
-          parsed.hash = nextFragment.toString();
-          if (sanitizedFragment.summary.redactedQueryValues > 0) changed = true;
-          summary = mergeSanitizationSummaries(summary, sanitizedFragment.summary);
-        } else {
-          parsed.hash = REDACTION_MARKER;
-          summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedQueryValues: 1 });
-          changed = true;
-        }
+        const fragment = sanitizeUrlFragment(parsed.hash.substring(1));
+        parsed.hash = fragment.value;
+        if (fragment.summary.redactedQueryValues > 0) changed = true;
+        summary = mergeSanitizationSummaries(summary, fragment.summary);
       }
       if (changed) summary = mergeSanitizationSummaries(summary, { sanitizedUrls: 1 });
       return { value: parsed.toString(), summary };
@@ -982,22 +1138,11 @@ const _NetworkPlus = (function () {
     return { value: metadata == null || ['number', 'boolean'].includes(typeof metadata) ? metadata : null, summary: createSanitizationSummary() };
   }
 
-  function sanitizeRowForOutbound(row, responseBody, options) {
-    const source = row && typeof row === 'object' ? row : {};
-    const sanitizedUrl = sanitizeUrl(source.url || '');
-    const requestHeaders = sanitizeHeaders(source.requestHeaders);
-    const responseHeaders = sanitizeHeaders(source.responseHeaders);
-    const postData = sanitizeRequestPostData(source.requestPostData, source.requestHeaders, options);
-    const responseMimeType = guessMimeType(source);
-    const bodySource = typeof responseBody === 'string'
-      ? responseBody
-      : (typeof source.responseContent === 'string' ? source.responseContent : '');
-    const response = sanitizeBody(bodySource, responseMimeType, source.responseContentEncoding, options);
-    const parts = extractUrlParts(sanitizedUrl.value);
-    const value = {
+  function createOutboundRowView(source) {
+    return {
       id: source.id,
       method: String(source.method || ''),
-      url: sanitizedUrl.value,
+      url: '',
       status: Number.isFinite(source.status) ? source.status : 0,
       statusText: String(source.statusText || ''),
       type: String(source.type || ''),
@@ -1006,26 +1151,68 @@ const _NetworkPlus = (function () {
       duration: Number.isFinite(source.duration) ? source.duration : 0,
       clientStart: String(source.clientStart || ''),
       serverDone: String(source.serverDone || ''),
-      domain: parts.domain,
-      path: parts.path,
+      domain: '',
+      path: '',
       initiator: null,
-      requestHeaders: requestHeaders.value,
-      responseHeaders: responseHeaders.value,
-      requestPostData: postData.value,
-      responseContent: response.text,
-      responseContentText: response.text,
-      responseContentEncoding: '',
     };
+  }
+
+  function sanitizeClipboardRow(action, row, responseBody, options) {
+    const source = row && typeof row === 'object' ? row : {};
+    const settings = options || {};
+    const dependencies = settings.sanitizers || {};
+    const sanitizeUrlValue = dependencies.sanitizeUrl || sanitizeUrl;
+    const sanitizeHeaderValues = dependencies.sanitizeHeaders || sanitizeHeaders;
+    const sanitizePostData = dependencies.sanitizeRequestPostData || sanitizeRequestPostData;
+    const sanitizeBodyValue = dependencies.sanitizeBody || sanitizeBody;
+    const value = createOutboundRowView(source);
+    let summary = createSanitizationSummary();
+    let sanitizedResponseBody = '';
+
+    if (action === 'summary' || action === 'url' || REQUEST_CLIPBOARD_ACTIONS.has(action)) {
+      const url = sanitizeUrlValue(source.url || '');
+      value.url = url.value;
+      const parts = extractUrlParts(url.value);
+      value.domain = parts.domain;
+      value.path = parts.path;
+      summary = mergeSanitizationSummaries(summary, url.summary);
+    }
+    if (REQUEST_CLIPBOARD_ACTIONS.has(action)) {
+      const headers = sanitizeHeaderValues(source.requestHeaders);
+      const postData = sanitizePostData(source.requestPostData, source.requestHeaders, settings);
+      value.requestHeaders = headers.value;
+      value.requestPostData = postData.value;
+      summary = mergeSanitizationSummaries(summary, headers.summary, postData.summary);
+    }
+    if (RESPONSE_CLIPBOARD_ACTIONS.has(action)) {
+      const headers = sanitizeHeaderValues(source.responseHeaders);
+      const bodySource =
+        typeof responseBody === 'string'
+          ? responseBody
+          : typeof source.responseContent === 'string'
+            ? source.responseContent
+            : '';
+      const body = sanitizeBodyValue(bodySource, guessMimeType(source), source.responseContentEncoding, settings);
+      value.responseHeaders = headers.value;
+      sanitizedResponseBody = body.text;
+      summary = mergeSanitizationSummaries(summary, headers.summary, body.summary);
+    }
+    return { value, responseBody: sanitizedResponseBody, summary };
+  }
+
+  function sanitizeRowForOutbound(row, responseBody, options) {
+    const request = sanitizeClipboardRow('rawRequest', row, responseBody, options);
+    const response = sanitizeClipboardRow('rawResponse', row, responseBody, options);
     return {
-      value,
-      responseBody: response.text,
-      summary: mergeSanitizationSummaries(
-        sanitizedUrl.summary,
-        requestHeaders.summary,
-        responseHeaders.summary,
-        postData.summary,
-        response.summary,
-      ),
+      value: {
+        ...request.value,
+        responseHeaders: response.value.responseHeaders,
+        responseContent: response.responseBody,
+        responseContentText: response.responseBody,
+        responseContentEncoding: '',
+      },
+      responseBody: response.responseBody,
+      summary: mergeSanitizationSummaries(request.summary, response.summary),
     };
   }
 
@@ -1086,10 +1273,23 @@ const _NetworkPlus = (function () {
     return parts.join(' ');
   }
 
+  function isFullOutputAuthorized(policy) {
+    return Boolean(policy && policy.mode === 'full' && policy.confirmed === true);
+  }
+
+  function createOneTimeConfirmationAction(action) {
+    let consumed = false;
+    return () => {
+      if (consumed || typeof action !== 'function') return undefined;
+      consumed = true;
+      return action();
+    };
+  }
+
   function createOutboundPayload(policy, sanitizedBuilder, fullBuilder) {
     const source = policy || {};
     if (source.mode === 'full') {
-      if (source.confirmed !== true) throw new Error('Full output requires per-action confirmation.');
+      if (!isFullOutputAuthorized(source)) throw new Error('Full output requires per-action confirmation.');
       return fullBuilder();
     }
     return sanitizedBuilder();
@@ -1112,7 +1312,7 @@ const _NetworkPlus = (function () {
     return createOutboundPayload(
       source,
       () => {
-        const sanitized = sanitizeRowForOutbound(row, source.responseBody, source);
+        const sanitized = sanitizeClipboardRow(action, row, source.responseBody, source);
         return { text: render(sanitized.value, sanitized.responseBody), summary: sanitized.summary, mode: 'sanitized' };
       },
       () => ({
@@ -1123,13 +1323,25 @@ const _NetworkPlus = (function () {
     );
   }
 
+  function buildMultiRowClipboardPayload(rows, action, options, builder) {
+    const build = typeof builder === 'function' ? builder : buildClipboardPayload;
+    try {
+      const text = (Array.isArray(rows) ? rows : [])
+        .map((row) => build(action || 'summary', row, options || { mode: 'sanitized' }).text)
+        .join('\n\n---\n\n');
+      return { ok: true, text };
+    } catch (_error) {
+      return { ok: false, text: '' };
+    }
+  }
+
   function sanitizeHar(har, options) {
     const failClosed = () => {
       const counts = mergeSanitizationSummaries(createSanitizationSummary(), { failures: 1 });
       return {
         log: {
           version: '1.2',
-          creator: { name: 'Network+ for DevTools', version: '1.5.0' },
+          creator: { name: 'Network+ for DevTools', version: EXTENSION_VERSION },
           pages: [],
           entries: [],
           _networkPlus: {
@@ -1250,7 +1462,7 @@ const _NetworkPlus = (function () {
       return {
         log: {
           version: String(har.log.version || '1.2'),
-          creator: { name: 'Network+ for DevTools', version: '1.5.0' },
+          creator: { name: 'Network+ for DevTools', version: EXTENSION_VERSION },
           pages,
           entries,
           _networkPlus: metadata,
@@ -4382,7 +4594,7 @@ const _NetworkPlus = (function () {
     return {
       log: {
         version: '1.2',
-        creator: { name: 'Network+ for DevTools', version: '1.2.0' },
+        creator: { name: 'Network+ for DevTools', version: EXTENSION_VERSION },
         pages: [{ startedDateTime: now, id: pageref, title: 'Network+', pageTimings: {} }],
         entries,
       },
@@ -4391,8 +4603,14 @@ const _NetworkPlus = (function () {
 
   async function exportHAR(policy) {
     const outboundPolicy = policy || { mode: 'sanitized' };
+    if (outboundPolicy.mode === 'full' && !isFullOutputAuthorized(outboundPolicy)) {
+      setStatus('Full HAR export requires one-time confirmation. No file was downloaded.');
+      queueDataSafetyAnnouncement('Full HAR export was blocked before data preparation.');
+      return;
+    }
     const rows = getExportRows().slice();
     const exportButton = $('#exportHarBtn');
+    let objectUrl = null;
     exportButton.disabled = true;
     setStatus('Preparing ' + (outboundPolicy.mode === 'full' ? 'full' : 'sanitized') + ' HAR export...');
     try {
@@ -4409,13 +4627,15 @@ const _NetworkPlus = (function () {
         () => sanitizeHar(fullHar),
         () => fullHar,
       );
+      if (outboundPolicy.mode !== 'full' && har.log._networkPlus.failedClosed) {
+        throw new Error('sanitization-failed-closed');
+      }
       const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
+      objectUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = objectUrl;
       a.download = outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har';
       a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
       if (outboundPolicy.mode === 'full') {
         setStatus('Exported full HAR for ' + rows.length + ' requests after one-time confirmation.');
         queueDataSafetyAnnouncement('Full HAR export completed after confirmation.');
@@ -4438,6 +4658,7 @@ const _NetworkPlus = (function () {
       setStatus('HAR export failed. No file was downloaded.');
       queueDataSafetyAnnouncement('HAR export failed. No file was downloaded.');
     } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
       exportButton.disabled = false;
     }
   }
@@ -4990,11 +5211,14 @@ const _NetworkPlus = (function () {
           : (state.selectedRow ? [state.selectedRow] : []);
         if (rows.length === 0) return;
         event.preventDefault();
-        const text = rows
-          .map((selectedRow) => buildClipboardPayload('summary', selectedRow, { mode: 'sanitized' }).text)
-          .join('\n\n---\n\n');
+        const payload = buildMultiRowClipboardPayload(rows, 'summary', { mode: 'sanitized' });
+        if (!payload.ok) {
+          setStatus('Clipboard copy failed during sanitization. No data was copied.');
+          queueDataSafetyAnnouncement('Clipboard copy failed during sanitization. No data was copied.');
+          return;
+        }
         writeClipboardPayload(
-          text,
+          payload.text,
           rows.length === 1 ? 'Copied 1 sanitized request' : 'Copied ' + rows.length + ' sanitized requests',
         );
       }
@@ -5821,19 +6045,26 @@ const _NetworkPlus = (function () {
     normalizeSensitiveKey,
     isSensitiveKey,
     sanitizeHeaders,
+    sanitizeUrlHeaderValue,
     sanitizeCookies,
     sanitizeNamedValues,
+    sanitizeUrlFragment,
     sanitizeUrl,
     sanitizeBody,
     sanitizeRequestPostData,
     sanitizeResponseContent,
     sanitizeNetworkPlusMetadata,
+    createOutboundRowView,
+    sanitizeClipboardRow,
     sanitizeRowForOutbound,
     generateCurl,
     generateFetch,
     generatePowerShell,
+    isFullOutputAuthorized,
+    createOneTimeConfirmationAction,
     createOutboundPayload,
     buildClipboardPayload,
+    buildMultiRowClipboardPayload,
     sanitizeHar,
     buildHarLogFromRows,
     retainRowsByIdentity,

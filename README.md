@@ -113,10 +113,11 @@ Microsoft Edge DevTools
 
 Network+ は clipboard copy と HAR download を外向きデータ面として扱い、通常操作を常に sanitized output にします。確認済み full output はその操作 1 回にだけ有効で、設定や既定値として保存しません。
 
-- Header は大文字小文字を区別せず、`Authorization`、`Proxy-Authorization`、`Cookie`、`Set-Cookie`、API key、auth token、CSRF/XSRF、client secret、signature などの値を `[REDACTED]` へ置換します。
-- URL は userinfo を除去し、`password` / `passwd` / `token` / `access_token` / `id_token` / `refresh_token` / `api key` / `client secret` / `signature` / `auth` / `code` と防御的な派生名を持つ query・fragment 値を `[REDACTED]` へ置換します。重複 parameter は保持します。
+- URL は username/password の両方と、名前に関係なく query および form-like fragment の全 value を `[REDACTED]` へ置換します。parameter 名、順序、重複、path、SPA fragment route は可能な範囲で維持し、解釈不能な fragment は全体を置換します。
+- Header は `Accept`、`Content-Type`、`Content-Length`、encoding、connection、cache directive などの小さな構造 allowlist だけ値を保持します。`Referer` / `Referrer` / `Location` / `Content-Location` / `X-Original-URL` / `X-Rewrite-URL` は URL sanitizer を通し、Cookie、custom `X-*`、auth/security/token/credential/signature/key/trace/request-ID/client-certificate header、`Link` / `Refresh` など安全に解析しない URL header は名前を保って値を置換します。
 - Cookie object の値は名前にかかわらず `[REDACTED]` へ置換します。
-- JSON と `application/x-www-form-urlencoded` Body は byte・depth・node 上限内だけ構造解析し、機密 key の値を再帰的に置換します。invalid JSON/form、opaque/binary、multipart、base64、上限超過 Body は内容を推測せず `[OMITTED BY NETWORK+]` または HAR の `_networkPlus.status = "omitted"` で明示します。
+- JSON Body は byte・depth・node 上限内だけ構造解析し、password の contains variant、token/secret/credential/authorization suffix、`sig` / `key` / `jwt` / SAML assertion / ticket / nonce / state / session、および email / phone / address / SSN / tax ID / national ID / birth date / name 系の PII key を防御的 heuristic で再帰置換します。false positive は sanitized mode で許容し、確認済み full output だけが原値を保持します。`application/x-www-form-urlencoded` Body は全 value を置換します。
+- invalid JSON/form、opaque/binary、multipart、base64、上限超過 Body は内容を推測せず `[OMITTED BY NETWORK+]` または HAR の `_networkPlus.status = "omitted"` で明示します。
 - Sanitizer が処理できない場合は fail closed とし、元データへ fallback しません。clipboard/download の失敗は内容を console、status、error text に含めず通知します。
 - cURL、fetch、PowerShell は置換・省略後も quote/escaping を適用し、command syntax を維持します。
 
