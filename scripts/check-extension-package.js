@@ -3,8 +3,42 @@ const path = require('path');
 const { TextDecoder } = require('util');
 const { unzipSync, zipSync } = require('../vendor/fflate');
 
+const EXPECTED_MANIFEST_NAME = 'Network+ for DevTools';
 const EXPECTED_CSP = "script-src 'self'; object-src 'self'";
 const EXPECTED_PERMISSIONS = Object.freeze(['storage']);
+const ALLOWED_MANIFEST_KEYS = Object.freeze([
+  'content_security_policy',
+  'description',
+  'devtools_page',
+  'icons',
+  'manifest_version',
+  'name',
+  'permissions',
+  'version',
+]);
+const PRIVILEGED_MANIFEST_SURFACES = Object.freeze([
+  'background',
+  'content_scripts',
+  'externally_connectable',
+  'host_permissions',
+  'optional_host_permissions',
+  'optional_permissions',
+  'sandbox',
+  'web_accessible_resources',
+]);
+const HTML_RESOURCE_ATTRIBUTES = Object.freeze({
+  audio: 'src',
+  embed: 'src',
+  iframe: 'src',
+  img: 'src',
+  input: 'src',
+  link: 'href',
+  object: 'data',
+  script: 'src',
+  source: 'src',
+  track: 'src',
+  video: 'src',
+});
 const RUNTIME_FILES = Object.freeze([
   'devtools.html',
   'devtools.js',
@@ -26,6 +60,8 @@ const PERMISSION_USAGE = Object.freeze({
 
 const normalizeEntries = (entries) => Array.from(entries).sort();
 
+const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+
 const validateArchiveAllowlist = (entries) => {
   const errors = [];
   const actual = normalizeEntries(entries);
@@ -39,6 +75,47 @@ const validateArchiveAllowlist = (entries) => {
   }
 
   return errors;
+};
+
+const isPathInside = (root, candidate) => {
+  const relative = path.relative(root, candidate);
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+};
+
+const inspectRuntimePath = (root, file) => {
+  const errors = [];
+  const resolvedRoot = path.resolve(root);
+  const filePath = path.resolve(resolvedRoot, file);
+
+  if (!isPathInside(resolvedRoot, filePath)) {
+    return { errors: [`runtime path escapes extension root: ${file}`], filePath };
+  }
+
+  let stat;
+  try {
+    stat = fs.lstatSync(filePath);
+  } catch {
+    return { errors: [`runtime file is missing: ${file}`], filePath };
+  }
+
+  if (stat.isSymbolicLink()) {
+    return { errors: [`runtime file must not be a symbolic link: ${file}`], filePath };
+  }
+  if (!stat.isFile()) {
+    return { errors: [`runtime path is not a regular file: ${file}`], filePath };
+  }
+
+  let realRoot;
+  let realFile;
+  try {
+    realRoot = fs.realpathSync(resolvedRoot);
+    realFile = fs.realpathSync(filePath);
+  } catch {
+    return { errors: [`runtime file real path cannot be resolved: ${file}`], filePath };
+  }
+  if (!isPathInside(realRoot, realFile)) errors.push(`runtime file resolves outside extension root: ${file}`);
+
+  return { errors, filePath };
 };
 
 const readUtf8 = (filePath) => {
@@ -60,10 +137,12 @@ const isLocalReference = (reference) => {
 
 const inspectHtml = (file, html) => {
   const errors = [];
+  const resources = [];
   const scripts = [];
   const stylesheets = [];
   const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
   const linkPattern = /<link\b([^>]*)>/gi;
+  const tagPattern = /<([a-z][\w:-]*)\b([^>]*)>/gi;
   let match;
 
   while ((match = scriptPattern.exec(html)) !== null) {
@@ -81,9 +160,34 @@ const inspectHtml = (file, html) => {
     else stylesheets.push(href);
   }
 
+  while ((match = tagPattern.exec(html)) !== null) {
+    const tag = match[1].toLowerCase();
+    const attribute = HTML_RESOURCE_ATTRIBUTES[tag];
+    if (!attribute) continue;
+    const reference = readAttribute(match[2], attribute);
+    if (!reference) continue;
+    if (!isLocalReference(reference)) errors.push(`${file} ${tag} ${attribute} must be local: ${reference}`);
+    else resources.push(reference);
+  }
+
   if (/\son[a-z]+\s*=/i.test(html)) errors.push(`${file} contains an inline event handler`);
 
-  return { errors, scripts, stylesheets };
+  return { errors, resources, scripts, stylesheets };
+};
+
+const inspectCss = (file, css) => {
+  const errors = [];
+  const resources = [];
+
+  if (/@import\b/i.test(css)) errors.push(`${file} must not use CSS @import`);
+
+  for (const match of css.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)) {
+    const reference = match[2].trim();
+    if (!isLocalReference(reference)) errors.push(`${file} url() must be local: ${reference || '(missing)'}`);
+    else resources.push(reference);
+  }
+
+  return { errors, resources };
 };
 
 const validateExactReferences = (errors, label, actual, expected) => {
@@ -98,17 +202,15 @@ const validateExtension = (root, archiveFiles = RUNTIME_FILES) => {
   const runtimeText = new Map();
 
   for (const file of RUNTIME_FILES) {
-    const filePath = path.join(root, file);
-    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-      errors.push(`runtime file is missing: ${file}`);
-      continue;
-    }
+    const inspectedPath = inspectRuntimePath(root, file);
+    errors.push(...inspectedPath.errors);
+    if (inspectedPath.errors.length > 0) continue;
 
-    const bytes = fs.readFileSync(filePath);
+    const bytes = fs.readFileSync(inspectedPath.filePath);
     runtimeBytes.set(file, bytes);
     if (TEXT_RUNTIME_EXTENSIONS.has(path.extname(file))) {
       try {
-        runtimeText.set(file, readUtf8(filePath));
+        runtimeText.set(file, readUtf8(inspectedPath.filePath));
       } catch {
         errors.push(`runtime text file is not valid UTF-8: ${file}`);
       }
@@ -126,12 +228,38 @@ const validateExtension = (root, archiveFiles = RUNTIME_FILES) => {
     return errors;
   }
 
+  const manifestKeys = Object.keys(manifest).sort();
+  for (const key of manifestKeys) {
+    if (!ALLOWED_MANIFEST_KEYS.includes(key)) errors.push(`manifest contains unapproved top-level key: ${key}`);
+  }
+  for (const key of ALLOWED_MANIFEST_KEYS) {
+    if (!hasOwn(manifest, key)) errors.push(`manifest is missing required top-level key: ${key}`);
+  }
+  for (const surface of PRIVILEGED_MANIFEST_SURFACES) {
+    if (hasOwn(manifest, surface)) errors.push(`manifest privileged surface is not allowed: ${surface}`);
+  }
+
+  if (manifest.manifest_version !== 3) errors.push('manifest_version must be exactly 3');
+  if (manifest.name !== EXPECTED_MANIFEST_NAME) errors.push(`manifest name must be exactly: ${EXPECTED_MANIFEST_NAME}`);
+  if (typeof manifest.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+    errors.push('manifest version must be a stable MAJOR.MINOR.PATCH value');
+  }
+  if (manifest.devtools_page !== 'devtools.html') errors.push('manifest devtools_page must be exactly: devtools.html');
+  if (
+    typeof manifest.description !== 'string' ||
+    manifest.description.length === 0 ||
+    manifest.description.length > 132
+  ) {
+    errors.push('manifest description must contain 1 to 132 characters');
+  }
+
   if (JSON.stringify(manifest.permissions) !== JSON.stringify(EXPECTED_PERMISSIONS)) {
     errors.push(`manifest permissions must be exactly: ${EXPECTED_PERMISSIONS.join(', ')}`);
   }
 
   const javascript = ['devtools.js', 'panel.js'].map((file) => runtimeText.get(file) ?? '').join('\n');
-  for (const permission of manifest.permissions ?? []) {
+  const permissions = Array.isArray(manifest.permissions) ? manifest.permissions : [];
+  for (const permission of permissions) {
     const usage = PERMISSION_USAGE[permission];
     if (!usage) errors.push(`manifest permission has no audited usage rule: ${permission}`);
     else if (!usage.test(javascript)) errors.push(`manifest permission is unused: ${permission}`);
@@ -170,9 +298,15 @@ const validateExtension = (root, archiveFiles = RUNTIME_FILES) => {
   validateExactReferences(errors, 'panel.html scripts', panelHtml.scripts, ['vendor/fflate.js', 'panel.js']);
   validateExactReferences(errors, 'panel.html stylesheets', panelHtml.stylesheets, ['panel.css']);
 
-  for (const reference of [...devtoolsHtml.scripts, ...panelHtml.scripts, ...panelHtml.stylesheets]) {
-    if (!archiveFiles.includes(reference)) errors.push(`HTML reference is not in the archive allowlist: ${reference}`);
-    if (!runtimeBytes.has(reference)) errors.push(`HTML reference is missing: ${reference}`);
+  const panelCss = inspectCss('panel.css', runtimeText.get('panel.css') ?? '');
+  errors.push(...panelCss.errors);
+
+  const staticResources = new Set([...devtoolsHtml.resources, ...panelHtml.resources, ...panelCss.resources]);
+  for (const reference of staticResources) {
+    if (!archiveFiles.includes(reference)) {
+      errors.push(`static resource is not in the archive allowlist: ${reference}`);
+    }
+    if (!runtimeBytes.has(reference)) errors.push(`static resource is missing: ${reference}`);
   }
 
   const panelRegistration = (runtimeText.get('devtools.js') ?? '').match(
@@ -197,10 +331,14 @@ const createArchive = (root, archiveFiles = RUNTIME_FILES) => {
   const files = {};
 
   for (const file of normalizeEntries(archiveFiles)) {
-    files[file] = [new Uint8Array(fs.readFileSync(path.join(root, file))), { mtime: ZIP_TIMESTAMP }];
+    const inspectedPath = inspectRuntimePath(root, file);
+    if (inspectedPath.errors.length > 0) throw new Error(inspectedPath.errors.join('\n'));
+    files[file] = [new Uint8Array(fs.readFileSync(inspectedPath.filePath)), { mtime: ZIP_TIMESTAMP }];
   }
 
-  return Buffer.from(zipSync(files, { level: 9 }));
+  const archive = Buffer.from(zipSync(files, { level: 9 }));
+  assertValidExtension(root, archiveFiles);
+  return archive;
 };
 
 const validateArchiveEntries = (entries, root) => {
@@ -208,12 +346,10 @@ const validateArchiveEntries = (entries, root) => {
 
   for (const file of RUNTIME_FILES) {
     if (!entries[file]) continue;
-    const expectedPath = path.join(root, file);
-    if (!fs.existsSync(expectedPath)) {
-      errors.push(`cannot compare archived file because source is missing: ${file}`);
-      continue;
-    }
-    if (!Buffer.from(entries[file]).equals(fs.readFileSync(expectedPath))) {
+    const inspectedPath = inspectRuntimePath(root, file);
+    errors.push(...inspectedPath.errors);
+    if (inspectedPath.errors.length > 0) continue;
+    if (!Buffer.from(entries[file]).equals(fs.readFileSync(inspectedPath.filePath))) {
       errors.push(`archived content differs from source: ${file}`);
     }
   }

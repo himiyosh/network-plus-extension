@@ -1,8 +1,9 @@
 # Network+ for DevTools — 改善・新機能提案レポート
 
-> 自動生成日: 2026-03-09
-> 対象バージョン: 1.4.0
-> 分析対象: panel.js (2400+ 行, 15 セクション), panel.css, panel.html, manifest.json
+> 初回生成日: 2026-03-09
+> 初回分析対象バージョン: 1.4.0
+> 現在のリリース: 1.6.0
+> 初回分析対象: panel.js (2400+ 行, 15 セクション), panel.css, panel.html, manifest.json
 
 ---
 

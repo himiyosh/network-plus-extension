@@ -59,7 +59,7 @@ network-plus-extension/
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
     check-extension-package.js ... 配布ファイルの整合性検証と ZIP 作成
-    check-version-sync.js    ... package.json / manifest.json バージョン同期チェック
+    check-version-sync.js    ... 5箇所のリリースバージョン同期チェック
     check-repository-integrity.js ... package-lock.json の provenance チェック
     check-text-integrity.js  ... 変更差分の whitespace / encoding チェック
   tests/                     ... Jest ユニットテスト
@@ -178,7 +178,7 @@ npm ci
 npm ci                  # lockfile に基づく依存関係インストール
 npm test                # Jest テスト実行 (カバレッジ付き)
 npm run lint            # 全 first-party JavaScript の ESLint 実行
-npm run version:check   # manifest/package/package-lock の version 同期チェック
+npm run version:check   # 5箇所のリリース version 同期チェック
 npm run integrity:check # package-lock.json の provenance チェック
 npm run extension:check # manifest、権限、参照、CSP、配布 allowlist の検証
 npm run extension:package # dist/ に検証済みのリリース ZIP を作成
@@ -234,7 +234,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 ## 🧾 バージョニングルール
 
 - **方式**: Semantic Versioning (`MAJOR.MINOR.PATCH`)
-- **同期対象**: [manifest.json](manifest.json)、[package.json](package.json)、[package-lock.json](package-lock.json) の top-level / root `version` を必ず同一値にする
+- **同期対象**: [manifest.json](manifest.json)、[package.json](package.json)、[package-lock.json](package-lock.json) の top-level / root `version`、[panel.js](panel.js) のテスト用fallback定数を必ず同一値にする
 - **現在バージョン**: `1.6.0`
 
 | 変更種別 | 上げる番号 | 例 |
@@ -251,7 +251,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 バージョン更新時チェックリスト:
 - [manifest.json](manifest.json)、[package.json](package.json)、[package-lock.json](package-lock.json) の `version` を同時更新
-- `npm run version:check` を実行して4箇所の同期を確認
+- `npm run version:check` を実行して5箇所の同期を確認
 - 機能追加・仕様変更時は README の該当セクションも同一コミットで更新
 
 ## 🧰 技術スタック
@@ -269,7 +269,8 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 - Content Security Policy を [manifest.json](manifest.json) で明示設定 (`script-src 'self'; object-src 'self'`)
 - 拡張機能の権限は `storage` のみ。テーマ設定の永続化に `chrome.storage.local` を使用する
 - HAR はローカルの Blob / Object URL と一時的な `<a download>` で保存し、`chrome.downloads` API と `downloads` 権限は使用しない
-- `npm run extension:check` は権限の完全一致と実使用を検証し、未使用権限の再追加、外部/inline script、不正なCSP、配布allowlist逸脱を拒否する
+- manifestのtop-level keyは現在使用する8項目だけを許可し、host/background/content scriptなど未使用のprivileged surfaceは存在自体を拒否する。将来追加する場合はvalidator、テスト、本セキュリティ説明を同時更新する
+- `npm run extension:check` は権限の完全一致と実使用、runtime pathのsymlink/root境界、HTML/CSS resourceのlocality、inline script禁止、CSP、配布allowlistを検証する
 
 ## ⚠️ 注意事項 / 制約
 
@@ -291,7 +292,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | [docs/PRODUCT.md](docs/PRODUCT.md) | 対象ユーザー、製品目的、設計原則、WCAG 2.2 AA 基準 |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-extension-package.js](scripts/check-extension-package.js) | 拡張機能の参照・権限・配布内容チェックとZIP作成 |
-| [scripts/check-version-sync.js](scripts/check-version-sync.js) | manifest/package/package-lock バージョン同期チェックスクリプト |
+| [scripts/check-version-sync.js](scripts/check-version-sync.js) | manifest/package/package-lock/panel fallback バージョン同期チェックスクリプト |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
 | [LICENSE](LICENSE) | MIT License |
 

@@ -12,6 +12,7 @@ const {
   validateExtension,
   writeExtensionPackage,
 } = require('../scripts/check-extension-package');
+const { validateReleaseVersions } = require('../scripts/check-version-sync');
 
 const repositoryRoot = path.join(__dirname, '..');
 const temporaryDirectories = [];
@@ -40,6 +41,45 @@ afterEach(() => {
   }
 });
 
+describe('release version integrity', () => {
+  const createVersionInput = () => ({
+    packageJson: { version: '1.6.0' },
+    lockfile: {
+      version: '1.6.0',
+      packages: { '': { version: '1.6.0' } },
+    },
+    manifest: { version: '1.6.0' },
+    panelSource: "const TEST_EXTENSION_VERSION_FALLBACK = '1.6.0';",
+  });
+
+  test('accepts all five synchronized release version locations', () => {
+    expect(validateReleaseVersions(createVersionInput())).toEqual([]);
+  });
+
+  test('rejects panel fallback drift', () => {
+    const input = createVersionInput();
+    input.panelSource = "const TEST_EXTENSION_VERSION_FALLBACK = '1.5.0';";
+
+    expect(validateReleaseVersions(input)).toEqual([
+      'Version mismatch: package.json=1.6.0, manifest.json=1.6.0, package-lock.json=1.6.0, package-lock.json root=1.6.0, panel.js fallback=1.5.0',
+    ]);
+  });
+
+  test('rejects a missing or duplicated panel fallback constant', () => {
+    const missing = createVersionInput();
+    missing.panelSource = '';
+    expect(validateReleaseVersions(missing)).toEqual(
+      expect.arrayContaining(['panel.js must define TEST_EXTENSION_VERSION_FALLBACK exactly once']),
+    );
+
+    const duplicated = createVersionInput();
+    duplicated.panelSource += duplicated.panelSource;
+    expect(validateReleaseVersions(duplicated)).toEqual(
+      expect.arrayContaining(['panel.js must define TEST_EXTENSION_VERSION_FALLBACK exactly once']),
+    );
+  });
+});
+
 describe('extension source integrity', () => {
   test('accepts the checked-in runtime and proves every permission is used', () => {
     expect(validateExtension(repositoryRoot)).toEqual([]);
@@ -64,6 +104,110 @@ describe('extension source integrity', () => {
     manifest.permissions = [];
     writeManifest(root, manifest);
     expect(validateExtension(root)).toContain('manifest permissions must be exactly: storage');
+  });
+
+  test('rejects manifest identity drift and privileged attack surfaces', () => {
+    const root = createFixture();
+    const manifest = readManifest(root);
+    manifest.manifest_version = 2;
+    manifest.name = 'Unexpected extension';
+    manifest.version = '1.6.0-beta.1';
+    manifest.icons = { 16: 'icons/unreviewed.svg' };
+    manifest.minimum_chrome_version = '120';
+    manifest.background = {};
+    manifest.content_scripts = [];
+    manifest.externally_connectable = {};
+    manifest.host_permissions = [];
+    manifest.optional_host_permissions = [];
+    manifest.optional_permissions = [];
+    manifest.sandbox = {};
+    manifest.web_accessible_resources = [];
+    writeManifest(root, manifest);
+
+    expect(validateExtension(root)).toEqual(
+      expect.arrayContaining([
+        'manifest contains unapproved top-level key: minimum_chrome_version',
+        'manifest privileged surface is not allowed: background',
+        'manifest privileged surface is not allowed: content_scripts',
+        'manifest privileged surface is not allowed: externally_connectable',
+        'manifest privileged surface is not allowed: host_permissions',
+        'manifest privileged surface is not allowed: optional_host_permissions',
+        'manifest privileged surface is not allowed: optional_permissions',
+        'manifest privileged surface is not allowed: sandbox',
+        'manifest privileged surface is not allowed: web_accessible_resources',
+        'manifest_version must be exactly 3',
+        'manifest name must be exactly: Network+ for DevTools',
+        'manifest version must be a stable MAJOR.MINOR.PATCH value',
+        'manifest icons must reference the audited 16, 48, and 128 PNG files',
+      ]),
+    );
+  });
+
+  test('rejects remote, imported, and unallowlisted static resources', () => {
+    const root = createFixture();
+    fs.appendFileSync(
+      path.join(root, 'panel.html'),
+      '<img src="README.md"><iframe src="//example.com/frame"></iframe><object data="data:text/plain,unsafe"></object>\n',
+    );
+    fs.appendFileSync(
+      path.join(root, 'panel.css'),
+      "\n@import './theme.css';\n.remote{background:url(https://example.com/image.png)}\n.protocol{background:url(//example.com/image.png)}\n",
+    );
+
+    expect(validateExtension(root)).toEqual(
+      expect.arrayContaining([
+        'panel.html iframe src must be local: //example.com/frame',
+        'panel.html object data must be local: data:text/plain,unsafe',
+        'static resource is not in the archive allowlist: README.md',
+        'static resource is missing: README.md',
+        'panel.css must not use CSS @import',
+        'panel.css url() must be local: https://example.com/image.png',
+        'panel.css url() must be local: //example.com/image.png',
+      ]),
+    );
+  });
+
+  test('rejects runtime symlinks and parent-directory root escapes', () => {
+    const root = createFixture();
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-outside-'));
+    temporaryDirectories.push(outsideRoot);
+    const outsideFile = path.join(outsideRoot, 'outside.css');
+    fs.writeFileSync(outsideFile, 'external content');
+    fs.rmSync(path.join(root, 'panel.css'));
+
+    try {
+      fs.symlinkSync(outsideFile, path.join(root, 'panel.css'));
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'ENOSYS'].includes(error.code)) {
+        console.warn(`Symlink regression skipped because this environment returned ${error.code}`);
+        expect(['EPERM', 'EACCES', 'ENOSYS']).toContain(error.code);
+        return;
+      }
+      throw error;
+    }
+
+    expect(validateExtension(root)).toContain('runtime file must not be a symbolic link: panel.css');
+    expect(() => createArchive(root)).toThrow('runtime file must not be a symbolic link: panel.css');
+
+    const parentLinkRoot = createFixture();
+    const outsideVendor = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-vendor-'));
+    temporaryDirectories.push(outsideVendor);
+    fs.copyFileSync(path.join(repositoryRoot, 'vendor/fflate.js'), path.join(outsideVendor, 'fflate.js'));
+    fs.rmSync(path.join(parentLinkRoot, 'vendor'), { recursive: true });
+    try {
+      fs.symlinkSync(outsideVendor, path.join(parentLinkRoot, 'vendor'), 'dir');
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'ENOSYS'].includes(error.code)) {
+        console.warn(`Parent symlink regression skipped because this environment returned ${error.code}`);
+        expect(['EPERM', 'EACCES', 'ENOSYS']).toContain(error.code);
+        return;
+      }
+      throw error;
+    }
+
+    expect(validateExtension(parentLinkRoot)).toContain(
+      'runtime file resolves outside extension root: vendor/fflate.js',
+    );
   });
 
   test('rejects unsafe or unlisted HTML references and inline script', () => {
@@ -96,7 +240,7 @@ describe('extension source integrity', () => {
         'runtime file is missing: panel.css',
         "manifest CSP must be exactly: script-src 'self'; object-src 'self'",
         'manifest devtools_page must be a local file',
-        'HTML reference is missing: panel.css',
+        'static resource is missing: panel.css',
       ]),
     );
   });
