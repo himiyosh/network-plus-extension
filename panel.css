@@ -273,12 +273,38 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .retention-actions button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
 
 .retention-actions button:active{background:var(--accent-dim);color:var(--text-accent)}
+/* === Outbound Data Safety === */
+#dataSafetyDialog{position:fixed;inset:0;margin:auto;width:min(460px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
+#dataSafetyDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
+.data-safety-form{display:grid;gap:10px;padding:16px}
+.data-safety-form h2{margin:0;font-size:15px;font-style:normal}
+.data-safety-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45}
+.data-safety-choices{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.data-safety-form button,.data-safety-form select{min-height:32px;padding:5px 10px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+.data-safety-form button{cursor:pointer}
+.data-safety-form button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
+.data-safety-form button:active{background:var(--accent-dim);color:var(--text-accent)}
+.data-safety-form button:disabled,.data-safety-form button[aria-busy="true"]{opacity:.5;cursor:not-allowed}
+.data-safety-form .data-safety-primary{border-color:var(--accent);background:var(--accent-fill);color:var(--on-accent)}
+.data-safety-form .data-safety-primary:hover{background:var(--accent-fill);color:var(--on-accent)}
+.data-safety-form .data-safety-danger{border-color:var(--status-5xx-text);color:var(--status-5xx-text);font-weight:700}
+.data-safety-warning{display:grid;gap:8px;padding:10px;border:1px solid var(--status-5xx-text);border-radius:8px;background:var(--bg)}
+.data-safety-warning[hidden]{display:none}
+.data-safety-warning strong{color:var(--status-5xx-text)}
+.data-safety-warning ul{margin:0;padding-left:18px;color:var(--fg);font-size:11px;line-height:1.45}
+.data-safety-warning label{font-size:11px;font-weight:700}
+.data-safety-warning select{width:100%}
+.data-safety-actions{display:flex;justify-content:flex-end;gap:8px}
+@media (max-width:420px){.data-safety-choices{grid-template-columns:1fr}.data-safety-actions{flex-wrap:wrap}.data-safety-actions button{flex:1 1 auto}}
+
 /* === Column Resizer === */
 .col-resizer{position:absolute;top:0;right:0;width:5px;height:100%;cursor:col-resize;z-index:1}
 .col-resizer:hover,.col-resizer:focus-visible{background:var(--accent-dim)}
 .col-resizer:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* === Buttons === */
+.copy-actions{display:flex;justify-content:flex-end;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.copy-actions .copy-btn{float:none;margin-left:0}
 .copy-btn{float:right;padding:3px 10px;margin-left:8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;font-size:11px;transition:background-color 0.15s,border-color 0.15s,color 0.15s}
 .copy-btn:hover{background:var(--accent-dim);color:var(--text-accent);border-color:var(--accent)}
 .link-btn{background:none;border:none;color:var(--text-accent);padding:0 4px;cursor:pointer;text-decoration:underline}

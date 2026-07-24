@@ -27,12 +27,19 @@ const _NetworkPlus = (function () {
   const REQUEST_COUNT_ANNOUNCE_MS = 1000;
   const SEARCH_COUNT_ANNOUNCE_MS = 500;
   const RETENTION_ANNOUNCE_MS = 750;
+  const DATA_SAFETY_ANNOUNCE_MS = 500;
   const COPY_FEEDBACK_DURATION_MS = 1800;
   const SCROLL_THRESHOLD = 10;
   const TRUNCATE_LIMIT = 2000;
   const FILTER_DEBOUNCE_MS = 150;
   const DEEP_SEARCH_DEBOUNCE_MS = 250;
   const RESPONSE_CONTENT_TIMEOUT_MS = 10000;
+  const DATA_SAFETY_POLICY_VERSION = 1;
+  const REDACTION_MARKER = '[REDACTED]';
+  const OMISSION_MARKER = '[OMITTED BY NETWORK+]';
+  const MAX_SANITIZED_BODY_BYTES = 256 * 1024;
+  const MAX_SANITIZED_BODY_DEPTH = 12;
+  const MAX_SANITIZED_BODY_NODES = 5000;
   const DEFAULT_REQUEST_RETENTION_LIMIT = 5000;
   const MIN_REQUEST_RETENTION_LIMIT = 100;
   const MAX_REQUEST_RETENTION_LIMIT = 100000;
@@ -56,6 +63,36 @@ const _NetworkPlus = (function () {
   const DATE_SORT_FIELDS = { clientStart: 'clientStartEpoch', serverDone: 'serverDoneEpoch' };
   const INVALID_REQUEST_EPOCH = Number.MAX_SAFE_INTEGER;
   const TIMING_PHASES = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
+  const SENSITIVE_KEY_NAMES = new Set([
+    'authorization',
+    'proxyauthorization',
+    'cookie',
+    'setcookie',
+    'password',
+    'passwd',
+    'pwd',
+    'passphrase',
+    'token',
+    'accesstoken',
+    'idtoken',
+    'refreshtoken',
+    'apikey',
+    'clientsecret',
+    'signature',
+    'auth',
+    'authcode',
+    'code',
+    'secret',
+    'secretkey',
+    'sessionid',
+    'sessiontoken',
+    'credential',
+    'credentials',
+    'csrf',
+    'csrftoken',
+    'xsrf',
+    'xsrftoken',
+  ]);
 
   const FILTER_OPERATORS_STRING = [
     { value: 'contains', label: 'contains' },
@@ -177,6 +214,15 @@ const _NetworkPlus = (function () {
     }, RETENTION_ANNOUNCE_MS);
   }
 
+  let dataSafetyAnnouncementTimer = null;
+  function queueDataSafetyAnnouncement(text) {
+    if (dataSafetyAnnouncementTimer) clearTimeout(dataSafetyAnnouncementTimer);
+    dataSafetyAnnouncementTimer = setTimeout(() => {
+      const el = $('#dataSafetyStatus');
+      if (el && el.textContent !== text) el.textContent = text;
+    }, DATA_SAFETY_ANNOUNCE_MS);
+  }
+
   let copyFeedbackTimer = null;
   function showCopyFeedback(message) {
     const toast = $('#copyToast');
@@ -189,11 +235,112 @@ const _NetworkPlus = (function () {
     }, COPY_FEEDBACK_DURATION_MS);
   }
 
-  function copyTextWithFeedback(text, message) {
-    return navigator.clipboard.writeText(text).then(() => {
-      showCopyFeedback(message);
-    }).catch((_error) => {
-      setStatus('Copy failed');
+  function writeClipboardPayload(text, message) {
+    return Promise.resolve()
+      .then(() => navigator.clipboard.writeText(text))
+      .then(() => {
+        showCopyFeedback(message);
+        queueDataSafetyAnnouncement(message);
+      })
+      .catch((_error) => {
+        setStatus('Clipboard copy failed. No data was copied.');
+        queueDataSafetyAnnouncement('Clipboard copy failed. No data was copied.');
+      });
+  }
+
+  let pendingFullOutboundAction = null;
+  let dataSafetyDialogTrigger = null;
+
+  function setDataSafetyDialogMode(mode, detail, confirmLabel, showCopyFormat) {
+    const choices = $('#dataSafetyExportChoices');
+    const warning = $('#dataSafetyWarning');
+    const confirm = $('#dataSafetyConfirmBtn');
+    const format = $('#dataSafetyCopyFormat');
+    const formatLabel = $('#dataSafetyCopyFormatLabel');
+    choices.hidden = mode !== 'export';
+    warning.hidden = mode === 'export';
+    confirm.hidden = mode === 'export';
+    format.hidden = !showCopyFormat;
+    formatLabel.hidden = !showCopyFormat;
+    $('#dataSafetyDialogDetail').textContent = detail;
+    if (confirmLabel) confirm.textContent = confirmLabel;
+  }
+
+  function showDataSafetyDialog(trigger) {
+    const dialog = $('#dataSafetyDialog');
+    dataSafetyDialogTrigger = trigger || document.activeElement;
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function openExportSafetyDialog(trigger) {
+    pendingFullOutboundAction = null;
+    $('#dataSafetyDialogTitle').textContent = 'Export network data';
+    setDataSafetyDialogMode(
+      'export',
+      'Sanitized HAR is the safe default. It redacts secret-like values and explicitly marks omitted bodies.',
+      '',
+      false,
+    );
+    showDataSafetyDialog(trigger);
+    setTimeout(() => $('#dataSafetySanitizedBtn').focus(), 0);
+  }
+
+  function requestFullOutboundAction(config) {
+    const source = config || {};
+    pendingFullOutboundAction = typeof source.onConfirm === 'function' ? source.onConfirm : null;
+    $('#dataSafetyDialogTitle').textContent = source.title || 'Confirm full output';
+    setDataSafetyDialogMode(
+      'full',
+      source.detail || 'Review the sensitive data categories before continuing.',
+      source.confirmLabel || 'Confirm full output',
+      source.showCopyFormat === true,
+    );
+    showDataSafetyDialog(source.trigger);
+    setTimeout(() => {
+      const firstControl = source.showCopyFormat === true ? $('#dataSafetyCopyFormat') : $('#dataSafetyConfirmBtn');
+      firstControl.focus();
+    }, 0);
+  }
+
+  function initializeDataSafetyDialog() {
+    const dialog = $('#dataSafetyDialog');
+    $('#dataSafetyCancelBtn').addEventListener('click', () => dialog.close('cancel'));
+    dialog.addEventListener('cancel', () => {
+      pendingFullOutboundAction = null;
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close('backdrop');
+    });
+    dialog.addEventListener('close', () => {
+      pendingFullOutboundAction = null;
+      const trigger = dataSafetyDialogTrigger;
+      dataSafetyDialogTrigger = null;
+      if (trigger && trigger.focus && trigger.isConnected !== false) trigger.focus();
+    });
+    $('#dataSafetySanitizedBtn').addEventListener('click', () => {
+      dialog.close('sanitized');
+      exportHAR({ mode: 'sanitized' });
+    });
+    $('#dataSafetyFullBtn').addEventListener('click', () => {
+      requestFullOutboundAction({
+        title: 'Export full HAR?',
+        detail: 'A full HAR can expose credentials and complete request or response content.',
+        confirmLabel: 'Export full HAR',
+        trigger: dataSafetyDialogTrigger,
+        onConfirm: () => exportHAR({ mode: 'full', confirmed: true }),
+      });
+    });
+    $('#dataSafetyConfirmBtn').addEventListener('click', () => {
+      const action = pendingFullOutboundAction;
+      pendingFullOutboundAction = null;
+      dialog.close('confirmed');
+      if (!action) return;
+      Promise.resolve()
+        .then(() => action())
+        .catch((_error) => {
+          setStatus('Full output failed. No data was copied or downloaded.');
+          queueDataSafetyAnnouncement('Full output failed. No data was copied or downloaded.');
+        });
     });
   }
 
@@ -486,6 +633,632 @@ const _NetworkPlus = (function () {
       }
     }
     return out;
+  }
+
+  function createSanitizationSummary() {
+    return {
+      redactedValues: 0,
+      redactedHeaders: 0,
+      redactedCookies: 0,
+      redactedQueryValues: 0,
+      redactedBodyValues: 0,
+      redactedMetadataValues: 0,
+      sanitizedUrls: 0,
+      omittedBodies: 0,
+      failures: 0,
+    };
+  }
+
+  function mergeSanitizationSummaries(...summaries) {
+    const merged = createSanitizationSummary();
+    for (const summary of summaries) {
+      if (!summary) continue;
+      for (const key of Object.keys(merged)) {
+        merged[key] += Number.isFinite(summary[key]) ? summary[key] : 0;
+      }
+    }
+    return merged;
+  }
+
+  function normalizeSensitiveKey(name) {
+    return String(name == null ? '' : name).toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  function isSensitiveKey(name) {
+    const key = normalizeSensitiveKey(name);
+    if (!key) return false;
+    if (SENSITIVE_KEY_NAMES.has(key)) return true;
+    return (
+      /(?:password|passwd|passphrase|accesstoken|idtoken|refreshtoken|apikey|apitoken|authtoken|clientsecret|secretkey|sessiontoken|csrftoken|xsrftoken|signature)$/.test(key) ||
+      /^(?:x)?(?:api|client)?(?:auth|authorization|authentication)/.test(key)
+    );
+  }
+
+  function sanitizeHeaders(headers) {
+    let summary = createSanitizationSummary();
+    const value = Array.isArray(headers)
+      ? headers.map((header) => {
+        const source = header && typeof header === 'object' ? header : {};
+        const name = String(source.name || '');
+        if (!isSensitiveKey(name)) return { name, value: String(source.value == null ? '' : source.value) };
+        summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedHeaders: 1 });
+        return { name, value: REDACTION_MARKER };
+      })
+      : [];
+    return { value, summary };
+  }
+
+  function sanitizeCookies(cookies) {
+    let summary = createSanitizationSummary();
+    const knownAttributes = ['path', 'domain', 'expires', 'httpOnly', 'secure', 'sameSite'];
+    const value = Array.isArray(cookies)
+      ? cookies.map((cookie) => {
+        const source = cookie && typeof cookie === 'object' ? cookie : {};
+        const sanitized = { name: String(source.name || ''), value: REDACTION_MARKER };
+        for (const attribute of knownAttributes) {
+          if (Object.prototype.hasOwnProperty.call(source, attribute)) sanitized[attribute] = source[attribute];
+        }
+        summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedCookies: 1 });
+        return sanitized;
+      })
+      : [];
+    return { value, summary };
+  }
+
+  function sanitizeNamedValues(items) {
+    let summary = createSanitizationSummary();
+    const value = Array.isArray(items)
+      ? items.map((item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        const name = String(source.name || '');
+        if (!isSensitiveKey(name)) return { name, value: String(source.value == null ? '' : source.value) };
+        summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedQueryValues: 1 });
+        return { name, value: REDACTION_MARKER };
+      })
+      : [];
+    return { value, summary };
+  }
+
+
+  function createUrlSearchParams(value) {
+    const holder = new URL('https://network-plus.invalid/');
+    holder.search = value ? '?' + value : '';
+    return holder.searchParams;
+  }
+
+  function sanitizeUrl(rawUrl) {
+    const source = typeof rawUrl === 'string' ? rawUrl : '';
+    try {
+      const parsed = new URL(source);
+      let summary = createSanitizationSummary();
+      let changed = false;
+      if (parsed.username || parsed.password) {
+        parsed.username = REDACTION_MARKER;
+        parsed.password = '';
+        summary = mergeSanitizationSummaries(summary, { redactedValues: 1 });
+        changed = true;
+      }
+      const query = sanitizeNamedValues(Array.from(parsed.searchParams.entries(), ([name, value]) => ({ name, value })));
+      parsed.search = '';
+      for (const item of query.value) parsed.searchParams.append(item.name, item.value);
+      if (query.summary.redactedQueryValues > 0) changed = true;
+      summary = mergeSanitizationSummaries(summary, query.summary);
+
+      if (parsed.hash) {
+        const fragment = parsed.hash.substring(1);
+        if (fragment.includes('=')) {
+          const fragmentParams = createUrlSearchParams(fragment);
+          const sanitizedFragment = sanitizeNamedValues(
+            Array.from(fragmentParams.entries(), ([name, value]) => ({ name, value })),
+          );
+          const nextFragment = createUrlSearchParams('');
+          for (const item of sanitizedFragment.value) nextFragment.append(item.name, item.value);
+          parsed.hash = nextFragment.toString();
+          if (sanitizedFragment.summary.redactedQueryValues > 0) changed = true;
+          summary = mergeSanitizationSummaries(summary, sanitizedFragment.summary);
+        } else {
+          parsed.hash = REDACTION_MARKER;
+          summary = mergeSanitizationSummaries(summary, { redactedValues: 1, redactedQueryValues: 1 });
+          changed = true;
+        }
+      }
+      if (changed) summary = mergeSanitizationSummaries(summary, { sanitizedUrls: 1 });
+      return { value: parsed.toString(), summary };
+    } catch (_error) {
+      return {
+        value: OMISSION_MARKER,
+        summary: mergeSanitizationSummaries(createSanitizationSummary(), {
+          sanitizedUrls: 1,
+          failures: 1,
+        }),
+      };
+    }
+  }
+
+  function normalizeBodyLimits(options) {
+    const source = options || {};
+    return {
+      maxBytes: Number.isInteger(source.maxBytes) && source.maxBytes >= 0
+        ? source.maxBytes
+        : MAX_SANITIZED_BODY_BYTES,
+      maxDepth: Number.isInteger(source.maxDepth) && source.maxDepth >= 0
+        ? source.maxDepth
+        : MAX_SANITIZED_BODY_DEPTH,
+      maxNodes: Number.isInteger(source.maxNodes) && source.maxNodes > 0
+        ? source.maxNodes
+        : MAX_SANITIZED_BODY_NODES,
+    };
+  }
+
+  function omittedBody(reason, failures) {
+    return {
+      text: OMISSION_MARKER,
+      encoding: '',
+      omitted: true,
+      reason,
+      summary: mergeSanitizationSummaries(createSanitizationSummary(), {
+        omittedBodies: 1,
+        failures: failures ? 1 : 0,
+      }),
+    };
+  }
+
+  function sanitizeBody(text, mimeType, encoding, options) {
+    const source = typeof text === 'string' ? text : '';
+    if (source === '') {
+      return { text: '', encoding: '', omitted: false, reason: '', summary: createSanitizationSummary() };
+    }
+    if (encoding === 'base64') return omittedBody('Base64 content is available only in confirmed full output.', false);
+    const limits = normalizeBodyLimits(options);
+    if (getUtf8ByteLength(source) > limits.maxBytes) {
+      return omittedBody('Body exceeded the sanitized output byte limit.', false);
+    }
+    const normalizedMime = String(mimeType || '').toLowerCase().split(';')[0].trim();
+    try {
+      if (normalizedMime === 'application/json' || normalizedMime.endsWith('+json')) {
+        const parsed = JSON.parse(source);
+        let nodeCount = 0;
+        let redactedCount = 0;
+        const visit = (value, depth) => {
+          nodeCount += 1;
+          if (nodeCount > limits.maxNodes) throw new Error('node-limit');
+          if (depth > limits.maxDepth) throw new Error('depth-limit');
+          if (Array.isArray(value)) return value.map((item) => visit(item, depth + 1));
+          if (value && typeof value === 'object') {
+            return Object.fromEntries(Object.entries(value).map(([key, child]) => {
+              if (isSensitiveKey(key)) {
+                redactedCount += 1;
+                return [key, REDACTION_MARKER];
+              }
+              return [key, visit(child, depth + 1)];
+            }));
+          }
+          return value;
+        };
+        const sanitized = visit(parsed, 0);
+        return {
+          text: JSON.stringify(sanitized),
+          encoding: '',
+          omitted: false,
+          reason: '',
+          summary: mergeSanitizationSummaries(createSanitizationSummary(), {
+            redactedValues: redactedCount,
+            redactedBodyValues: redactedCount,
+          }),
+        };
+      }
+      if (normalizedMime === 'application/x-www-form-urlencoded') {
+        if (/%(?![0-9a-f]{2})/i.test(source)) return omittedBody('Form body contained invalid percent encoding.', true);
+        const params = createUrlSearchParams(source);
+        const sanitized = sanitizeNamedValues(
+          Array.from(params.entries(), ([name, value]) => ({ name, value })),
+        );
+        const next = createUrlSearchParams('');
+        for (const item of sanitized.value) next.append(item.name, item.value);
+        const bodySummary = {
+          redactedValues: sanitized.summary.redactedValues,
+          redactedBodyValues: sanitized.summary.redactedQueryValues,
+        };
+        return {
+          text: next.toString(),
+          encoding: '',
+          omitted: false,
+          reason: '',
+          summary: mergeSanitizationSummaries(createSanitizationSummary(), bodySummary),
+        };
+      }
+      if (normalizedMime.startsWith('multipart/')) {
+        return omittedBody('Multipart bodies are omitted from sanitized output.', false);
+      }
+      return omittedBody('Opaque or unsupported body type was omitted from sanitized output.', false);
+    } catch (_error) {
+      return omittedBody('Body could not be safely parsed within sanitization limits.', true);
+    }
+  }
+
+  function getHeaderContentType(headers) {
+    const match = (Array.isArray(headers) ? headers : []).find(
+      (header) => normalizeSensitiveKey(header && header.name) === 'contenttype',
+    );
+    return match ? String(match.value || '') : '';
+  }
+
+  function sanitizeRequestPostData(postData, requestHeaders, options) {
+    if (!postData || typeof postData !== 'object') {
+      return { value: null, summary: createSanitizationSummary() };
+    }
+    const mimeType = postData.mimeType || getHeaderContentType(requestHeaders);
+    const body = sanitizeBody(postData.text, mimeType, postData.encoding, options);
+    let summary = body.summary;
+    const value = { mimeType: String(mimeType || ''), text: body.text };
+    if (Array.isArray(postData.params)) {
+      const params = sanitizeNamedValues(postData.params);
+      value.params = params.value;
+      summary = mergeSanitizationSummaries(summary, params.summary);
+    }
+    if (body.omitted) value._networkPlus = { status: 'omitted', reason: body.reason };
+    return { value, summary };
+  }
+
+  function sanitizeResponseContent(content, responseHeaders, options) {
+    const source = content && typeof content === 'object' ? content : {};
+    const mimeType = source.mimeType || getHeaderContentType(responseHeaders);
+    const value = {
+      size: Number.isFinite(source.size) ? source.size : 0,
+      mimeType: String(mimeType || 'application/octet-stream'),
+    };
+    if (Number.isFinite(source.compression)) value.compression = source.compression;
+    if (typeof source.text !== 'string') {
+      value._networkPlus = {
+        status: 'omitted',
+        reason: 'Source content was unavailable; sanitized output is incomplete.',
+      };
+      return {
+        value,
+        summary: mergeSanitizationSummaries(createSanitizationSummary(), { omittedBodies: 1 }),
+      };
+    }
+    const body = sanitizeBody(source.text, mimeType, source.encoding, options);
+    if (body.omitted) {
+      value._networkPlus = { status: 'omitted', reason: body.reason };
+    } else {
+      value.text = body.text;
+    }
+    return { value, summary: body.summary };
+  }
+
+  function sanitizeNetworkPlusMetadata(metadata, depth = 0) {
+    if (depth > MAX_SANITIZED_BODY_DEPTH) {
+      return {
+        value: OMISSION_MARKER,
+        summary: mergeSanitizationSummaries(createSanitizationSummary(), {
+          redactedValues: 1,
+          redactedMetadataValues: 1,
+          failures: 1,
+        }),
+      };
+    }
+    if (Array.isArray(metadata)) {
+      let summary = createSanitizationSummary();
+      const value = metadata.map((item) => {
+        const result = sanitizeNetworkPlusMetadata(item, depth + 1);
+        summary = mergeSanitizationSummaries(summary, result.summary);
+        return result.value;
+      });
+      return { value, summary };
+    }
+    if (metadata && typeof metadata === 'object') {
+      let summary = createSanitizationSummary();
+      const entries = Object.entries(metadata).map(([key, child]) => {
+        if (isSensitiveKey(key)) {
+          summary = mergeSanitizationSummaries(summary, {
+            redactedValues: 1,
+            redactedMetadataValues: 1,
+          });
+          return [key, REDACTION_MARKER];
+        }
+        if (normalizeSensitiveKey(key).endsWith('url') && typeof child === 'string') {
+          const sanitizedUrl = sanitizeUrl(child);
+          summary = mergeSanitizationSummaries(summary, sanitizedUrl.summary);
+          return [key, sanitizedUrl.value];
+        }
+        const result = sanitizeNetworkPlusMetadata(child, depth + 1);
+        summary = mergeSanitizationSummaries(summary, result.summary);
+        return [key, result.value];
+      });
+      return { value: Object.fromEntries(entries), summary };
+    }
+    if (typeof metadata === 'string') {
+      const safeEnums = new Set(['cached', 'embedded', 'empty', 'evicted', 'omitted', 'unavailable', 'error']);
+      if (safeEnums.has(metadata)) return { value: metadata, summary: createSanitizationSummary() };
+      return {
+        value: REDACTION_MARKER,
+        summary: mergeSanitizationSummaries(createSanitizationSummary(), {
+          redactedValues: 1,
+          redactedMetadataValues: 1,
+        }),
+      };
+    }
+    return { value: metadata == null || ['number', 'boolean'].includes(typeof metadata) ? metadata : null, summary: createSanitizationSummary() };
+  }
+
+  function sanitizeRowForOutbound(row, responseBody, options) {
+    const source = row && typeof row === 'object' ? row : {};
+    const sanitizedUrl = sanitizeUrl(source.url || '');
+    const requestHeaders = sanitizeHeaders(source.requestHeaders);
+    const responseHeaders = sanitizeHeaders(source.responseHeaders);
+    const postData = sanitizeRequestPostData(source.requestPostData, source.requestHeaders, options);
+    const responseMimeType = guessMimeType(source);
+    const bodySource = typeof responseBody === 'string'
+      ? responseBody
+      : (typeof source.responseContent === 'string' ? source.responseContent : '');
+    const response = sanitizeBody(bodySource, responseMimeType, source.responseContentEncoding, options);
+    const parts = extractUrlParts(sanitizedUrl.value);
+    const value = {
+      id: source.id,
+      method: String(source.method || ''),
+      url: sanitizedUrl.value,
+      status: Number.isFinite(source.status) ? source.status : 0,
+      statusText: String(source.statusText || ''),
+      type: String(source.type || ''),
+      protocol: String(source.protocol || ''),
+      size: Number.isFinite(source.size) ? source.size : 0,
+      duration: Number.isFinite(source.duration) ? source.duration : 0,
+      clientStart: String(source.clientStart || ''),
+      serverDone: String(source.serverDone || ''),
+      domain: parts.domain,
+      path: parts.path,
+      initiator: null,
+      requestHeaders: requestHeaders.value,
+      responseHeaders: responseHeaders.value,
+      requestPostData: postData.value,
+      responseContent: response.text,
+      responseContentText: response.text,
+      responseContentEncoding: '',
+    };
+    return {
+      value,
+      responseBody: response.text,
+      summary: mergeSanitizationSummaries(
+        sanitizedUrl.summary,
+        requestHeaders.summary,
+        responseHeaders.summary,
+        postData.summary,
+        response.summary,
+      ),
+    };
+  }
+
+  function quoteShell(value) {
+    const backslash = String.fromCharCode(92);
+    return "'" + String(value == null ? '' : value).replace(/'/g, "'" + backslash + "''") + "'";
+  }
+
+  function quotePowerShell(value) {
+    return "'" + String(value == null ? '' : value).replace(/'/g, "''") + "'";
+  }
+
+  function generateCurl(row) {
+    if (!row) return '';
+    const parts = ['curl', '--request', quoteShell(row.method || 'GET'), quoteShell(row.url || '')];
+    for (const header of row.requestHeaders || []) {
+      parts.push('--header', quoteShell(String(header.name || '') + ': ' + String(header.value || '')));
+    }
+    if (row.requestPostData && typeof row.requestPostData.text === 'string') {
+      parts.push('--data-raw', quoteShell(row.requestPostData.text));
+    }
+    return parts.join(' ');
+  }
+
+  function generateFetch(row) {
+    if (!row) return '';
+    const options = { method: row.method || 'GET' };
+    if (Array.isArray(row.requestHeaders) && row.requestHeaders.length > 0) {
+      options.headers = row.requestHeaders.map((header) => [String(header.name || ''), String(header.value || '')]);
+    }
+    if (row.requestPostData && typeof row.requestPostData.text === 'string') {
+      options.body = row.requestPostData.text;
+    }
+    return 'fetch(' + JSON.stringify(row.url || '') + ', ' + JSON.stringify(options, null, 2) + ');';
+  }
+
+  function generatePowerShell(row) {
+    if (!row) return '';
+    const parts = [
+      'Invoke-WebRequest',
+      '-Uri',
+      quotePowerShell(row.url || ''),
+      '-Method',
+      quotePowerShell(row.method || 'GET'),
+    ];
+    const uniqueHeaders = new Map();
+    for (const header of row.requestHeaders || []) {
+      uniqueHeaders.set(String(header.name || ''), String(header.value || ''));
+    }
+    if (uniqueHeaders.size > 0) {
+      const entries = Array.from(uniqueHeaders.entries(), ([name, value]) =>
+        quotePowerShell(name) + ' = ' + quotePowerShell(value));
+      parts.push('-Headers', '@{ ' + entries.join('; ') + ' }');
+    }
+    if (row.requestPostData && typeof row.requestPostData.text === 'string') {
+      parts.push('-Body', quotePowerShell(row.requestPostData.text));
+    }
+    return parts.join(' ');
+  }
+
+  function createOutboundPayload(policy, sanitizedBuilder, fullBuilder) {
+    const source = policy || {};
+    if (source.mode === 'full') {
+      if (source.confirmed !== true) throw new Error('Full output requires per-action confirmation.');
+      return fullBuilder();
+    }
+    return sanitizedBuilder();
+  }
+
+  function buildClipboardPayload(action, row, options) {
+    const source = options || {};
+    const render = (targetRow, responseBody) => {
+      if (action === 'summary') return formatRowSummary(targetRow);
+      if (action === 'url') return targetRow.url || '';
+      if (action === 'requestBody') return targetRow.requestPostData ? targetRow.requestPostData.text || '' : '';
+      if (action === 'responseBody') return responseBody || '';
+      if (action === 'rawRequest') return buildRawRequestText(targetRow);
+      if (action === 'rawResponse') return buildRawResponseText(targetRow, responseBody);
+      if (action === 'curl') return generateCurl(targetRow);
+      if (action === 'fetch') return generateFetch(targetRow);
+      if (action === 'powershell') return generatePowerShell(targetRow);
+      throw new Error('Unsupported clipboard action.');
+    };
+    return createOutboundPayload(
+      source,
+      () => {
+        const sanitized = sanitizeRowForOutbound(row, source.responseBody, source);
+        return { text: render(sanitized.value, sanitized.responseBody), summary: sanitized.summary, mode: 'sanitized' };
+      },
+      () => ({
+        text: render(row || {}, typeof source.responseBody === 'string' ? source.responseBody : ''),
+        summary: createSanitizationSummary(),
+        mode: 'full',
+      }),
+    );
+  }
+
+  function sanitizeHar(har, options) {
+    const failClosed = () => {
+      const counts = mergeSanitizationSummaries(createSanitizationSummary(), { failures: 1 });
+      return {
+        log: {
+          version: '1.2',
+          creator: { name: 'Network+ for DevTools', version: '1.5.0' },
+          pages: [],
+          entries: [],
+          _networkPlus: {
+            sanitized: true,
+            policyVersion: DATA_SAFETY_POLICY_VERSION,
+            failedClosed: true,
+            redactionMarker: REDACTION_MARKER,
+            omissionMarker: OMISSION_MARKER,
+            counts,
+            bodyCompleteness: 'No entries were exported because sanitization failed closed.',
+          },
+        },
+      };
+    };
+
+    try {
+      if (!har || !har.log || !Array.isArray(har.log.entries)) return failClosed();
+      let summary = createSanitizationSummary();
+      const entries = har.log.entries.map((entrySource) => {
+        const entry = entrySource && typeof entrySource === 'object' ? entrySource : {};
+        const request = entry.request && typeof entry.request === 'object' ? entry.request : {};
+        const response = entry.response && typeof entry.response === 'object' ? entry.response : {};
+        const url = sanitizeUrl(request.url || '');
+        const requestHeaders = sanitizeHeaders(request.headers);
+        const responseHeaders = sanitizeHeaders(response.headers);
+        const requestCookies = sanitizeCookies(request.cookies);
+        const responseCookies = sanitizeCookies(response.cookies);
+        const queryString = sanitizeNamedValues(request.queryString);
+        const content = sanitizeResponseContent(response.content, response.headers, options);
+        summary = mergeSanitizationSummaries(
+          summary,
+          url.summary,
+          requestHeaders.summary,
+          responseHeaders.summary,
+          requestCookies.summary,
+          responseCookies.summary,
+          queryString.summary,
+          content.summary,
+        );
+
+        const sanitizedRequest = {
+          method: String(request.method || ''),
+          url: url.value,
+          httpVersion: String(request.httpVersion || ''),
+          cookies: requestCookies.value,
+          headers: requestHeaders.value,
+          queryString: queryString.value,
+          headersSize: Number.isFinite(request.headersSize) ? request.headersSize : -1,
+          bodySize: Number.isFinite(request.bodySize) ? request.bodySize : -1,
+        };
+        if (request.postData && typeof request.postData === 'object') {
+          const postData = sanitizeRequestPostData(request.postData, request.headers, options);
+          sanitizedRequest.postData = postData.value;
+          summary = mergeSanitizationSummaries(summary, postData.summary);
+        }
+
+        let redirectURL = '';
+        if (response.redirectURL) {
+          const redirect = sanitizeUrl(response.redirectURL);
+          redirectURL = redirect.value;
+          summary = mergeSanitizationSummaries(summary, redirect.summary);
+        }
+        const sanitizedEntry = {
+          pageref: String(entry.pageref || ''),
+          startedDateTime: String(entry.startedDateTime || ''),
+          time: Number.isFinite(entry.time) ? entry.time : 0,
+          request: sanitizedRequest,
+          response: {
+            status: Number.isFinite(response.status) ? response.status : 0,
+            statusText: String(response.statusText || ''),
+            httpVersion: String(response.httpVersion || ''),
+            cookies: responseCookies.value,
+            headers: responseHeaders.value,
+            content: content.value,
+            redirectURL,
+            headersSize: Number.isFinite(response.headersSize) ? response.headersSize : -1,
+            bodySize: Number.isFinite(response.bodySize) ? response.bodySize : -1,
+          },
+          cache: {},
+          timings: Object.fromEntries(
+            Object.entries(entry.timings || {}).filter(([, value]) => Number.isFinite(value)),
+          ),
+        };
+        if (entry.serverIPAddress) sanitizedEntry.serverIPAddress = REDACTION_MARKER;
+        if (entry.connection) sanitizedEntry.connection = String(entry.connection);
+        if (entry._networkPlus) {
+          const metadata = sanitizeNetworkPlusMetadata(entry._networkPlus);
+          sanitizedEntry._networkPlus = metadata.value;
+          summary = mergeSanitizationSummaries(summary, metadata.summary);
+        }
+        return sanitizedEntry;
+      });
+
+      const sourceMetadata = har.log._networkPlus
+        ? sanitizeNetworkPlusMetadata(har.log._networkPlus)
+        : null;
+      if (sourceMetadata) summary = mergeSanitizationSummaries(summary, sourceMetadata.summary);
+      const pages = Array.isArray(har.log.pages)
+        ? har.log.pages.map((page) => ({
+          startedDateTime: String((page && page.startedDateTime) || ''),
+          id: String((page && page.id) || ''),
+          title: 'Network+',
+          pageTimings: Object.fromEntries(
+            Object.entries((page && page.pageTimings) || {}).filter(([, value]) => Number.isFinite(value)),
+          ),
+        }))
+        : [];
+      const metadata = {
+        sanitized: true,
+        policyVersion: DATA_SAFETY_POLICY_VERSION,
+        failedClosed: false,
+        redactionMarker: REDACTION_MARKER,
+        omissionMarker: OMISSION_MARKER,
+        counts: { ...summary },
+        bodyCompleteness: 'Redacted and omitted bodies are explicitly marked and are not complete source content.',
+      };
+      if (sourceMetadata) metadata.sourceMetadata = sourceMetadata.value;
+      return {
+        log: {
+          version: String(har.log.version || '1.2'),
+          creator: { name: 'Network+ for DevTools', version: '1.5.0' },
+          pages,
+          entries,
+          _networkPlus: metadata,
+        },
+      };
+    } catch (_error) {
+      return failClosed();
+    }
   }
 
   function getRequestEpoch(startedDateTime, fallback) {
@@ -2830,6 +3603,62 @@ const _NetworkPlus = (function () {
     return '';
   }
 
+  function copySanitizedAction(action, row, responseBody, message) {
+    try {
+      const payload = buildClipboardPayload(action, row, { mode: 'sanitized', responseBody });
+      return writeClipboardPayload(payload.text, message || 'Copied sanitized data');
+    } catch (_error) {
+      setStatus('Sanitized copy failed closed. No data was copied.');
+      queueDataSafetyAnnouncement('Sanitized copy failed closed. No data was copied.');
+      return Promise.resolve();
+    }
+  }
+
+  function requestFullClipboardAction(action, row, responseBody, trigger, label) {
+    requestFullOutboundAction({
+      title: 'Copy full ' + label + '?',
+      detail: 'The full ' + label + ' may include captured credentials or body content.',
+      confirmLabel: 'Copy full ' + label,
+      trigger,
+      onConfirm: () => {
+        const payload = buildClipboardPayload(action, row, {
+          mode: 'full',
+          confirmed: true,
+          responseBody,
+        });
+        return writeClipboardPayload(payload.text, 'Copied full ' + label + ' after confirmation');
+      },
+    });
+  }
+
+  function requestFullRequestCopy(row, trigger) {
+    requestFullOutboundAction({
+      title: 'Copy full request data?',
+      detail: 'Choose a format, then confirm this one full-data clipboard action.',
+      confirmLabel: 'Copy full request data',
+      trigger,
+      showCopyFormat: true,
+      onConfirm: () => {
+        const action = $('#dataSafetyCopyFormat').value;
+        const payload = buildClipboardPayload(action, row, { mode: 'full', confirmed: true });
+        return writeClipboardPayload(payload.text, 'Copied confirmed full request data');
+      },
+    });
+  }
+
+  function addCopyActions(container, actions) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'copy-actions';
+    for (const action of actions) {
+      const button = document.createElement('button');
+      button.className = 'copy-btn';
+      button.textContent = action.label;
+      button.addEventListener('click', () => action.onClick(button));
+      wrapper.appendChild(button);
+    }
+    container.insertBefore(wrapper, container.firstChild);
+  }
+
   function buildRawRequestText(row) {
     const method = row.method || 'GET';
     const url = row.url || '/';
@@ -3205,13 +4034,16 @@ const _NetworkPlus = (function () {
         resBodyPane.appendChild(bodyPre);
       }
     }
-    const copyBody = document.createElement('button');
-    copyBody.className = 'copy-btn';
-    copyBody.textContent = 'Copy';
-    copyBody.addEventListener('click', () => {
-      copyTextWithFeedback(text, 'Copied response body');
-    });
-    resBodyPane.insertBefore(copyBody, resBodyPane.firstChild);
+    addCopyActions(resBodyPane, [
+      {
+        label: 'Copy sanitized',
+        onClick: () => copySanitizedAction('responseBody', row, rawContent, 'Copied sanitized response body'),
+      },
+      {
+        label: 'Copy full...',
+        onClick: (button) => requestFullClipboardAction('responseBody', row, rawContent, button, 'response body'),
+      },
+    ]);
 
     // Preview tab — image, sandboxed HTML, or formatted JSON
     resPreviewPane.textContent = '';
@@ -3242,13 +4074,16 @@ const _NetworkPlus = (function () {
     // Raw tab
     resRawPane.textContent = '';
     const rawResPre = renderRawHighlighted(buildRawResponseText(row, text));
-    const copyRawRes = document.createElement('button');
-    copyRawRes.className = 'copy-btn';
-    copyRawRes.textContent = 'Copy';
-    copyRawRes.addEventListener('click', () => {
-      copyTextWithFeedback(rawResPre.textContent, 'Copied raw response');
-    });
-    resRawPane.appendChild(copyRawRes);
+    addCopyActions(resRawPane, [
+      {
+        label: 'Copy sanitized',
+        onClick: () => copySanitizedAction('rawResponse', row, rawContent, 'Copied sanitized raw response'),
+      },
+      {
+        label: 'Copy full...',
+        onClick: (button) => requestFullClipboardAction('rawResponse', row, rawContent, button, 'raw response'),
+      },
+    ]);
     resRawPane.appendChild(rawResPre);
   }
 
@@ -3327,13 +4162,16 @@ const _NetworkPlus = (function () {
         reqBodyPane.appendChild(pre);
       }
 
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'copy-btn';
-      copyBtn.textContent = 'Copy';
-      copyBtn.addEventListener('click', () => {
-        copyTextWithFeedback(text, 'Copied request body');
-      });
-      reqBodyPane.insertBefore(copyBtn, reqBodyPane.firstChild);
+      addCopyActions(reqBodyPane, [
+        {
+          label: 'Copy sanitized',
+          onClick: () => copySanitizedAction('requestBody', row, '', 'Copied sanitized request body'),
+        },
+        {
+          label: 'Copy full...',
+          onClick: (button) => requestFullClipboardAction('requestBody', row, '', button, 'request body'),
+        },
+      ]);
     } else {
       reqBodyPane.textContent = '(no request body)';
     }
@@ -3363,13 +4201,16 @@ const _NetworkPlus = (function () {
     const reqRawPane = $('#req-raw');
     reqRawPane.textContent = '';
     const rawReqPre = renderRawHighlighted(buildRawRequestText(row));
-    const copyRawReq = document.createElement('button');
-    copyRawReq.className = 'copy-btn';
-    copyRawReq.textContent = 'Copy';
-    copyRawReq.addEventListener('click', () => {
-      copyTextWithFeedback(rawReqPre.textContent, 'Copied raw request');
-    });
-    reqRawPane.appendChild(copyRawReq);
+    addCopyActions(reqRawPane, [
+      {
+        label: 'Copy sanitized',
+        onClick: () => copySanitizedAction('rawRequest', row, '', 'Copied sanitized raw request'),
+      },
+      {
+        label: 'Copy full...',
+        onClick: (button) => requestFullClipboardAction('rawRequest', row, '', button, 'raw request'),
+      },
+    ]);
     reqRawPane.appendChild(rawReqPre);
 
     // === RESPONSE TABS ===
@@ -3548,11 +4389,12 @@ const _NetworkPlus = (function () {
     };
   }
 
-  async function exportHAR() {
+  async function exportHAR(policy) {
+    const outboundPolicy = policy || { mode: 'sanitized' };
     const rows = getExportRows().slice();
     const exportButton = $('#exportHarBtn');
     exportButton.disabled = true;
-    setStatus('Preparing HAR export for ' + rows.length + ' requests...');
+    setStatus('Preparing ' + (outboundPolicy.mode === 'full' ? 'full' : 'sanitized') + ' HAR export...');
     try {
       const responseContents = new Map();
       let unavailableCount = 0;
@@ -3561,31 +4403,40 @@ const _NetworkPlus = (function () {
         responseContents.set(row, content);
         if (content._networkPlus) unavailableCount += 1;
       }
-      const har = buildHarLogFromRows(rows, responseContents);
+      const fullHar = buildHarLogFromRows(rows, responseContents);
+      const har = createOutboundPayload(
+        outboundPolicy,
+        () => sanitizeHar(fullHar),
+        () => fullHar,
+      );
       const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'network-plus.har';
+      a.download = outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har';
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      if (unavailableCount > 0) {
-        setStatus(
-          'Exported ' +
-            rows.length +
-            ' requests to HAR; ' +
-            unavailableCount +
-            ' response ' +
-            (unavailableCount === 1 ? 'body was' : 'bodies were') +
-            ' explicitly marked unavailable',
-        );
+      if (outboundPolicy.mode === 'full') {
+        setStatus('Exported full HAR for ' + rows.length + ' requests after one-time confirmation.');
+        queueDataSafetyAnnouncement('Full HAR export completed after confirmation.');
       } else {
-        setStatus('Exported ' + rows.length + ' requests to HAR');
+        const counts = har.log._networkPlus.counts;
+        setStatus(
+          'Exported sanitized HAR for ' +
+            rows.length +
+            ' requests; ' +
+            counts.redactedValues +
+            ' values redacted, ' +
+            counts.omittedBodies +
+            ' bodies omitted' +
+            (unavailableCount > 0 ? ', ' + unavailableCount + ' source bodies unavailable' : '') +
+            '.',
+        );
+        queueDataSafetyAnnouncement('Sanitized HAR export completed.');
       }
-    } catch (error) {
-      const message = error && error.message ? error.message : String(error);
-      setStatus('HAR export failed: ' + message);
-      console.error('HAR export failed', error);
+    } catch (_error) {
+      setStatus('HAR export failed. No file was downloaded.');
+      queueDataSafetyAnnouncement('HAR export failed. No file was downloaded.');
     } finally {
       exportButton.disabled = false;
     }
@@ -3597,6 +4448,7 @@ const _NetworkPlus = (function () {
   function init() {
     loadColumnPrefs();
     loadRetentionSetting();
+    initializeDataSafetyDialog();
     setStatus('panel.js loaded');
 
     const pendingLiveRows = state.pendingLiveRows;
@@ -3738,7 +4590,7 @@ const _NetworkPlus = (function () {
     updateRecordState();
 
     // Export
-    $('#exportHarBtn').addEventListener('click', exportHAR);
+    $('#exportHarBtn').addEventListener('click', (event) => openExportSafetyDialog(event.currentTarget));
 
     // Column settings menu and filter dialog
     const columnsContextMenu = document.createElement('div');
@@ -4000,6 +4852,27 @@ const _NetworkPlus = (function () {
       const targetRows = isMultiSelected && state.selectedRows.size > 0 ? [...state.selectedRows] : [contextMenuRow];
       const allHighlighted = targetRows.every((targetRow) => state.highlightedRows.has(targetRow));
 
+      const copyLabel = document.createElement('div');
+      copyLabel.className = 'context-menu-label';
+      copyLabel.setAttribute('role', 'presentation');
+      copyLabel.textContent = 'Copy (sanitized)';
+      contextMenu.appendChild(copyLabel);
+      for (const [action, label] of [
+        ['summary', 'Copy sanitized summary'],
+        ['url', 'Copy sanitized URL'],
+        ['curl', 'Copy sanitized cURL'],
+        ['fetch', 'Copy sanitized fetch'],
+        ['powershell', 'Copy sanitized PowerShell'],
+      ]) {
+        contextMenu.appendChild(createRowMenuButton(label, () => {
+          copySanitizedAction(action, contextMenuRow, '', label.replace('Copy', 'Copied'));
+        }));
+      }
+      const fullCopyRow = contextMenuRow;
+      contextMenu.appendChild(createRowMenuButton('Copy full request...', () => {
+        setTimeout(() => requestFullRequestCopy(fullCopyRow, invokingRow), 0);
+      }));
+
       const hlLabel = document.createElement('div');
       hlLabel.className = 'context-menu-label';
       hlLabel.setAttribute('role', 'presentation');
@@ -4117,10 +4990,12 @@ const _NetworkPlus = (function () {
           : (state.selectedRow ? [state.selectedRow] : []);
         if (rows.length === 0) return;
         event.preventDefault();
-        const text = rows.map((selectedRow) => formatRowSummary(selectedRow)).join('\n\n---\n\n');
-        copyTextWithFeedback(
+        const text = rows
+          .map((selectedRow) => buildClipboardPayload('summary', selectedRow, { mode: 'sanitized' }).text)
+          .join('\n\n---\n\n');
+        writeClipboardPayload(
           text,
-          rows.length === 1 ? 'Copied 1 request' : 'Copied ' + rows.length + ' requests',
+          rows.length === 1 ? 'Copied 1 sanitized request' : 'Copied ' + rows.length + ' sanitized requests',
         );
       }
     });
@@ -4936,6 +5811,31 @@ const _NetworkPlus = (function () {
     DEFAULT_REQUEST_RETENTION_LIMIT,
     MAX_RESPONSE_BODY_BYTES,
     MAX_RESPONSE_CACHE_BYTES,
+    REDACTION_MARKER,
+    OMISSION_MARKER,
+    MAX_SANITIZED_BODY_BYTES,
+    MAX_SANITIZED_BODY_DEPTH,
+    MAX_SANITIZED_BODY_NODES,
+    createSanitizationSummary,
+    mergeSanitizationSummaries,
+    normalizeSensitiveKey,
+    isSensitiveKey,
+    sanitizeHeaders,
+    sanitizeCookies,
+    sanitizeNamedValues,
+    sanitizeUrl,
+    sanitizeBody,
+    sanitizeRequestPostData,
+    sanitizeResponseContent,
+    sanitizeNetworkPlusMetadata,
+    sanitizeRowForOutbound,
+    generateCurl,
+    generateFetch,
+    generatePowerShell,
+    createOutboundPayload,
+    buildClipboardPayload,
+    sanitizeHar,
+    buildHarLogFromRows,
     retainRowsByIdentity,
   };
 })();
