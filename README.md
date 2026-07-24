@@ -6,7 +6,7 @@
 ![Jest](https://img.shields.io/badge/Test-Jest-c21325?logo=jest)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
-Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡張機能です。  
+Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡張機能です。
 標準の Network パネルの代替・補完として、強化されたフィルタリング、エクスポート、テーマ切替などの機能を提供します。
 
 ## ✨ 機能一覧
