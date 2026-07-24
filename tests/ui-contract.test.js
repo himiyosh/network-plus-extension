@@ -190,7 +190,8 @@ describe('accessible workbench static contracts', () => {
     expect(html).toMatch(/id="searchCountStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
     expect(html).toMatch(/id="counter"[^>]*aria-hidden="true"/);
     expect(html).toMatch(/id="requestCountStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
-    expect(html).toMatch(/id="copyToast"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
+    expect(html).toMatch(/id="copyToast"[^>]*aria-hidden="true"/);
+    expect(html).not.toMatch(/id="copyToast"[^>]*(?:role="status"|aria-live=)/);
     expect(html).toMatch(/id="resizer"[^>]*role="separator"[^>]*aria-orientation="vertical"[^>]*aria-valuenow="50"/);
     expect(html).not.toMatch(/id="pauseBtn"[^>]*aria-pressed/);
     expect(js).not.toContain("pauseBtn.setAttribute('aria-pressed'");
@@ -421,7 +422,8 @@ describe('outbound data-safety static contracts', () => {
     expect(js).toContain('function writeClipboardPayload(text, message)');
     expect(js).not.toContain('copyTextWithFeedback');
     expect((js.match(/\.download\s*=/g) || [])).toHaveLength(1);
-    expect(js).toContain("a.download = outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har';");
+    expect(js).toContain('anchor.download = filename;');
+    expect(js).toContain("outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har'");
     expect(js).toContain("const payload = buildClipboardPayload(action, row, { mode: 'sanitized', responseBody });");
     expect(js).toContain("buildMultiRowClipboardPayload(rows, 'summary', { mode: 'sanitized' })");
     expect(js).toContain("['url', 'Copy sanitized URL']");
@@ -469,7 +471,32 @@ describe('outbound data-safety static contracts', () => {
     expect(authorizationGuard).toBeGreaterThan(-1);
     expect(authorizationGuard).toBeLessThan(exportSource.indexOf('resolveHarResponseContent(row)'));
     expect(exportSource.indexOf('har.log._networkPlus.failedClosed')).toBeLessThan(exportSource.indexOf('new Blob'));
-    expect(exportSource).toMatch(/finally \{\s*if \(objectUrl\) URL\.revokeObjectURL\(objectUrl\);/s);
+    expect(exportSource).toContain('const downloadUrl = objectUrl;');
+    expect(exportSource.indexOf('objectUrl = null;')).toBeLessThan(
+      exportSource.indexOf('triggerObjectUrlDownload('),
+    );
+    expect(js).toContain('schedule(revokeOnce, OBJECT_URL_REVOKE_DELAY_MS);');
+    expect(js).toMatch(/finally \{\s*revoker\.revokeOnFailure\(\);/s);
+  });
+
+  test('announces each outbound event through only one live region', () => {
+    expect(html).toMatch(/id="copyToast"[^>]*aria-hidden="true"/);
+    expect((js.match(/queueDataSafetyAnnouncement\(/g) || [])).toHaveLength(2);
+    const clipboardStart = js.indexOf('function writeClipboardPayload');
+    const clipboardEnd = js.indexOf('let pendingFullOutboundAction', clipboardStart);
+    const clipboardSource = js.slice(clipboardStart, clipboardEnd);
+    expect(clipboardSource.slice(0, clipboardSource.indexOf('.catch'))).toContain('queueDataSafetyAnnouncement(message);');
+    expect(clipboardSource.slice(clipboardSource.indexOf('.catch'))).not.toContain('queueDataSafetyAnnouncement');
+    const exportStart = js.indexOf('async function exportHAR(policy)');
+    const exportEnd = js.indexOf('// Section 15', exportStart);
+    expect(js.slice(exportStart, exportEnd)).not.toContain('queueDataSafetyAnnouncement');
+  });
+
+  test('reads the HAR creator version from the runtime manifest without a production literal', () => {
+    expect(js).toContain("runtime.getManifest()");
+    expect(js).toContain("typeof module !== 'undefined' && module.exports ? TEST_EXTENSION_VERSION_FALLBACK : 'unknown'");
+    expect(js).not.toContain("const EXTENSION_VERSION = '1.5.0'");
+    expect(js).toContain("creator: { name: 'Network+ for DevTools', version: getExtensionVersion() }");
   });
 
   test('consumes full confirmation synchronously to prevent double activation', () => {

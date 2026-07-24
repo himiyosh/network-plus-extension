@@ -1387,6 +1387,24 @@ describe('outbound sensitive-data policy', () => {
     expect(cases[5].reason).toContain('byte limit');
   });
 
+  test('omits huge ASCII before UTF-8 allocation and keeps exact multibyte limits', () => {
+    const encodeSpy = jest.spyOn(TextEncoder.prototype, 'encode');
+    try {
+      encodeSpy.mockClear();
+      const huge = np.sanitizeBody('a'.repeat(1024), 'application/json', '', { maxBytes: 32 });
+      expect(huge.omitted).toBe(true);
+      expect(huge.reason).toContain('byte limit');
+      expect(encodeSpy).not.toHaveBeenCalled();
+
+      const multibyte = np.sanitizeBody('"éé"', 'application/json', '', { maxBytes: 5 });
+      expect(multibyte.omitted).toBe(true);
+      expect(multibyte.reason).toContain('byte limit');
+      expect(encodeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      encodeSpy.mockRestore();
+    }
+  });
+
   test('sanitizes post data and response content immutably with explicit omission metadata', () => {
     const postData = { mimeType: 'application/json', text: '{"client_secret":"secret"}' };
     const content = { size: 4, mimeType: 'application/octet-stream', text: 'AAEC', encoding: 'base64' };
@@ -1784,6 +1802,51 @@ describe('outbound sensitive-data policy', () => {
     expect(callback).toHaveBeenCalledTimes(1);
     expect(np.isFullOutputAuthorized({ mode: 'full', confirmed: true })).toBe(true);
     expect(np.isFullOutputAuthorized({ mode: 'full' })).toBe(false);
+  });
+
+  test('defers successful download cleanup and revokes the object URL exactly once', () => {
+    const anchor = { href: '', download: '', click: jest.fn() };
+    const revoke = jest.fn();
+    const scheduled = [];
+    np.triggerObjectUrlDownload('blob:success', 'network-plus-sanitized.har', {
+      createAnchor: () => anchor,
+      revoke,
+      schedule: (callback, delay) => scheduled.push({ callback, delay }),
+    });
+
+    expect(anchor).toEqual(expect.objectContaining({
+      href: 'blob:success',
+      download: 'network-plus-sanitized.har',
+    }));
+    expect(anchor.click).toHaveBeenCalledTimes(1);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0].delay).toBe(1000);
+    scheduled[0].callback();
+    scheduled[0].callback();
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith('blob:success');
+  });
+
+  test('revokes immediately and only once when the download click fails', () => {
+    const revoke = jest.fn();
+    const schedule = jest.fn();
+    expect(() => np.triggerObjectUrlDownload('blob:failure', 'network-plus-sanitized.har', {
+      createAnchor: () => ({
+        click: () => { throw new Error('click-failed'); },
+      }),
+      revoke,
+      schedule,
+    })).toThrow('click-failed');
+    expect(schedule).not.toHaveBeenCalled();
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith('blob:failure');
+  });
+
+  test('reads HAR creator versions from the extension runtime with a Node-test fallback', () => {
+    expect(np.getExtensionVersion({ getManifest: () => ({ version: '9.8.7' }) })).toBe('9.8.7');
+    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.5.0');
+    expect(np.getExtensionVersion(null)).toBe('1.5.0');
   });
 
   test('uses the current extension version for full and sanitized HAR creators', () => {

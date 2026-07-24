@@ -63,7 +63,8 @@ const _NetworkPlus = (function () {
   const DATE_SORT_FIELDS = { clientStart: 'clientStartEpoch', serverDone: 'serverDoneEpoch' };
   const INVALID_REQUEST_EPOCH = Number.MAX_SAFE_INTEGER;
   const TIMING_PHASES = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
-  const EXTENSION_VERSION = '1.5.0';
+  const TEST_EXTENSION_VERSION_FALLBACK = '1.5.0';
+  const OBJECT_URL_REVOKE_DELAY_MS = 1000;
   const SENSITIVE_KEY_NAMES = new Set([
     'authorization',
     'proxyauthorization',
@@ -316,7 +317,6 @@ const _NetworkPlus = (function () {
       })
       .catch((_error) => {
         setStatus('Clipboard copy failed. No data was copied.');
-        queueDataSafetyAnnouncement('Clipboard copy failed. No data was copied.');
       });
   }
 
@@ -415,7 +415,6 @@ const _NetworkPlus = (function () {
         .then(() => action())
         .catch((_error) => {
           setStatus('Full output failed. No data was copied or downloaded.');
-          queueDataSafetyAnnouncement('Full output failed. No data was copied or downloaded.');
         });
     });
   }
@@ -711,6 +710,69 @@ const _NetworkPlus = (function () {
     return out;
   }
 
+  function getExtensionVersion(runtimeApi) {
+    const runtime = runtimeApi === undefined
+      ? (typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime : null)
+      : runtimeApi;
+    try {
+      const manifest = runtime && typeof runtime.getManifest === 'function' ? runtime.getManifest() : null;
+      if (manifest && typeof manifest.version === 'string' && manifest.version.trim()) {
+        return manifest.version.trim();
+      }
+    } catch (_error) {
+      // Node tests use the fallback below; extension pages report unknown if the runtime API fails.
+    }
+    return typeof module !== 'undefined' && module.exports ? TEST_EXTENSION_VERSION_FALLBACK : 'unknown';
+  }
+
+  function createObjectUrlRevoker(objectUrl, options) {
+    const source = options || {};
+    const revoke = typeof source.revoke === 'function'
+      ? source.revoke
+      : (url) => URL.revokeObjectURL(url);
+    const schedule = typeof source.schedule === 'function' ? source.schedule : setTimeout;
+    let deferred = false;
+    let revoked = false;
+    const revokeOnce = () => {
+      if (revoked || !objectUrl) return;
+      revoked = true;
+      revoke(objectUrl);
+    };
+    return {
+      defer() {
+        if (deferred || revoked || !objectUrl) return;
+        deferred = true;
+        try {
+          schedule(revokeOnce, OBJECT_URL_REVOKE_DELAY_MS);
+        } catch (error) {
+          deferred = false;
+          revokeOnce();
+          throw error;
+        }
+      },
+      revokeOnFailure() {
+        if (!deferred) revokeOnce();
+      },
+    };
+  }
+
+  function triggerObjectUrlDownload(objectUrl, filename, options) {
+    const source = options || {};
+    const createAnchor = typeof source.createAnchor === 'function'
+      ? source.createAnchor
+      : () => document.createElement('a');
+    const revoker = createObjectUrlRevoker(objectUrl, source);
+    try {
+      const anchor = createAnchor();
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.click();
+      revoker.defer();
+    } finally {
+      revoker.revokeOnFailure();
+    }
+  }
+
   function createSanitizationSummary() {
     return {
       redactedValues: 0,
@@ -966,6 +1028,9 @@ const _NetworkPlus = (function () {
     }
     if (encoding === 'base64') return omittedBody('Base64 content is available only in confirmed full output.', false);
     const limits = normalizeBodyLimits(options);
+    if (source.length > limits.maxBytes) {
+      return omittedBody('Body exceeded the sanitized output byte limit.', false);
+    }
     if (getUtf8ByteLength(source) > limits.maxBytes) {
       return omittedBody('Body exceeded the sanitized output byte limit.', false);
     }
@@ -1341,7 +1406,7 @@ const _NetworkPlus = (function () {
       return {
         log: {
           version: '1.2',
-          creator: { name: 'Network+ for DevTools', version: EXTENSION_VERSION },
+          creator: { name: 'Network+ for DevTools', version: getExtensionVersion() },
           pages: [],
           entries: [],
           _networkPlus: {
@@ -1462,7 +1527,7 @@ const _NetworkPlus = (function () {
       return {
         log: {
           version: String(har.log.version || '1.2'),
-          creator: { name: 'Network+ for DevTools', version: EXTENSION_VERSION },
+          creator: { name: 'Network+ for DevTools', version: getExtensionVersion() },
           pages,
           entries,
           _networkPlus: metadata,
@@ -3821,7 +3886,6 @@ const _NetworkPlus = (function () {
       return writeClipboardPayload(payload.text, message || 'Copied sanitized data');
     } catch (_error) {
       setStatus('Sanitized copy failed closed. No data was copied.');
-      queueDataSafetyAnnouncement('Sanitized copy failed closed. No data was copied.');
       return Promise.resolve();
     }
   }
@@ -4594,7 +4658,7 @@ const _NetworkPlus = (function () {
     return {
       log: {
         version: '1.2',
-        creator: { name: 'Network+ for DevTools', version: EXTENSION_VERSION },
+        creator: { name: 'Network+ for DevTools', version: getExtensionVersion() },
         pages: [{ startedDateTime: now, id: pageref, title: 'Network+', pageTimings: {} }],
         entries,
       },
@@ -4605,7 +4669,6 @@ const _NetworkPlus = (function () {
     const outboundPolicy = policy || { mode: 'sanitized' };
     if (outboundPolicy.mode === 'full' && !isFullOutputAuthorized(outboundPolicy)) {
       setStatus('Full HAR export requires one-time confirmation. No file was downloaded.');
-      queueDataSafetyAnnouncement('Full HAR export was blocked before data preparation.');
       return;
     }
     const rows = getExportRows().slice();
@@ -4632,13 +4695,14 @@ const _NetworkPlus = (function () {
       }
       const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
       objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har';
-      a.click();
+      const downloadUrl = objectUrl;
+      objectUrl = null;
+      triggerObjectUrlDownload(
+        downloadUrl,
+        outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har',
+      );
       if (outboundPolicy.mode === 'full') {
         setStatus('Exported full HAR for ' + rows.length + ' requests after one-time confirmation.');
-        queueDataSafetyAnnouncement('Full HAR export completed after confirmation.');
       } else {
         const counts = har.log._networkPlus.counts;
         setStatus(
@@ -4652,11 +4716,9 @@ const _NetworkPlus = (function () {
             (unavailableCount > 0 ? ', ' + unavailableCount + ' source bodies unavailable' : '') +
             '.',
         );
-        queueDataSafetyAnnouncement('Sanitized HAR export completed.');
       }
     } catch (_error) {
       setStatus('HAR export failed. No file was downloaded.');
-      queueDataSafetyAnnouncement('HAR export failed. No file was downloaded.');
     } finally {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       exportButton.disabled = false;
@@ -5214,7 +5276,6 @@ const _NetworkPlus = (function () {
         const payload = buildMultiRowClipboardPayload(rows, 'summary', { mode: 'sanitized' });
         if (!payload.ok) {
           setStatus('Clipboard copy failed during sanitization. No data was copied.');
-          queueDataSafetyAnnouncement('Clipboard copy failed during sanitization. No data was copied.');
           return;
         }
         writeClipboardPayload(
@@ -6040,6 +6101,9 @@ const _NetworkPlus = (function () {
     MAX_SANITIZED_BODY_BYTES,
     MAX_SANITIZED_BODY_DEPTH,
     MAX_SANITIZED_BODY_NODES,
+    getExtensionVersion,
+    createObjectUrlRevoker,
+    triggerObjectUrlDownload,
     createSanitizationSummary,
     mergeSanitizationSummaries,
     normalizeSensitiveKey,
