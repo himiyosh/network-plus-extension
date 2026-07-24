@@ -44,9 +44,11 @@ network-plus-extension/
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
     check-version-sync.js    ... package.json / manifest.json バージョン同期チェック
+    check-repository-integrity.js ... package-lock.json の provenance チェック
   tests/                     ... Jest ユニットテスト
     setup.js                 ... テスト用ブラウザ API モック
     panel.test.js            ... 純粋関数のユニットテスト
+    repository-integrity.test.js ... リポジトリ整合性チェックのユニットテスト
   icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
   vendor/                    ... サードパーティライブラリ
   manifest.json              ... 拡張機能マニフェスト (Manifest V3, CSP 明示設定)
@@ -89,12 +91,12 @@ cd network-plus-extension
 ### 2. 前提条件
 
 - **Microsoft Edge** (最新安定版, Chromium ベース)
-- **Node.js** (テスト・Lint 実行用)
+- **Node.js 22 または 24 LTS** (テスト・Lint 実行用)
 
 ### 3. 依存関係のインストール
 
 ```bash
-npm install
+npm ci
 ```
 
 ### 4. Edge へのインストール
@@ -119,18 +121,23 @@ npm install
 ## 🛠️ 開発
 
 ```bash
-npm install          # 依存関係インストール
-npm test             # Jest テスト実行 (カバレッジ付き)
-npm run lint         # ESLint 実行
-npm run version:check # package.json と manifest.json の version 同期チェック
-npm run format       # Prettier フォーマット
+npm ci                  # lockfile に基づく依存関係インストール
+npm test                # Jest テスト実行 (カバレッジ付き)
+npm run lint            # 全 first-party JavaScript の ESLint 実行
+npm run version:check   # package.json と manifest.json の version 同期チェック
+npm run integrity:check # package-lock.json の provenance チェック
+npm run format:check    # CI 対象ファイルの Prettier チェック
+npm run format          # CI 対象ファイルの Prettier フォーマット
 ```
+
+本拡張機能はビルドレス構成です。ソースを直接 Edge に読み込むため、ビルドコマンドはありません。
 
 ## 🧪 テスト
 
 | 対象 | 手法 | 場所 |
 |------|------|------|
 | **純粋関数** | Jest ユニットテスト | [tests/panel.test.js](tests/panel.test.js) |
+| **リポジトリ整合性** | Jest ユニットテスト + CI | [tests/repository-integrity.test.js](tests/repository-integrity.test.js) |
 | **DOM 操作** | 手動テスト (Edge DevTools で拡張機能をロードして確認) | - |
 | **テーマ** | 手動テスト (System/Dark/Light 切替確認) | - |
 | **エクスポート** | 手動テスト (HAR ファイルの内容検証) | - |

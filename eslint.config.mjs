@@ -1,53 +1,51 @@
-import js from "@eslint/js";
+import js from '@eslint/js';
+import globals from 'globals';
 
 export default [
+  {
+    ignores: ['node_modules/**', 'coverage/**', 'dist/**', 'vendor/**'],
+  },
   js.configs.recommended,
   {
+    files: ['*.js'],
     languageOptions: {
       ecmaVersion: 2020,
-      sourceType: "script",
+      sourceType: 'script',
       globals: {
-        chrome: "readonly",
-        document: "readonly",
-        window: "readonly",
-        navigator: "readonly",
-        localStorage: "readonly",
-        console: "readonly",
-        setTimeout: "readonly",
-        clearTimeout: "readonly",
-        URL: "readonly",
-        Blob: "readonly",
-        atob: "readonly",
-        DocumentFragment: "readonly",
-        TextDecoder: "readonly",
-        TextEncoder: "readonly",
-        prompt: "readonly",
-        module: "readonly",
+        ...globals.browser,
+        chrome: 'readonly',
+        module: 'readonly',
       },
     },
     rules: {
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
-      "no-console": "off",
+      'no-console': 'off',
+      'no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+        },
+      ],
     },
   },
   {
-    files: ["tests/**/*.js"],
+    files: ['scripts/**/*.js'],
     languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: 'commonjs',
+      globals: globals.node,
+    },
+  },
+  {
+    files: ['tests/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: 'commonjs',
       globals: {
-        describe: "readonly",
-        it: "readonly",
-        test: "readonly",
-        expect: "readonly",
-        beforeEach: "readonly",
-        afterEach: "readonly",
-        jest: "readonly",
-        module: "readonly",
-        require: "readonly",
-        global: "readonly",
+        ...globals.jest,
+        ...globals.node,
       },
     },
-  },
-  {
-    ignores: ["node_modules/", "coverage/"],
   },
 ];
