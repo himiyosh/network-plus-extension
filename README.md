@@ -50,16 +50,22 @@ network-plus-extension/
       ui-review.agent.md        ... Network+ 6-axis UI/UX review agent
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
     skills/hallmark/         ... Hallmark 1.1.0 design skill (pinned vendored copy)
+    workflows/quality-gates.yml ... Node.js 22/24 quality gates
+    dependabot.yml           ... npm / GitHub Actions dependency updates
   docs/
     DESIGN.md                ... UI トークン、コンポーネント、テーマ運用ルール
     PRODUCT.md               ... 製品戦略、対象ユーザー、設計原則、アクセシビリティ基準
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
     check-version-sync.js    ... package.json / manifest.json バージョン同期チェック
+    check-repository-integrity.js ... package-lock.json の provenance チェック
+    check-text-integrity.js  ... 変更差分の whitespace / encoding チェック
   tests/                     ... Jest ユニットテスト
     setup.js                 ... テスト用ブラウザ API モック
     panel.test.js            ... 純粋関数のユニットテスト
     ui-contract.test.js      ... テーマ、コントラスト、レスポンシブ、ARIA の静的契約テスト
+    repository-integrity.test.js ... リポジトリ整合性チェックのユニットテスト
+    text-integrity.test.js   ... 変更差分チェックのユニットテスト
   icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
   vendor/                    ... サードパーティライブラリ
   manifest.json              ... 拡張機能マニフェスト (Manifest V3, CSP 明示設定)
@@ -120,12 +126,12 @@ cd network-plus-extension
 ### 2. 前提条件
 
 - **Microsoft Edge** (最新安定版, Chromium ベース)
-- **Node.js** (テスト・Lint 実行用)
+- **Node.js 22 または 24 LTS** (テスト・Lint・品質チェック実行用)
 
 ### 3. 依存関係のインストール
 
 ```bash
-npm install
+npm ci
 ```
 
 ### 4. Edge へのインストール
@@ -151,12 +157,19 @@ npm install
 ## 🛠️ 開発
 
 ```bash
-npm install          # 依存関係インストール
-npm test             # Jest テスト実行 (カバレッジ付き)
-npm run lint         # ESLint 実行
-npm run version:check # package.json と manifest.json の version 同期チェック
-npm run format       # Prettier フォーマット
+npm ci                  # lockfile に基づく依存関係インストール
+npm test                # Jest テスト実行 (カバレッジ付き)
+npm run lint            # 全 first-party JavaScript の ESLint 実行
+npm run version:check   # package.json と manifest.json の version 同期チェック
+npm run integrity:check # package-lock.json の provenance チェック
+npm run text:check -- --base <base-sha> --head <head-sha> # 変更差分の whitespace / encoding チェック
+npm run format:check    # CI 対象ファイルの Prettier チェック
+npm run format          # CI 対象ファイルの Prettier フォーマット
 ```
+
+本拡張機能はビルドレス構成です。ソースを直接 Edge に読み込むため、ビルドコマンドはありません。
+
+`.github/workflows/quality-gates.yml` は Node.js 22 / 24 の matrix で `npm ci` を使用し、Jest、ESLint、version sync、Prettier、lockfile provenance、変更差分の text integrity を検証します。
 
 ## 🤖 Copilot カスタマイズ
 
@@ -169,6 +182,8 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | 対象 | 手法 | 場所 |
 |------|------|------|
 | **純粋関数** | Jest ユニットテスト | [tests/panel.test.js](tests/panel.test.js) |
+| **リポジトリ整合性** | Jest ユニットテスト + CI | [tests/repository-integrity.test.js](tests/repository-integrity.test.js) |
+| **変更差分整合性** | Jest ユニットテスト + CI | [tests/text-integrity.test.js](tests/text-integrity.test.js) |
 | **DOM 操作** | 手動テスト (Edge DevTools で拡張機能をロードして確認) | - |
 | **テーマ / UI 契約** | Jest 静的契約テスト + 手動テスト (System/Dark/Light 切替確認) | [tests/ui-contract.test.js](tests/ui-contract.test.js) |
 | **エクスポート** | 手動テスト (HAR ファイルの内容検証) | - |
