@@ -32,6 +32,21 @@ tools: [vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vsco
 
 **自動起動ルール**: 修正・実装を完了しユーザーへ報告する直前に **Self-Critique ロールが自動起動** する。UI/UX Review Agent の 6 軸（テーマ一貫性・レイアウト密度・操作性・XSS 安全性・データ表示品質・コード品質）で批判し、全軸 PASS するまで報告しない。詳細は `ui-review.agent.md` を参照。
 
+## 🎖️ Hallmark ルーティング
+
+プロジェクトスキルの正確な invocation identifier は **`/hallmark`**。スキル本文をこのプロファイルへ転載せず、必要時だけ `.github/skills/hallmark/SKILL.md` を読み込む。
+
+| UI リクエスト | ルート |
+|---|---|
+| DevTools パネルの新規 UI・コンポーネント設計 | `/hallmark` (default) |
+| 見た目・構造の監査、AI 生成感の確認 | `/hallmark audit <target>` (非編集) |
+| 既存パネルのビジュアル再設計 | `/hallmark redesign <target> [--mood <name>]` |
+| 参考スクリーンショット / 公開 URL のデザイン DNA 抽出 | `/hallmark study <screenshot \| URL>` (診断後、実装前に確認) |
+
+**優先順位**: `.github/copilot-instructions.md` と本エージェントの Network+ 制約、および `ui-review.agent.md` の 6 軸ゲートが Hallmark より常に優先する。特に System/Dark/Light の 3 テーマ契約、DevTools 向け高密度レイアウト、既存キーボード動作、XSS 安全な DOM API、ネットワークデータの正確性、IIFE 単一ファイル構成、既存テストを維持する。Hallmark のページ向け hero/nav/footer、追加の `tokens.css`、デモ/preview、`.hallmark/` 状態、依存関係は既定では導入しない。
+
+ブラウザー確認と web/page ガイダンスの対象は、Edge DevTools 内で実際に動作する `panel.html` / `panel.css` / `panel.js` の UI のみ。README、エージェント定義、スキル文書を Web UI として扱わない。
+
 ---
 
 ## 📘 ロール別専門知識
@@ -215,4 +230,5 @@ tools: [vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vsco
 | コアロジック | `panel.js` (IIFE, 15 セクション) |
 | テスト | `tests/panel.test.js` |
 | UI/UX レビュー基準 | `.github/agents/ui-review.agent.md` |
+| UI デザインスキル | `.github/skills/hallmark/SKILL.md` (`/hallmark`) |
 | 共通プロジェクトルール | `docs/unified-project-rules.md` (ローカル参照) |

@@ -7,13 +7,31 @@ const _NetworkPlus = (function () {
   // Section 1: Constants
   // ============================================================
   const MIN_COL_WIDTH = 20;
+  const MAX_COL_WIDTH = 1200;
+  const DEFAULT_COL_WIDTH = 120;
+  const KEYBOARD_RESIZE_STEP = 10;
+  const KEYBOARD_RESIZE_LARGE_STEP = 40;
   const MIN_DETAILS_WIDTH = 300;
   const MIN_TABLE_WIDTH = 240;
-  const RESIZER_WIDTH = 5;
+  const MIN_DETAILS_HEIGHT = 160;
+  const MIN_TABLE_HEIGHT = 120;
+  const MIN_INSPECTOR_PANE_HEIGHT = 80;
+  const RESIZER_WIDTH = 4;
+  const INSPECTOR_DIVIDER_HEIGHT = 3;
+  const NARROW_PANEL_MAX_WIDTH = 700;
+  const POPUP_VIEWPORT_MARGIN = 8;
+  const ROW_CONTEXT_MENU_X_OFFSET = 16;
+  const ROW_CONTEXT_MENU_Y_OFFSET = 24;
+  const SEARCH_COLOR_POPUP_GAP = 4;
+  const TRANSIENT_POPUP_SELECTOR = '.dropdown-content,.search-scope-popup,.search-color-popup';
+  const REQUEST_COUNT_ANNOUNCE_MS = 1000;
+  const SEARCH_COUNT_ANNOUNCE_MS = 500;
+  const COPY_FEEDBACK_DURATION_MS = 1800;
   const SCROLL_THRESHOLD = 10;
   const TRUNCATE_LIMIT = 2000;
   const FILTER_DEBOUNCE_MS = 150;
   const DEEP_SEARCH_DEBOUNCE_MS = 250;
+  const RESPONSE_CONTENT_TIMEOUT_MS = 10000;
   const JSON_TREE_MAX_CHILDREN = 100;
   const JSON_TREE_MAX_DEPTH = 20;
   const JSON_TREE_PREVIEW_KEYS = 3;
@@ -27,6 +45,9 @@ const _NetworkPlus = (function () {
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
   const DATE_COLUMNS = ['clientStart', 'serverDone'];
+  const DATE_SORT_FIELDS = { clientStart: 'clientStartEpoch', serverDone: 'serverDoneEpoch' };
+  const INVALID_REQUEST_EPOCH = Number.MAX_SAFE_INTEGER;
+  const TIMING_PHASES = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
 
   const FILTER_OPERATORS_STRING = [
     { value: 'contains', label: 'contains' },
@@ -102,12 +123,12 @@ const _NetworkPlus = (function () {
 
   // Colors for search keyword rows (index matches search-hl-N / search-row-N)
   const SEARCH_COLORS = [
-    { name: 'Yellow', hex: '#fbbf24' },
-    { name: 'Red', hex: '#ef4444' },
-    { name: 'Green', hex: '#22c55e' },
-    { name: 'Blue', hex: '#3b82f6' },
-    { name: 'Purple', hex: '#a855f7' },
-    { name: 'Orange', hex: '#f97316' },
+    { name: 'Yellow', cssColor: 'var(--search-yellow)' },
+    { name: 'Red', cssColor: 'var(--search-red)' },
+    { name: 'Green', cssColor: 'var(--search-green)' },
+    { name: 'Blue', cssColor: 'var(--search-blue)' },
+    { name: 'Purple', cssColor: 'var(--search-purple)' },
+    { name: 'Orange', cssColor: 'var(--search-orange)' },
   ];
 
   // ============================================================
@@ -121,9 +142,251 @@ const _NetworkPlus = (function () {
     if (el) el.textContent = t;
   }
 
+  let requestCountAnnouncementTimer = null;
+  function queueRequestCountAnnouncement(text) {
+    if (requestCountAnnouncementTimer) clearTimeout(requestCountAnnouncementTimer);
+    requestCountAnnouncementTimer = setTimeout(() => {
+      const el = $('#requestCountStatus');
+      if (el && el.textContent !== text) el.textContent = text;
+    }, REQUEST_COUNT_ANNOUNCE_MS);
+  }
+
+  let searchCountAnnouncementTimer = null;
+  function queueSearchCountAnnouncement(text) {
+    if (searchCountAnnouncementTimer) clearTimeout(searchCountAnnouncementTimer);
+    searchCountAnnouncementTimer = setTimeout(() => {
+      const el = $('#searchCountStatus');
+      if (el && el.textContent !== text) el.textContent = text;
+    }, SEARCH_COUNT_ANNOUNCE_MS);
+  }
+
+  let copyFeedbackTimer = null;
+  function showCopyFeedback(message) {
+    const toast = $('#copyToast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add('show');
+    if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer);
+    copyFeedbackTimer = setTimeout(() => {
+      toast.classList.remove('show');
+    }, COPY_FEEDBACK_DURATION_MS);
+  }
+
+  function copyTextWithFeedback(text, message) {
+    return navigator.clipboard.writeText(text).then(() => {
+      showCopyFeedback(message);
+    }).catch((_error) => {
+      setStatus('Copy failed');
+    });
+  }
+
+  function clampPopupToViewport(popup, x, y) {
+    const rect = popup.getBoundingClientRect();
+    const position = clampPopupPosition(
+      x,
+      y,
+      rect.width,
+      rect.height,
+      window.innerWidth,
+      window.innerHeight,
+      POPUP_VIEWPORT_MARGIN,
+    );
+    popup.style.left = position.left + 'px';
+    popup.style.top = position.top + 'px';
+    popup.style.maxWidth = position.maxWidth + 'px';
+    popup.style.maxHeight = position.maxHeight + 'px';
+  }
+
+  function showPopupAt(popup, x, y, displayValue) {
+    popup.classList.add('show');
+    popup.style.position = 'fixed';
+    popup.style.visibility = 'hidden';
+    popup.style.maxWidth = '';
+    popup.style.maxHeight = '';
+    popup.style.display = displayValue || 'block';
+    clampPopupToViewport(popup, x, y);
+    popup.style.visibility = '';
+  }
+
+  function reclampOpenPopups() {
+    $all(TRANSIENT_POPUP_SELECTOR).forEach((popup) => {
+      if (window.getComputedStyle(popup).display === 'none') return;
+      const rect = popup.getBoundingClientRect();
+      clampPopupToViewport(popup, rect.left, rect.top);
+    });
+  }
+
+  function getPopupFocusableItems(popup, menuOnly) {
+    const selector = menuOnly
+      ? '[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]'
+      : 'input:not([disabled]),select:not([disabled]),button:not([disabled]),[tabindex="0"]';
+    return $all(selector, popup).filter((element) => element.tabIndex !== -1);
+  }
+
+  function closeAccessiblePopup(popup, restoreFocus) {
+    if (!popup || !popup.classList.contains('show')) return;
+    popup.classList.remove('show');
+    popup.style.display = 'none';
+    const trigger = popup._networkPlusTrigger;
+    if (trigger && trigger.hasAttribute && trigger.hasAttribute('aria-expanded')) {
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+    if (restoreFocus) {
+      if (typeof popup._networkPlusRestoreFocus === 'function') {
+        popup._networkPlusRestoreFocus();
+      } else if (trigger && trigger.focus && trigger.isConnected !== false) {
+        trigger.focus();
+      }
+    }
+  }
+
+  function closeAllAccessiblePopups(exceptPopup, restoreFocus) {
+    $all(TRANSIENT_POPUP_SELECTOR).forEach((popup) => {
+      if (popup !== exceptPopup) closeAccessiblePopup(popup, restoreFocus);
+    });
+  }
+
+  function showAccessiblePopupAt(popup, x, y, trigger, displayValue, restoreFocus) {
+    closeAllAccessiblePopups(popup, false);
+    popup._networkPlusTrigger = trigger || null;
+    popup._networkPlusRestoreFocus = restoreFocus || null;
+    if (trigger && trigger.hasAttribute && trigger.hasAttribute('aria-expanded')) {
+      trigger.setAttribute('aria-expanded', 'true');
+    }
+    showPopupAt(popup, x, y, displayValue);
+    const menuOnly = popup.getAttribute('role') === 'menu';
+    const focusableItems = getPopupFocusableItems(popup, menuOnly);
+    if (focusableItems.length > 0) focusableItems[0].focus();
+  }
+
+  function installPopupKeyboardSupport(popup) {
+    popup.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeAccessiblePopup(popup, true);
+        return;
+      }
+      if (popup.getAttribute('role') !== 'menu') return;
+      if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      const items = getPopupFocusableItems(popup, true);
+      const nextIndex = getNextMenuItemIndex(items.indexOf(document.activeElement), items.length, event.key);
+      if (nextIndex < 0) return;
+      event.preventDefault();
+      items[nextIndex].focus();
+    });
+  }
+
   // ============================================================
   // Section 3: Pure Utility Functions (testable)
   // ============================================================
+  function clampPopupPosition(x, y, popupWidth, popupHeight, viewportWidth, viewportHeight, margin) {
+    const edge = Number.isFinite(margin) && margin >= 0 ? margin : POPUP_VIEWPORT_MARGIN;
+    const viewportW = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
+    const viewportH = Number.isFinite(viewportHeight) ? Math.max(0, viewportHeight) : 0;
+    const maxWidth = Math.max(0, viewportW - edge * 2);
+    const maxHeight = Math.max(0, viewportH - edge * 2);
+    const width = Math.min(Number.isFinite(popupWidth) ? Math.max(0, popupWidth) : 0, maxWidth);
+    const height = Math.min(Number.isFinite(popupHeight) ? Math.max(0, popupHeight) : 0, maxHeight);
+    const desiredLeft = Number.isFinite(x) ? x : edge;
+    const desiredTop = Number.isFinite(y) ? y : edge;
+    const rightmostLeft = Math.max(edge, viewportW - edge - width);
+    const lowestTop = Math.max(edge, viewportH - edge - height);
+    return {
+      left: Math.min(Math.max(desiredLeft, edge), rightmostLeft),
+      top: Math.min(Math.max(desiredTop, edge), lowestTop),
+      maxWidth,
+      maxHeight,
+    };
+  }
+
+  function calculateMainSplit(pointerPosition, totalSize, isNarrow) {
+    if (!Number.isFinite(pointerPosition) || !Number.isFinite(totalSize) || totalSize <= RESIZER_WIDTH) {
+      return null;
+    }
+    const primarySize = Math.round(pointerPosition);
+    const detailsSize = Math.round(totalSize - primarySize - RESIZER_WIDTH);
+    const minPrimary = isNarrow ? MIN_TABLE_HEIGHT : MIN_TABLE_WIDTH;
+    const minDetails = isNarrow ? MIN_DETAILS_HEIGHT : MIN_DETAILS_WIDTH;
+    if (primarySize < minPrimary || detailsSize < minDetails) return null;
+    const availableSize = totalSize - RESIZER_WIDTH;
+    return {
+      axis: isNarrow ? 'height' : 'width',
+      primarySize,
+      detailsSize,
+      primaryPercent: Math.round((primarySize / availableSize) * 100),
+    };
+  }
+
+  function adjustMainSplitByKeyboard(currentPrimarySize, totalSize, isNarrow, key, largeStep) {
+    const negativeKey = isNarrow ? 'ArrowUp' : 'ArrowLeft';
+    const positiveKey = isNarrow ? 'ArrowDown' : 'ArrowRight';
+    if (key !== negativeKey && key !== positiveKey) return null;
+    const step = largeStep ? KEYBOARD_RESIZE_LARGE_STEP : KEYBOARD_RESIZE_STEP;
+    const delta = key === negativeKey ? -step : step;
+    return calculateMainSplit(currentPrimarySize + delta, totalSize, isNarrow);
+  }
+
+  function calculateInspectorSplit(primarySize, totalSize) {
+    if (!Number.isFinite(primarySize) || !Number.isFinite(totalSize) || totalSize <= INSPECTOR_DIVIDER_HEIGHT) {
+      return null;
+    }
+    const requestSize = Math.round(primarySize);
+    const responseSize = Math.round(totalSize - requestSize - INSPECTOR_DIVIDER_HEIGHT);
+    if (requestSize < MIN_INSPECTOR_PANE_HEIGHT || responseSize < MIN_INSPECTOR_PANE_HEIGHT) return null;
+    const availableSize = totalSize - INSPECTOR_DIVIDER_HEIGHT;
+    return {
+      requestSize,
+      responseSize,
+      requestPercent: Math.round((requestSize / availableSize) * 100),
+    };
+  }
+
+  function adjustInspectorSplitByKeyboard(currentRequestSize, totalSize, key, largeStep) {
+    if (key !== 'ArrowUp' && key !== 'ArrowDown') return null;
+    const step = largeStep ? KEYBOARD_RESIZE_LARGE_STEP : KEYBOARD_RESIZE_STEP;
+    const delta = key === 'ArrowUp' ? -step : step;
+    return calculateInspectorSplit(currentRequestSize + delta, totalSize);
+  }
+
+  function clampColumnWidth(width) {
+    const numericWidth = Number.isFinite(width) ? width : DEFAULT_COL_WIDTH;
+    return Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, Math.round(numericWidth)));
+  }
+
+  function adjustColumnWidth(currentWidth, key, largeStep) {
+    if (key !== 'ArrowLeft' && key !== 'ArrowRight') return null;
+    const step = largeStep ? KEYBOARD_RESIZE_LARGE_STEP : KEYBOARD_RESIZE_STEP;
+    return clampColumnWidth(currentWidth + (key === 'ArrowLeft' ? -step : step));
+  }
+
+  function getAdjacentVisibleColumnId(columns, colId, direction) {
+    if (!Array.isArray(columns) || (direction !== -1 && direction !== 1)) return null;
+    const visibleColumns = columns.filter((column) => column.visible);
+    const currentIndex = visibleColumns.findIndex((column) => column.id === colId);
+    const nextIndex = currentIndex + direction;
+    return currentIndex >= 0 && nextIndex >= 0 && nextIndex < visibleColumns.length
+      ? visibleColumns[nextIndex].id
+      : null;
+  }
+
+  function getNextMenuItemIndex(currentIndex, itemCount, key) {
+    if (itemCount <= 0) return -1;
+    const index = currentIndex >= 0 && currentIndex < itemCount ? currentIndex : 0;
+    if (key === 'Home') return 0;
+    if (key === 'End') return itemCount - 1;
+    if (key === 'ArrowDown') return (index + 1) % itemCount;
+    if (key === 'ArrowUp') return (index - 1 + itemCount) % itemCount;
+    return index;
+  }
+
+  function getAriaSortValue(sort, colId) {
+    if (!sort || sort.colId !== colId) return 'none';
+    if (sort.direction === 'asc') return 'ascending';
+    if (sort.direction === 'desc') return 'descending';
+    return 'none';
+  }
+
   function fmtBytes(bytes) {
     if (bytes == null || isNaN(bytes)) return '';
     const units = ['B', 'KB', 'MB', 'GB'];
@@ -208,6 +471,145 @@ const _NetworkPlus = (function () {
     return out;
   }
 
+  function getRequestEpoch(startedDateTime, fallback) {
+    const fallbackEpoch = Number.isFinite(fallback) ? fallback : 0;
+    const epoch = typeof startedDateTime === 'number' ? startedDateTime : Date.parse(startedDateTime);
+    return Number.isFinite(epoch) ? epoch : fallbackEpoch;
+  }
+
+  function compareRequestTimes(a, b, colId) {
+    const sortField = DATE_SORT_FIELDS[colId];
+    if (!sortField) return 0;
+    const aEpoch = getRequestEpoch(a && a[sortField], INVALID_REQUEST_EPOCH);
+    const bEpoch = getRequestEpoch(b && b[sortField], INVALID_REQUEST_EPOCH);
+    if (aEpoch === bEpoch) return 0;
+    return aEpoch < bEpoch ? -1 : 1;
+  }
+
+  function calculateTimingSegments(timings, totalDuration) {
+    const source = timings || {};
+    const segments = TIMING_PHASES.map((label) => {
+      const rawDuration = source[label];
+      const available = typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration >= 0;
+      return { label, duration: available ? rawDuration : 0, available };
+    });
+    const connect = segments.find((segment) => segment.label === 'connect');
+    const ssl = segments.find((segment) => segment.label === 'ssl');
+    if (connect.available && ssl.available) {
+      connect.duration = Math.max(0, connect.duration - ssl.duration);
+    }
+    const segmentTotal = segments.reduce((sum, segment) => sum + segment.duration, 0);
+    const total = Number.isFinite(totalDuration) && totalDuration >= 0 ? totalDuration : segmentTotal;
+    return { total, segments };
+  }
+
+  function decodeResponseContent(content, encoding) {
+    const text = typeof content === 'string' ? content : '';
+    if (encoding !== 'base64') return text;
+    try {
+      const binary = atob(text);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
+    } catch (_e) {
+      return '';
+    }
+  }
+
+  function buildHarResponseContent(row) {
+    const content = {
+      size: row && row.size ? row.size : 0,
+      mimeType: guessMimeType(row || {}),
+      text: row && typeof row.responseContent === 'string' ? row.responseContent : '',
+    };
+    if (row && row.responseContentEncoding === 'base64') content.encoding = 'base64';
+    return content;
+  }
+
+  function isRuleActive(rule) {
+    if (!rule) return false;
+    if (rule.mode === 'methodSet') {
+      return rule.include ? HTTP_METHODS.some((method) => rule.include[method] !== true) : false;
+    }
+    if (rule.mode === 'statusSet') {
+      return rule.include ? Object.values(rule.include).some((value) => value === false) : false;
+    }
+    if (rule.mode === 'urlAdvanced') {
+      return [rule.includeAny, rule.includeAll, rule.excludeAny].some(
+        (value) => value != null && String(value).trim() !== '',
+      );
+    }
+    if (rule.mode === 'timeRange') {
+      return [rule.start, rule.end].some((value) => value != null && String(value).trim() !== '');
+    }
+    if (rule.mode === 'multiText') {
+      return rule.conditions
+        ? rule.conditions.some(
+          (condition) => condition.value != null && String(condition.value).trim() !== '',
+        )
+        : false;
+    }
+    if (rule.op === 'empty' || rule.op === 'notempty') return true;
+    return rule.value != null && String(rule.value).trim() !== '';
+  }
+
+  function countActiveColumnFilters(rules) {
+    if (!rules) return 0;
+    return Object.values(rules).filter((rule) => isRuleActive(rule)).length;
+  }
+
+  function hasActiveSearchKeywords(searchKeywords) {
+    return (
+      Array.isArray(searchKeywords) &&
+      searchKeywords.some((keyword) => keyword && String(keyword.query || '').trim() !== '')
+    );
+  }
+
+  function preserveMatchingRowIndex(previousMatches, previousIndex, nextMatches) {
+    if (!Array.isArray(nextMatches) || nextMatches.length === 0) return -1;
+    const previousRow =
+      Array.isArray(previousMatches) && previousIndex >= 0 && previousIndex < previousMatches.length
+        ? previousMatches[previousIndex]
+        : null;
+    const preservedIndex = previousRow ? nextMatches.indexOf(previousRow) : -1;
+    if (preservedIndex >= 0) return preservedIndex;
+    return previousIndex >= 0 ? Math.min(previousIndex, nextMatches.length - 1) : -1;
+  }
+
+  function shouldRenderSelectedRow(selectedRow, resolvedRow) {
+    return !!resolvedRow && selectedRow === resolvedRow;
+  }
+
+  function isIncrementalAppendEligible(sort, activeFilterCount, searchKeywords, renderedActiveFilterCount) {
+    const hasNaturalOrder =
+      !sort || !sort.colId || !sort.direction || (sort.colId === 'id' && sort.direction === 'asc');
+    const hasActiveSearch = hasActiveSearchKeywords(searchKeywords);
+    const synchronizedFilterCount =
+      Number.isFinite(renderedActiveFilterCount) ? renderedActiveFilterCount : activeFilterCount;
+    return (
+      hasNaturalOrder &&
+      activeFilterCount === 0 &&
+      activeFilterCount === synchronizedFilterCount &&
+      !hasActiveSearch
+    );
+  }
+
+  function getIncrementalAppendBatch(queuedRows, renderedRowIds) {
+    const renderedIds = new Set((renderedRowIds || []).map((id) => String(id)));
+    const queuedIds = new Set();
+    return (queuedRows || []).filter((row) => {
+      if (!row || row.id == null) return false;
+      const rowId = String(row.id);
+      if (renderedIds.has(rowId) || queuedIds.has(rowId)) return false;
+      queuedIds.add(rowId);
+      return true;
+    });
+  }
+
+  function retainRowsByIdentity(candidateRows, currentRows) {
+    const currentRowSet = new Set(currentRows || []);
+    return (candidateRows || []).filter((row) => currentRowSet.has(row));
+  }
+
   /** Debounce wrapper */
   function debounce(fn, ms) {
     let timer = null;
@@ -215,6 +617,16 @@ const _NetworkPlus = (function () {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => fn.apply(this, args), ms);
     };
+  }
+
+  function getNextTabIndex(currentIndex, itemCount, key) {
+    if (itemCount <= 0) return -1;
+    const index = currentIndex >= 0 && currentIndex < itemCount ? currentIndex : 0;
+    if (key === 'Home') return 0;
+    if (key === 'End') return itemCount - 1;
+    if (key === 'ArrowRight') return (index + 1) % itemCount;
+    if (key === 'ArrowLeft') return (index - 1 + itemCount) % itemCount;
+    return index;
   }
 
   /**
@@ -333,7 +745,7 @@ const _NetworkPlus = (function () {
     }
 
     if (scope.resBody) {
-      const resText = row.responseContent || '';
+      const resText = row.responseContentText != null ? row.responseContentText : row.responseContent || '';
       if (resText && resText.toLowerCase().indexOf(lcq) > -1) return true;
     }
 
@@ -382,7 +794,12 @@ const _NetworkPlus = (function () {
     columns: DEFAULT_COLUMNS.map((c) => ({ ...c })),
     rows: [],
     filteredRows: [], // [U5] cache for filtered rows
+    visibleBytes: 0,
+    renderedActiveFilterCount: 0,
     selectedRow: null, // [U5] track by row object reference, not index
+    focusedRow: null,
+    pendingRowFocusId: null,
+    pendingHeaderFocusId: null,
     selectedRows: new Set(), // [U7] multi-row selection
     highlightedRows: new Map(), // [U7] highlighted rows: row -> color class
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
@@ -399,8 +816,9 @@ const _NetworkPlus = (function () {
       matches: [],        // array of row references that match any keyword
       currentIndex: -1,   // index into matches[] for navigation
       scope: { url: true, reqBody: true, resBody: true, reqHeaders: true, resHeaders: true },
-      // Per-row match map: row -> Set of colorIdx values
+      // Per-row match maps keep color and keyword correspondence lookup linear.
       rowColors: new Map(),
+      rowKeywords: new Map(),
       // Per-keyword matches: kwIndex -> { matches: [rows], currentIndex: number }
       perKeyword: new Map(),
     },
@@ -510,6 +928,18 @@ const _NetworkPlus = (function () {
     saveColumnPrefs();
   }
 
+  function moveColumnByKeyboard(colId, direction) {
+    const adjacentId = getAdjacentVisibleColumnId(state.columns, colId, direction);
+    if (!adjacentId) return false;
+    const currentIndex = state.columns.findIndex((column) => column.id === colId);
+    const adjacentIndex = state.columns.findIndex((column) => column.id === adjacentId);
+    const currentColumn = state.columns[currentIndex];
+    state.columns[currentIndex] = state.columns[adjacentIndex];
+    state.columns[adjacentIndex] = currentColumn;
+    saveColumnPrefs();
+    return true;
+  }
+
   // ============================================================
   // Section 7: Filtering [U3][U5][P3]
   // ============================================================
@@ -535,12 +965,7 @@ const _NetworkPlus = (function () {
     }
 
     if (DATE_COLUMNS.indexOf(colId) > -1) {
-      const da = new Date(av).getTime();
-      const db = new Date(bv).getTime();
-      if (isNaN(da) && isNaN(db)) return 0;
-      if (isNaN(da)) return 1;
-      if (isNaN(db)) return -1;
-      return da - db;
+      return compareRequestTimes(a, b, colId);
     }
 
     const sa = String(av).toLowerCase();
@@ -696,14 +1121,19 @@ const _NetworkPlus = (function () {
 
   function buildRowFromRequest(req) {
     const isoStr = (req && req.startedDateTime) || '';
-    const durationMs = (req && req.time) || 0;
+    const durationMs = req && Number.isFinite(req.time) ? req.time : 0;
+    const clientStartEpoch = getRequestEpoch(isoStr, INVALID_REQUEST_EPOCH);
     let serverDoneIso = '';
-    if (isoStr && durationMs > 0) {
-      const startMs = new Date(isoStr).getTime();
-      if (!isNaN(startMs)) {
-        serverDoneIso = new Date(startMs + durationMs).toISOString();
-      }
+    let serverDoneEpoch = INVALID_REQUEST_EPOCH;
+    if (isoStr && durationMs > 0 && clientStartEpoch !== INVALID_REQUEST_EPOCH) {
+      serverDoneEpoch = clientStartEpoch + durationMs;
+      serverDoneIso = new Date(serverDoneEpoch).toISOString();
     }
+    const embeddedContent = req && req.response && req.response.content;
+    const embeddedResponseContent =
+      embeddedContent && typeof embeddedContent.text === 'string' ? embeddedContent.text : null;
+    const embeddedResponseEncoding =
+      embeddedResponseContent !== null && embeddedContent.encoding === 'base64' ? 'base64' : '';
     const r = {
       _reqObj: req,
       method: (req && req.request && req.request.method) || '',
@@ -718,6 +1148,8 @@ const _NetworkPlus = (function () {
       serverDone: fmtLocalTime(serverDoneIso),
       clientStartFilter: fmtFilterTime(isoStr),
       serverDoneFilter: fmtFilterTime(serverDoneIso),
+      clientStartEpoch,
+      serverDoneEpoch,
       duration: durationMs,
       startedDateTime: isoStr,
       requestHeaders: (req && req.request && req.request.headers) || [],
@@ -725,7 +1157,14 @@ const _NetworkPlus = (function () {
       requestPostData: (req && req.request && req.request.postData) || null,
       timings: (req && req.timings) || {},
       initiator: formatInitiator(req.initiator),
-      responseContent: null, // [U1] cache response body
+      responseContent: embeddedResponseContent,
+      responseContentEncoding: embeddedResponseEncoding,
+      responseContentText:
+        embeddedResponseContent === null
+          ? null
+          : decodeResponseContent(embeddedResponseContent, embeddedResponseEncoding),
+      _responseContentPromise: null,
+      responseContentError: null,
     };
     const p = extractUrlParts(r.url);
     r.domain = p.domain;
@@ -735,20 +1174,76 @@ const _NetworkPlus = (function () {
   }
 
   // [U1] Pre-fetch response content for HAR export
-  function cacheResponseContent(row) {
-    if (row._reqObj && typeof row._reqObj.getContent === 'function') {
-      row._reqObj.getContent((content, encoding) => {
-        if (encoding === 'base64') {
-          try {
-            row.responseContent = atob(content);
-          } catch (_e) {
-            row.responseContent = content || '';
-          }
-        } else {
-          row.responseContent = content || '';
+  function cacheResponseContent(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
+    if (row._responseContentPromise) return row._responseContentPromise;
+    if (typeof row.responseContent === 'string') return Promise.resolve(row);
+
+    const requestLabel = row.id == null ? 'unknown request' : 'request ' + row.id;
+    let pending;
+    if (!row._reqObj || typeof row._reqObj.getContent !== 'function') {
+      const error = new Error('Response content is unavailable for ' + requestLabel);
+      row.responseContentError = error;
+      pending = Promise.reject(error);
+    } else {
+      pending = new Promise((resolve, reject) => {
+        let settled = false;
+        const timeoutId = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          const error = new Error('Timed out retrieving response content for ' + requestLabel);
+          row.responseContentError = error;
+          reject(error);
+        }, timeoutMs);
+
+        const fail = (message) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          const error = new Error(message);
+          row.responseContentError = error;
+          reject(error);
+        };
+
+        try {
+          row._reqObj.getContent((content, encoding) => {
+            if (settled) return;
+            const runtimeError =
+              typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError
+                ? chrome.runtime.lastError.message
+                : '';
+            if (runtimeError) {
+              fail('Failed to retrieve response content for ' + requestLabel + ': ' + runtimeError);
+              return;
+            }
+            settled = true;
+            clearTimeout(timeoutId);
+            row.responseContent = typeof content === 'string' ? content : '';
+            row.responseContentEncoding = encoding === 'base64' ? 'base64' : '';
+            row.responseContentText = decodeResponseContent(row.responseContent, row.responseContentEncoding);
+            row.responseContentError = null;
+            resolve(row);
+          });
+        } catch (error) {
+          fail('Failed to retrieve response content for ' + requestLabel + ': ' + error.message);
         }
       });
     }
+
+    row._responseContentPromise = pending;
+    pending.then(undefined, () => {
+      if (row._responseContentPromise === pending) row._responseContentPromise = null;
+    });
+    return pending;
+  }
+
+  async function settleResponseContentForHar(rows, loadResponseContent = cacheResponseContent) {
+    const settlements = await Promise.allSettled(
+      rows.map((row) => Promise.resolve().then(() => loadResponseContent(row))),
+    );
+    return {
+      settlements,
+      unavailableCount: settlements.filter((result) => result.status === 'rejected').length,
+    };
   }
 
   // ============================================================
@@ -775,22 +1270,52 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 10: Table Row Creation (shared) [Q2]
   // ============================================================
-  function createTableRow(row, onClick) {
+  function createTableRow(row, onClick, isTabStop) {
     const tr = document.createElement('tr');
     tr.addEventListener('click', onClick);
+    tr.addEventListener('focus', () => {
+      state.focusedRow = row;
+      const tbody = $('#tbody');
+      if (tbody) {
+        $all('tr[data-row-id]', tbody).forEach((candidate) => {
+          candidate.tabIndex = candidate === tr ? 0 : -1;
+        });
+      }
+    });
     tr.dataset.rowId = row.id;
+    tr.id = 'request-row-' + row.id;
+    tr.tabIndex = isTabStop ? 0 : -1;
+    tr.setAttribute('role', 'row');
+    tr.setAttribute('aria-keyshortcuts', 'ContextMenu Shift+F10');
+    tr.title = 'Press Shift+F10 or the Context Menu key for request actions';
 
+    const isSelected = state.selectedRow === row || state.selectedRows.has(row);
     if (state.selectedRow === row) tr.classList.add('selected');
     if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
+    tr.setAttribute('aria-selected', String(isSelected));
+    const visibleStateBadges = [];
+    if (isSelected) {
+      visibleStateBadges.push({ text: '✓', label: 'Selected request' });
+    }
     // Manual highlight (context menu)
     const hlColor = state.highlightedRows.get(row);
-    if (hlColor) tr.classList.add('highlighted-row', hlColor);
+    if (hlColor) {
+      tr.classList.add('highlighted-row', hlColor);
+      visibleStateBadges.push({ text: '★', label: 'Highlighted request' });
+    }
     // Unified search match highlight — apply first matching keyword color
     const srch = state.search;
     const rowColorSet = srch.rowColors.get(row);
     if (rowColorSet && rowColorSet.size > 0) {
       const firstColor = rowColorSet.values().next().value;
       tr.classList.add('search-match-row', 'search-row-' + firstColor);
+      const rowKeywordSet = srch.rowKeywords.get(row) || new Set();
+      const keywordNumbers = Array.from(rowKeywordSet, (keywordIndex) => keywordIndex + 1);
+      const searchMatchBadge =
+        keywordNumbers.length > 1 ? 'K' + keywordNumbers[0] + '+' + (keywordNumbers.length - 1) : 'K' + keywordNumbers[0];
+      const searchMatchLabel = 'Matches search ' +
+        (keywordNumbers.length === 1 ? 'keyword ' : 'keywords ') + keywordNumbers.join(', ');
+      visibleStateBadges.push({ text: searchMatchBadge, label: searchMatchLabel });
       if (srch.currentIndex >= 0 && srch.matches[srch.currentIndex] === row) {
         tr.classList.add('search-match-current');
       }
@@ -809,6 +1334,7 @@ const _NetworkPlus = (function () {
     const visibleCols = state.columns.filter((c) => c.visible);
     for (const c of visibleCols) {
       const td = document.createElement('td');
+      td.setAttribute('role', 'gridcell');
       if (c.id === 'method') td.classList.add('method-cell');
       if (c.id === 'status') td.classList.add('status-cell');
 
@@ -859,6 +1385,23 @@ const _NetworkPlus = (function () {
       if (c.id === 'url' || c.id === 'path') td.title = row[c.id] || '';
       tr.appendChild(td);
     }
+    if (visibleStateBadges.length > 0) {
+      const firstCell = tr.querySelector('td');
+      if (firstCell) {
+        const badgeGroup = document.createElement('span');
+        badgeGroup.className = 'row-state-badges';
+        for (let i = 0; i < visibleStateBadges.length; i++) {
+          const stateBadge = visibleStateBadges[i];
+          const badge = document.createElement('span');
+          badge.className = 'row-state-badge';
+          badge.textContent = stateBadge.text;
+          badge.title = stateBadge.label;
+          badge.setAttribute('aria-label', stateBadge.label);
+          badgeGroup.appendChild(badge);
+        }
+        firstCell.insertBefore(badgeGroup, firstCell.firstChild);
+      }
+    }
     return tr;
   }
 
@@ -891,6 +1434,8 @@ const _NetworkPlus = (function () {
   function createColumnFilterControl(colId, onChange) {
     const wrap = document.createElement('div');
     wrap.className = 'filter-rule';
+    const column = state.columns.find((candidate) => candidate.id === colId);
+    const columnLabel = column ? column.label : colId;
 
     // --- Time columns (clientStart / serverDone): time range picker with auto-range ---
     if (colId === 'clientStart' || colId === 'serverDone') {
@@ -923,6 +1468,7 @@ const _NetworkPlus = (function () {
       startInput.step = '1';
       startInput.className = 'filter-value';
       startInput.value = startVal;
+      startInput.setAttribute('aria-label', columnLabel + ' filter start time');
 
       const endLabel = document.createElement('span');
       endLabel.textContent = ' To ';
@@ -931,10 +1477,12 @@ const _NetworkPlus = (function () {
       endInput.step = '1';
       endInput.className = 'filter-value';
       endInput.value = endVal;
+      endInput.setAttribute('aria-label', columnLabel + ' filter end time');
 
       const clearBtn = document.createElement('button');
       clearBtn.textContent = 'Reset';
       clearBtn.className = 'filter-clear-btn';
+      clearBtn.setAttribute('aria-label', 'Reset ' + columnLabel + ' time filter');
       clearBtn.addEventListener('click', () => {
         startInput.value = autoStart;
         endInput.value = autoEnd;
@@ -969,6 +1517,7 @@ const _NetworkPlus = (function () {
       const allBtn = document.createElement('button');
       allBtn.textContent = 'All';
       allBtn.className = 'filter-clear-btn';
+      allBtn.setAttribute('aria-label', 'Select all Method filter values');
       allBtn.style.flex = '1';
       allBtn.addEventListener('click', () => {
         HTTP_METHODS.forEach((m) => { include[m] = true; });
@@ -981,6 +1530,7 @@ const _NetworkPlus = (function () {
       const noneBtn = document.createElement('button');
       noneBtn.textContent = 'None';
       noneBtn.className = 'filter-clear-btn';
+      noneBtn.setAttribute('aria-label', 'Deselect all Method filter values');
       noneBtn.style.flex = '1';
       noneBtn.addEventListener('click', () => {
         HTTP_METHODS.forEach((m) => { include[m] = false; });
@@ -1061,6 +1611,7 @@ const _NetworkPlus = (function () {
       inclAnyInput.className = 'filter-value';
       inclAnyInput.placeholder = 'keyword1, keyword2';
       inclAnyInput.value = isAdv ? rule.includeAny || '' : '';
+      inclAnyInput.setAttribute('aria-label', 'URL filter Include any');
 
       const inclAllLabel = document.createElement('label');
       inclAllLabel.textContent = 'Include ALL (comma-separated):';
@@ -1069,6 +1620,7 @@ const _NetworkPlus = (function () {
       inclAllInput.className = 'filter-value';
       inclAllInput.placeholder = 'must1, must2';
       inclAllInput.value = isAdv ? rule.includeAll || '' : '';
+      inclAllInput.setAttribute('aria-label', 'URL filter Include all');
 
       const exclLabel = document.createElement('label');
       exclLabel.textContent = 'Exclude ANY (comma-separated):';
@@ -1077,6 +1629,7 @@ const _NetworkPlus = (function () {
       exclInput.className = 'filter-value';
       exclInput.placeholder = 'exclude1, exclude2';
       exclInput.value = isAdv ? rule.excludeAny || '' : '';
+      exclInput.setAttribute('aria-label', 'URL filter Exclude any');
 
       const csLabel = document.createElement('label');
       const csCb = document.createElement('input');
@@ -1132,16 +1685,19 @@ const _NetworkPlus = (function () {
             opSelect.appendChild(option);
           }
           opSelect.value = cond.op || 'contains';
+          opSelect.setAttribute('aria-label', columnLabel + ' filter condition ' + (idx + 1) + ' operator');
 
           const input = document.createElement('input');
           input.type = 'text';
           input.className = 'filter-value';
           input.placeholder = 'value';
           input.value = cond.value || '';
+          input.setAttribute('aria-label', columnLabel + ' filter condition ' + (idx + 1) + ' value');
 
           const removeBtn = document.createElement('button');
           removeBtn.textContent = 'x';
           removeBtn.className = 'filter-remove-btn';
+          removeBtn.setAttribute('aria-label', 'Remove ' + columnLabel + ' filter condition ' + (idx + 1));
           removeBtn.addEventListener('click', () => {
             conditions.splice(idx, 1);
             if (conditions.length === 0) conditions.push({ op: 'contains', value: '' });
@@ -1170,6 +1726,7 @@ const _NetworkPlus = (function () {
         const addBtn = document.createElement('button');
         addBtn.textContent = '+ Add condition';
         addBtn.className = 'filter-add-btn';
+        addBtn.setAttribute('aria-label', 'Add ' + columnLabel + ' filter condition');
         addBtn.addEventListener('click', () => {
           conditions.push({ op: 'contains', value: '' });
           state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
@@ -1194,12 +1751,14 @@ const _NetworkPlus = (function () {
 
     const rule = state.columnFilterRules[colId] || { op: operators[0].value, value: '' };
     opSelect.value = rule.op;
+    opSelect.setAttribute('aria-label', columnLabel + ' filter operator');
 
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'filter-value';
     input.placeholder = 'value';
     input.value = rule.value || '';
+    input.setAttribute('aria-label', columnLabel + ' filter value');
 
     const updateInputState = () => {
       const noValueRequired = opSelect.value === 'empty' || opSelect.value === 'notempty';
@@ -1224,33 +1783,8 @@ const _NetworkPlus = (function () {
     return wrap;
   }
 
-  function isRuleActive(rule) {
-    if (!rule) return false;
-    if (rule.mode === 'methodSet') {
-      return rule.include ? Object.values(rule.include).some((v) => !v) : false;
-    }
-    if (rule.mode === 'statusSet') {
-      return rule.include ? Object.values(rule.include).some((v) => !v) : false;
-    }
-    if (rule.mode === 'urlAdvanced') {
-      return !!(rule.includeAny || '').trim() || !!(rule.includeAll || '').trim() || !!(rule.excludeAny || '').trim();
-    }
-    if (rule.mode === 'timeRange') {
-      return !!(rule.start || '').trim() || !!(rule.end || '').trim();
-    }
-    if (rule.mode === 'multiText') {
-      return rule.conditions ? rule.conditions.some((c) => (c.value || '').trim() !== '') : false;
-    }
-    if (rule.op === 'empty' || rule.op === 'notempty') return true;
-    return String(rule.value || '').trim() !== '';
-  }
-
   function getActiveFilterCount() {
-    let count = 0;
-    for (const col of state.columns) {
-      if (isRuleActive(state.columnFilterRules[col.id])) count++;
-    }
-    return count;
+    return countActiveColumnFilters(state.columnFilterRules);
   }
 
   function createFilterPopupContent(onChange, focusColId) {
@@ -1324,101 +1858,183 @@ const _NetworkPlus = (function () {
   // ============================================================
   function renderHeader() {
     const thead = $('#thead');
+    const activeHeader = document.activeElement && document.activeElement.closest
+      ? document.activeElement.closest('th[data-col-id]')
+      : null;
+    const focusColId = state.pendingHeaderFocusId || (activeHeader ? activeHeader.dataset.colId : null);
+    state.pendingHeaderFocusId = null;
     thead.textContent = '';
 
-    // Compute total table width from all visible columns
     const visibleCols = state.columns.filter((c) => c.visible);
-    const totalW = visibleCols.reduce((sum, c) => sum + (c.width || 120), 0);
-    const grid = $('#grid');
-    grid.style.width = totalW + 'px';
+    const updateGridWidth = () => {
+      const totalWidth = state.columns
+        .filter((column) => column.visible)
+        .reduce((sum, column) => sum + clampColumnWidth(column.width), 0);
+      $('#grid').style.width = totalWidth + 'px';
+    };
+    updateGridWidth();
 
-    // Title row
     const tr = document.createElement('tr');
     tr.className = 'title-row';
+    tr.setAttribute('role', 'row');
     let dragSrcColId = null;
     for (const c of visibleCols) {
+      c.width = clampColumnWidth(c.width);
       const th = document.createElement('th');
-      th.style.width = (c.width || 120) + 'px';
+      th.style.width = c.width + 'px';
       th.className = 'sortable-header';
       th.dataset.colId = c.id;
       th.draggable = true;
-      const sortIndicator =
-        state.sort.colId === c.id ? (state.sort.direction === 'asc' ? ' ▲' : state.sort.direction === 'desc' ? ' ▼' : '') : '';
-      th.textContent = c.label + sortIndicator;
-      th.title = 'Click to sort, drag to reorder';
-      th.addEventListener('click', (e) => {
-        if (e.target && e.target.classList && e.target.classList.contains('col-resizer')) return;
+      th.scope = 'col';
+      th.tabIndex = 0;
+      th.setAttribute('role', 'columnheader');
+      th.setAttribute('aria-label', c.label);
+      th.setAttribute('aria-haspopup', 'dialog');
+      th.setAttribute('aria-controls', 'columnFilterPopup');
+      th.setAttribute('aria-expanded', 'false');
+      th.setAttribute('aria-keyshortcuts', 'Enter Space Alt+ArrowLeft Alt+ArrowRight Shift+F10');
+      const sortState = getAriaSortValue(state.sort, c.id);
+      th.setAttribute('aria-sort', sortState);
+      th.title = c.label + ': Enter or Space to sort; Alt+Left/Right Arrow to reorder; context menu to filter';
+
+      const label = document.createElement('span');
+      label.className = 'column-header-label';
+      label.textContent = c.label;
+      th.appendChild(label);
+      if (sortState !== 'none') {
+        const indicator = document.createElement('span');
+        indicator.className = 'sort-indicator';
+        indicator.setAttribute('aria-hidden', 'true');
+        indicator.textContent = sortState === 'ascending' ? ' ▲' : ' ▼';
+        th.appendChild(indicator);
+      }
+
+      const sortColumn = () => {
         toggleSort(c.id);
+        state.pendingHeaderFocusId = c.id;
+        const nextState = state.sort.colId === c.id
+          ? (state.sort.direction === 'asc' ? 'ascending' : 'descending')
+          : 'none';
+        setStatus(c.label + ' sort ' + nextState);
         render();
+      };
+      th.addEventListener('click', (event) => {
+        if (event.target && event.target.classList && event.target.classList.contains('col-resizer')) return;
+        sortColumn();
+      });
+      th.addEventListener('keydown', (event) => {
+        if (event.target && event.target.classList && event.target.classList.contains('col-resizer')) return;
+        if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+          event.preventDefault();
+          event.stopPropagation();
+          const direction = event.key === 'ArrowLeft' ? -1 : 1;
+          if (moveColumnByKeyboard(c.id, direction)) {
+            state.pendingHeaderFocusId = c.id;
+            setStatus(c.label + ' column moved ' + (direction < 0 ? 'left' : 'right'));
+            render();
+          }
+          return;
+        }
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          event.stopPropagation();
+          sortColumn();
+        }
       });
 
-      // --- Drag-and-drop reorder ---
-      th.addEventListener('dragstart', (e) => {
+      th.addEventListener('dragstart', (event) => {
         dragSrcColId = c.id;
         th.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', c.id);
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', c.id);
       });
       th.addEventListener('dragend', () => {
         th.classList.remove('dragging');
-        tr.querySelectorAll('th').forEach((el) => {
-          el.classList.remove('drag-over-left', 'drag-over-right');
+        tr.querySelectorAll('th').forEach((element) => {
+          element.classList.remove('drag-over-left', 'drag-over-right');
         });
       });
-      th.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
+      th.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
         if (!dragSrcColId || dragSrcColId === c.id) return;
         const rect = th.getBoundingClientRect();
         const midX = rect.left + rect.width / 2;
-        th.classList.toggle('drag-over-left', e.clientX < midX);
-        th.classList.toggle('drag-over-right', e.clientX >= midX);
+        th.classList.toggle('drag-over-left', event.clientX < midX);
+        th.classList.toggle('drag-over-right', event.clientX >= midX);
       });
       th.addEventListener('dragleave', () => {
         th.classList.remove('drag-over-left', 'drag-over-right');
       });
-      th.addEventListener('drop', (e) => {
-        e.preventDefault();
+      th.addEventListener('drop', (event) => {
+        event.preventDefault();
         th.classList.remove('drag-over-left', 'drag-over-right');
-        const fromId = e.dataTransfer.getData('text/plain');
+        const fromId = event.dataTransfer.getData('text/plain');
         if (fromId && fromId !== c.id) {
           moveColumn(fromId, c.id);
           render();
         }
       });
 
-      // --- Column resizer (independent width) ---
-      const resizer = document.createElement('div');
-      resizer.className = 'col-resizer';
-      ((col, headerEl) => {
-        resizer.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const startX = e.clientX;
-          const startWidth = headerEl.offsetWidth;
-          const handleMouseMove = (ev) => {
-            const newWidth = startWidth + (ev.clientX - startX);
-            if (newWidth > MIN_COL_WIDTH) {
-              col.width = newWidth;
-              headerEl.style.width = newWidth + 'px';
-              // Update total table width
-              const newTotal = state.columns.filter((cc) => cc.visible).reduce((s, cc) => s + (cc.width || 120), 0);
-              grid.style.width = newTotal + 'px';
-            }
-          };
-          const handleMouseUp = () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-            saveColumnPrefs();
-          };
-          document.addEventListener('mousemove', handleMouseMove);
-          document.addEventListener('mouseup', handleMouseUp);
-        });
-      })(c, th);
-      th.appendChild(resizer);
+      const columnResizer = document.createElement('div');
+      columnResizer.className = 'col-resizer';
+      columnResizer.tabIndex = 0;
+      columnResizer.draggable = false;
+      columnResizer.setAttribute('role', 'separator');
+      columnResizer.setAttribute('aria-orientation', 'vertical');
+      columnResizer.setAttribute('aria-label', 'Resize ' + c.label + ' column');
+      columnResizer.setAttribute('aria-controls', 'grid');
+      columnResizer.setAttribute('aria-valuemin', String(MIN_COL_WIDTH));
+      columnResizer.setAttribute('aria-valuemax', String(MAX_COL_WIDTH));
+      columnResizer.setAttribute('aria-valuenow', String(c.width));
+      columnResizer.setAttribute('aria-valuetext', c.label + ' column width ' + c.width + ' pixels');
+      columnResizer.setAttribute('aria-keyshortcuts', 'ArrowLeft ArrowRight Shift+ArrowLeft Shift+ArrowRight');
+      columnResizer.title = 'Resize ' + c.label + ' column with Left/Right Arrow; hold Shift for a larger step';
+
+      const applyColumnWidth = (newWidth) => {
+        c.width = clampColumnWidth(newWidth);
+        th.style.width = c.width + 'px';
+        columnResizer.setAttribute('aria-valuenow', String(c.width));
+        columnResizer.setAttribute('aria-valuetext', c.label + ' column width ' + c.width + ' pixels');
+        updateGridWidth();
+      };
+      columnResizer.addEventListener('keydown', (event) => {
+        const newWidth = adjustColumnWidth(c.width, event.key, event.shiftKey);
+        if (newWidth == null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        applyColumnWidth(newWidth);
+        saveColumnPrefs();
+        setStatus(c.label + ' column width ' + c.width + ' pixels');
+      });
+      columnResizer.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      columnResizer.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const startX = event.clientX;
+        const startWidth = th.offsetWidth;
+        const handleMouseMove = (moveEvent) => {
+          applyColumnWidth(startWidth + (moveEvent.clientX - startX));
+        };
+        const handleMouseUp = () => {
+          document.removeEventListener('mousemove', handleMouseMove);
+          document.removeEventListener('mouseup', handleMouseUp);
+          saveColumnPrefs();
+        };
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+      });
+      th.appendChild(columnResizer);
       tr.appendChild(th);
     }
     thead.appendChild(tr);
+
+    if (focusColId) {
+      const headerToFocus = thead.querySelector('th[data-col-id="' + focusColId + '"]');
+      if (headerToFocus) headerToFocus.focus({ preventScroll: true });
+    }
   }
 
   // Update search match state without triggering re-render.
@@ -1426,16 +2042,21 @@ const _NetworkPlus = (function () {
   function refreshSearchMatches() {
     const srch = state.search;
     const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    const previousMatches = srch.matches;
+    const previousIndex = srch.currentIndex;
     if (activeKws.length === 0) {
       srch.rowColors.clear();
+      srch.rowKeywords.clear();
       srch.matches = [];
+      srch.currentIndex = -1;
       srch.perKeyword.clear();
       return;
     }
     srch.rowColors.clear();
+    srch.rowKeywords.clear();
     const sorted = getSortedRows(state.filteredRows);
     const matchSet = new Set();
-    // Build per-keyword match lists
+    // Build per-keyword match lists while retaining each navigated row when it still matches.
     for (let ki = 0; ki < srch.keywords.length; ki++) {
       const kw = srch.keywords[ki];
       if (!kw.query || !kw.query.trim()) {
@@ -1447,104 +2068,230 @@ const _NetworkPlus = (function () {
         if (deepSearchMatch(row, kw.query, srch.scope)) {
           matchSet.add(row);
           if (!srch.rowColors.has(row)) srch.rowColors.set(row, new Set());
+          if (!srch.rowKeywords.has(row)) srch.rowKeywords.set(row, new Set());
           srch.rowColors.get(row).add(kw.colorIdx);
+          srch.rowKeywords.get(row).add(ki);
           kwMatches.push(row);
         }
       }
-      const prev = srch.perKeyword.get(ki);
-      const prevIdx = prev ? prev.currentIndex : -1;
-      const clampedIdx = prevIdx >= kwMatches.length ? kwMatches.length - 1 : prevIdx;
-      srch.perKeyword.set(ki, { matches: kwMatches, currentIndex: clampedIdx });
+      const previousKeyword = srch.perKeyword.get(ki);
+      const currentIndex = preserveMatchingRowIndex(
+        previousKeyword ? previousKeyword.matches : [],
+        previousKeyword ? previousKeyword.currentIndex : -1,
+        kwMatches,
+      );
+      srch.perKeyword.set(ki, { matches: kwMatches, currentIndex });
     }
     // Remove stale per-keyword entries
     for (const key of srch.perKeyword.keys()) {
       if (key >= srch.keywords.length) srch.perKeyword.delete(key);
     }
-    srch.matches = sorted.filter((r) => matchSet.has(r));
-    // Keep global currentIndex in bounds
-    if (srch.currentIndex >= srch.matches.length) {
-      srch.currentIndex = srch.matches.length > 0 ? srch.matches.length - 1 : -1;
+    srch.matches = sorted.filter((row) => matchSet.has(row));
+    srch.currentIndex = preserveMatchingRowIndex(previousMatches, previousIndex, srch.matches);
+  }
+
+  function updateEmptyState(visibleRowCount) {
+    const tableWrap = $('#tableWrap');
+    if (!tableWrap) return;
+    let emptyState = document.getElementById('empty-state-msg');
+    if (visibleRowCount === 0 && !state.paused) {
+      if (!emptyState) {
+        emptyState = document.createElement('div');
+        emptyState.id = 'empty-state-msg';
+        emptyState.className = 'empty-state';
+        const icon = document.createElement('div');
+        icon.className = 'icon';
+        icon.textContent = '📡';
+        const text1 = document.createElement('div');
+        text1.textContent = 'Recording network activity...';
+        const text2 = document.createElement('div');
+        text2.style.fontSize = '0.8em';
+        text2.style.marginTop = '10px';
+        text2.textContent = 'Perform a request or reload the page to see activity.';
+        emptyState.appendChild(icon);
+        emptyState.appendChild(text1);
+        emptyState.appendChild(text2);
+        tableWrap.appendChild(emptyState);
+      }
+      emptyState.style.display = 'flex';
+    } else if (emptyState) {
+      emptyState.style.display = 'none';
     }
   }
 
-  function renderBody() {
-    filterRows();
-    // Refresh search matches so newly added rows are included
-    refreshSearchMatches();
-    const tbody = $('#tbody');
-    // [P2] Use DocumentFragment for batch insert
-    const frag = document.createDocumentFragment();
-    tbody.textContent = '';
-
-    const rows = getSortedRows(state.filteredRows);
-
-    if (rows.length === 0 && !state.paused) {
-      if ($('#tableWrap')) {
-        let emptyState = document.getElementById('empty-state-msg');
-        if (!emptyState) {
-          emptyState = document.createElement('div');
-          emptyState.id = 'empty-state-msg';
-          emptyState.className = 'empty-state';
-          const icon = document.createElement('div');
-          icon.className = 'icon';
-          icon.textContent = '📡';
-          const text1 = document.createElement('div');
-          text1.textContent = 'Recording network activity...';
-          const text2 = document.createElement('div');
-          text2.style.fontSize = '0.8em';
-          text2.style.marginTop = '10px';
-          text2.textContent = 'Perform a request or reload the page to see activity.';
-          emptyState.appendChild(icon);
-          emptyState.appendChild(text1);
-          emptyState.appendChild(text2);
-          $('#tableWrap').appendChild(emptyState);
-        }
-        emptyState.style.display = 'flex';
-      }
-    } else {
-      const emptyState = document.getElementById('empty-state-msg');
-      if (emptyState) emptyState.style.display = 'none';
+  function updateTableSummary(visibleRowCount, visibleBytes) {
+    if (Number.isFinite(visibleBytes)) state.visibleBytes = visibleBytes;
+    const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
+    const requestCountText =
+      visibleRowCount +
+      ' / ' +
+      state.rows.length +
+      ' requests · ' +
+      activeFilterCount +
+      ' active column ' +
+      (activeFilterCount === 1 ? 'filter' : 'filters');
+    const counter = $('#counter');
+    if (counter) counter.textContent = requestCountText;
+    queueRequestCountAnnouncement(requestCountText);
+    const filterButton = $('#filterBtn');
+    if (filterButton) {
+      filterButton.textContent =
+        activeFilterCount > 0 ? '⚙️ Column Filters (' + activeFilterCount + ')' : '⚙️ Column Filters';
+      filterButton.setAttribute(
+        'aria-label',
+        activeFilterCount > 0
+          ? 'Column Filters, ' + activeFilterCount + ' active'
+          : 'Column Filters, no active filters',
+      );
     }
-
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const tr = createTableRow(row, (e) => selectRow(row, e));
-      frag.appendChild(tr);
-    }
-    tbody.appendChild(frag);
-    $('#counter').textContent = rows.length + ' requests';
-    // Update total size
-    let totalBytes = 0;
-    for (let i = 0; i < rows.length; i++) totalBytes += rows[i].size || 0;
     const totalSizeEl = $('#totalSize');
-    if (totalSizeEl) totalSizeEl.textContent = totalBytes > 0 ? fmtBytes(totalBytes) + ' transferred' : '';
-    // Update selected rows size
+    if (totalSizeEl) {
+      totalSizeEl.textContent = state.visibleBytes > 0 ? fmtBytes(state.visibleBytes) + ' transferred' : '';
+    }
     const selectedSizeEl = $('#selectedSize');
     if (selectedSizeEl) {
       if (state.selectedRows.size > 0) {
-        let selBytes = 0;
-        for (const r of state.selectedRows) selBytes += r.size || 0;
-        selectedSizeEl.textContent = state.selectedRows.size + ' selected / ' + fmtBytes(selBytes);
+        let selectedBytes = 0;
+        for (const row of state.selectedRows) selectedBytes += row.size || 0;
+        selectedSizeEl.textContent = state.selectedRows.size + ' selected / ' + fmtBytes(selectedBytes);
       } else {
         selectedSizeEl.textContent = '';
       }
     }
-    // Update search count display for live updates during recording
     const srch = state.search;
-    const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    const activeKeywords = srch.keywords.filter((keyword) => keyword.query && keyword.query.trim());
     const countEl = $('#searchCount');
     if (countEl) {
-      if (srch.matches.length === 0 && activeKws.length > 0) {
+      if (srch.matches.length === 0 && activeKeywords.length > 0) {
         countEl.textContent = 'No matches';
-        countEl.style.color = 'var(--status-5xx)';
-      } else if (srch.matches.length > 0) {
+        countEl.style.color = 'var(--status-5xx-text)';
+      } else if (srch.matches.length > 0 && activeKeywords.length > 0) {
         countEl.textContent = srch.matches.length + ' matches';
         countEl.style.color = '';
       } else {
         countEl.textContent = '';
         countEl.style.color = '';
       }
+      queueSearchCountAnnouncement(countEl.textContent);
     }
+  }
+
+  function appendIncrementalRows(liveRows) {
+    const tbody = $('#tbody');
+    if (!tbody) return false;
+    const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
+    if (
+      !isIncrementalAppendEligible(
+        state.sort,
+        activeFilterCount,
+        state.search.keywords,
+        state.renderedActiveFilterCount,
+      )
+    ) {
+      return false;
+    }
+    const renderedRowIds = $all('tr[data-row-id]', tbody).map((rowElement) => rowElement.dataset.rowId);
+    const rowsToAppend = getIncrementalAppendBatch(liveRows, renderedRowIds);
+    refreshSearchMatches();
+    if (rowsToAppend.length === 0) {
+      updateEmptyState(state.filteredRows.length);
+      updateTableSummary(state.filteredRows.length);
+      return true;
+    }
+    const filteredSet = new Set(state.filteredRows);
+    for (const row of rowsToAppend) {
+      if (!filteredSet.has(row)) {
+        state.filteredRows.push(row);
+        filteredSet.add(row);
+      }
+    }
+    const fragment = document.createDocumentFragment();
+    const currentTabStop = tbody.querySelector(`tr[tabindex="0"]`);
+    const tabStopRow = currentTabStop
+      ? null
+      : rowsToAppend.includes(state.focusedRow)
+        ? state.focusedRow
+        : rowsToAppend.includes(state.selectedRow)
+          ? state.selectedRow
+          : rowsToAppend[0];
+    for (const row of rowsToAppend) {
+      fragment.appendChild(createTableRow(row, (event) => selectRow(row, event), row === tabStopRow));
+    }
+    tbody.appendChild(fragment);
+    state.visibleBytes += rowsToAppend.reduce((total, row) => total + (row.size || 0), 0);
+    updateEmptyState(state.filteredRows.length);
+    updateTableSummary(state.filteredRows.length);
+    return true;
+  }
+
+  function replaceRenderedRowStates(rows) {
+    const tbody = $('#tbody');
+    if (!tbody) return false;
+    const activeRow =
+      document.activeElement && document.activeElement.closest
+        ? document.activeElement.closest('tr[data-row-id]')
+        : null;
+    const focusRowId = state.pendingRowFocusId || (activeRow ? activeRow.dataset.rowId : null);
+    state.pendingRowFocusId = null;
+    const affectedRows = Array.from(new Set(rows.filter(Boolean)));
+    const tabStopRow = state.filteredRows.includes(state.focusedRow)
+      ? state.focusedRow
+      : state.filteredRows.includes(state.selectedRow)
+        ? state.selectedRow
+        : state.filteredRows[0];
+    for (const row of affectedRows) {
+      const renderedRow = tbody.querySelector(`tr[data-row-id="${row.id}"]`);
+      if (!renderedRow) {
+        if (state.filteredRows.includes(row)) return false;
+        continue;
+      }
+      const replacement = createTableRow(row, (event) => selectRow(row, event), row === tabStopRow);
+      renderedRow.replaceWith(replacement);
+    }
+    if (focusRowId) {
+      const rowToFocus = tbody.querySelector(`tr[data-row-id="${focusRowId}"]`);
+      if (rowToFocus) rowToFocus.focus({ preventScroll: true });
+    }
+    updateTableSummary(state.filteredRows.length);
+    return true;
+  }
+
+  function renderBody() {
+    filterRows();
+    state.renderedActiveFilterCount = countActiveColumnFilters(state.columnFilterRules);
+    refreshSearchMatches();
+    const rows = getSortedRows(state.filteredRows);
+    const visibleBytes = rows.reduce((total, row) => total + (row.size || 0), 0);
+    updateEmptyState(rows.length);
+    const tbody = $('#tbody');
+    const activeRow =
+      document.activeElement && document.activeElement.closest
+        ? document.activeElement.closest('tr[data-row-id]')
+        : null;
+    const focusRowId = state.pendingRowFocusId || (activeRow ? activeRow.dataset.rowId : null);
+    state.pendingRowFocusId = null;
+    if (!tbody) {
+      updateTableSummary(rows.length, visibleBytes);
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    tbody.textContent = '';
+    const tabStopRow = rows.includes(state.focusedRow)
+      ? state.focusedRow
+      : rows.includes(state.selectedRow)
+        ? state.selectedRow
+        : rows[0];
+    for (const row of rows) {
+      fragment.appendChild(createTableRow(row, (event) => selectRow(row, event), row === tabStopRow));
+    }
+    tbody.appendChild(fragment);
+    if (focusRowId) {
+      const requestedRow = tbody.querySelector(`tr[data-row-id="${focusRowId}"]`);
+      const fallbackRow = tabStopRow ? tbody.querySelector(`tr[data-row-id="${tabStopRow.id}"]`) : null;
+      const rowToFocus = requestedRow || fallbackRow;
+      if (rowToFocus) rowToFocus.focus({ preventScroll: true });
+    }
+    updateTableSummary(rows.length, visibleBytes);
   }
 
   function render() {
@@ -1555,6 +2302,13 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 13: Detail Panel — Fiddler-style tabbed inspector
   // ============================================================
+
+  function clearDetailsPanel() {
+    $('#detailsTitle').textContent = 'Select a request...';
+    $all('.tab-pane', $('#details')).forEach((pane) => {
+      pane.textContent = '';
+    });
+  }
 
   function parseCookieHeader(headerValue) {
     if (!headerValue) return [];
@@ -1898,42 +2652,126 @@ const _NetworkPlus = (function () {
     return pre;
   }
 
-  function selectRow(row, event) {
+  function setResponsePaneMessage(message) {
+    $('#res-body').textContent = message;
+    $('#res-preview').textContent = message;
+    $('#res-raw').textContent = message;
+  }
+
+  function renderCachedResponseContent(row) {
+    const resBodyPane = $('#res-body');
+    const resPreviewPane = $('#res-preview');
+    const resRawPane = $('#res-raw');
+    const rawContent = typeof row.responseContent === 'string' ? row.responseContent : '';
+    const encoding = row.responseContentEncoding === 'base64' ? 'base64' : '';
+    let text = row.responseContentText != null
+      ? row.responseContentText
+      : decodeResponseContent(rawContent, encoding);
+    if (encoding === 'base64' && rawContent && !text) text = '(could not decode base64 response)';
+
+    // Body tab — formatted text
+    resBodyPane.textContent = '';
+    const treeEl = renderJsonTree(text);
+    if (treeEl) {
+      resBodyPane.appendChild(treeEl);
+    } else {
+      const bodyPre = document.createElement('pre');
+      bodyPre.className = 'code-block';
+      if (text.length > TRUNCATE_LIMIT) {
+        bodyPre.textContent = text.substring(0, TRUNCATE_LIMIT);
+        const showMore = document.createElement('button');
+        showMore.textContent = '... Show all (' + fmtBytes(text.length) + ')';
+        showMore.className = 'link-btn';
+        showMore.addEventListener('click', () => {
+          bodyPre.textContent = text;
+        });
+        resBodyPane.appendChild(bodyPre);
+        resBodyPane.appendChild(showMore);
+      } else {
+        bodyPre.textContent = text || '(no response body)';
+        resBodyPane.appendChild(bodyPre);
+      }
+    }
+    const copyBody = document.createElement('button');
+    copyBody.className = 'copy-btn';
+    copyBody.textContent = 'Copy';
+    copyBody.addEventListener('click', () => {
+      copyTextWithFeedback(text, 'Copied response body');
+    });
+    resBodyPane.insertBefore(copyBody, resBodyPane.firstChild);
+
+    // Preview tab — image, sandboxed HTML, or formatted JSON
+    resPreviewPane.textContent = '';
+    if (encoding === 'base64' && row.type && row.type.startsWith('image/')) {
+      const img = document.createElement('img');
+      img.src = 'data:' + row.type + ';base64,' + rawContent;
+      img.alt = 'Response image preview';
+      img.style.maxWidth = '100%';
+      resPreviewPane.appendChild(img);
+    } else if (row.type && row.type.indexOf('html') > -1) {
+      const iframe = document.createElement('iframe');
+      iframe.sandbox = '';
+      iframe.title = 'Response HTML preview';
+      iframe.style.width = '100%';
+      iframe.style.height = '300px';
+      iframe.style.border = '1px solid var(--border)';
+      iframe.srcdoc = text;
+      resPreviewPane.appendChild(iframe);
+    } else {
+      const previewFormatted = formatJsonSafe(text);
+      if (previewFormatted) {
+        resPreviewPane.appendChild(renderJsonHighlighted(previewFormatted));
+      } else {
+        resPreviewPane.textContent = '(no preview available)';
+      }
+    }
+
+    // Raw tab
+    resRawPane.textContent = '';
+    const rawResPre = renderRawHighlighted(buildRawResponseText(row, text));
+    const copyRawRes = document.createElement('button');
+    copyRawRes.className = 'copy-btn';
+    copyRawRes.textContent = 'Copy';
+    copyRawRes.addEventListener('click', () => {
+      copyTextWithFeedback(rawResPre.textContent, 'Copied raw response');
+    });
+    resRawPane.appendChild(copyRawRes);
+    resRawPane.appendChild(rawResPre);
+  }
+
+  function selectRow(row, event, moveFocus) {
+    const previousFocusedRow = state.focusedRow;
+    const previousSelectedRow = state.selectedRow;
+    if (row) state.focusedRow = row;
+    if (moveFocus && row) state.pendingRowFocusId = String(row.id);
     // Multi-row selection support
-    if (event && event.ctrlKey) {
-      // Ctrl+Click: toggle multi-selection
+    if (event && (event.ctrlKey || event.metaKey)) {
       if (state.selectedRows.has(row)) {
         state.selectedRows.delete(row);
       } else {
         state.selectedRows.add(row);
       }
-      renderBody(); // Update row styling only
-      return; // Don't update detail panel
+      if (!replaceRenderedRowStates([previousFocusedRow, row])) renderBody();
+      return; // Do not update the detail panel for a toggle.
     }
-
     if (event && event.shiftKey && state.selectedRow) {
-      // Shift+Click: range selection
-      const filtered = state.filteredRows;
+      // Shift+Click may update many rows, so use the safe full render.
+      const filtered = getSortedRows(state.filteredRows);
       const lastIdx = filtered.indexOf(state.selectedRow);
       const currentIdx = filtered.indexOf(row);
       if (lastIdx !== -1 && currentIdx !== -1) {
         const [start, end] = lastIdx < currentIdx ? [lastIdx, currentIdx] : [currentIdx, lastIdx];
-        for (let i = start; i <= end; i++) {
-          state.selectedRows.add(filtered[i]);
-        }
-        renderBody(); // Update row styling only
-        return; // Don't update detail panel
+        for (let i = start; i <= end; i++) state.selectedRows.add(filtered[i]);
+        renderBody();
+        return; // Do not update the detail panel for a range selection.
       }
     }
-
-    // Normal click: clear multi-selection and show detail
+    // Normal click: update only rows whose primary or multi-selection state changed.
+    const affectedRows = [previousFocusedRow, previousSelectedRow, row, ...state.selectedRows];
     state.selectedRows.clear();
     state.selectedRow = row;
-    renderBody();
+    if (!replaceRenderedRowStates(affectedRows)) renderBody();
     if (!row) return;
-
-    const tableWrap = $('#tableWrap');
-    if (tableWrap) tableWrap.focus();
 
     const titleParts = [];
     if (row.status) titleParts.push(String(row.status));
@@ -1980,7 +2818,7 @@ const _NetworkPlus = (function () {
       copyBtn.className = 'copy-btn';
       copyBtn.textContent = 'Copy';
       copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(text).catch((e) => console.error(e));
+        copyTextWithFeedback(text, 'Copied request body');
       });
       reqBodyPane.insertBefore(copyBtn, reqBodyPane.firstChild);
     } else {
@@ -2016,7 +2854,7 @@ const _NetworkPlus = (function () {
     copyRawReq.className = 'copy-btn';
     copyRawReq.textContent = 'Copy';
     copyRawReq.addEventListener('click', () => {
-      navigator.clipboard.writeText(rawReqPre.textContent).catch((e) => console.error(e));
+      copyTextWithFeedback(rawReqPre.textContent, 'Copied raw request');
     });
     reqRawPane.appendChild(copyRawReq);
     reqRawPane.appendChild(rawReqPre);
@@ -2042,97 +2880,19 @@ const _NetworkPlus = (function () {
       resHeadersPane.appendChild(createKvGrid(row.responseHeaders.map((h) => ({ key: h.name, value: h.value }))));
     }
 
-    // Response > Body, Preview, Raw — populated async
-    const resBodyPane = $('#res-body');
-    const resPreviewPane = $('#res-preview');
-    const resRawPane = $('#res-raw');
-    resBodyPane.textContent = '(loading...)';
-    resPreviewPane.textContent = '(loading...)';
-    resRawPane.textContent = '';
-
-    if (row._reqObj && typeof row._reqObj.getContent === 'function') {
-      row._reqObj.getContent((content, encoding) => {
-        let text = content || '';
-        if (encoding === 'base64') {
-          try {
-            text = atob(content);
-          } catch (_e) {
-            text = '(could not decode base64 response)';
-          }
-        }
-
-        // Body tab — formatted text
-        resBodyPane.textContent = '';
-        const treeEl = renderJsonTree(text);
-        if (treeEl) {
-          resBodyPane.appendChild(treeEl);
-        } else {
-          const bodyPre = document.createElement('pre');
-          bodyPre.className = 'code-block';
-          if (text.length > TRUNCATE_LIMIT) {
-            bodyPre.textContent = text.substring(0, TRUNCATE_LIMIT);
-            const showMore = document.createElement('button');
-            showMore.textContent = '... Show all (' + fmtBytes(text.length) + ')';
-            showMore.className = 'link-btn';
-            showMore.addEventListener('click', () => {
-              bodyPre.textContent = text;
-            });
-            resBodyPane.appendChild(bodyPre);
-            resBodyPane.appendChild(showMore);
-          } else {
-            bodyPre.textContent = text || '(no response body)';
-            resBodyPane.appendChild(bodyPre);
-          }
-        }
-        const copyBody = document.createElement('button');
-        copyBody.className = 'copy-btn';
-        copyBody.textContent = 'Copy';
-        copyBody.addEventListener('click', () => {
-          navigator.clipboard.writeText(text).catch((e) => console.error(e));
-        });
-        resBodyPane.insertBefore(copyBody, resBodyPane.firstChild);
-
-        // Preview tab — image or rendered HTML
-        resPreviewPane.textContent = '';
-        if (encoding === 'base64' && row.type && row.type.startsWith('image/')) {
-          const img = document.createElement('img');
-          img.src = 'data:' + row.type + ';base64,' + content;
-          img.style.maxWidth = '100%';
-          resPreviewPane.appendChild(img);
-        } else if (row.type && (row.type.indexOf('html') > -1)) {
-          const iframe = document.createElement('iframe');
-          iframe.sandbox = '';
-          iframe.style.width = '100%';
-          iframe.style.height = '300px';
-          iframe.style.border = '1px solid var(--border)';
-          iframe.srcdoc = text;
-          resPreviewPane.appendChild(iframe);
-        } else {
-          const previewFormatted = formatJsonSafe(text);
-          if (previewFormatted) {
-            resPreviewPane.appendChild(renderJsonHighlighted(previewFormatted));
-          } else {
-            resPreviewPane.textContent = '(no preview available)';
-          }
-        }
-
-        // Raw tab
-        resRawPane.textContent = '';
-        const rawResPre = renderRawHighlighted(buildRawResponseText(row, text));
-        const copyRawRes = document.createElement('button');
-        copyRawRes.className = 'copy-btn';
-        copyRawRes.textContent = 'Copy';
-        copyRawRes.addEventListener('click', () => {
-          navigator.clipboard.writeText(rawResPre.textContent).catch((e) => console.error(e));
-        });
-        resRawPane.appendChild(copyRawRes);
-        resRawPane.appendChild(rawResPre);
+    // Response > Body, Preview, Raw — populated from the shared response cache
+    setResponsePaneMessage('(loading...)');
+    cacheResponseContent(row)
+      .then((cachedRow) => {
+        if (!shouldRenderSelectedRow(state.selectedRow, cachedRow)) return;
+        renderCachedResponseContent(cachedRow);
+      })
+      .catch((error) => {
+        if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
+        const message = error && error.message ? error.message : 'Response content is unavailable';
+        const stateLabel = /unavailable/i.test(message) ? 'unavailable' : 'error';
+        setResponsePaneMessage('(response body ' + stateLabel + ': ' + message + ')');
       });
-    } else {
-      resBodyPane.textContent = '(response body not available)';
-      resPreviewPane.textContent = '(response body not available)';
-      resRawPane.textContent = '(response body not available)';
-    }
 
     // Response > Cookies
     const resCookiesPane = $('#res-cookies');
@@ -2152,10 +2912,15 @@ const _NetworkPlus = (function () {
     const resTimingPane = $('#res-timing');
     resTimingPane.textContent = '';
     const timingItems = [];
+    const timingBreakdown = calculateTimingSegments(row.timings, row.duration);
+    const timingSegmentMap = new Map(
+      timingBreakdown.segments.map((segment) => [segment.label, segment]),
+    );
     if (row.timings) {
       for (const key in row.timings) {
         if (typeof row.timings[key] === 'number' && row.timings[key] >= 0) {
-          timingItems.push({ name: key, value: fmtTime(row.timings[key]) });
+          const segment = timingSegmentMap.get(key);
+          timingItems.push({ name: key, value: fmtTime(segment ? segment.duration : row.timings[key]) });
         }
       }
     }
@@ -2169,17 +2934,15 @@ const _NetworkPlus = (function () {
     if (row.timings) {
       const barWrap = document.createElement('div');
       barWrap.className = 'timing-bar-wrap';
-      const total = row.duration || 1;
-      const phases = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
-      const colors = ['#999', '#6cf', '#f90', '#c6f', '#9c6', '#6c9', '#69c'];
-      for (let i = 0; i < phases.length; i++) {
-        const val = row.timings[phases[i]];
-        if (typeof val === 'number' && val > 0) {
+      const segmentTotal = timingBreakdown.segments.reduce((sum, segment) => sum + segment.duration, 0);
+      const visualTotal = Math.max(timingBreakdown.total, segmentTotal, 1);
+      for (let i = 0; i < timingBreakdown.segments.length; i++) {
+        const segment = timingBreakdown.segments[i];
+        if (segment.duration > 0) {
           const seg = document.createElement('div');
-          seg.className = 'timing-bar-seg';
-          seg.style.width = Math.max(1, (val / total) * 100) + '%';
-          seg.style.background = colors[i];
-          seg.title = phases[i] + ': ' + fmtTime(val);
+          seg.className = 'timing-bar-seg timing-phase-' + segment.label;
+          seg.style.width = (segment.duration / visualTotal) * 100 + '%';
+          seg.title = segment.label + ': ' + fmtTime(segment.duration);
           barWrap.appendChild(seg);
         }
       }
@@ -2188,14 +2951,13 @@ const _NetworkPlus = (function () {
       // Legend
       const legend = document.createElement('div');
       legend.className = 'timing-legend';
-      for (let i = 0; i < phases.length; i++) {
+      for (let i = 0; i < timingBreakdown.segments.length; i++) {
         const item = document.createElement('span');
         item.className = 'timing-legend-item';
         const dot = document.createElement('span');
-        dot.className = 'timing-legend-dot';
-        dot.style.background = colors[i];
+        dot.className = 'timing-legend-dot timing-phase-' + timingBreakdown.segments[i].label;
         item.appendChild(dot);
-        item.appendChild(document.createTextNode(phases[i]));
+        item.appendChild(document.createTextNode(timingBreakdown.segments[i].label));
         legend.appendChild(item);
       }
       resTimingPane.appendChild(legend);
@@ -2211,10 +2973,9 @@ const _NetworkPlus = (function () {
     return state.filteredRows;
   }
 
-  function buildHarLogFromRows() {
+  function buildHarLogFromRows(rows) {
     const pageref = 'page_1';
     const entries = [];
-    const rows = getExportRows();
     for (const r of rows) {
       const started = r.startedDateTime || new Date().toISOString();
       const url = r.url || '';
@@ -2224,12 +2985,8 @@ const _NetworkPlus = (function () {
       const postData = r.requestPostData
         ? { mimeType: r.requestPostData.mimeType || '', text: r.requestPostData.text || '' }
         : null;
-      // [U1] Include response body text in HAR
-      const content = {
-        size: r.size || 0,
-        mimeType: guessMimeType(r),
-        text: r.responseContent || '',
-      };
+      // [U1] Preserve response body text and its transfer encoding in HAR.
+      const content = buildHarResponseContent(r);
       const timings = { blocked: -1, dns: -1, connect: -1, ssl: -1, send: -1, wait: -1, receive: -1 };
       const t = (r._reqObj && r._reqObj.timings) || {};
       for (const k in timings) {
@@ -2277,15 +3034,41 @@ const _NetworkPlus = (function () {
     };
   }
 
-  function exportHAR() {
-    const har = buildHarLogFromRows();
-    const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'network-plus.har';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  async function exportHAR() {
+    const rows = getExportRows().slice();
+    const exportButton = $('#exportHarBtn');
+    exportButton.disabled = true;
+    setStatus('Preparing HAR export for ' + rows.length + ' requests...');
+    try {
+      const contentResult = await settleResponseContentForHar(rows);
+      const har = buildHarLogFromRows(rows);
+      const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'network-plus.har';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (contentResult.unavailableCount > 0) {
+        setStatus(
+          'Exported ' +
+            rows.length +
+            ' requests to HAR; ' +
+            contentResult.unavailableCount +
+            ' response ' +
+            (contentResult.unavailableCount === 1 ? 'body was' : 'bodies were') +
+            ' unavailable',
+        );
+      } else {
+        setStatus('Exported ' + rows.length + ' requests to HAR');
+      }
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      setStatus('HAR export failed: ' + message);
+      console.error('HAR export failed', error);
+    } finally {
+      exportButton.disabled = false;
+    }
   }
 
   // ============================================================
@@ -2294,6 +3077,15 @@ const _NetworkPlus = (function () {
   function init() {
     loadColumnPrefs();
     setStatus('panel.js loaded');
+
+    const pendingLiveRows = [];
+    let pendingLiveFrame = false;
+    let pendingScrollToBottom = false;
+    let pendingResponseSearchFrame = false;
+    const resetPendingLiveRows = () => {
+      pendingLiveRows.length = 0;
+      pendingScrollToBottom = false;
+    };
 
     // Theme init
     loadThemePref((pref) => applyTheme(pref));
@@ -2307,11 +3099,13 @@ const _NetworkPlus = (function () {
 
     // [U4] Clear — reset filters properly, keeping method defaults
     $('#clearBtn').addEventListener('click', () => {
+      resetPendingLiveRows();
       state.rows = [];
       state.filteredRows = [];
       state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
       state.nextId = 1;
       state.selectedRow = null;
+      state.focusedRow = null;
       state.selectedRows.clear();
       state.highlightedRows.clear();
       // Reset search
@@ -2319,8 +3113,10 @@ const _NetworkPlus = (function () {
       state.search.matches = [];
       state.search.currentIndex = -1;
       state.search.rowColors.clear();
+      state.search.rowKeywords.clear();
       state.search.perKeyword.clear();
       render();
+      clearDetailsPanel();
       setStatus('Cleared');
     });
 
@@ -2329,6 +3125,9 @@ const _NetworkPlus = (function () {
     const topbar = $('.topbar');
     const updateRecordState = () => {
       pauseBtn.innerHTML = state.paused ? PLAY_ICON_SVG : PAUSE_ICON_SVG;
+      const actionLabel = state.paused ? 'Resume recording' : 'Pause recording';
+      pauseBtn.title = actionLabel;
+      pauseBtn.setAttribute('aria-label', actionLabel);
       if (state.paused) {
         topbar.classList.add('paused');
         topbar.classList.remove('recording');
@@ -2347,371 +3146,460 @@ const _NetworkPlus = (function () {
     // Export
     $('#exportHarBtn').addEventListener('click', exportHAR);
 
-    // Column Settings Context Menu
+    // Column settings menu and filter dialog
     const columnsContextMenu = document.createElement('div');
+    columnsContextMenu.id = 'columnsMenu';
     columnsContextMenu.className = 'filter-dropdown-content dropdown-content';
-    columnsContextMenu.style.position = 'absolute';
+    columnsContextMenu.style.position = 'fixed';
     columnsContextMenu.style.display = 'none';
+    columnsContextMenu.setAttribute('role', 'menu');
+    columnsContextMenu.setAttribute('aria-label', 'Visible columns');
+    installPopupKeyboardSupport(columnsContextMenu);
     document.body.appendChild(columnsContextMenu);
 
     const filterPopup = document.createElement('div');
+    filterPopup.id = 'columnFilterPopup';
     filterPopup.className = 'filter-popup dropdown-content';
-    filterPopup.style.position = 'absolute';
+    filterPopup.style.position = 'fixed';
     filterPopup.style.display = 'none';
+    filterPopup.setAttribute('role', 'dialog');
+    filterPopup.setAttribute('aria-label', 'Column filters');
+    installPopupKeyboardSupport(filterPopup);
     document.body.appendChild(filterPopup);
 
-    const openFilterPopup = (x, y, focusColId) => {
+    const openFilterPopup = (x, y, focusColId, trigger) => {
       filterPopup.textContent = '';
       if (focusColId) {
         filterPopup.appendChild(createSingleColumnFilterContent(focusColId, renderBody));
       } else {
         filterPopup.appendChild(createFilterPopupContent(renderBody, null));
       }
-      filterPopup.style.left = x + 'px';
-      filterPopup.style.top = y + 'px';
-      filterPopup.style.display = 'block';
-      filterPopup.classList.add('show');
-      // Clamp popup to viewport so <select> dropdowns are not clipped
-      const rect = filterPopup.getBoundingClientRect();
-      if (rect.right > window.innerWidth) {
-        filterPopup.style.left = Math.max(0, window.innerWidth - rect.width - 8) + 'px';
-      }
-      if (rect.bottom > window.innerHeight) {
-        filterPopup.style.top = Math.max(0, window.innerHeight - rect.height - 8) + 'px';
-      }
+      showAccessiblePopupAt(filterPopup, x, y, trigger);
     };
 
     const renderColumnsContextMenu = () => {
       columnsContextMenu.textContent = '';
 
-      // Select All / Deselect All buttons
       const btnRow = document.createElement('div');
       btnRow.style.cssText = 'display:flex;gap:4px;padding:4px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:4px';
       const selectAllBtn = document.createElement('button');
       selectAllBtn.textContent = 'Select All';
       selectAllBtn.className = 'context-menu-item';
+      selectAllBtn.setAttribute('role', 'menuitem');
       selectAllBtn.style.cssText = 'flex:1;text-align:center;font-size:11px;padding:4px';
       selectAllBtn.addEventListener('click', () => {
-        state.columns.forEach((c) => { c.visible = true; });
+        state.columns.forEach((column) => { column.visible = true; });
         saveColumnPrefs();
         render();
         renderColumnsContextMenu();
-        columnsContextMenu.style.display = 'block';
+        const firstItem = getPopupFocusableItems(columnsContextMenu, true)[0];
+        if (firstItem) firstItem.focus();
       });
       const deselectAllBtn = document.createElement('button');
       deselectAllBtn.textContent = 'Deselect All';
       deselectAllBtn.className = 'context-menu-item';
+      deselectAllBtn.setAttribute('role', 'menuitem');
       deselectAllBtn.style.cssText = 'flex:1;text-align:center;font-size:11px;padding:4px';
       deselectAllBtn.addEventListener('click', () => {
-        state.columns.forEach((c) => { c.visible = false; });
+        state.columns.forEach((column) => { column.visible = false; });
         saveColumnPrefs();
         render();
         renderColumnsContextMenu();
-        columnsContextMenu.style.display = 'block';
+        const firstItem = getPopupFocusableItems(columnsContextMenu, true)[0];
+        if (firstItem) firstItem.focus();
       });
       btnRow.appendChild(selectAllBtn);
       btnRow.appendChild(deselectAllBtn);
       columnsContextMenu.appendChild(btnRow);
 
       state.columns.forEach((current) => {
-        const item = createCheckboxItem(current.label, current.visible, (e) => {
-          const col = state.columns.find((c) => c.id === current.id);
-          if (col) col.visible = e.target.checked;
+        const item = document.createElement('button');
+        item.className = 'context-menu-item';
+        item.setAttribute('role', 'menuitemcheckbox');
+        item.setAttribute('aria-checked', String(current.visible));
+        const updateItem = () => {
+          item.textContent = (current.visible ? '☑ ' : '☐ ') + current.label;
+          item.setAttribute('aria-checked', String(current.visible));
+        };
+        updateItem();
+        item.addEventListener('click', () => {
+          current.visible = !current.visible;
+          updateItem();
           saveColumnPrefs();
           render();
-          renderColumnsContextMenu();
-          columnsContextMenu.style.display = 'block';
         });
         columnsContextMenu.appendChild(item);
       });
     };
 
-    $('#thead').addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      $all('.dropdown-content').forEach((d) => {
-        d.style.display = 'none';
-        d.classList.remove('show');
-      });
-      const th = e.target.closest('th');
+    $('#thead').addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      const th = event.target.closest('th');
       const focusColId = th ? th.dataset.colId : null;
-      openFilterPopup(e.pageX, e.pageY, focusColId);
+      openFilterPopup(event.clientX, event.clientY, focusColId, th);
     });
 
-    $('#columnsBtn').addEventListener('click', (e) => {
-      const isVisible = columnsContextMenu.classList.contains('show');
-      $all('.dropdown-content').forEach((d) => {
-        d.style.display = 'none';
-        d.classList.remove('show');
-      });
-      if (!isVisible) {
-        renderColumnsContextMenu();
-        const rect = e.currentTarget.getBoundingClientRect();
-        columnsContextMenu.style.left = rect.left + window.scrollX + 'px';
-        columnsContextMenu.style.top = rect.bottom + window.scrollY + 'px';
-        columnsContextMenu.style.display = 'block';
-        columnsContextMenu.classList.add('show');
+    const columnsBtn = $('#columnsBtn');
+    const filterBtn = $('#filterBtn');
+    columnsBtn.addEventListener('click', (event) => {
+      if (columnsContextMenu.classList.contains('show')) {
+        closeAccessiblePopup(columnsContextMenu, true);
+        return;
       }
+      renderColumnsContextMenu();
+      const rect = event.currentTarget.getBoundingClientRect();
+      showAccessiblePopupAt(columnsContextMenu, rect.left, rect.bottom, columnsBtn);
     });
 
-    $('#filterBtn').addEventListener('click', (e) => {
-      const isVisible = filterPopup.classList.contains('show');
-      $all('.dropdown-content').forEach((d) => {
-        d.style.display = 'none';
-        d.classList.remove('show');
-      });
-      if (!isVisible) {
-        const rect = e.currentTarget.getBoundingClientRect();
-        openFilterPopup(rect.left + window.scrollX, rect.bottom + window.scrollY, null);
+    filterBtn.addEventListener('click', (event) => {
+      if (filterPopup.classList.contains('show')) {
+        closeAccessiblePopup(filterPopup, true);
+        return;
       }
+      const rect = event.currentTarget.getBoundingClientRect();
+      openFilterPopup(rect.left, rect.bottom, null, filterBtn);
     });
 
     // Tab switching for inspector panels
     const initTabBar = (barId) => {
       const bar = $('#' + barId);
       if (!bar) return;
+      const buttons = $all('.tab-btn', bar);
+      const contentArea = bar.nextElementSibling;
+
+      const activateTab = (btn, moveFocus) => {
+        const tabId = btn.dataset.tab;
+        buttons.forEach((candidate) => {
+          const isActive = candidate === btn;
+          candidate.classList.toggle('active', isActive);
+          candidate.setAttribute('aria-selected', String(isActive));
+          candidate.tabIndex = isActive ? 0 : -1;
+        });
+        if (contentArea) {
+          contentArea.querySelectorAll('.tab-pane').forEach((pane) => {
+            const isActive = pane.id === tabId;
+            pane.classList.toggle('active', isActive);
+            pane.hidden = !isActive;
+          });
+        }
+        if (moveFocus) btn.focus();
+      };
+
       bar.addEventListener('click', (e) => {
         const btn = e.target.closest('.tab-btn');
-        if (!btn) return;
-        const tabId = btn.dataset.tab;
-        // Deactivate siblings
-        bar.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-        btn.classList.add('active');
-        // Show target pane, hide others
-        const contentArea = bar.nextElementSibling;
-        if (contentArea) {
-          contentArea.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
-          const target = contentArea.querySelector('#' + tabId);
-          if (target) target.classList.add('active');
-        }
+        if (btn) activateTab(btn, false);
       });
+      bar.addEventListener('keydown', (e) => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+        const current = e.target.closest('.tab-btn');
+        const nextIndex = getNextTabIndex(buttons.indexOf(current), buttons.length, e.key);
+        if (nextIndex < 0) return;
+        e.preventDefault();
+        activateTab(buttons[nextIndex], true);
+      });
+
+      const activeButton = buttons.find((btn) => btn.classList.contains('active')) || buttons[0];
+      if (activeButton) activateTab(activeButton, false);
     };
     initTabBar('req-tab-bar');
     initTabBar('res-tab-bar');
 
     render();
 
-    // Global click handler to close dropdowns
-    window.addEventListener('click', (e) => {
+    // Outside pointer actions dismiss transient surfaces without trapping focus.
+    window.addEventListener('click', (event) => {
       if (
-        e.target.closest('#filterBtn') ||
-        e.target.closest('#columnsBtn') ||
-        e.target.closest('#searchScopeBtn') ||
-        e.target.closest('.filter-btn') ||
-        e.target.closest('.dropdown-content')
+        event.target.closest('#filterBtn') ||
+        event.target.closest('#columnsBtn') ||
+        event.target.closest('#searchScopeBtn') ||
+        event.target.closest('.search-color-btn') ||
+        event.target.closest('.filter-btn') ||
+        event.target.closest('.dropdown-content')
       ) return;
-      $all('.dropdown-content').forEach((d) => {
-        d.classList.remove('show');
-        d.style.display = 'none';
-      });
+      const clickedControl = event.target.closest('button,input,select,a,[tabindex]');
+      closeAllAccessiblePopups(null, !clickedControl);
     });
 
     // Auto-scroll button
     const autoScrollBtn = document.createElement('button');
     autoScrollBtn.id = 'autoScrollBtn';
     autoScrollBtn.textContent = 'Auto-scroll';
-    if (state.autoScroll) autoScrollBtn.classList.add('active');
+    const updateAutoScrollButton = () => {
+      autoScrollBtn.classList.toggle('active', state.autoScroll);
+      autoScrollBtn.setAttribute('aria-pressed', String(state.autoScroll));
+      autoScrollBtn.title = state.autoScroll ? 'Disable automatic scrolling' : 'Enable automatic scrolling';
+    };
     autoScrollBtn.addEventListener('click', () => {
       state.autoScroll = !state.autoScroll;
-      autoScrollBtn.classList.toggle('active', state.autoScroll);
+      updateAutoScrollButton();
     });
+    updateAutoScrollButton();
     $('#exportHarBtn').insertAdjacentElement('afterend', autoScrollBtn);
 
-    // [U6] Keyboard navigation
+    // [U6] Roving row focus, selection, copy, and context actions
     const tableWrap = $('#tableWrap');
-    tableWrap.setAttribute('tabindex', '0');
-    tableWrap.addEventListener('keydown', (e) => {
-      if (!state.filteredRows.length) return;
-      const currentIdx = state.selectedRow ? state.filteredRows.indexOf(state.selectedRow) : -1;
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        const nextIdx = Math.min(currentIdx + 1, state.filteredRows.length - 1);
-        selectRow(state.filteredRows[nextIdx]);
-        scrollToSelectedRow();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        const prevIdx = Math.max(currentIdx - 1, 0);
-        selectRow(state.filteredRows[prevIdx]);
-        scrollToSelectedRow();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-        // Ctrl+C: copy selected row(s) summary to clipboard
-        const rows = state.selectedRows.size > 0
-          ? [...state.selectedRows]
-          : (state.selectedRow ? [state.selectedRow] : []);
-        if (rows.length === 0) return;
-        e.preventDefault();
-        const text = rows.map((r) => formatRowSummary(r)).join('\n\n---\n\n');
-        navigator.clipboard.writeText(text).then(() => {
-          showCopyToast(rows.length === 1 ? 'Copied 1 request' : 'Copied ' + rows.length + ' requests');
-        }).catch((_err) => {
-          setStatus('Copy failed');
-        });
+    let previousTableScrollTop = tableWrap.scrollTop;
+    tableWrap.addEventListener('scroll', () => {
+      const currentScrollTop = tableWrap.scrollTop;
+      if (state.autoScroll && currentScrollTop < previousTableScrollTop) {
+        state.autoScroll = false;
+        updateAutoScrollButton();
       }
+      previousTableScrollTop = currentScrollTop;
     });
 
     function scrollToSelectedRow() {
       if (!state.selectedRow) return;
-      const selectedTr = tableWrap.querySelector(`tr[data-row-id="${state.selectedRow.id}"]`);
+      const selectedTr = tableWrap.querySelector('tr[data-row-id="' + state.selectedRow.id + '"]');
       if (selectedTr) selectedTr.scrollIntoView({ block: 'nearest' });
     }
 
-    // Copy toast notification
-    const copyToast = document.createElement('div');
-    copyToast.className = 'copy-toast';
-    document.body.appendChild(copyToast);
-    let copyToastTimer = null;
-    function showCopyToast(msg) {
-      copyToast.textContent = msg;
-      copyToast.classList.add('show');
-      if (copyToastTimer) clearTimeout(copyToastTimer);
-      copyToastTimer = setTimeout(() => {
-        copyToast.classList.remove('show');
-      }, 1800);
-    }
-
-    // Right-click context menu for marking/selecting rows
     const contextMenu = document.createElement('div');
+    contextMenu.id = 'rowContextMenu';
     contextMenu.className = 'filter-dropdown-content dropdown-content context-menu';
-    contextMenu.style.position = 'absolute';
+    contextMenu.style.position = 'fixed';
     contextMenu.style.display = 'none';
     contextMenu.style.zIndex = '1000';
+    contextMenu.setAttribute('role', 'menu');
+    contextMenu.setAttribute('aria-label', 'Request actions');
+    installPopupKeyboardSupport(contextMenu);
     document.body.appendChild(contextMenu);
 
     let contextMenuRow = null;
+    let contextMenuInvokerRowId = null;
+    let suppressNextNativeContextMenuRowId = null;
+    const restoreContextMenuFocus = () => {
+      const invokingRow = contextMenuInvokerRowId
+        ? tableWrap.querySelector('tr[data-row-id="' + contextMenuInvokerRowId + '"]')
+        : null;
+      const fallbackRow = invokingRow || tableWrap.querySelector('tbody tr[data-row-id]');
+      if (!fallbackRow) return;
+      $all('tbody tr[data-row-id]', tableWrap).forEach((rowElement) => {
+        rowElement.tabIndex = rowElement === fallbackRow ? 0 : -1;
+      });
+      fallbackRow.focus();
+    };
 
-    tableWrap.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      const tr = e.target.closest('tr');
-      if (!tr || !tr.dataset.rowId) {
-        contextMenu.style.display = 'none';
-        return;
-      }
+    const closeRowContextMenu = (restoreFocus) => {
+      closeAccessiblePopup(contextMenu, restoreFocus);
+    };
 
-      const rowId = parseInt(tr.dataset.rowId, 10);
-      contextMenuRow = state.rows.find((r) => r.id === rowId);
-      if (!contextMenuRow) return;
+    const createRowMenuButton = (text, onActivate) => {
+      const button = document.createElement('button');
+      button.textContent = text;
+      button.className = 'context-menu-item';
+      button.setAttribute('role', 'menuitem');
+      button.addEventListener('click', () => {
+        onActivate();
+        closeRowContextMenu(true);
+      });
+      return button;
+    };
 
+    const openRowContextMenu = (row, x, y, invokingRow) => {
+      if (!row || !invokingRow) return;
+      contextMenuRow = row;
+      contextMenuInvokerRowId = String(row.id);
+      state.focusedRow = row;
       contextMenu.textContent = '';
       const isMultiSelected = state.selectedRows.has(contextMenuRow);
       const targetRows = isMultiSelected && state.selectedRows.size > 0 ? [...state.selectedRows] : [contextMenuRow];
-      const allHighlighted = targetRows.every((r) => state.highlightedRows.has(r));
+      const allHighlighted = targetRows.every((targetRow) => state.highlightedRows.has(targetRow));
 
-      // Highlight color picker
       const hlLabel = document.createElement('div');
-      hlLabel.className = 'context-menu-item';
-      hlLabel.style.cssText = 'font-weight:600;font-size:11px;cursor:default;padding-bottom:2px';
-      hlLabel.textContent = targetRows.length > 1 ? `Highlight (${targetRows.length} rows)` : 'Highlight';
+      hlLabel.className = 'context-menu-label';
+      hlLabel.setAttribute('role', 'presentation');
+      hlLabel.textContent = targetRows.length > 1 ? 'Highlight (' + targetRows.length + ' rows)' : 'Highlight';
       contextMenu.appendChild(hlLabel);
 
       const colorRow = document.createElement('div');
-      colorRow.style.cssText = 'display:flex;gap:4px;padding:4px 9px 6px;flex-wrap:wrap';
-      for (const hc of HIGHLIGHT_COLORS) {
+      colorRow.className = 'context-menu-colors';
+      colorRow.setAttribute('role', 'group');
+      colorRow.setAttribute('aria-label', 'Highlight color');
+      for (const highlightColor of HIGHLIGHT_COLORS) {
         const swatch = document.createElement('button');
-        swatch.className = 'hl-swatch ' + hc.cls;
-        swatch.title = hc.name;
+        swatch.className = 'hl-swatch ' + highlightColor.cls;
+        swatch.title = highlightColor.name;
+        swatch.setAttribute('role', 'menuitem');
+        swatch.setAttribute('aria-label', 'Highlight ' + highlightColor.name);
         swatch.addEventListener('click', () => {
-          targetRows.forEach((r) => { state.highlightedRows.set(r, hc.cls); });
+          targetRows.forEach((targetRow) => { state.highlightedRows.set(targetRow, highlightColor.cls); });
           renderBody();
-          contextMenu.style.display = 'none';
+          closeRowContextMenu(true);
         });
         colorRow.appendChild(swatch);
       }
       contextMenu.appendChild(colorRow);
 
-      // Unhighlight
       if (allHighlighted) {
-        const unhighlightBtn = document.createElement('button');
-        unhighlightBtn.textContent = targetRows.length > 1 ? `Unhighlight (${targetRows.length})` : 'Unhighlight';
-        unhighlightBtn.className = 'context-menu-item';
-        unhighlightBtn.addEventListener('click', () => {
-          targetRows.forEach((r) => { state.highlightedRows.delete(r); });
-          renderBody();
-          contextMenu.style.display = 'none';
-        });
-        contextMenu.appendChild(unhighlightBtn);
+        contextMenu.appendChild(createRowMenuButton(
+          targetRows.length > 1 ? 'Unhighlight (' + targetRows.length + ')' : 'Unhighlight',
+          () => {
+            targetRows.forEach((targetRow) => { state.highlightedRows.delete(targetRow); });
+            renderBody();
+          },
+        ));
       }
 
-      // Add/Remove from multi-selection
-      const selectBtn = document.createElement('button');
-      selectBtn.textContent = isMultiSelected ? 'Deselect' : 'Select';
-      selectBtn.className = 'context-menu-item';
-      selectBtn.addEventListener('click', () => {
-        if (isMultiSelected) {
-          state.selectedRows.delete(contextMenuRow);
-        } else {
-          state.selectedRows.add(contextMenuRow);
-        }
+      contextMenu.appendChild(createRowMenuButton(isMultiSelected ? 'Deselect' : 'Select', () => {
+        if (isMultiSelected) state.selectedRows.delete(contextMenuRow);
+        else state.selectedRows.add(contextMenuRow);
         renderBody();
-        contextMenu.style.display = 'none';
-      });
-      contextMenu.appendChild(selectBtn);
+      }));
 
-      // Clear all highlights
       if (state.highlightedRows.size > 0) {
-        const clearMarksBtn = document.createElement('button');
-        clearMarksBtn.textContent = 'Clear All Highlights';
-        clearMarksBtn.className = 'context-menu-item';
-        clearMarksBtn.addEventListener('click', () => {
+        contextMenu.appendChild(createRowMenuButton('Clear All Highlights', () => {
           state.highlightedRows.clear();
           renderBody();
-          contextMenu.style.display = 'none';
-        });
-        contextMenu.appendChild(clearMarksBtn);
+        }));
       }
 
-      // Export/Keep/Delete selected rows
       if (state.selectedRows.size > 0) {
-        const selCount = state.selectedRows.size;
-        const keepBtn = document.createElement('button');
-        keepBtn.textContent = `Keep Selected (${selCount})`;
-        keepBtn.className = 'context-menu-item';
-        keepBtn.addEventListener('click', () => {
-          state.rows = state.rows.filter((r) => state.selectedRows.has(r));
-          for (const r of state.highlightedRows.keys()) { if (!state.rows.includes(r)) state.highlightedRows.delete(r); }
+        const selectedCount = state.selectedRows.size;
+        contextMenu.appendChild(createRowMenuButton('Keep Selected (' + selectedCount + ')', () => {
+          state.rows = state.rows.filter((targetRow) => state.selectedRows.has(targetRow));
+          for (const highlightedRow of state.highlightedRows.keys()) {
+            if (!state.rows.includes(highlightedRow)) state.highlightedRows.delete(highlightedRow);
+          }
           state.selectedRows.clear();
           renderBody();
-          contextMenu.style.display = 'none';
-        });
-        contextMenu.appendChild(keepBtn);
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.textContent = `Delete Selected (${selCount})`;
-        deleteBtn.className = 'context-menu-item';
-        deleteBtn.addEventListener('click', () => {
-          state.rows = state.rows.filter((r) => !state.selectedRows.has(r));
-          for (const r of state.highlightedRows.keys()) { if (!state.rows.includes(r)) state.highlightedRows.delete(r); }
+        }));
+        contextMenu.appendChild(createRowMenuButton('Delete Selected (' + selectedCount + ')', () => {
+          state.rows = state.rows.filter((targetRow) => !state.selectedRows.has(targetRow));
+          for (const highlightedRow of state.highlightedRows.keys()) {
+            if (!state.rows.includes(highlightedRow)) state.highlightedRows.delete(highlightedRow);
+          }
           state.selectedRows.clear();
           renderBody();
-          contextMenu.style.display = 'none';
-        });
-        contextMenu.appendChild(deleteBtn);
+        }));
       }
 
-      // Show menu
-      contextMenu.style.left = e.pageX + 'px';
-      contextMenu.style.top = e.pageY + 'px';
-      contextMenu.style.display = 'block';
+      showAccessiblePopupAt(contextMenu, x, y, invokingRow, null, restoreContextMenuFocus);
+    };
+
+    tableWrap.addEventListener('contextmenu', (event) => {
+      const tr = event.target.closest('tbody tr[data-row-id]');
+      if (!tr) return;
+      event.preventDefault();
+      const rowId = parseInt(tr.dataset.rowId, 10);
+      if (suppressNextNativeContextMenuRowId === String(rowId)) {
+        suppressNextNativeContextMenuRowId = null;
+        return;
+      }
+      const row = state.rows.find((candidate) => candidate.id === rowId);
+      openRowContextMenu(row, event.clientX, event.clientY, tr);
     });
 
-    // Close context menu on outside click
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.dropdown-content')) {
-        contextMenu.style.display = 'none';
+    tableWrap.addEventListener('keydown', (event) => {
+      const focusedTr = event.target.closest('tbody tr[data-row-id]');
+      if (!focusedTr) return;
+      const focusedRowId = parseInt(focusedTr.dataset.rowId, 10);
+      const focusedRow = state.rows.find((candidate) => candidate.id === focusedRowId);
+      if (!focusedRow) return;
+      const displayedRows = getSortedRows(state.filteredRows);
+      const currentRow = state.focusedRow || state.selectedRow;
+      const currentIndex = currentRow ? displayedRows.indexOf(currentRow) : -1;
+
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectRow(focusedRow, event, true);
+        scrollToSelectedRow();
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (displayedRows.length === 0) return;
+        event.preventDefault();
+        const nextIndex = event.key === 'ArrowDown'
+          ? Math.min(currentIndex + 1, displayedRows.length - 1)
+          : Math.max(currentIndex - 1, 0);
+        selectRow(displayedRows[nextIndex], null, true);
+        scrollToSelectedRow();
+      } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+        event.preventDefault();
+        const rect = focusedTr.getBoundingClientRect();
+        suppressNextNativeContextMenuRowId = String(focusedRowId);
+        setTimeout(() => {
+          if (suppressNextNativeContextMenuRowId === String(focusedRowId)) {
+            suppressNextNativeContextMenuRowId = null;
+          }
+        }, 0);
+        openRowContextMenu(focusedRow, rect.left + ROW_CONTEXT_MENU_X_OFFSET, rect.top + Math.min(rect.height, ROW_CONTEXT_MENU_Y_OFFSET), focusedTr);
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+        const rows = state.selectedRows.size > 0
+          ? [...state.selectedRows]
+          : (state.selectedRow ? [state.selectedRow] : []);
+        if (rows.length === 0) return;
+        event.preventDefault();
+        const text = rows.map((selectedRow) => formatRowSummary(selectedRow)).join('\n\n---\n\n');
+        copyTextWithFeedback(
+          text,
+          rows.length === 1 ? 'Copied 1 request' : 'Copied ' + rows.length + ' requests',
+        );
       }
     });
 
-    // Resizer logic (left/right panel split)
+    // Main workbench divider: width in wide mode, height in narrow mode.
     const resizer = $('#resizer');
     const details = $('#details');
+    const content = $('#content');
+    let mainSplitIsNarrow = null;
 
-    resizer.addEventListener('mousedown', () => {
-      const handleMouseMove = (e) => {
-        const totalWidth = $('#content').offsetWidth;
-        const newDetailsWidth = totalWidth - e.clientX;
-        if (newDetailsWidth > MIN_DETAILS_WIDTH && newDetailsWidth < totalWidth - MIN_TABLE_WIDTH) {
-          details.style.flexBasis = newDetailsWidth + 'px';
-          tableWrap.style.flexBasis = totalWidth - newDetailsWidth - RESIZER_WIDTH + 'px';
-        }
+    const applyMainSplit = (split) => {
+      if (!split) return;
+      tableWrap.style.flexBasis = split.primarySize + 'px';
+      details.style.flexBasis = split.detailsSize + 'px';
+      resizer.setAttribute('aria-valuenow', String(split.primaryPercent));
+      resizer.setAttribute('aria-valuetext', 'Request list ' + split.primaryPercent + ' percent');
+    };
+
+    const syncMainDividerOrientation = () => {
+      const isNarrow = window.innerWidth <= NARROW_PANEL_MAX_WIDTH;
+      if (mainSplitIsNarrow != null && mainSplitIsNarrow !== isNarrow) {
+        details.style.flexBasis = '';
+        tableWrap.style.flexBasis = '';
+        resizer.setAttribute('aria-valuenow', '50');
+        resizer.setAttribute('aria-valuetext', 'Request list 50 percent');
+      }
+      mainSplitIsNarrow = isNarrow;
+      resizer.setAttribute('aria-orientation', isNarrow ? 'horizontal' : 'vertical');
+      const contentRect = content.getBoundingClientRect();
+      const tableRect = tableWrap.getBoundingClientRect();
+      const totalSize = isNarrow ? contentRect.height : contentRect.width;
+      const primarySize = isNarrow ? tableRect.height : tableRect.width;
+      const currentSplit = calculateMainSplit(primarySize, totalSize, isNarrow);
+      if (currentSplit) {
+        resizer.setAttribute('aria-valuenow', String(currentSplit.primaryPercent));
+        resizer.setAttribute('aria-valuetext', 'Request list ' + currentSplit.primaryPercent + ' percent');
+      }
+    };
+
+    syncMainDividerOrientation();
+    window.addEventListener('resize', () => {
+      syncMainDividerOrientation();
+      reclampOpenPopups();
+    });
+    resizer.addEventListener('keydown', (event) => {
+      const isNarrow = window.innerWidth <= NARROW_PANEL_MAX_WIDTH;
+      const expectedKeys = isNarrow ? ['ArrowUp', 'ArrowDown'] : ['ArrowLeft', 'ArrowRight'];
+      if (!expectedKeys.includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const contentRect = content.getBoundingClientRect();
+      const tableRect = tableWrap.getBoundingClientRect();
+      const totalSize = isNarrow ? contentRect.height : contentRect.width;
+      const currentPrimarySize = isNarrow ? tableRect.height : tableRect.width;
+      const split = adjustMainSplitByKeyboard(currentPrimarySize, totalSize, isNarrow, event.key, event.shiftKey);
+      applyMainSplit(split);
+      if (split) setStatus('Request list ' + split.primaryPercent + ' percent');
+    });
+    resizer.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      const isNarrow = window.innerWidth <= NARROW_PANEL_MAX_WIDTH;
+      const handleMouseMove = (moveEvent) => {
+        const contentRect = content.getBoundingClientRect();
+        const totalSize = isNarrow ? contentRect.height : contentRect.width;
+        const pointerPosition = isNarrow
+          ? moveEvent.clientY - contentRect.top
+          : moveEvent.clientX - contentRect.left;
+        applyMainSplit(calculateMainSplit(pointerPosition, totalSize, isNarrow));
       };
       const handleMouseUp = () => {
         document.removeEventListener('mousemove', handleMouseMove);
@@ -2725,25 +3613,49 @@ const _NetworkPlus = (function () {
     const inspectorDivider = $('#inspector-divider');
     const inspectorPanels = inspectorDivider ? inspectorDivider.parentElement : null;
     if (inspectorDivider && inspectorPanels) {
-      inspectorDivider.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        const reqPane = $('#inspector-request');
-        const resPane = $('#inspector-response');
-        const startY = e.clientY;
-        const startReqH = reqPane.offsetHeight;
-        const startResH = resPane.offsetHeight;
+      const requestPane = $('#inspector-request');
+      const responsePane = $('#inspector-response');
+      const applyInspectorSplit = (split) => {
+        if (!split) return;
+        requestPane.style.flex = 'none';
+        responsePane.style.flex = 'none';
+        requestPane.style.height = split.requestSize + 'px';
+        responsePane.style.height = split.responseSize + 'px';
+        inspectorDivider.setAttribute('aria-valuenow', String(split.requestPercent));
+        inspectorDivider.setAttribute('aria-valuetext', 'Request inspector ' + split.requestPercent + ' percent');
+      };
+      const syncInspectorDividerValue = () => {
+        const split = calculateInspectorSplit(
+          requestPane.getBoundingClientRect().height,
+          inspectorPanels.getBoundingClientRect().height,
+        );
+        if (split) {
+          inspectorDivider.setAttribute('aria-valuenow', String(split.requestPercent));
+          inspectorDivider.setAttribute('aria-valuetext', 'Request inspector ' + split.requestPercent + ' percent');
+        }
+      };
+      window.addEventListener('resize', syncInspectorDividerValue);
 
-        const handleMove = (ev) => {
-          const delta = ev.clientY - startY;
-          const newReqH = startReqH + delta;
-          const newResH = startResH - delta;
-          const minH = 80;
-          if (newReqH >= minH && newResH >= minH) {
-            reqPane.style.flex = 'none';
-            resPane.style.flex = 'none';
-            reqPane.style.height = newReqH + 'px';
-            resPane.style.height = newResH + 'px';
-          }
+      inspectorDivider.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+        event.preventDefault();
+        event.stopPropagation();
+        const totalSize = inspectorPanels.getBoundingClientRect().height;
+        const split = adjustInspectorSplitByKeyboard(
+          requestPane.getBoundingClientRect().height,
+          totalSize,
+          event.key,
+          event.shiftKey,
+        );
+        applyInspectorSplit(split);
+        if (split) setStatus('Request inspector ' + split.requestPercent + ' percent');
+      });
+      inspectorDivider.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        const handleMove = (moveEvent) => {
+          const panelsRect = inspectorPanels.getBoundingClientRect();
+          const pointerPosition = moveEvent.clientY - panelsRect.top;
+          applyInspectorSplit(calculateInspectorSplit(pointerPosition, panelsRect.height));
         };
         const handleUp = () => {
           document.removeEventListener('mousemove', handleMove);
@@ -2761,8 +3673,6 @@ const _NetworkPlus = (function () {
     const searchToggleBtn = $('#searchToggleBtn');
     const searchAddBtn = $('#searchAddBtn');
     const searchScopeBtn = $('#searchScopeBtn');
-    const contentEl = $('#content');
-
     // Track search panel visibility
     let searchPanelVisible = false;
 
@@ -2771,6 +3681,7 @@ const _NetworkPlus = (function () {
       searchPanelVisible = shouldShow;
       searchPanel.style.display = shouldShow ? 'block' : 'none';
       searchToggleBtn.classList.toggle('active', shouldShow);
+      searchToggleBtn.setAttribute('aria-expanded', String(shouldShow));
       if (shouldShow) {
         // Ensure at least one keyword row exists
         if (state.search.keywords.length === 0) {
@@ -2781,23 +3692,18 @@ const _NetworkPlus = (function () {
         const firstInput = searchRows.querySelector('.search-keyword-input');
         if (firstInput) firstInput.focus();
       }
-      updateContentHeight();
     }
 
-    function updateContentHeight() {
-      if (searchPanelVisible) {
-        const panelH = searchPanel.offsetHeight;
-        contentEl.style.height = 'calc(100vh - 72px - ' + panelH + 'px)';
-      } else {
-        contentEl.style.height = '';
-      }
-    }
 
     // Scope popup (dynamically created)
     const scopePopup = document.createElement('div');
+    scopePopup.id = 'searchScopePopup';
     scopePopup.className = 'search-scope-popup dropdown-content';
-    scopePopup.style.position = 'absolute';
+    scopePopup.style.position = 'fixed';
     scopePopup.style.display = 'none';
+    scopePopup.setAttribute('role', 'dialog');
+    scopePopup.setAttribute('aria-label', 'Search scope');
+    installPopupKeyboardSupport(scopePopup);
     document.body.appendChild(scopePopup);
 
     const scopeLabels = [
@@ -2824,40 +3730,48 @@ const _NetworkPlus = (function () {
       });
     }
 
-    searchScopeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const isVisible = scopePopup.classList.contains('show');
-      $all('.dropdown-content').forEach((d) => { d.style.display = 'none'; d.classList.remove('show'); });
-      if (!isVisible) {
-        const rect = searchScopeBtn.getBoundingClientRect();
-        scopePopup.style.left = rect.left + window.scrollX + 'px';
-        scopePopup.style.top = rect.bottom + window.scrollY + 'px';
-        scopePopup.style.display = 'block';
-        scopePopup.classList.add('show');
+    searchScopeBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (scopePopup.classList.contains('show')) {
+        closeAccessiblePopup(scopePopup, true);
+        return;
       }
+      const rect = searchScopeBtn.getBoundingClientRect();
+      showAccessiblePopupAt(scopePopup, rect.left, rect.bottom, searchScopeBtn);
     });
 
     // Color picker popup (shared, repositioned on open)
     const colorPopup = document.createElement('div');
+    colorPopup.id = 'searchColorMenu';
     colorPopup.className = 'search-color-popup dropdown-content';
-    colorPopup.style.position = 'absolute';
+    colorPopup.style.position = 'fixed';
     colorPopup.style.display = 'none';
+    colorPopup.setAttribute('role', 'menu');
+    colorPopup.setAttribute('aria-label', 'Search highlight color');
+    installPopupKeyboardSupport(colorPopup);
     document.body.appendChild(colorPopup);
 
     let colorPopupTargetIdx = -1;
     for (let ci = 0; ci < SEARCH_COLORS.length; ci++) {
       const swatch = document.createElement('button');
       swatch.className = 'search-color-swatch';
-      swatch.style.background = SEARCH_COLORS[ci].hex;
+      swatch.style.background = SEARCH_COLORS[ci].cssColor;
       swatch.title = SEARCH_COLORS[ci].name;
+      swatch.setAttribute('role', 'menuitemradio');
+      swatch.setAttribute('aria-checked', 'false');
+      swatch.setAttribute('aria-label', 'Use ' + SEARCH_COLORS[ci].name + ' search color');
       swatch.addEventListener('click', () => {
-        if (colorPopupTargetIdx >= 0 && colorPopupTargetIdx < state.search.keywords.length) {
-          state.search.keywords[colorPopupTargetIdx].colorIdx = ci;
+        const targetIndex = colorPopupTargetIdx;
+        closeAccessiblePopup(colorPopup, false);
+        if (targetIndex >= 0 && targetIndex < state.search.keywords.length) {
+          state.search.keywords[targetIndex].colorIdx = ci;
           renderSearchRows();
           executeSearch();
+          const nextTrigger = searchRows.querySelector(
+            '.search-color-btn[data-keyword-index="' + targetIndex + '"]',
+          );
+          if (nextTrigger) nextTrigger.focus();
         }
-        colorPopup.style.display = 'none';
-        colorPopup.classList.remove('show');
       });
       colorPopup.appendChild(swatch);
     }
@@ -2889,21 +3803,27 @@ const _NetworkPlus = (function () {
         // Color button
         const colorBtn = document.createElement('button');
         colorBtn.className = 'search-color-btn';
-        colorBtn.style.background = SEARCH_COLORS[kw.colorIdx].hex;
+        colorBtn.style.background = SEARCH_COLORS[kw.colorIdx].cssColor;
         colorBtn.title = 'Change color';
-        colorBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
+        colorBtn.dataset.keywordIndex = String(i);
+        colorBtn.setAttribute('aria-label', 'Change color for search keyword ' + (i + 1));
+        colorBtn.setAttribute('aria-haspopup', 'menu');
+        colorBtn.setAttribute('aria-controls', 'searchColorMenu');
+        colorBtn.setAttribute('aria-expanded', 'false');
+        colorBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          if (colorPopup.classList.contains('show') && colorPopupTargetIdx === i) {
+            closeAccessiblePopup(colorPopup, true);
+            return;
+          }
           colorPopupTargetIdx = i;
-          $all('.dropdown-content').forEach((d) => { d.style.display = 'none'; d.classList.remove('show'); });
-          // Highlight active swatch
-          colorPopup.querySelectorAll('.search-color-swatch').forEach((s, si) => {
-            s.classList.toggle('active', si === kw.colorIdx);
+          colorPopup.querySelectorAll('.search-color-swatch').forEach((swatch, swatchIndex) => {
+            const isActive = swatchIndex === kw.colorIdx;
+            swatch.classList.toggle('active', isActive);
+            swatch.setAttribute('aria-checked', String(isActive));
           });
           const rect = colorBtn.getBoundingClientRect();
-          colorPopup.style.left = rect.right + 4 + window.scrollX + 'px';
-          colorPopup.style.top = rect.top + window.scrollY + 'px';
-          colorPopup.style.display = 'flex';
-          colorPopup.classList.add('show');
+          showAccessiblePopupAt(colorPopup, rect.right + SEARCH_COLOR_POPUP_GAP, rect.top, colorBtn, 'flex');
         });
         row.appendChild(colorBtn);
 
@@ -2913,6 +3833,7 @@ const _NetworkPlus = (function () {
         input.className = 'search-keyword-input';
         input.placeholder = 'Enter search keyword...';
         input.value = kw.query;
+        input.setAttribute('aria-label', 'Search keyword ' + (i + 1));
         input.addEventListener('input', () => {
           state.search.keywords[i].query = input.value;
           debouncedSearch();
@@ -2935,7 +3856,7 @@ const _NetworkPlus = (function () {
         countSpan.className = 'search-kw-count';
         if (kw.query.trim() && kwMatchCount === 0) {
           countSpan.textContent = '0';
-          countSpan.style.color = 'var(--status-5xx)';
+          countSpan.style.color = 'var(--status-5xx-text)';
         } else if (kwMatchCount > 0) {
           countSpan.textContent = (kwCurIdx + 1) + '/' + kwMatchCount;
           countSpan.style.color = '';
@@ -2947,16 +3868,18 @@ const _NetworkPlus = (function () {
         // Per-keyword nav buttons
         const prevBtn = document.createElement('button');
         prevBtn.className = 'search-kw-nav';
-        prevBtn.innerHTML = '&#9650;';
+        prevBtn.textContent = '▲';
         prevBtn.title = 'Previous match (Shift+Enter)';
+        prevBtn.setAttribute('aria-label', 'Previous match for search keyword ' + (i + 1));
         prevBtn.disabled = kwMatchCount === 0;
         prevBtn.addEventListener('click', () => navigateKeywordSearch(i, -1));
         row.appendChild(prevBtn);
 
         const nextBtn = document.createElement('button');
         nextBtn.className = 'search-kw-nav';
-        nextBtn.innerHTML = '&#9660;';
+        nextBtn.textContent = '▼';
         nextBtn.title = 'Next match (Enter)';
+        nextBtn.setAttribute('aria-label', 'Next match for search keyword ' + (i + 1));
         nextBtn.disabled = kwMatchCount === 0;
         nextBtn.addEventListener('click', () => navigateKeywordSearch(i, 1));
         row.appendChild(nextBtn);
@@ -2967,11 +3890,11 @@ const _NetworkPlus = (function () {
           removeBtn.className = 'search-remove-btn';
           removeBtn.textContent = '×';
           removeBtn.title = 'Remove keyword';
+          removeBtn.setAttribute('aria-label', 'Remove search keyword ' + (i + 1));
           removeBtn.addEventListener('click', () => {
             state.search.keywords.splice(i, 1);
             renderSearchRows();
             executeSearch();
-            updateContentHeight();
           });
           row.appendChild(removeBtn);
         }
@@ -2986,8 +3909,6 @@ const _NetworkPlus = (function () {
           inputs[focusedIdx].setSelectionRange(selStart, selEnd);
         }
       }
-      // Update panel height after rendering rows
-      requestAnimationFrame(() => updateContentHeight());
     }
 
     searchAddBtn.addEventListener('click', () => {
@@ -3021,7 +3942,7 @@ const _NetworkPlus = (function () {
       const activeKws = srch.keywords.filter((kw) => kw.query.trim());
       if (srch.matches.length === 0 && activeKws.length > 0) {
         searchCount.textContent = 'No matches';
-        searchCount.style.color = 'var(--status-5xx)';
+        searchCount.style.color = 'var(--status-5xx-text)';
       } else if (srch.matches.length > 0) {
         searchCount.textContent = srch.matches.length + ' matches';
         searchCount.style.color = '';
@@ -3029,6 +3950,7 @@ const _NetworkPlus = (function () {
         searchCount.textContent = '';
         searchCount.style.color = '';
       }
+      queueSearchCountAnnouncement(searchCount.textContent);
       // Update per-keyword counts in search rows
       renderSearchRows();
     }
@@ -3096,10 +4018,12 @@ const _NetworkPlus = (function () {
             const data = JSON.parse(text);
             if (data && data.log && data.log.entries) {
               state.paused = true;
-              pauseBtn.textContent = '▶️';
-              pauseBtn.title = 'Resume recording';
+              updateRecordState();
 
+              resetPendingLiveRows();
               state.rows = [];
+              state.selectedRow = null;
+              state.focusedRow = null;
               state.selectedRows.clear();
               state.highlightedRows.clear();
 
@@ -3114,8 +4038,9 @@ const _NetworkPlus = (function () {
                 }
 
                 const row = buildRowFromRequest(entry);
-                if (entry.response && entry.response.content && entry.response.content.text) {
-                  row.responseContent = entry.response.content.text;
+                if (row.responseContent === null) {
+                  row.responseContent = '';
+                  row.responseContentText = '';
                 }
                 state.rows.push(row);
               });
@@ -3150,8 +4075,11 @@ const _NetworkPlus = (function () {
             }
 
             state.paused = true;
-            pauseBtn.textContent = '▶️';
+            updateRecordState();
+            resetPendingLiveRows();
             state.rows = [];
+            state.selectedRow = null;
+            state.focusedRow = null;
             state.selectedRows.clear();
             state.highlightedRows.clear();
             let currentId = state.nextId;
@@ -3265,19 +4193,39 @@ const _NetworkPlus = (function () {
     }
 
     // Network subscription
-    // Throttle renderBody during heavy traffic to keep UI responsive
-    let pendingRender = false;
-    let pendingScrollToBottom = false;
-    const scheduleRender = (scrollToBottom) => {
-      if (scrollToBottom) pendingScrollToBottom = true;
-      if (pendingRender) return;
-      pendingRender = true;
-      requestAnimationFrame(() => {
-        pendingRender = false;
+    // Batch live rows into one frame. Eligibility is deliberately checked again at flush time.
+    const scheduleResponseSearchRefresh = (row) => {
+      if (!state.rows.includes(row) || !hasActiveSearchKeywords(state.search.keywords)) return;
+      if (pendingResponseSearchFrame) return;
+      pendingResponseSearchFrame = true;
+      window.requestAnimationFrame(() => {
+        pendingResponseSearchFrame = false;
+        if (!hasActiveSearchKeywords(state.search.keywords)) return;
         renderBody();
-        if (pendingScrollToBottom) {
-          pendingScrollToBottom = false;
+        updateSearchUI();
+      });
+    };
+
+    const scheduleLiveRows = (scrollToBottom) => {
+      if (scrollToBottom) pendingScrollToBottom = true;
+      if (pendingLiveFrame) return;
+      pendingLiveFrame = true;
+      window.requestAnimationFrame(() => {
+        pendingLiveFrame = false;
+        const queuedRows = pendingLiveRows.splice(0, pendingLiveRows.length);
+        const shouldScrollToBottom = pendingScrollToBottom && state.autoScroll;
+        pendingScrollToBottom = false;
+        const fastPathEligible = isIncrementalAppendEligible(
+          state.sort,
+          countActiveColumnFilters(state.columnFilterRules),
+          state.search.keywords,
+          state.renderedActiveFilterCount,
+        );
+        const liveRows = retainRowsByIdentity(queuedRows, state.rows);
+        if (!fastPathEligible || !appendIncrementalRows(liveRows)) renderBody();
+        if (shouldScrollToBottom && state.autoScroll) {
           tableWrap.scrollTop = tableWrap.scrollHeight;
+          previousTableScrollTop = tableWrap.scrollTop;
         }
       });
     };
@@ -3286,15 +4234,19 @@ const _NetworkPlus = (function () {
       chrome.devtools.network.onRequestFinished.addListener((request) => {
         if (state.paused) return;
         const row = buildRowFromRequest(request);
-        cacheResponseContent(row); // [U1]
+        cacheResponseContent(row)
+          .then(() => scheduleResponseSearchRefresh(row))
+          .catch((error) => {
+            setStatus('Response content error: ' + error.message);
+            console.error(error);
+          }); // [U1]
         const wasAtBottom =
           state.autoScroll &&
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
         state.rows.push(row);
+        pendingLiveRows.push(row);
 
-        // Throttled re-render to keep sort order and filter state consistent
-        // without blocking the main thread during heavy traffic.
-        scheduleRender(wasAtBottom);
+        scheduleLiveRows(wasAtBottom);
       });
       setStatus('Capturing...');
     } else {
@@ -3310,10 +4262,20 @@ const _NetworkPlus = (function () {
 
   document.addEventListener('DOMContentLoaded', init);
 
-  // Expose pure functions for testing
+  // Expose testable functions for Jest
   return {
     fmtBytes,
     fmtTime,
+    clampPopupPosition,
+    calculateMainSplit,
+    adjustMainSplitByKeyboard,
+    calculateInspectorSplit,
+    adjustInspectorSplitByKeyboard,
+    clampColumnWidth,
+    adjustColumnWidth,
+    getAdjacentVisibleColumnId,
+    getNextMenuItemIndex,
+    getAriaSortValue,
     extractUrlParts,
     formatInitiator,
     parseQueryString,
@@ -3326,6 +4288,22 @@ const _NetworkPlus = (function () {
     deepSearchMatch,
     formatRowSummary,
     DEFAULT_METHOD_FILTERS,
+    getNextTabIndex,
+    getRequestEpoch,
+    compareRequestTimes,
+    calculateTimingSegments,
+    decodeResponseContent,
+    buildHarResponseContent,
+    cacheResponseContent,
+    settleResponseContentForHar,
+    isRuleActive,
+    countActiveColumnFilters,
+    hasActiveSearchKeywords,
+    preserveMatchingRowIndex,
+    shouldRenderSelectedRow,
+    isIncrementalAppendEligible,
+    getIncrementalAppendBatch,
+    retainRowsByIdentity,
   };
 })();
 

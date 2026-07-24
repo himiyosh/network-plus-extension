@@ -154,6 +154,274 @@ describe('toHarHeaders', () => {
   });
 });
 
+describe('getRequestEpoch and compareRequestTimes', () => {
+  test('uses captured ISO timestamps for chronological values', () => {
+    const earlier = np.getRequestEpoch('2026-07-19T01:00:00.000Z');
+    const later = np.getRequestEpoch('2026-07-19T12:00:00.000+09:00');
+    expect(earlier).toBe(Date.parse('2026-07-19T01:00:00.000Z'));
+    expect(later).toBe(Date.parse('2026-07-19T03:00:00.000Z'));
+    expect(earlier).toBeLessThan(later);
+  });
+
+  test('supports stable numeric fallbacks for invalid timestamps', () => {
+    expect(np.getRequestEpoch('not-a-date', 42)).toBe(42);
+    expect(np.getRequestEpoch(null, 17)).toBe(17);
+    expect(np.getRequestEpoch(undefined, NaN)).toBe(0);
+  });
+
+  test('compares client and server epochs for ascending and descending sorts', () => {
+    const earlier = { clientStartEpoch: 1000, serverDoneEpoch: 1200 };
+    const later = { clientStartEpoch: 2000, serverDoneEpoch: 2600 };
+    expect(np.compareRequestTimes(earlier, later, 'clientStart')).toBeLessThan(0);
+    expect(np.compareRequestTimes(earlier, later, 'serverDone')).toBeLessThan(0);
+    expect(np.compareRequestTimes(earlier, later, 'clientStart') * -1).toBeGreaterThan(0);
+    expect(np.compareRequestTimes({}, later, 'clientStart')).toBeGreaterThan(0);
+    expect(np.compareRequestTimes(earlier, later, 'method')).toBe(0);
+  });
+});
+
+describe('calculateTimingSegments', () => {
+  test('subtracts SSL from connect without changing the captured total', () => {
+    const result = np.calculateTimingSegments(
+      { blocked: 10, dns: 20, connect: 100, ssl: 40, send: 5, wait: 60, receive: 25 },
+      220,
+    );
+    const durations = Object.fromEntries(result.segments.map((segment) => [segment.label, segment.duration]));
+    expect(durations.connect).toBe(60);
+    expect(durations.ssl).toBe(40);
+    expect(result.segments.reduce((sum, segment) => sum + segment.duration, 0)).toBe(220);
+    expect(result.total).toBe(220);
+    expect(result.segments.map((segment) => segment.label)).toEqual([
+      'blocked',
+      'dns',
+      'connect',
+      'ssl',
+      'send',
+      'wait',
+      'receive',
+    ]);
+  });
+
+  test('keeps connect intact without SSL and handles invalid values', () => {
+    const result = np.calculateTimingSegments({ connect: 25, ssl: -1, wait: NaN }, NaN);
+    const connect = result.segments.find((segment) => segment.label === 'connect');
+    const ssl = result.segments.find((segment) => segment.label === 'ssl');
+    expect(connect).toEqual({ label: 'connect', duration: 25, available: true });
+    expect(ssl).toEqual({ label: 'ssl', duration: 0, available: false });
+    expect(result.total).toBe(25);
+  });
+
+  test('never produces a negative exclusive connect duration', () => {
+    const result = np.calculateTimingSegments({ connect: 10, ssl: 20 }, 20);
+    expect(result.segments.find((segment) => segment.label === 'connect').duration).toBe(0);
+  });
+});
+
+describe('response content helpers', () => {
+  test('decodes base64 only for display/search use', () => {
+    expect(np.decodeResponseContent('eyJvayI6dHJ1ZX0=', 'base64')).toBe('{"ok":true}');
+    expect(np.decodeResponseContent('plain text', '')).toBe('plain text');
+    const unicodeText = 'caf\u00e9';
+    const unicodeBase64 = Buffer.from(unicodeText, 'utf8').toString('base64');
+    expect(np.decodeResponseContent(unicodeBase64, 'base64')).toBe(unicodeText);
+    expect(np.decodeResponseContent(null, 'base64')).toBe('');
+  });
+
+  test('handles base64 decode failures without exposing binary garbage', () => {
+    const atobSpy = jest.spyOn(global, 'atob').mockImplementationOnce(() => {
+      throw new Error('invalid base64');
+    });
+    expect(np.decodeResponseContent('invalid', 'base64')).toBe('');
+    atobSpy.mockRestore();
+  });
+
+  test('preserves base64 text and encoding in HAR content', () => {
+    const content = np.buildHarResponseContent({
+      size: 12,
+      type: 'application/octet-stream',
+      responseHeaders: [],
+      responseContent: 'AAEC/w==',
+      responseContentEncoding: 'base64',
+    });
+    expect(content).toEqual({
+      size: 12,
+      mimeType: 'application/octet-stream',
+      text: 'AAEC/w==',
+      encoding: 'base64',
+    });
+  });
+
+  test('keeps plain text plain and supplies safe empty fallbacks', () => {
+    const plain = np.buildHarResponseContent({
+      size: 4,
+      type: 'text/plain',
+      responseHeaders: [],
+      responseContent: 'test',
+      responseContentEncoding: '',
+    });
+    expect(plain).toEqual({ size: 4, mimeType: 'text/plain', text: 'test' });
+    expect(np.buildHarResponseContent(null)).toEqual({
+      size: 0,
+      mimeType: 'application/octet-stream',
+      text: '',
+    });
+  });
+
+  test('settles successful and failed response content preparation independently', async () => {
+    const rows = [{ id: 1 }, { id: 2 }];
+    const loadResponseContent = jest.fn((row) =>
+      row.id === 1 ? Promise.resolve(row) : Promise.reject(new Error('body unavailable')),
+    );
+
+    const result = await np.settleResponseContentForHar(rows, loadResponseContent);
+
+    expect(result.unavailableCount).toBe(1);
+    expect(result.settlements.map((settlement) => settlement.status)).toEqual(['fulfilled', 'rejected']);
+    expect(loadResponseContent).toHaveBeenCalledTimes(2);
+  });
+
+  test('clears a timed-out content promise so a later attempt can succeed', async () => {
+    jest.useFakeTimers();
+    try {
+      const getContent = jest
+        .fn()
+        .mockImplementationOnce(() => {})
+        .mockImplementationOnce((callback) => callback('retry succeeded', ''));
+      const row = {
+        id: 7,
+        responseContent: null,
+        responseContentEncoding: '',
+        responseContentError: null,
+        _responseContentPromise: null,
+        _reqObj: { getContent },
+      };
+
+      const firstResult = np.cacheResponseContent(row, 25).then(
+        () => null,
+        (error) => error,
+      );
+      await jest.advanceTimersByTimeAsync(25);
+
+      const timeoutError = await firstResult;
+      expect(timeoutError.message).toContain('Timed out retrieving response content');
+      expect(row._responseContentPromise).toBeNull();
+
+      await expect(np.cacheResponseContent(row, 25)).resolves.toBe(row);
+      expect(getContent).toHaveBeenCalledTimes(2);
+      expect(row.responseContent).toBe('retry succeeded');
+      expect(row.responseContentError).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('keeps successful base64 content cached without fetching it twice', async () => {
+    const getContent = jest.fn((callback) => callback('AAEC/w==', 'base64'));
+    const row = {
+      id: 8,
+      responseContent: null,
+      responseContentEncoding: '',
+      responseContentError: null,
+      _responseContentPromise: null,
+      _reqObj: { getContent },
+    };
+
+    const first = np.cacheResponseContent(row);
+    await expect(first).resolves.toBe(row);
+    const second = np.cacheResponseContent(row);
+    await expect(second).resolves.toBe(row);
+
+    expect(second).toBe(first);
+    expect(getContent).toHaveBeenCalledTimes(1);
+    expect(row.responseContent).toBe('AAEC/w==');
+    expect(row.responseContentEncoding).toBe('base64');
+  });
+});
+
+describe('active column filter helpers', () => {
+  test('does not count inactive and default rules', () => {
+    const allMethods = np.DEFAULT_METHOD_FILTERS();
+    expect(np.isRuleActive({ op: 'contains', value: '   ' })).toBe(false);
+    expect(np.isRuleActive({ op: 'equals', value: 0 })).toBe(true);
+    expect(np.isRuleActive({ mode: 'methodSet', include: allMethods })).toBe(false);
+    expect(np.isRuleActive({ mode: 'methodSet', include: { GET: true } })).toBe(true);
+    expect(np.isRuleActive({ mode: 'statusSet', include: { '200': true } })).toBe(false);
+    expect(np.isRuleActive({ mode: 'urlAdvanced', caseSensitive: true })).toBe(false);
+    expect(np.isRuleActive({ mode: 'timeRange', start: '', end: '' })).toBe(false);
+    expect(np.isRuleActive({ mode: 'multiText', conditions: [{ op: 'contains', value: '' }] })).toBe(false);
+  });
+
+  test('counts active columns once regardless of condition count', () => {
+    const rules = {
+      method: { mode: 'methodSet', include: { GET: true, POST: false } },
+      status: { mode: 'statusSet', include: { '200': true, '404': false } },
+      domain: {
+        mode: 'multiText',
+        conditions: [
+          { op: 'contains', value: 'api' },
+          { op: 'notcontains', value: 'internal' },
+        ],
+      },
+      url: { mode: 'urlAdvanced', includeAny: '', includeAll: '', excludeAny: '' },
+      size: { op: 'empty', value: '' },
+      path: { op: 'contains', value: '' },
+    };
+    expect(np.countActiveColumnFilters(rules)).toBe(4);
+    expect(np.countActiveColumnFilters(null)).toBe(0);
+  });
+});
+
+describe('release trust helpers', () => {
+  test('detects only non-blank active search keywords', () => {
+    expect(np.hasActiveSearchKeywords(null)).toBe(false);
+    expect(np.hasActiveSearchKeywords([])).toBe(false);
+    expect(np.hasActiveSearchKeywords([{ query: '   ' }, null])).toBe(false);
+    expect(np.hasActiveSearchKeywords([{ query: 'needle' }])).toBe(true);
+  });
+
+  test('preserves the navigated row when new matches arrive before it', () => {
+    const first = { id: 1 };
+    const current = { id: 2 };
+    const late = { id: 3 };
+    expect(np.preserveMatchingRowIndex([first, current], 1, [late, first, current])).toBe(2);
+  });
+
+  test('clamps a missing navigated row without forcing first-match navigation', () => {
+    expect(np.preserveMatchingRowIndex([{ id: 1 }], 4, [{ id: 2 }, { id: 3 }])).toBe(1);
+    expect(np.preserveMatchingRowIndex([], -1, [{ id: 2 }])).toBe(-1);
+    expect(np.preserveMatchingRowIndex([{ id: 1 }], 0, [])).toBe(-1);
+  });
+
+  test('guards deferred detail rendering by selected row identity', () => {
+    const rowA = { id: 1 };
+    const rowB = { id: 2 };
+    expect(np.shouldRenderSelectedRow(rowA, rowA)).toBe(true);
+    expect(np.shouldRenderSelectedRow(rowB, rowA)).toBe(false);
+    expect(np.shouldRenderSelectedRow(null, rowA)).toBe(false);
+  });
+
+  test('settles a deferred response callback into the shared row cache', async () => {
+    let contentCallback;
+    const row = {
+      id: 9,
+      responseContent: null,
+      responseContentEncoding: '',
+      responseContentText: null,
+      responseContentError: null,
+      _responseContentPromise: null,
+      _reqObj: { getContent: jest.fn((callback) => { contentCallback = callback; }) },
+    };
+
+    const pending = np.cacheResponseContent(row);
+    expect(row.responseContent).toBeNull();
+    contentCallback('eyJsYXRlIjp0cnVlfQ==', 'base64');
+    await expect(pending).resolves.toBe(row);
+    expect(row.responseContent).toBe('eyJsYXRlIjp0cnVlfQ==');
+    expect(row.responseContentEncoding).toBe('base64');
+    expect(row.responseContentText).toBe('{"late":true}');
+  });
+});
+
 describe('debounce', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
@@ -179,6 +447,24 @@ describe('debounce', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 });
+describe('getNextTabIndex', () => {
+  test('moves and wraps between tabs', () => {
+    expect(np.getNextTabIndex(0, 5, 'ArrowRight')).toBe(1);
+    expect(np.getNextTabIndex(4, 5, 'ArrowRight')).toBe(0);
+    expect(np.getNextTabIndex(0, 5, 'ArrowLeft')).toBe(4);
+  });
+
+  test('supports Home and End keys', () => {
+    expect(np.getNextTabIndex(3, 5, 'Home')).toBe(0);
+    expect(np.getNextTabIndex(1, 5, 'End')).toBe(4);
+  });
+
+  test('handles empty and unsupported navigation', () => {
+    expect(np.getNextTabIndex(0, 0, 'ArrowRight')).toBe(-1);
+    expect(np.getNextTabIndex(2, 5, 'Enter')).toBe(2);
+  });
+});
+
 
 describe('getRowFilterValue [U3]', () => {
   test('returns initiator text for initiator column', () => {
@@ -516,5 +802,188 @@ describe('formatRowSummary', () => {
     expect(text).toContain('Type: (none)');
     expect(text).not.toContain('Domain:');
     expect(text).not.toContain('Initiator:');
+  });
+});
+
+
+describe('scale trust helpers', () => {
+  const eligible = (sort, activeFilterCount = 0, keywords = [], renderedActiveFilterCount = activeFilterCount) =>
+    np.isIncrementalAppendEligible(sort, activeFilterCount, keywords, renderedActiveFilterCount);
+
+  test('allows natural order with no sort or ID ascending', () => {
+    expect(eligible(null)).toBe(true);
+    expect(eligible({ colId: null, direction: null })).toBe(true);
+    expect(eligible({ colId: 'id', direction: 'asc' })).toBe(true);
+  });
+
+  test('rejects ID descending and other active sorts', () => {
+    expect(eligible({ colId: 'id', direction: 'desc' })).toBe(false);
+    expect(eligible({ colId: 'status', direction: 'asc' })).toBe(false);
+  });
+
+  test('rejects active column filters', () => {
+    expect(eligible({ colId: 'id', direction: 'asc' }, 1)).toBe(false);
+  });
+
+  test('rejects a relaxed filter until a full render synchronizes filtered rows', () => {
+    expect(eligible({ colId: 'id', direction: 'asc' }, 0, [], 1)).toBe(false);
+    expect(eligible({ colId: 'id', direction: 'asc' }, 0, [], 0)).toBe(true);
+  });
+
+  test('rejects active search keywords but ignores blank rows', () => {
+    expect(eligible(null, 0, [{ query: 'needle' }])).toBe(false);
+    expect(eligible(null, 0, [{ query: '   ' }])).toBe(true);
+  });
+
+  test('re-evaluates changed state instead of trusting an earlier decision', () => {
+    const schedulingState = { sort: null, filters: 0, keywords: [] };
+    expect(eligible(schedulingState.sort, schedulingState.filters, schedulingState.keywords)).toBe(true);
+    schedulingState.keywords.push({ query: 'changed before flush' });
+    expect(eligible(schedulingState.sort, schedulingState.filters, schedulingState.keywords)).toBe(false);
+  });
+
+  test('returns only missing rows for one append batch', () => {
+    const existingIds = Array.from({ length: 1000 }, (_, index) => index + 1);
+    const queuedRows = [{ id: 1000 }, { id: 1001 }, { id: 1002 }, { id: 1002 }];
+    const batch = np.getIncrementalAppendBatch(queuedRows, existingIds);
+    expect(batch.map((row) => row.id)).toEqual([1001, 1002]);
+    expect(batch).toHaveLength(2);
+  });
+
+  test('retains only current row identities without accepting stale clones', () => {
+    const first = { id: 1 };
+    const second = { id: 2 };
+    const staleClone = { id: 2 };
+
+    expect(np.retainRowsByIdentity([second, staleClone, first, second], [first, second]))
+      .toEqual([second, first, second]);
+  });
+});
+
+describe('clampPopupPosition', () => {
+  test('clamps left and top overflow to the eight-pixel edge', () => {
+    expect(np.clampPopupPosition(-20, -30, 120, 80, 500, 400)).toEqual({
+      left: 8,
+      top: 8,
+      maxWidth: 484,
+      maxHeight: 384,
+    });
+  });
+
+  test('clamps right overflow after popup measurement', () => {
+    const result = np.clampPopupPosition(470, 40, 120, 80, 500, 400);
+    expect(result.left).toBe(372);
+    expect(result.top).toBe(40);
+  });
+
+  test('clamps bottom overflow after popup measurement', () => {
+    const result = np.clampPopupPosition(40, 370, 120, 80, 500, 400);
+    expect(result.left).toBe(40);
+    expect(result.top).toBe(312);
+  });
+
+  test('constrains oversized popups in small viewports', () => {
+    expect(np.clampPopupPosition(90, 60, 400, 300, 100, 70)).toEqual({
+      left: 8,
+      top: 8,
+      maxWidth: 84,
+      maxHeight: 54,
+    });
+  });
+});
+
+describe('calculateMainSplit', () => {
+  test('calculates a valid wide width split', () => {
+    expect(np.calculateMainSplit(400, 1000, false)).toEqual({
+      axis: 'width',
+      primarySize: 400,
+      detailsSize: 596,
+      primaryPercent: 40,
+    });
+  });
+
+  test('calculates a valid narrow height split', () => {
+    expect(np.calculateMainSplit(200, 500, true)).toEqual({
+      axis: 'height',
+      primarySize: 200,
+      detailsSize: 296,
+      primaryPercent: 40,
+    });
+  });
+
+  test('rejects splits that violate either pane minimum', () => {
+    expect(np.calculateMainSplit(100, 1000, false)).toBeNull();
+    expect(np.calculateMainSplit(350, 500, true)).toBeNull();
+    expect(np.calculateMainSplit(NaN, 500, true)).toBeNull();
+  });
+});
+
+
+describe('keyboard trust helpers', () => {
+  test('exposes valid aria-sort values', () => {
+    expect(np.getAriaSortValue({ colId: 'status', direction: 'asc' }, 'status')).toBe('ascending');
+    expect(np.getAriaSortValue({ colId: 'status', direction: 'desc' }, 'status')).toBe('descending');
+    expect(np.getAriaSortValue({ colId: 'status', direction: 'asc' }, 'method')).toBe('none');
+    expect(np.getAriaSortValue(null, 'status')).toBe('none');
+  });
+
+  test('adjusts main split on the orientation-specific arrow keys', () => {
+    expect(np.adjustMainSplitByKeyboard(400, 1000, false, 'ArrowRight', false)).toEqual({
+      axis: 'width',
+      primarySize: 410,
+      detailsSize: 586,
+      primaryPercent: 41,
+    });
+    expect(np.adjustMainSplitByKeyboard(200, 500, true, 'ArrowUp', true)).toEqual({
+      axis: 'height',
+      primarySize: 160,
+      detailsSize: 336,
+      primaryPercent: 32,
+    });
+    expect(np.adjustMainSplitByKeyboard(400, 1000, false, 'ArrowDown', false)).toBeNull();
+  });
+
+  test('keeps inspector panes above minimum height', () => {
+    expect(np.calculateInspectorSplit(200, 500)).toEqual({
+      requestSize: 200,
+      responseSize: 297,
+      requestPercent: 40,
+    });
+    expect(np.calculateInspectorSplit(70, 500)).toBeNull();
+    expect(np.adjustInspectorSplitByKeyboard(200, 500, 'ArrowDown', true)).toEqual({
+      requestSize: 240,
+      responseSize: 257,
+      requestPercent: 48,
+    });
+    expect(np.adjustInspectorSplitByKeyboard(200, 500, 'ArrowLeft', false)).toBeNull();
+  });
+
+  test('clamps and steps column widths', () => {
+    expect(np.clampColumnWidth(5)).toBe(20);
+    expect(np.clampColumnWidth(5000)).toBe(1200);
+    expect(np.clampColumnWidth(NaN)).toBe(120);
+    expect(np.adjustColumnWidth(100, 'ArrowLeft', false)).toBe(90);
+    expect(np.adjustColumnWidth(100, 'ArrowRight', true)).toBe(140);
+    expect(np.adjustColumnWidth(100, 'ArrowUp', false)).toBeNull();
+  });
+
+  test('finds adjacent visible columns without selecting hidden columns', () => {
+    const columns = [
+      { id: 'id', visible: true },
+      { id: 'hidden', visible: false },
+      { id: 'method', visible: true },
+      { id: 'status', visible: true },
+    ];
+    expect(np.getAdjacentVisibleColumnId(columns, 'method', -1)).toBe('id');
+    expect(np.getAdjacentVisibleColumnId(columns, 'method', 1)).toBe('status');
+    expect(np.getAdjacentVisibleColumnId(columns, 'id', -1)).toBeNull();
+  });
+
+  test('cycles menu focus and supports Home and End', () => {
+    expect(np.getNextMenuItemIndex(0, 3, 'ArrowDown')).toBe(1);
+    expect(np.getNextMenuItemIndex(0, 3, 'ArrowUp')).toBe(2);
+    expect(np.getNextMenuItemIndex(2, 3, 'Home')).toBe(0);
+    expect(np.getNextMenuItemIndex(0, 3, 'End')).toBe(2);
+    expect(np.getNextMenuItemIndex(0, 0, 'ArrowDown')).toBe(-1);
   });
 });

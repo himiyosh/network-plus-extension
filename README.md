@@ -6,41 +6,54 @@
 ![Jest](https://img.shields.io/badge/Test-Jest-c21325?logo=jest)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
-Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡張機能です。  
-標準の Network パネルの代替・補完として、強化されたフィルタリング、エクスポート、テーマ切替などの機能を提供します。
+Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡張機能です。標準の Network パネルの代替・補完として、強化されたフィルタリング、エクスポート、テーマ切替などの機能を提供します。
 
 ## ✨ 機能一覧
 
 | 機能 | 説明 |
 |------|------|
-| 📡 リアルタイムキャプチャ | `chrome.devtools.network.onRequestFinished` (Edge 拡張 API の `chrome.*` namespace) でリクエストをインクリメンタルに取得・表示 |
+| 📡 リアルタイムキャプチャ | `chrome.devtools.network.onRequestFinished` (Edge 拡張 API の `chrome.*` namespace) でリクエストを取得。自然な追加順では 1 フレーム内の新規行だけをまとめて追記し、ソート・フィルター・検索中は安全な全体描画へ切り替え |
 | 🧱 カスタムカラム (11種) | ID, Time, Method, Status, Domain, Path, Type, Duration, Size, Initiator, URL |
 | 👁️ カラム表示/非表示 | ツールバーの `Columns` ボタンでカラムの表示切替。設定は `localStorage` に永続化 |
-| ↔️ カラムリサイズ | ドラッグでカラム幅を調整可能。設定は永続化 |
-| 🔍 統合キーワード検索 | 複数キーワードをそれぞれ独立した入力欄で設定可能。URL/Domain/Path、リクエスト/レスポンスの Body・Headers を横断検索。各キーワードごとに 6 色のハイライトカラーを選択でき、マッチ行はキーワード色で表示。キーワードごとの ▲▼ ナビゲーション・マッチ数表示に対応。`Ctrl+F` で検索パネルを開閉。検索スコープ (URL/Body/Headers) は ⚙️ Scope ボタンで切替可能 |
-| 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能 |
-| ↕️ カラムソート | ヘッダークリックでソート切替 (昇順 → 降順 → ソート解除) |
-| 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示 |
-|  HAR エクスポート | HAR 1.2 形式でヘッダー・タイミング・レスポンスボディ・クエリ文字列・PostData を含む完全なログを出力 |
-| 🎨 テーマ切替 | System / Dark / Light の3モードを循環切替。`chrome.storage.local` (Edge 互換 API) に永続化 |
+| ↔️ カラムリサイズ | ドラッグまたはフォーカスした境界の左右キー (`Shift` 併用で大きく調整) でカラム幅を変更可能。設定は永続化 |
+| 🔍 統合キーワード検索 | 複数キーワードをそれぞれ独立した入力欄で設定可能。URL/Domain/Path、リクエスト/レスポンスの Body・Headers を横断検索。各キーワードごとに 6 色のハイライトカラーを選択でき、マッチ行はキーワード色と `Match K1` バッジで対応を表示。キーワードごとの ▲▼ ナビゲーション・マッチ数表示に対応。遅延取得されたレスポンス Body もフレーム単位でまとめて検索結果へ反映し、現在の移動位置を可能な限り維持。`Ctrl+F` で検索パネルを開閉。検索スコープ (URL/Body/Headers) は ⚙️ Scope ボタンで切替可能 |
+| 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能。ステータスバーとボタンに有効なカラムフィルタ数を表示 |
+| ↕️ カラムソート | ヘッダーのクリックまたは `Enter` / `Space` でソート切替 (昇順 → 降順 → ソート解除)。`Alt+←` / `Alt+→` でカラムを並べ替え、順序を永続化。時刻カラムは取得時のリクエスト epoch で正確に比較 |
+| 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示。選択中レスポンスは共有 Body キャッシュから描画し、遅延完了した別リクエストによる表示上書きを防止。Timing は SSL と Connect を重複させずに可視化 |
+|  HAR エクスポート | HAR 1.2 形式でヘッダー・タイミング・レスポンスボディ・クエリ文字列・PostData を含む完全なログを出力。レスポンス取得完了を待機し、base64 データと encoding を保持 |
+| 🎨 テーマ切替 | System / Dark / Light の3モードを循環切替。小さいステータス・補助テキストは WCAG 2.2 AA、操作境界と主要セパレーターは 3:1 以上のコントラストを全テーマで維持し、設定は `chrome.storage.local` (Edge 互換 API) に永続化 |
 | ⏯️ 録画制御 | Pause / Resume ボタン。録画中は赤、一時停止中はグレーのインジケータ表示 |
-| ⬇️ 自動スクロール | 新規リクエスト到着時に自動的にテーブル末尾へスクロール (トグル可能) |
+| ⬇️ 自動スクロール | 新規リクエスト到着時に自動的にテーブル末尾へスクロール。上方向へ手動スクロールすると自動的に OFF になり、ボタン状態にも反映 |
 | 🔗 Initiator リンク | スクリプト起因のリクエストをクリックすると DevTools でソースファイルを表示 |
-| 🪟 パネルリサイズ | テーブルと詳細パネルの境界をドラッグで調整可能 |
-| ⌨️ キーボードナビゲーション | 上下キーで行選択、選択行を自動スクロール |
+| 🪟 パネルリサイズ | テーブルと詳細パネルの境界をドラッグまたは矢印キーで調整可能。幅 700px 以下では上下配置へ切り替わり、上下キーで高さを調整。Request/Response 境界も上下キーに対応 |
+| ⌨️ キーボードナビゲーション | フォーカス行を上下キーで選択して自動スクロール。`Context Menu` または `Shift+F10` で行アクションを開き、メニュー内は上下キー / Home / End / Escape で操作。詳細タブは左右キー / Home / End で移動可能 |
+| ♿ アクセシブル表示 | 色だけに依存しない検索一致バッジ、読み上げ対応の状態・件数・コピー通知、`prefers-reduced-motion` による装飾モーション抑制 |
 
 ### UI 安定表示ルール
 
 - `Recording` / `Paused` の状態切替でレイアウトジャンプを発生させないため、ツールバー上部インジケータの高さは常に確保すること。
 - 実装ルール: `.topbar` に常時 `border-top` (透明可) を持たせ、`recording` 時は色のみ変更する。
+- 幅の狭い DevTools では、ツールバーだけを横スクロール可能にして、テーブルや詳細パネルの横位置を維持する。
+- 幅 700px 以下ではリクエスト一覧を詳細パネルの上へ積み、メイン境界の向き・カーソル・ARIA を水平セパレーターへ切り替える。
+- フィルター、カラム、コンテキスト、検索スコープ、検索色の各ポップアップは、画面端から 8px 以上離して内部スクロール可能にする。
 
 ## 📁 プロジェクト構造
 
 ```
 network-plus-extension/
+  .impeccable/
+    design.json              ... DESIGN.md の拡張トークンとコンポーネント定義
   .github/
+    agents/
+      NetworkPlusAgent.agent.md ... Primary project agent (Hallmark routing included)
+      ui-review.agent.md        ... Network+ 6-axis UI/UX review agent
     copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
+    skills/hallmark/         ... Hallmark 1.1.0 design skill (pinned vendored copy)
+    workflows/quality-gates.yml ... Node.js 22/24 quality gates
+    dependabot.yml           ... npm / GitHub Actions dependency updates
   docs/
+    DESIGN.md                ... UI トークン、コンポーネント、テーマ運用ルール
+    PRODUCT.md               ... 製品戦略、対象ユーザー、設計原則、アクセシビリティ基準
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
     check-version-sync.js    ... package.json / manifest.json バージョン同期チェック
@@ -49,6 +62,7 @@ network-plus-extension/
   tests/                     ... Jest ユニットテスト
     setup.js                 ... テスト用ブラウザ API モック
     panel.test.js            ... 純粋関数のユニットテスト
+    ui-contract.test.js      ... テーマ、コントラスト、レスポンシブ、ARIA の静的契約テスト
     repository-integrity.test.js ... リポジトリ整合性チェックのユニットテスト
     text-integrity.test.js   ... 変更差分チェックのユニットテスト
   icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
@@ -81,6 +95,12 @@ Microsoft Edge DevTools
 - **ES Modules 不可**: DevTools パネルページは `<script type="module">` をサポートしないため、**IIFE 単一ファイル構成**を採用
 - **ビルドレス**: バンドラ不使用。ファイルをそのまま Edge にロードする
 
+### 描画パフォーマンス
+
+- ソートなしまたは ID 昇順で、カラムフィルターと検索キーワードが未使用の場合、ライブ取得行を `requestAnimationFrame` ごとに `DocumentFragment` で一括追記します。既存の行は再生成しません。
+- フレーム確定時に条件を再確認し、ソート・フィルター・検索状態が変わった場合は全体描画へフォールバックします。別の描画が先に完了した場合も行 ID で重複を防ぎます。
+- 通常選択、矢印キー選択、Ctrl/Cmd トグルは影響行だけを差し替えます。範囲選択や削除など多数行へ影響する操作は安全な全体描画を利用します。
+
 ## 🚀 セットアップ
 
 ### 1. リポジトリの取得
@@ -93,7 +113,7 @@ cd network-plus-extension
 ### 2. 前提条件
 
 - **Microsoft Edge** (最新安定版, Chromium ベース)
-- **Node.js 22 または 24 LTS** (テスト・Lint 実行用)
+- **Node.js 22 または 24 LTS** (テスト・Lint・品質チェック実行用)
 
 ### 3. 依存関係のインストール
 
@@ -114,11 +134,11 @@ npm ci
 2. ページをリロードすると、ネットワークリクエストがリアルタイムで一覧表示される
 3. **統合キーワード検索**: `Ctrl+F` または `🔍 Search` ボタンで検索パネルを開く。複数キーワードを入力し、各キーワードの ▲▼ ボタンでマッチ間を移動。色ボタンでハイライトカラーを変更可能
 4. **カラム別フィルタ**: カラムヘッダー右クリック or ツールバーの `Column Filters` ボタンで詳細フィルタ設定
-5. **ソート**: カラムヘッダークリックで昇順/降順/解除を切替
+5. **ソート/並べ替え**: カラムヘッダーのクリックまたは `Enter` / `Space` で昇順/降順/解除を切替。`Alt+←` / `Alt+→` で順序を変更
 6. **リクエスト詳細**: 行クリックで Fiddler 風のタブ付きインスペクター (Request/Response) を表示
 7. **HAR エクスポート**: ツールバーの Export ボタンで HAR 1.2 形式ファイルをダウンロード
 8. **テーマ切替**: Theme ボタンで System/Dark/Light を循環切替
-9. **キーボード操作**: 上下キーで行選択
+9. **キーボード操作**: 上下キーで行選択、`Context Menu` / `Shift+F10` で行メニュー、各境界の矢印キーでサイズ調整。Filter / Columns / Scope / Color は開いた後に内容へフォーカスし、`Escape` で閉じてトリガーへ戻る
 
 ## 🛠️ 開発
 
@@ -135,17 +155,44 @@ npm run format          # CI 対象ファイルの Prettier フォーマット
 
 本拡張機能はビルドレス構成です。ソースを直接 Edge に読み込むため、ビルドコマンドはありません。
 
+`.github/workflows/quality-gates.yml` は Node.js 22 / 24 の matrix で `npm ci` を使用し、Jest、ESLint、version sync、Prettier、lockfile provenance、変更差分の text integrity を検証します。
+
+## 🤖 Copilot カスタマイズ
+
+Primary Agent は [NetworkPlusAgent](.github/agents/NetworkPlusAgent.agent.md)、UI 品質ゲートは [UI/UX Review Agent](.github/agents/ui-review.agent.md) です。UI デザインには vendored Hallmark 1.1.0 を **`/hallmark`** で呼び出し、`audit` / `redesign` / `study` verb を利用できます。
+
+Hallmark は実際の Edge DevTools パネルだけに適用します。Network+ の 3 テーマ、密度、キーボード、XSS、データ正確性、IIFE、テスト、および既存 6 軸レビューが Hallmark より優先します。固定元と更新手順は [UPSTREAM.md](.github/skills/hallmark/UPSTREAM.md) を参照してください。
+
 ## 🧪 テスト
 
 | 対象 | 手法 | 場所 |
 |------|------|------|
 | **純粋関数** | Jest ユニットテスト | [tests/panel.test.js](tests/panel.test.js) |
 | **リポジトリ整合性** | Jest ユニットテスト + CI | [tests/repository-integrity.test.js](tests/repository-integrity.test.js) |
+| **変更差分整合性** | Jest ユニットテスト + CI | [tests/text-integrity.test.js](tests/text-integrity.test.js) |
 | **DOM 操作** | 手動テスト (Edge DevTools で拡張機能をロードして確認) | - |
-| **テーマ** | 手動テスト (System/Dark/Light 切替確認) | - |
+| **テーマ / UI 契約** | Jest 静的契約テスト + 手動テスト (System/Dark/Light 切替確認) | [tests/ui-contract.test.js](tests/ui-contract.test.js) |
 | **エクスポート** | 手動テスト (HAR ファイルの内容検証) | - |
 
 テスト環境のモック設定は [tests/setup.js](tests/setup.js) を参照。
+
+### キーボード手動テスト
+
+[Copilot Instructions の手動テストチェックリスト](.github/copilot-instructions.md#66-手動テストチェックリスト) と併せて、次を確認してください。
+
+- [ ] ヘッダーの `Enter` / `Space` で `aria-sort` と表示順が同期し、`Alt+←` / `Alt+→` 後も同じヘッダーへフォーカスが戻る
+- [ ] カラム、メイン分割、Request/Response 分割の各境界を矢印キーで変更でき、最小サイズを下回らない
+- [ ] 行の上下選択、`Ctrl` / `Cmd+C`、複数選択、`Context Menu` / `Shift+F10` のメニュー操作とフォーカス復帰が維持される
+- [ ] Filter / Columns / Scope / Color をキーボードで開閉でき、初期フォーカス、`Escape`、画面端でのクランプが機能する
+
+### 大量通信・増分描画の手動テスト
+
+- [ ] ソートなしまたは ID 昇順、フィルター・検索なしで大量通信を発生させ、既存行の DOM が維持されたまま新規行だけがフレーム単位で追加される
+- [ ] ID 降順、他カラムのソート、カラムフィルター、検索キーワードの各状態で、新規通信が正しい表示順・可視性・検索バッジを保つ
+- [ ] 新規通信のフレーム待機中にソートまたはフィルターを変更しても、重複行や古い検索状態が発生しない
+- [ ] 通常クリック、上下キー、Ctrl/Cmd トグルで DOM 順序・フォーカス・詳細・選択件数/サイズが維持される
+- [ ] 最下部にいる場合だけ自動スクロールし、上へ手動スクロールした後は新規通信でも位置が移動しない
+- [ ] Clear、HAR/SAZ Import、Columns 変更、Keep/Delete Selected の直後も件数・転送量・行 ID が一致する
 
 ## 🧾 バージョニングルール
 
@@ -197,6 +244,12 @@ npm run format          # CI 対象ファイルの Prettier フォーマット
 | ファイル | 説明 |
 |---|---|
 | [.github/copilot-instructions.md](.github/copilot-instructions.md) | Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針) |
+| [.github/agents/NetworkPlusAgent.agent.md](.github/agents/NetworkPlusAgent.agent.md) | Primary project agent と Hallmark ルーティング |
+| [.github/agents/ui-review.agent.md](.github/agents/ui-review.agent.md) | Network+ 固有の 6 軸 UI/UX 品質ゲート |
+| [.github/skills/hallmark/SKILL.md](.github/skills/hallmark/SKILL.md) | Hallmark 1.1.0 (`/hallmark`) |
+| [.github/skills/hallmark/UPSTREAM.md](.github/skills/hallmark/UPSTREAM.md) | Hallmark の固定元、parity、更新手順 |
+| [docs/DESIGN.md](docs/DESIGN.md) | UI トークン、コンポーネント、テーマ運用ルール |
+| [docs/PRODUCT.md](docs/PRODUCT.md) | 対象ユーザー、製品目的、設計原則、WCAG 2.2 AA 基準 |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | package.json / manifest.json バージョン同期チェックスクリプト |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
