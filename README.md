@@ -58,17 +58,20 @@ network-plus-extension/
     PRODUCT.md               ... 製品戦略、対象ユーザー、設計原則、アクセシビリティ基準
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
+    check-extension-package.js ... 配布ファイルの整合性検証と ZIP 作成
     check-version-sync.js    ... package.json / manifest.json バージョン同期チェック
     check-repository-integrity.js ... package-lock.json の provenance チェック
     check-text-integrity.js  ... 変更差分の whitespace / encoding チェック
   tests/                     ... Jest ユニットテスト
+    extension-package.test.js ... 配布 ZIP / manifest / HTML の回帰テスト
     setup.js                 ... テスト用ブラウザ API モック
     panel.test.js            ... 純粋関数のユニットテスト
     ui-contract.test.js      ... テーマ、コントラスト、レスポンシブ、ARIA の静的契約テスト
     repository-integrity.test.js ... リポジトリ整合性チェックのユニットテスト
     text-integrity.test.js   ... 変更差分チェックのユニットテスト
-  icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 SVG)
+  icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 PNG)
   vendor/                    ... サードパーティライブラリ
+  LICENSE                    ... MIT License
   manifest.json              ... 拡張機能マニフェスト (Manifest V3, CSP 明示設定)
   devtools.html              ... DevTools ページ (devtools.js をロード)
   devtools.js                ... chrome.devtools.panels.create() で Network+ パネルを生成
@@ -134,7 +137,7 @@ Network+ は clipboard copy と HAR download を外向きデータ面として�
 ### 1. リポジトリの取得
 
 ```bash
-git clone https://github.com/user/network-plus-extension.git
+git clone https://github.com/himiyosh/network-plus-extension.git
 cd network-plus-extension
 ```
 
@@ -175,16 +178,18 @@ npm ci
 npm ci                  # lockfile に基づく依存関係インストール
 npm test                # Jest テスト実行 (カバレッジ付き)
 npm run lint            # 全 first-party JavaScript の ESLint 実行
-npm run version:check   # package.json と manifest.json の version 同期チェック
+npm run version:check   # manifest/package/package-lock の version 同期チェック
 npm run integrity:check # package-lock.json の provenance チェック
+npm run extension:check # manifest、権限、参照、CSP、配布 allowlist の検証
+npm run extension:package # dist/ に検証済みのリリース ZIP を作成
 npm run text:check -- --base <base-sha> --head <head-sha> # 変更差分の whitespace / encoding チェック
 npm run format:check    # CI 対象ファイルの Prettier チェック
 npm run format          # CI 対象ファイルの Prettier フォーマット
 ```
 
-本拡張機能はビルドレス構成です。ソースを直接 Edge に読み込むため、ビルドコマンドはありません。
+本拡張機能はビルドレス構成です。ソースを直接 Edge に読み込むため、コンパイルやバンドルを行うビルドコマンドはありません。`extension:package` は実行コードを変換せず、明示したランタイム10ファイルだけを `dist/` の ZIP へ格納します。
 
-`.github/workflows/quality-gates.yml` は Node.js 22 / 24 の matrix で `npm ci` を使用し、Jest、ESLint、version sync、Prettier、lockfile provenance、変更差分の text integrity を検証します。
+`.github/workflows/quality-gates.yml` は Node.js 22 / 24 の matrix で `npm ci` を使用し、Jest、ESLint、release version sync、Prettier、lockfile provenance、変更差分の text integrity、拡張機能パッケージ整合性を検証します。
 
 ## 🤖 Copilot カスタマイズ
 
@@ -198,6 +203,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 |------|------|------|
 | **純粋関数** | Jest ユニットテスト | [tests/panel.test.js](tests/panel.test.js) |
 | **リポジトリ整合性** | Jest ユニットテスト + CI | [tests/repository-integrity.test.js](tests/repository-integrity.test.js) |
+| **拡張機能パッケージ整合性** | Jest ユニットテスト + CI | [tests/extension-package.test.js](tests/extension-package.test.js) |
 | **変更差分整合性** | Jest ユニットテスト + CI | [tests/text-integrity.test.js](tests/text-integrity.test.js) |
 | **DOM 操作** | 手動テスト (Edge DevTools で拡張機能をロードして確認) | - |
 | **テーマ / UI 契約** | Jest 静的契約テスト + 手動テスト (System/Dark/Light 切替確認) | [tests/ui-contract.test.js](tests/ui-contract.test.js) |
@@ -228,8 +234,8 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 ## 🧾 バージョニングルール
 
 - **方式**: Semantic Versioning (`MAJOR.MINOR.PATCH`)
-- **同期対象**: [manifest.json](manifest.json) と [package.json](package.json) の `version` を必ず同一値にする
-- **現在バージョン**: `1.5.0`
+- **同期対象**: [manifest.json](manifest.json)、[package.json](package.json)、[package-lock.json](package-lock.json) の top-level / root `version` を必ず同一値にする
+- **現在バージョン**: `1.6.0`
 
 | 変更種別 | 上げる番号 | 例 |
 |---|---|---|
@@ -244,8 +250,8 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 - 1 機能を複数回コミットした場合でも、最終リリースでは 1 回のバージョン更新に集約する。
 
 バージョン更新時チェックリスト:
-- [manifest.json](manifest.json) と [package.json](package.json) の `version` を同時更新
-- `npm run version:check` を実行して同期を確認
+- [manifest.json](manifest.json)、[package.json](package.json)、[package-lock.json](package-lock.json) の `version` を同時更新
+- `npm run version:check` を実行して4箇所の同期を確認
 - 機能追加・仕様変更時は README の該当セクションも同一コミットで更新
 
 ## 🧰 技術スタック
@@ -260,14 +266,16 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 ## 🔒 セキュリティ
 
 - ユーザーデータ (URL、ヘッダー名/値等) の DOM 描画はすべて `textContent` または DOM API を使用 (`innerHTML` 未使用)
-- Content Security Policy を [manifest.json](manifest.json) で明示設定 (`script-src 'self'`)
-- 拡張機能の権限は必要最小限に限定: `storage` (テーマ設定永続化), `downloads` (HAR エクスポート)
+- Content Security Policy を [manifest.json](manifest.json) で明示設定 (`script-src 'self'; object-src 'self'`)
+- 拡張機能の権限は `storage` のみ。テーマ設定の永続化に `chrome.storage.local` を使用する
+- HAR はローカルの Blob / Object URL と一時的な `<a download>` で保存し、`chrome.downloads` API と `downloads` 権限は使用しない
+- `npm run extension:check` は権限の完全一致と実使用を検証し、未使用権限の再追加、外部/inline script、不正なCSP、配布allowlist逸脱を拒否する
 
 ## ⚠️ 注意事項 / 制約
 
 - **Microsoft Edge 専用** --- Chrome でも動作する可能性はあるが、テスト・サポート対象は Edge のみ
 - **DevTools パネルは ES Modules 非対応** --- IIFE 単一ファイル構成を採用しているため、`import`/`export` は使用不可
-- **ビルドレス設計** --- バンドラ不使用。ファイルをそのまま Edge にロードする
+- **ビルドレス設計** --- バンドラ不使用。`extension:package` は変換や依存解決を行わず、監査済みランタイムファイルだけをZIP化する
 - **ローカル専用** --- ネットワーク通信や外部 API とのデータ送受信は行わない
 
 ## 📚 関連ドキュメント
@@ -282,11 +290,25 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | [docs/DESIGN.md](docs/DESIGN.md) | UI トークン、コンポーネント、テーマ運用ルール |
 | [docs/PRODUCT.md](docs/PRODUCT.md) | 対象ユーザー、製品目的、設計原則、WCAG 2.2 AA 基準 |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
-| [scripts/check-version-sync.js](scripts/check-version-sync.js) | package.json / manifest.json バージョン同期チェックスクリプト |
+| [scripts/check-extension-package.js](scripts/check-extension-package.js) | 拡張機能の参照・権限・配布内容チェックとZIP作成 |
+| [scripts/check-version-sync.js](scripts/check-version-sync.js) | manifest/package/package-lock バージョン同期チェックスクリプト |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
+| [LICENSE](LICENSE) | MIT License |
 
 <details>
 <summary>📋 変更履歴 (クリックで展開)</summary>
+
+### v1.6.0
+
+- 幅700px以下の上下分割、viewport内ポップアップ、全テーマのWCAG 2.2 AAコントラストを含むresponsive/a11y hardening
+- キーボードでのソート、カラム並べ替え、行/メニュー/タブ移動、境界リサイズ、フォーカス復帰を強化
+- epoch時刻ソート、Timingの重複排除、遅延Body競合防止、保持時の選択・統計整合性を含むdata-integrity hardening
+- 自然順のライブ取得をフレーム単位のDocumentFragment追記へ切り替え、batch renderingと検索更新を安定化
+- リクエスト保持上限とレスポンスBodyの個別/合計上限、退避・省略状態、HAR/SAZ import保持ポリシーを追加
+- HAR、clipboard、cURL、fetch、PowerShellをsanitized既定にし、full outputを操作ごとの警告確認に限定
+- Node.js 22/24でJest、ESLint、format、version、text/lock/package integrity、auditを実行するCI gatesを整備
+- 未使用の`downloads`権限を削除し、実使用される`storage`だけを自動回帰チェックで固定
+- 明示allowlistの10ランタイムファイルだけを格納する再現可能なリリースZIP作成を追加
 
 ### v1.5.0
 
@@ -334,4 +356,4 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 ## 📜 ライセンス
 
-MIT
+[MIT License](LICENSE)

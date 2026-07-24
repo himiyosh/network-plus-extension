@@ -59,6 +59,12 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      - name: Check extension package
+        run: npm run extension:check
+
+      - name: Build extension package
+        run: npm run extension:package
+
       - name: Check repository integrity
         run: npm run integrity:check
 

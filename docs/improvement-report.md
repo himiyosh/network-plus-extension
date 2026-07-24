@@ -174,3 +174,15 @@ v2.0.0 (メジャー):
 - `generateFetch`: 3 テスト (null, GET, POST with headers/body)
 - `generatePowerShell`: 3 テスト (null, GET, POST with headers)
 - `computeStats`: 2 テスト (empty, multi-row statistics)
+
+---
+
+## Cycle 3: v1.6.0 リリースハードニング (2026-07-25)
+
+### リリース結果
+
+- PR #9〜#12 で統合したresponsive/a11y、data-integrity、batch rendering、capture retention、sanitized outbound dataをv1.6.0として確定
+- 未使用の`downloads`権限を削除し、実使用する`storage`だけをmanifestと自動回帰チェックで固定
+- manifest、HTML参照、local-only script、inline script禁止、CSP、UTF-8、PNG、配布allowlistを依存追加なしで検証
+- 監査済みランタイム10ファイルだけを格納する再現可能なZIP作成と、Node.js 22/24のCI gateを追加
+- packageをprivateにし、repository/homepage/bugs/engines、MIT LICENSE、1.6.0 release metadataを同期

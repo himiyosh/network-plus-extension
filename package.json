@@ -1,20 +1,34 @@
 {
   "name": "network-plus-extension",
-  "version": "1.5.0",
-  "description": "Enhanced Network panel extension for Microsoft Edge DevTools with filtering, export, theme, sorting, and advanced filters.",
+  "version": "1.6.0",
+  "description": "Microsoft Edge DevTools network analysis with sanitized HAR, capture retention, integrated search, accessibility, and keyboard controls.",
+  "private": true,
   "main": "devtools.js",
   "scripts": {
     "test": "jest --coverage",
     "lint": "eslint . --max-warnings 0",
-    "format": "prettier --write package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/repository-integrity.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
-    "format:check": "prettier --check package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/repository-integrity.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
+    "format": "prettier --write package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/extension-package.test.js\" \"tests/repository-integrity.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
+    "format:check": "prettier --check package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/extension-package.test.js\" \"tests/repository-integrity.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
     "version:check": "node scripts/check-version-sync.js",
     "integrity:check": "node scripts/check-repository-integrity.js",
-    "text:check": "node scripts/check-text-integrity.js"
+    "text:check": "node scripts/check-text-integrity.js",
+    "extension:check": "node scripts/check-extension-package.js --check",
+    "extension:package": "node scripts/check-extension-package.js --package"
   },
   "keywords": [],
-  "author": "",
+  "author": "himiyosh",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/himiyosh/network-plus-extension.git"
+  },
+  "homepage": "https://github.com/himiyosh/network-plus-extension#readme",
+  "bugs": {
+    "url": "https://github.com/himiyosh/network-plus-extension/issues"
+  },
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.7.0",

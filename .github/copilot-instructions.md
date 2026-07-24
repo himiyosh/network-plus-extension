@@ -149,7 +149,7 @@ Microsoft Edge DevTools
 ### 3.4 権限の最小化
 
 - `manifest.json` の `permissions` は必要最小限に保つ
-- 現在の権限: `storage` (テーマ設定永続化), `downloads` (HAR エクスポート)
+- 現在の権限: `storage` (テーマ設定永続化) のみ。HAR エクスポートは Blob / Object URL と一時的な `<a download>` を使用し、`downloads` 権限は不要
 - 新しい権限を追加する場合は、README の「セキュリティ」セクションに理由を記載すること
 
 ---
