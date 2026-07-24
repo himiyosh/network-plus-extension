@@ -91,7 +91,7 @@ tools: [vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vsco
 - **innerHTML 許可ケース**: 静的 SVG リテラルのみ (例: `PLAY_ICON_SVG`, `PAUSE_ICON_SVG`)
 - **安全なヘルパー関数**: `createKvGrid()`, `createHeaderSection()`, `createTableRow()`, `createInnerAccordionItem()`
 - **CSP**: `manifest.json` で `script-src 'self'; object-src 'self'` --- イベントハンドラ属性 (`onerror` 等) は CSP で防げないため innerHTML 禁止は必須
-- **権限最小化**: `permissions` は `storage` + `downloads` のみ。追加時は README に理由記載
+- **権限最小化**: `permissions` はテーマ永続化に実使用する `storage` のみ。HAR はローカル anchor で保存し、権限追加時は実使用チェックと README の理由を同時更新
 - **レビュー対象**: `panel.js` の innerHTML 使用箇所を `grep` で全件確認
 - 過剰防御は不要、実際に悪用可能な脆弱性のみ報告
 

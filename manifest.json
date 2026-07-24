@@ -1,13 +1,10 @@
 {
   "name": "Network+ for DevTools",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "manifest_version": 3,
   "devtools_page": "devtools.html",
-  "description": "Enhanced Network panel with filtering, CSV/HAR export, theme cycling, and keyboard navigation.",
-  "permissions": [
-    "storage",
-    "downloads"
-  ],
+  "description": "Network analysis with sanitized HAR, retention limits, integrated search, accessible UI, and keyboard controls.",
+  "permissions": ["storage"],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

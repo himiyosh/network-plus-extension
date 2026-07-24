@@ -63,7 +63,7 @@ const _NetworkPlus = (function () {
   const DATE_SORT_FIELDS = { clientStart: 'clientStartEpoch', serverDone: 'serverDoneEpoch' };
   const INVALID_REQUEST_EPOCH = Number.MAX_SAFE_INTEGER;
   const TIMING_PHASES = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
-  const TEST_EXTENSION_VERSION_FALLBACK = '1.5.0';
+  const TEST_EXTENSION_VERSION_FALLBACK = '1.6.0';
   const OBJECT_URL_REVOKE_DELAY_MS = 1000;
   const SENSITIVE_KEY_NAMES = new Set([
     'authorization',
