@@ -246,12 +246,33 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .kv .val{color:var(--fg);overflow-wrap:break-word;min-width:0;padding:3px 0}
 
 /* === Status Bar === */
-.statusbar{display:flex;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid var(--border);background:var(--surface);font-size:11px;color:var(--text-muted);flex:0 0 auto}
+.statusbar{display:flex;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid var(--border);background:var(--surface);font-size:11px;color:var(--text-muted);flex:0 0 auto;overflow-x:auto;scrollbar-width:thin}
 .statusbar .spacer{flex:1}
+#retentionStatus{white-space:nowrap;font-variant-numeric:tabular-nums}
 #totalSize{margin-right:12px;font-weight:600;color:var(--text-accent)}
 #selectedSize{margin-right:12px;font-weight:600;color:var(--status-3xx-text)}
 #counter{white-space:nowrap;font-variant-numeric:tabular-nums}
 
+/* === Retention Settings === */
+#retentionDialog{position:fixed;inset:0;margin:auto;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
+#retentionDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
+.retention-form{display:grid;gap:8px;padding:16px}
+.retention-form h2{margin:0 0 4px;font-size:15px;font-style:normal}
+.retention-form label{font-size:12px;font-weight:600}
+.retention-form input[type="number"]{min-height:32px;width:100%;padding:5px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg)}
+.retention-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.4}
+.retention-unlimited{display:flex;align-items:center;gap:8px}
+.retention-form input[type="number"]:hover{background:var(--content-bg)}
+.retention-form input[type="number"][aria-invalid="true"]{border-color:var(--status-5xx-text)}
+.retention-form input[type="number"]:disabled{opacity:.5;cursor:not-allowed}
+.retention-form .retention-error{color:var(--status-5xx-text);font-weight:600}
+.retention-unlimited input{width:24px;height:24px;margin:0;accent-color:var(--accent)}
+.retention-form .retention-warning{color:var(--status-5xx-text);font-weight:600}
+.retention-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.retention-actions button{min-height:32px;padding:5px 12px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer}
+.retention-actions button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
+
+.retention-actions button:active{background:var(--accent-dim);color:var(--text-accent)}
 /* === Column Resizer === */
 .col-resizer{position:absolute;top:0;right:0;width:5px;height:100%;cursor:col-resize;z-index:1}
 .col-resizer:hover,.col-resizer:focus-visible{background:var(--accent-dim)}

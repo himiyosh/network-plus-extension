@@ -30,6 +30,7 @@
       <button id="filterBtn" aria-label="Column Filters, no active filters" aria-haspopup="dialog" aria-controls="columnFilterPopup" aria-expanded="false">⚙️ Column Filters</button>
       <button id="columnsBtn" aria-haspopup="menu" aria-controls="columnsMenu" aria-expanded="false">🗂️ Columns</button>
       <div class="separator"></div>
+      <button id="retentionBtn" aria-haspopup="dialog" aria-controls="retentionDialog" aria-expanded="false">Retention: 5,000</button>
       <button id="themeBtn">🌗 System</button>
     </div>
   </header>
@@ -92,7 +93,25 @@
       </div>
     </aside>
   </main>
-  <footer class="statusbar"><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="selectedSize"></span><span id="totalSize"></span><span id="counter" aria-hidden="true">0 / 0 requests · 0 active column filters</span><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
+  <footer class="statusbar"><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="retentionStatus" role="status" aria-live="polite" aria-atomic="true">Retention: 5,000 requests · body cache 0 B / 32 MB</span><span id="selectedSize"></span><span id="totalSize"></span><span id="counter" aria-hidden="true">0 / 0 requests · 0 active column filters</span><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
+  <dialog id="retentionDialog" aria-labelledby="retentionDialogTitle" aria-describedby="retentionHelp">
+    <form method="dialog" class="retention-form">
+      <h2 id="retentionDialogTitle">Capture retention</h2>
+      <label for="retentionLimit">Maximum retained requests</label>
+      <input id="retentionLimit" type="number" min="100" max="100000" step="100" inputmode="numeric" aria-describedby="retentionHelp retentionError" />
+      <p id="retentionHelp">Oldest requests are removed after this limit. Response bodies use a separate 1 MiB per-body and 32 MiB total cache.</p>
+      <p id="retentionError" class="retention-error" role="alert" hidden></p>
+      <label class="retention-unlimited" for="retentionUnlimited">
+        <input id="retentionUnlimited" type="checkbox" aria-describedby="retentionWarning" />
+        Keep unlimited requests
+      </label>
+      <p id="retentionWarning" class="retention-warning" role="alert" hidden>Unlimited request retention can exhaust DevTools memory. Response-body limits remain active.</p>
+      <div class="retention-actions">
+        <button id="retentionCancelBtn" type="button">Cancel</button>
+        <button id="retentionSaveBtn" type="button">Save retention</button>
+      </div>
+    </form>
+  </dialog>
   <div id="copyToast" class="copy-toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <script src="vendor/fflate.js"></script>
   <script src="panel.js"></script>

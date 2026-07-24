@@ -32,11 +32,17 @@ const _NetworkPlus = (function () {
   const FILTER_DEBOUNCE_MS = 150;
   const DEEP_SEARCH_DEBOUNCE_MS = 250;
   const RESPONSE_CONTENT_TIMEOUT_MS = 10000;
+  const DEFAULT_REQUEST_RETENTION_LIMIT = 5000;
+  const MIN_REQUEST_RETENTION_LIMIT = 100;
+  const MAX_REQUEST_RETENTION_LIMIT = 100000;
+  const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;
+  const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;
   const JSON_TREE_MAX_CHILDREN = 100;
   const JSON_TREE_MAX_DEPTH = 20;
   const JSON_TREE_PREVIEW_KEYS = 3;
 
   const THEME_KEY = 'networkPlus.theme';
+  const RETENTION_KEY = 'networkPlus.retention.v1';
   const THEMES = ['system', 'dark', 'light'];
   const COL_PREF_KEY = 'networkPlus.cols';
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
@@ -515,13 +521,28 @@ const _NetworkPlus = (function () {
     }
   }
 
-  function buildHarResponseContent(row) {
+  function buildHarResponseContent(row, responsePayload) {
+    const payload = responsePayload || (
+      row && typeof row.responseContent === 'string'
+        ? {
+          content: row.responseContent,
+          encoding: row.responseContentEncoding,
+        }
+        : null
+    );
     const content = {
       size: row && row.size ? row.size : 0,
       mimeType: guessMimeType(row || {}),
-      text: row && typeof row.responseContent === 'string' ? row.responseContent : '',
     };
-    if (row && row.responseContentEncoding === 'base64') content.encoding = 'base64';
+    if (payload) {
+      content.text = payload.content;
+      if (payload.encoding === 'base64') content.encoding = 'base64';
+    } else {
+      content._networkPlus = {
+        status: (row && row.responseContentState) || 'unavailable',
+        reason: (row && row.responseContentReason) || 'Full response content is unavailable.',
+      };
+    }
     return content;
   }
 
@@ -608,6 +629,83 @@ const _NetworkPlus = (function () {
   function retainRowsByIdentity(candidateRows, currentRows) {
     const currentRowSet = new Set(currentRows || []);
     return (candidateRows || []).filter((row) => currentRowSet.has(row));
+  }
+
+  function normalizeRetentionSetting(value) {
+    const fallback = { unlimited: false, requestLimit: DEFAULT_REQUEST_RETENTION_LIMIT };
+    if (!value || typeof value !== 'object') {
+      return { setting: fallback, warning: value == null ? '' : 'Invalid retention setting; restored the default.' };
+    }
+    if (value.unlimited === true) {
+      return { setting: { unlimited: true, requestLimit: DEFAULT_REQUEST_RETENTION_LIMIT }, warning: '' };
+    }
+    const requestLimit = Number(value.requestLimit);
+    if (
+      !Number.isInteger(requestLimit) ||
+      requestLimit < MIN_REQUEST_RETENTION_LIMIT ||
+      requestLimit > MAX_REQUEST_RETENTION_LIMIT
+    ) {
+      return { setting: fallback, warning: 'Invalid retention setting; restored the 5,000-request default.' };
+    }
+    return { setting: { unlimited: false, requestLimit }, warning: '' };
+  }
+
+  function appendRowsWithRetention(currentRows, incomingRows, requestLimit, unlimited) {
+    const combinedRows = (currentRows || []).concat(incomingRows || []);
+    if (unlimited || combinedRows.length <= requestLimit) {
+      return { retainedRows: combinedRows, evictedRows: [] };
+    }
+    const evictionCount = combinedRows.length - requestLimit;
+    return {
+      retainedRows: combinedRows.slice(evictionCount),
+      evictedRows: combinedRows.slice(0, evictionCount),
+    };
+  }
+
+  function createRowEvictionPlan(evictedRows, references) {
+    const evictedSet = new Set(evictedRows || []);
+    const refs = references || {};
+    const retainedRows = (refs.allRows || []).filter((row) => !evictedSet.has(row));
+    return {
+      selectedRowEvicted: evictedSet.has(refs.selectedRow),
+      focusedRowEvicted: evictedSet.has(refs.focusedRow),
+      retainedSelectedRows: retainRowsByIdentity(refs.selectedRows || [], retainedRows),
+      retainedSearchMatches: (refs.searchMatches || []).filter((row) => !evictedSet.has(row)),
+      retainedPendingRows: (refs.pendingRows || []).filter((row) => !evictedSet.has(row)),
+    };
+  }
+
+  function getUtf8ByteLength(value) {
+    return new TextEncoder().encode(typeof value === 'string' ? value : '').length;
+  }
+
+  function measureResponsePayload(content, encoding) {
+    const rawContent = typeof content === 'string' ? content : '';
+    const text = decodeResponseContent(rawContent, encoding);
+    const rawBytes = getUtf8ByteLength(rawContent);
+    const decodedBytes = text === rawContent ? 0 : getUtf8ByteLength(text);
+    return {
+      content: rawContent,
+      encoding: encoding === 'base64' ? 'base64' : '',
+      text,
+      bytes: rawBytes + decodedBytes,
+    };
+  }
+
+  function planResponseCacheAdmission(entries, incomingBytes, budgetBytes) {
+    const normalizedEntries = (entries || []).filter((entry) => entry && Number.isFinite(entry.bytes));
+    const currentBytes = normalizedEntries.reduce((total, entry) => total + Math.max(0, entry.bytes), 0);
+    if (!Number.isFinite(incomingBytes) || incomingBytes < 0 || incomingBytes > budgetBytes) {
+      return { accepted: false, evictedEntries: [], resultingBytes: currentBytes };
+    }
+    const evictedEntries = [];
+    let resultingBytes = currentBytes + incomingBytes;
+    for (const entry of normalizedEntries) {
+      if (resultingBytes <= budgetBytes) break;
+      evictedEntries.push(entry);
+      resultingBytes -= Math.max(0, entry.bytes);
+    }
+    return { accepted: resultingBytes <= budgetBytes, evictedEntries, resultingBytes };
   }
 
   /** Debounce wrapper */
@@ -770,6 +868,12 @@ const _NetworkPlus = (function () {
     return false;
   }
 
+  function countUnsearchedResponseBodies(rows) {
+    return (rows || []).filter(
+      (row) => row && row.responseContentState !== 'cached',
+    ).length;
+  }
+
   /**
    * Format a row's summary as human-readable text for clipboard copy.
    * Pure function (no DOM/state dependency) — testable.
@@ -794,6 +898,18 @@ const _NetworkPlus = (function () {
     columns: DEFAULT_COLUMNS.map((c) => ({ ...c })),
     rows: [],
     filteredRows: [], // [U5] cache for filtered rows
+    pendingLiveRows: [],
+    retention: {
+      requestLimit: DEFAULT_REQUEST_RETENTION_LIMIT,
+      unlimited: false,
+      settingWarning: '',
+      evictedRequests: 0,
+      omittedBodies: 0,
+      evictedBodies: 0,
+      truncatedBodies: 0,
+      responseCacheBytes: 0,
+      responseCacheRows: new Map(),
+    },
     visibleBytes: 0,
     renderedActiveFilterCount: 0,
     selectedRow: null, // [U5] track by row object reference, not index
@@ -802,6 +918,7 @@ const _NetworkPlus = (function () {
     pendingHeaderFocusId: null,
     selectedRows: new Set(), // [U7] multi-row selection
     highlightedRows: new Map(), // [U7] highlighted rows: row -> color class
+    onResponseContentChanged: null,
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
     sort: {
       colId: 'id',
@@ -823,6 +940,202 @@ const _NetworkPlus = (function () {
       perKeyword: new Map(),
     },
   };
+
+  function loadRetentionSetting() {
+    let parsed = null;
+    let parseWarning = '';
+    try {
+      const saved = localStorage.getItem(RETENTION_KEY);
+      if (saved) parsed = JSON.parse(saved);
+    } catch (_error) {
+      parseWarning = 'Could not read the saved retention setting; restored the 5,000-request default.';
+    }
+    const normalized = normalizeRetentionSetting(parsed);
+    state.retention.requestLimit = normalized.setting.requestLimit;
+    state.retention.unlimited = normalized.setting.unlimited;
+    state.retention.settingWarning = parseWarning || normalized.warning;
+  }
+
+  function saveRetentionSetting() {
+    try {
+      localStorage.setItem(
+        RETENTION_KEY,
+        JSON.stringify({
+          requestLimit: state.retention.requestLimit,
+          unlimited: state.retention.unlimited,
+        }),
+      );
+      state.retention.settingWarning = '';
+      return true;
+    } catch (_error) {
+      state.retention.settingWarning = 'Could not save the retention setting; it applies only to this panel session.';
+      return false;
+    }
+  }
+
+  function releaseResponseContent(row, nextState, countEviction) {
+    const cachedBytes = state.retention.responseCacheRows.get(row) || 0;
+    if (cachedBytes > 0 || state.retention.responseCacheRows.has(row)) {
+      state.retention.responseCacheRows.delete(row);
+      state.retention.responseCacheBytes = Math.max(0, state.retention.responseCacheBytes - cachedBytes);
+      if (countEviction) state.retention.evictedBodies += 1;
+      row._responseContentPromise = null;
+    }
+    row.responseContent = null;
+    row.responseContentText = null;
+    row.responseContentEncoding = '';
+    row.responseContentBytes = 0;
+    row.responseContentState = nextState;
+  }
+
+  function admitResponsePayload(row, payload) {
+    if (!row || row._retentionDisposed) {
+      throw new Error('Response content arrived after its request was evicted');
+    }
+    if (payload.bytes > MAX_RESPONSE_BODY_BYTES) {
+      releaseResponseContent(row, 'omitted', false);
+      row.responseContentReason =
+        'Body is ' + fmtBytes(payload.bytes) + '; the per-body cache limit is ' + fmtBytes(MAX_RESPONSE_BODY_BYTES) + '.';
+      if (!row._responseOmissionCounted) {
+        row._responseOmissionCounted = true;
+        state.retention.omittedBodies += 1;
+      }
+      updateRetentionStatus();
+      throw new Error('Response body omitted for request ' + row.id + ': ' + row.responseContentReason);
+    }
+
+    while (state.retention.responseCacheBytes + payload.bytes > MAX_RESPONSE_CACHE_BYTES) {
+      const oldestEntry = state.retention.responseCacheRows.entries().next().value;
+      if (!oldestEntry) break;
+      const oldestRow = oldestEntry[0];
+      releaseResponseContent(oldestRow, 'evicted', true);
+      oldestRow.responseContentReason = 'Evicted from the bounded response-body cache; select or export to retry retrieval.';
+      if (state.onResponseContentChanged) state.onResponseContentChanged(oldestRow);
+    }
+    releaseResponseContent(row, 'loading', false);
+    row.responseContent = payload.content;
+    row.responseContentEncoding = payload.encoding;
+    row.responseContentText = payload.text;
+    row.responseContentBytes = payload.bytes;
+    row.responseContentState = 'cached';
+    row.responseContentReason = '';
+    row.responseContentError = null;
+    if (payload.bytes > 0) {
+      state.retention.responseCacheRows.set(row, payload.bytes);
+      state.retention.responseCacheBytes += payload.bytes;
+    }
+    updateRetentionStatus();
+    if (state.onResponseContentChanged) state.onResponseContentChanged(row);
+    return row;
+  }
+
+  function touchResponseCacheRow(row) {
+    if (!state.retention.responseCacheRows.has(row)) return;
+    const bytes = state.retention.responseCacheRows.get(row);
+    state.retention.responseCacheRows.delete(row);
+    state.retention.responseCacheRows.set(row, bytes);
+  }
+
+  function cleanupEvictedRowReferences(evictedRows, countRetention) {
+    if (!evictedRows || evictedRows.length === 0) return;
+    const evictedSet = new Set(evictedRows);
+    const search = state.search;
+    const previousMatches = search.matches;
+    const previousIndex = search.currentIndex;
+    const plan = createRowEvictionPlan(evictedRows, {
+      allRows: state.rows,
+      selectedRow: state.selectedRow,
+      focusedRow: state.focusedRow,
+      selectedRows: Array.from(state.selectedRows),
+      searchMatches: search.matches,
+      pendingRows: state.pendingLiveRows,
+    });
+
+    const evictedVisibleBytes = state.filteredRows.reduce(
+      (total, row) => total + (evictedSet.has(row) ? row.size || 0 : 0),
+      0,
+    );
+    state.filteredRows = state.filteredRows.filter((row) => !evictedSet.has(row));
+    state.visibleBytes = Math.max(0, state.visibleBytes - evictedVisibleBytes);
+    state.selectedRows = new Set(plan.retainedSelectedRows);
+    state.pendingLiveRows.length = 0;
+    state.pendingLiveRows.push(...plan.retainedPendingRows);
+    search.matches = plan.retainedSearchMatches;
+    search.currentIndex = preserveMatchingRowIndex(previousMatches, previousIndex, search.matches);
+    for (const [keywordIndex, keywordState] of search.perKeyword) {
+      const matches = keywordState.matches.filter((row) => !evictedSet.has(row));
+      search.perKeyword.set(keywordIndex, {
+        matches,
+        currentIndex: preserveMatchingRowIndex(keywordState.matches, keywordState.currentIndex, matches),
+      });
+    }
+
+    let detailsWereCleared = false;
+    for (const row of evictedRows) {
+      search.rowColors.delete(row);
+      search.rowKeywords.delete(row);
+      state.highlightedRows.delete(row);
+      releaseResponseContent(row, 'row-evicted', false);
+      row._retentionDisposed = true;
+      row._reqObj = null;
+      const renderedRow = document.querySelector('tr[data-row-id="' + row.id + '"]');
+      if (renderedRow) renderedRow.remove();
+      if (state.pendingRowFocusId === String(row.id)) state.pendingRowFocusId = null;
+      if (state.selectedRow === row) {
+        state.selectedRow = null;
+        detailsWereCleared = true;
+      }
+      if (state.focusedRow === row) state.focusedRow = null;
+    }
+    if (detailsWereCleared) clearDetailsPanel();
+    if (countRetention) state.retention.evictedRequests += evictedRows.length;
+    updateRetentionStatus();
+  }
+
+  function removeRowsFromState(rows, countRetention) {
+    const removedSet = new Set(rows || []);
+    if (removedSet.size === 0) return;
+    const evictedRows = state.rows.filter((row) => removedSet.has(row));
+    state.rows = state.rows.filter((row) => !removedSet.has(row));
+    cleanupEvictedRowReferences(evictedRows, countRetention);
+  }
+
+  function normalizeIncomingResponseContent(rows, source) {
+    for (const row of rows) {
+      if (!state.rows.includes(row)) continue;
+      if (typeof row.responseContent === 'string') {
+        const payload = measureResponsePayload(row.responseContent, row.responseContentEncoding);
+        releaseResponseContent(row, 'loading', false);
+        try {
+          admitResponsePayload(row, payload);
+        } catch (error) {
+          row.responseContentError = error;
+        }
+      }
+      if (source === 'import') row._reqObj = null;
+    }
+  }
+
+  function addRowsWithRetention(rows, source) {
+    const incomingRows = rows || [];
+    incomingRows.forEach((row) => { row._managedRetention = true; });
+    const result = appendRowsWithRetention(
+      state.rows,
+      incomingRows,
+      state.retention.requestLimit,
+      state.retention.unlimited,
+    );
+    state.rows = result.retainedRows;
+    cleanupEvictedRowReferences(result.evictedRows, true);
+    normalizeIncomingResponseContent(incomingRows, source);
+    return retainRowsByIdentity(incomingRows, state.rows);
+  }
+
+  function clearStoredRows() {
+    removeRowsFromState(state.rows.slice(), false);
+    state.filteredRows = [];
+    state.visibleBytes = 0;
+  }
 
   // ============================================================
   // Section 5: Theme
@@ -1159,12 +1472,13 @@ const _NetworkPlus = (function () {
       initiator: formatInitiator(req.initiator),
       responseContent: embeddedResponseContent,
       responseContentEncoding: embeddedResponseEncoding,
-      responseContentText:
-        embeddedResponseContent === null
-          ? null
-          : decodeResponseContent(embeddedResponseContent, embeddedResponseEncoding),
+      responseContentText: null,
+      responseContentBytes: 0,
+      responseContentState: embeddedResponseContent === null ? 'not-loaded' : 'pending-admission',
+      responseContentReason: '',
       _responseContentPromise: null,
       responseContentError: null,
+      _retentionDisposed: false,
     };
     const p = extractUrlParts(r.url);
     r.domain = p.domain;
@@ -1173,67 +1487,102 @@ const _NetworkPlus = (function () {
     return r;
   }
 
-  // [U1] Pre-fetch response content for HAR export
-  function cacheResponseContent(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
-    if (row._responseContentPromise) return row._responseContentPromise;
-    if (typeof row.responseContent === 'string') return Promise.resolve(row);
-
+  function fetchResponsePayload(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
     const requestLabel = row.id == null ? 'unknown request' : 'request ' + row.id;
-    let pending;
     if (!row._reqObj || typeof row._reqObj.getContent !== 'function') {
-      const error = new Error('Response content is unavailable for ' + requestLabel);
-      row.responseContentError = error;
-      pending = Promise.reject(error);
-    } else {
-      pending = new Promise((resolve, reject) => {
-        let settled = false;
-        const timeoutId = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          const error = new Error('Timed out retrieving response content for ' + requestLabel);
-          row.responseContentError = error;
-          reject(error);
-        }, timeoutMs);
+      return Promise.reject(new Error('Response content is unavailable for ' + requestLabel));
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error('Timed out retrieving response content for ' + requestLabel));
+      }, timeoutMs);
 
-        const fail = (message) => {
+      const fail = (message) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        reject(new Error(message));
+      };
+
+      try {
+        row._reqObj.getContent((content, encoding) => {
           if (settled) return;
+          const runtimeError =
+            typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError
+              ? chrome.runtime.lastError.message
+              : '';
+          if (runtimeError) {
+            fail('Failed to retrieve response content for ' + requestLabel + ': ' + runtimeError);
+            return;
+          }
           settled = true;
           clearTimeout(timeoutId);
-          const error = new Error(message);
-          row.responseContentError = error;
-          reject(error);
-        };
+          resolve(measureResponsePayload(content, encoding));
+        });
+      } catch (error) {
+        fail('Failed to retrieve response content for ' + requestLabel + ': ' + error.message);
+      }
+    });
+  }
 
-        try {
-          row._reqObj.getContent((content, encoding) => {
-            if (settled) return;
-            const runtimeError =
-              typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError
-                ? chrome.runtime.lastError.message
-                : '';
-            if (runtimeError) {
-              fail('Failed to retrieve response content for ' + requestLabel + ': ' + runtimeError);
-              return;
-            }
-            settled = true;
-            clearTimeout(timeoutId);
-            row.responseContent = typeof content === 'string' ? content : '';
-            row.responseContentEncoding = encoding === 'base64' ? 'base64' : '';
-            row.responseContentText = decodeResponseContent(row.responseContent, row.responseContentEncoding);
-            row.responseContentError = null;
-            resolve(row);
-          });
-        } catch (error) {
-          fail('Failed to retrieve response content for ' + requestLabel + ': ' + error.message);
-        }
-      });
+  // [U1] Pre-fetch response content into the bounded shared cache.
+  function cacheResponseContent(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
+    if (row._responseContentPromise) return row._responseContentPromise;
+    if (row.responseContentState === 'omitted') {
+      return Promise.reject(
+        row.responseContentError ||
+          new Error(row.responseContentReason || 'Response body exceeds the per-body cache limit.'),
+      );
     }
+    if (typeof row.responseContent === 'string') {
+      touchResponseCacheRow(row);
+      return Promise.resolve(row);
+    }
+
+    row.responseContentState = 'loading';
+    const pending = fetchResponsePayload(row, timeoutMs)
+      .then((payload) => {
+        if (row._managedRetention) {
+          if (!state.rows.includes(row)) throw new Error('Response content arrived after its request was evicted');
+          return admitResponsePayload(row, payload);
+        }
+        row.responseContent = payload.content;
+        row.responseContentEncoding = payload.encoding;
+        row.responseContentText = payload.text;
+        row.responseContentBytes = payload.bytes;
+        row.responseContentState = 'cached';
+        row.responseContentReason = '';
+        row.responseContentError = null;
+        return row;
+      })
+      .catch((error) => {
+        row.responseContentError = error;
+        if (row.responseContentState !== 'omitted' && row.responseContentState !== 'row-evicted') {
+          row.responseContentState = /unavailable/i.test(error.message) ? 'unavailable' : 'error';
+          row.responseContentReason = error.message;
+        }
+        throw error;
+      });
 
     row._responseContentPromise = pending;
     pending.then(undefined, () => {
       if (row._responseContentPromise === pending) row._responseContentPromise = null;
     });
     return pending;
+  }
+
+  async function resolveHarResponseContent(row) {
+    if (typeof row.responseContent === 'string') return buildHarResponseContent(row);
+    try {
+      const payload = await fetchResponsePayload(row);
+      return buildHarResponseContent(row, payload);
+    } catch (error) {
+      row.responseContentReason = row.responseContentReason || error.message;
+      return buildHarResponseContent(row);
+    }
   }
 
   async function settleResponseContentForHar(rows, loadResponseContent = cacheResponseContent) {
@@ -2119,6 +2468,34 @@ const _NetworkPlus = (function () {
     }
   }
 
+  function updateRetentionStatus() {
+    const retention = state.retention;
+    const policyLabel = retention.unlimited
+      ? 'Unlimited requests (warning: memory can grow without bound)'
+      : retention.requestLimit.toLocaleString() + ' requests';
+    const statusParts = [
+      'Retention: ' + policyLabel,
+      'body cache ' + fmtBytes(retention.responseCacheBytes) + ' / ' + fmtBytes(MAX_RESPONSE_CACHE_BYTES),
+      'evicted requests ' + retention.evictedRequests,
+      'bodies omitted ' + retention.omittedBodies,
+      'bodies evicted ' + retention.evictedBodies,
+      'preview-truncated ' + retention.truncatedBodies,
+    ];
+    if (retention.settingWarning) statusParts.push(retention.settingWarning);
+    const status = $('#retentionStatus');
+    if (status) {
+      status.textContent = statusParts.join(' · ');
+      status.title = statusParts.join('. ');
+    }
+    const button = $('#retentionBtn');
+    if (button) {
+      button.textContent = retention.unlimited
+        ? 'Retention: Unlimited'
+        : 'Retention: ' + retention.requestLimit.toLocaleString();
+      button.setAttribute('aria-label', 'Request retention settings. Current policy: ' + policyLabel);
+    }
+  }
+
   function updateTableSummary(visibleRowCount, visibleBytes) {
     if (Number.isFinite(visibleBytes)) state.visibleBytes = visibleBytes;
     const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
@@ -2171,6 +2548,12 @@ const _NetworkPlus = (function () {
       } else {
         countEl.textContent = '';
         countEl.style.color = '';
+      }
+      const unsearchedBodies = srch.scope.resBody && activeKeywords.length > 0
+        ? countUnsearchedResponseBodies(state.filteredRows)
+        : 0;
+      if (unsearchedBodies > 0) {
+        countEl.textContent += ' · ' + unsearchedBodies + ' bodies not searched';
       }
       queueSearchCountAnnouncement(countEl.textContent);
     }
@@ -2659,6 +3042,12 @@ const _NetworkPlus = (function () {
   }
 
   function renderCachedResponseContent(row) {
+    if (row.responseContentState !== 'cached') {
+      setResponsePaneMessage(
+        '(response body unavailable: ' + (row.responseContentReason || 'Full content is not cached.') + ')',
+      );
+      return;
+    }
     const resBodyPane = $('#res-body');
     const resPreviewPane = $('#res-preview');
     const resRawPane = $('#res-raw');
@@ -2680,7 +3069,12 @@ const _NetworkPlus = (function () {
       if (text.length > TRUNCATE_LIMIT) {
         bodyPre.textContent = text.substring(0, TRUNCATE_LIMIT);
         const showMore = document.createElement('button');
-        showMore.textContent = '... Show all (' + fmtBytes(text.length) + ')';
+        showMore.textContent = 'Show full cached body (' + fmtBytes(row.responseContentBytes) + ')';
+        if (!row._previewTruncationCounted) {
+          row._previewTruncationCounted = true;
+          state.retention.truncatedBodies += 1;
+          updateRetentionStatus();
+        }
         showMore.className = 'link-btn';
         showMore.addEventListener('click', () => {
           bodyPre.textContent = text;
@@ -2973,7 +3367,7 @@ const _NetworkPlus = (function () {
     return state.filteredRows;
   }
 
-  function buildHarLogFromRows(rows) {
+  function buildHarLogFromRows(rows, responseContents) {
     const pageref = 'page_1';
     const entries = [];
     for (const r of rows) {
@@ -2986,9 +3380,11 @@ const _NetworkPlus = (function () {
         ? { mimeType: r.requestPostData.mimeType || '', text: r.requestPostData.text || '' }
         : null;
       // [U1] Preserve response body text and its transfer encoding in HAR.
-      const content = buildHarResponseContent(r);
+      const content = responseContents && responseContents.has(r)
+        ? responseContents.get(r)
+        : buildHarResponseContent(r);
       const timings = { blocked: -1, dns: -1, connect: -1, ssl: -1, send: -1, wait: -1, receive: -1 };
-      const t = (r._reqObj && r._reqObj.timings) || {};
+      const t = r.timings || {};
       for (const k in timings) {
         if (typeof t[k] === 'number') timings[k] = t[k];
       }
@@ -3040,8 +3436,14 @@ const _NetworkPlus = (function () {
     exportButton.disabled = true;
     setStatus('Preparing HAR export for ' + rows.length + ' requests...');
     try {
-      const contentResult = await settleResponseContentForHar(rows);
-      const har = buildHarLogFromRows(rows);
+      const responseContents = new Map();
+      let unavailableCount = 0;
+      for (const row of rows) {
+        const content = await resolveHarResponseContent(row);
+        responseContents.set(row, content);
+        if (content._networkPlus) unavailableCount += 1;
+      }
+      const har = buildHarLogFromRows(rows, responseContents);
       const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -3049,15 +3451,15 @@ const _NetworkPlus = (function () {
       a.download = 'network-plus.har';
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      if (contentResult.unavailableCount > 0) {
+      if (unavailableCount > 0) {
         setStatus(
           'Exported ' +
             rows.length +
             ' requests to HAR; ' +
-            contentResult.unavailableCount +
+            unavailableCount +
             ' response ' +
-            (contentResult.unavailableCount === 1 ? 'body was' : 'bodies were') +
-            ' unavailable',
+            (unavailableCount === 1 ? 'body was' : 'bodies were') +
+            ' explicitly marked unavailable',
         );
       } else {
         setStatus('Exported ' + rows.length + ' requests to HAR');
@@ -3076,9 +3478,10 @@ const _NetworkPlus = (function () {
   // ============================================================
   function init() {
     loadColumnPrefs();
+    loadRetentionSetting();
     setStatus('panel.js loaded');
 
-    const pendingLiveRows = [];
+    const pendingLiveRows = state.pendingLiveRows;
     let pendingLiveFrame = false;
     let pendingScrollToBottom = false;
     let pendingResponseSearchFrame = false;
@@ -3097,13 +3500,79 @@ const _NetworkPlus = (function () {
       });
     });
 
+    // Request-retention settings
+    const retentionButton = $('#retentionBtn');
+    const retentionDialog = $('#retentionDialog');
+    const retentionLimitInput = $('#retentionLimit');
+    const retentionUnlimitedInput = $('#retentionUnlimited');
+    const retentionWarning = $('#retentionWarning');
+    const retentionError = $('#retentionError');
+    const syncRetentionForm = () => {
+      retentionLimitInput.value = String(state.retention.requestLimit);
+      retentionUnlimitedInput.checked = state.retention.unlimited;
+      retentionLimitInput.disabled = state.retention.unlimited;
+      retentionWarning.hidden = !state.retention.unlimited;
+      retentionLimitInput.removeAttribute('aria-invalid');
+      retentionError.textContent = '';
+      retentionError.hidden = true;
+    };
+    retentionButton.addEventListener('click', () => {
+      syncRetentionForm();
+      retentionButton.setAttribute('aria-expanded', 'true');
+      retentionDialog.showModal();
+      if (state.retention.unlimited) retentionUnlimitedInput.focus();
+      else retentionLimitInput.focus();
+    });
+    retentionUnlimitedInput.addEventListener('change', () => {
+      retentionLimitInput.disabled = retentionUnlimitedInput.checked;
+      retentionWarning.hidden = !retentionUnlimitedInput.checked;
+    });
+    retentionDialog.addEventListener('close', () => {
+      retentionButton.setAttribute('aria-expanded', 'false');
+      retentionButton.focus();
+    });
+    $('#retentionCancelBtn').addEventListener('click', () => retentionDialog.close());
+    $('#retentionSaveBtn').addEventListener('click', () => {
+      const normalized = normalizeRetentionSetting({
+        unlimited: retentionUnlimitedInput.checked,
+        requestLimit: Number(retentionLimitInput.value),
+      });
+      if (normalized.warning && !retentionUnlimitedInput.checked) {
+        retentionLimitInput.setAttribute('aria-invalid', 'true');
+        retentionError.textContent =
+          'The request limit must be a whole number from 100 to 100,000. Enter a value in that range.';
+        retentionError.hidden = false;
+        setStatus(
+          'Retention limit must be a whole number from ' +
+            MIN_REQUEST_RETENTION_LIMIT.toLocaleString() +
+            ' to ' +
+            MAX_REQUEST_RETENTION_LIMIT.toLocaleString() +
+            '.',
+        );
+        return;
+      }
+      state.retention.requestLimit = normalized.setting.requestLimit;
+      state.retention.unlimited = normalized.setting.unlimited;
+      const settingSaved = saveRetentionSetting();
+      addRowsWithRetention([], 'settings');
+      retentionDialog.close();
+      renderBody();
+      updateRetentionStatus();
+      setStatus(
+        settingSaved
+          ? state.retention.unlimited
+            ? 'Unlimited request retention enabled with warning'
+            : 'Retention setting saved'
+          : state.retention.settingWarning,
+      );
+    });
+    updateRetentionStatus();
+
     // [U4] Clear — reset filters properly, keeping method defaults
     $('#clearBtn').addEventListener('click', () => {
       resetPendingLiveRows();
-      state.rows = [];
-      state.filteredRows = [];
+      clearStoredRows();
       state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
-      state.nextId = 1;
       state.selectedRow = null;
       state.focusedRow = null;
       state.selectedRows.clear();
@@ -3116,6 +3585,7 @@ const _NetworkPlus = (function () {
       state.search.rowKeywords.clear();
       state.search.perKeyword.clear();
       render();
+      updateRetentionStatus();
       clearDetailsPanel();
       setStatus('Cleared');
     });
@@ -3457,18 +3927,13 @@ const _NetworkPlus = (function () {
       if (state.selectedRows.size > 0) {
         const selectedCount = state.selectedRows.size;
         contextMenu.appendChild(createRowMenuButton('Keep Selected (' + selectedCount + ')', () => {
-          state.rows = state.rows.filter((targetRow) => state.selectedRows.has(targetRow));
-          for (const highlightedRow of state.highlightedRows.keys()) {
-            if (!state.rows.includes(highlightedRow)) state.highlightedRows.delete(highlightedRow);
-          }
+          const rowsToRemove = state.rows.filter((targetRow) => !state.selectedRows.has(targetRow));
+          removeRowsFromState(rowsToRemove, false);
           state.selectedRows.clear();
           renderBody();
         }));
         contextMenu.appendChild(createRowMenuButton('Delete Selected (' + selectedCount + ')', () => {
-          state.rows = state.rows.filter((targetRow) => !state.selectedRows.has(targetRow));
-          for (const highlightedRow of state.highlightedRows.keys()) {
-            if (!state.rows.includes(highlightedRow)) state.highlightedRows.delete(highlightedRow);
-          }
+          removeRowsFromState(Array.from(state.selectedRows), false);
           state.selectedRows.clear();
           renderBody();
         }));
@@ -3950,6 +4415,12 @@ const _NetworkPlus = (function () {
         searchCount.textContent = '';
         searchCount.style.color = '';
       }
+      const unsearchedBodies = srch.scope.resBody && activeKws.length > 0
+        ? countUnsearchedResponseBodies(state.filteredRows)
+        : 0;
+      if (unsearchedBodies > 0) {
+        searchCount.textContent += ' · ' + unsearchedBodies + ' bodies not searched';
+      }
       queueSearchCountAnnouncement(searchCount.textContent);
       // Update per-keyword counts in search rows
       renderSearchRows();
@@ -4021,33 +4492,28 @@ const _NetworkPlus = (function () {
               updateRecordState();
 
               resetPendingLiveRows();
-              state.rows = [];
+              clearStoredRows();
               state.selectedRow = null;
               state.focusedRow = null;
               state.selectedRows.clear();
               state.highlightedRows.clear();
 
-              let currentId = state.nextId;
+              const importedRows = [];
               data.log.entries.forEach((entry) => {
-                entry.id = currentId++;
-
-                if (!entry.getContent && entry.response && entry.response.content && entry.response.content.text) {
-                  entry.getContent = function (cb) {
-                    cb(entry.response.content.text, entry.response.content.encoding || 'utf8');
-                  };
-                }
 
                 const row = buildRowFromRequest(entry);
                 if (row.responseContent === null) {
                   row.responseContent = '';
-                  row.responseContentText = '';
+                  row.responseContentState = 'pending-admission';
                 }
-                state.rows.push(row);
+                importedRows.push(row);
               });
-              state.nextId = currentId;
+              const retainedImports = addRowsWithRetention(importedRows, 'import');
 
               renderBody();
-              setStatus(`Imported ${data.log.entries.length} requests from HAR`);
+              setStatus(
+                `Imported ${data.log.entries.length} requests from HAR; retained ${retainedImports.length}`,
+              );
             } else {
               setStatus('Invalid HAR format');
             }
@@ -4077,12 +4543,12 @@ const _NetworkPlus = (function () {
             state.paused = true;
             updateRecordState();
             resetPendingLiveRows();
-            state.rows = [];
+            clearStoredRows();
             state.selectedRow = null;
             state.focusedRow = null;
             state.selectedRows.clear();
             state.highlightedRows.clear();
-            let currentId = state.nextId;
+            const importedRows = [];
 
             const parseHttpMessage = (uint8arr) => {
               const txt = new TextDecoder().decode(uint8arr);
@@ -4143,7 +4609,6 @@ const _NetworkPlus = (function () {
                   const bodySize = serverRaw.body ? new TextEncoder().encode(serverRaw.body).length : 0;
 
                   const entry = {
-                    id: currentId++,
                     startedDateTime: new Date().toISOString(),
                     time: 0,
                     request: {
@@ -4167,21 +4632,18 @@ const _NetworkPlus = (function () {
                     },
                   };
 
-                  entry.getContent = function (cb) {
-                    cb(serverRaw.body, 'utf8');
-                  };
-
                   const row = buildRowFromRequest(entry);
-                  if (serverRaw.body) row.responseContent = serverRaw.body;
-                  state.rows.push(row);
+                  importedRows.push(row);
                 } catch (ex) {
                   console.error('Failed to parse SAZ pair', id, ex);
                 }
               });
 
-            state.nextId = currentId;
+            const retainedImports = addRowsWithRetention(importedRows, 'import');
             renderBody();
-            setStatus(`Imported ${state.rows.length} requests from SAZ`);
+            setStatus(
+              `Imported ${importedRows.length} requests from SAZ; retained ${retainedImports.length}`,
+            );
           }
         } catch (err) {
           setStatus('Import Error: ' + err.message);
@@ -4206,6 +4668,11 @@ const _NetworkPlus = (function () {
       });
     };
 
+    state.onResponseContentChanged = (row) => {
+      scheduleResponseSearchRefresh(row);
+      if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
+      renderCachedResponseContent(row);
+    };
     const scheduleLiveRows = (scrollToBottom) => {
       if (scrollToBottom) pendingScrollToBottom = true;
       if (pendingLiveFrame) return;
@@ -4234,16 +4701,18 @@ const _NetworkPlus = (function () {
       chrome.devtools.network.onRequestFinished.addListener((request) => {
         if (state.paused) return;
         const row = buildRowFromRequest(request);
+        const retainedRows = addRowsWithRetention([row], 'live');
+        if (!retainedRows.includes(row)) return;
         cacheResponseContent(row)
           .then(() => scheduleResponseSearchRefresh(row))
           .catch((error) => {
+            scheduleResponseSearchRefresh(row);
             setStatus('Response content error: ' + error.message);
             console.error(error);
           }); // [U1]
         const wasAtBottom =
           state.autoScroll &&
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
-        state.rows.push(row);
         pendingLiveRows.push(row);
 
         scheduleLiveRows(wasAtBottom);
@@ -4303,6 +4772,18 @@ const _NetworkPlus = (function () {
     shouldRenderSelectedRow,
     isIncrementalAppendEligible,
     getIncrementalAppendBatch,
+    normalizeRetentionSetting,
+    appendRowsWithRetention,
+    createRowEvictionPlan,
+    getUtf8ByteLength,
+    measureResponsePayload,
+    planResponseCacheAdmission,
+    countUnsearchedResponseBodies,
+    fetchResponsePayload,
+    resolveHarResponseContent,
+    DEFAULT_REQUEST_RETENTION_LIMIT,
+    MAX_RESPONSE_BODY_BYTES,
+    MAX_RESPONSE_CACHE_BYTES,
     retainRowsByIdentity,
   };
 })();
