@@ -13,9 +13,7 @@ const pkg = readJson(packagePath);
 const manifest = readJson(manifestPath);
 
 if (pkg.version !== manifest.version) {
-  console.error(
-    `Version mismatch: package.json=${pkg.version}, manifest.json=${manifest.version}`,
-  );
+  console.error(`Version mismatch: package.json=${pkg.version}, manifest.json=${manifest.version}`);
   process.exit(1);
 }
 
