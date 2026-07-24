@@ -263,7 +263,10 @@ describe('response content helpers', () => {
     expect(np.buildHarResponseContent(null)).toEqual({
       size: 0,
       mimeType: 'application/octet-stream',
-      text: '',
+      _networkPlus: {
+        status: 'unavailable',
+        reason: 'Full response content is unavailable.',
+      },
     });
   });
 
@@ -335,6 +338,227 @@ describe('response content helpers', () => {
     expect(getContent).toHaveBeenCalledTimes(1);
     expect(row.responseContent).toBe('AAEC/w==');
     expect(row.responseContentEncoding).toBe('base64');
+  });
+});
+
+describe('capture retention helpers', () => {
+  const rows = (count) => Array.from({ length: count }, (_, index) => ({ id: index + 1 }));
+
+  test('publishes the safe default and exact response budgets', () => {
+    expect(np.DEFAULT_REQUEST_RETENTION_LIMIT).toBe(5000);
+    expect(np.MAX_RESPONSE_BODY_BYTES).toBe(1024 * 1024);
+    expect(np.MAX_RESPONSE_CACHE_BYTES).toBe(32 * 1024 * 1024);
+  });
+
+  test('normalizes bounded and explicit unlimited settings without silent invalid fallback', () => {
+    expect(np.normalizeRetentionSetting({ requestLimit: 2500, unlimited: false })).toEqual({
+      setting: { requestLimit: 2500, unlimited: false },
+      warning: '',
+    });
+    expect(np.normalizeRetentionSetting({ requestLimit: 0, unlimited: true })).toEqual({
+      setting: { requestLimit: 5000, unlimited: true },
+      warning: '',
+    });
+    const invalid = np.normalizeRetentionSetting({ requestLimit: 99, unlimited: false });
+    expect(invalid.setting).toEqual({ requestLimit: 5000, unlimited: false });
+    expect(invalid.warning).toContain('restored');
+  });
+
+  test('evicts only the oldest overflow and honors the exact boundary', () => {
+    const current = rows(3);
+    const incoming = [{ id: 4 }, { id: 5 }];
+    expect(np.appendRowsWithRetention(current, incoming, 5, false)).toEqual({
+      retainedRows: current.concat(incoming),
+      evictedRows: [],
+    });
+    const overflow = np.appendRowsWithRetention(current, incoming, 4, false);
+    expect(overflow.retainedRows.map((row) => row.id)).toEqual([2, 3, 4, 5]);
+    expect(overflow.evictedRows.map((row) => row.id)).toEqual([1]);
+  });
+
+  test('keeps imported batches and iterative live appends policy-equivalent', () => {
+    const incoming = rows(8);
+    const imported = np.appendRowsWithRetention([], incoming, 3, false);
+    let liveRows = [];
+    const liveEvictions = [];
+    for (const row of incoming) {
+      const result = np.appendRowsWithRetention(liveRows, [row], 3, false);
+      liveRows = result.retainedRows;
+      liveEvictions.push(...result.evictedRows);
+    }
+    expect(liveRows.map((row) => row.id)).toEqual(imported.retainedRows.map((row) => row.id));
+    expect(liveEvictions.map((row) => row.id)).toEqual(imported.evictedRows.map((row) => row.id));
+    expect(np.appendRowsWithRetention([], incoming, 3, true).evictedRows).toEqual([]);
+  });
+
+  test('plans cleanup for selection, focus, search, and pending batches by identity', () => {
+    const [first, second, third] = rows(3);
+    const plan = np.createRowEvictionPlan([first, second], {
+      allRows: [first, second, third],
+      selectedRow: first,
+      focusedRow: third,
+      selectedRows: [first, third],
+      searchMatches: [second, third],
+      pendingRows: [first, third],
+    });
+    expect(plan).toEqual({
+      selectedRowEvicted: true,
+      focusedRowEvicted: false,
+      retainedSelectedRows: [third],
+      retainedSearchMatches: [third],
+      retainedPendingRows: [third],
+    });
+  });
+
+  test('accounts for encoded and decoded response payload memory', () => {
+    expect(np.measureResponsePayload('test', '')).toEqual({
+      content: 'test',
+      encoding: '',
+      text: 'test',
+      bytes: 4,
+    });
+    const base64 = Buffer.from('hello', 'utf8').toString('base64');
+    const measured = np.measureResponsePayload(base64, 'base64');
+    expect(measured.text).toBe('hello');
+    expect(measured.bytes).toBe(Buffer.byteLength(base64) + Buffer.byteLength('hello'));
+  });
+
+  test('admits exact-budget bodies and evicts oldest cache entries for overflow', () => {
+    const first = { row: { id: 1 }, bytes: 10 };
+    const second = { row: { id: 2 }, bytes: 15 };
+    expect(np.planResponseCacheAdmission([first, second], 5, 30)).toEqual({
+      accepted: true,
+      evictedEntries: [],
+      resultingBytes: 30,
+    });
+    expect(np.planResponseCacheAdmission([first, second], 6, 30)).toEqual({
+      accepted: true,
+      evictedEntries: [first],
+      resultingBytes: 21,
+    });
+    expect(np.planResponseCacheAdmission([], 31, 30).accepted).toBe(false);
+  });
+
+  test('counts response bodies that deep search cannot inspect', () => {
+    expect(np.countUnsearchedResponseBodies([
+      { responseContentState: 'cached' },
+      { responseContentState: 'omitted' },
+      { responseContentState: 'evicted' },
+    ])).toBe(2);
+  });
+
+  test('does not restore a managed row after it was removed before getContent resolves', async () => {
+    const row = {
+      id: 99,
+      responseContent: null,
+      responseContentState: 'not-loaded',
+      responseContentReason: '',
+      responseContentError: null,
+      _responseContentPromise: null,
+      _managedRetention: true,
+      _reqObj: { getContent: (callback) => callback('late body', '') },
+    };
+    await expect(np.cacheResponseContent(row)).rejects.toThrow('after its request was evicted');
+    expect(row.responseContent).toBeNull();
+  });
+
+  test('checks managed row liveness through constant-time Set membership', () => {
+    const row = { id: 1, _retentionDisposed: false };
+    const retainedRows = { has: jest.fn(() => true) };
+    expect(np.isRetainedRow(row, retainedRows)).toBe(true);
+    expect(retainedRows.has).toHaveBeenCalledTimes(1);
+    row._retentionDisposed = true;
+    expect(np.isRetainedRow(row, retainedRows)).toBe(false);
+    expect(np.isRetainedRow(null, retainedRows)).toBe(false);
+  });
+
+  test('plans a 100k import window without constructing discarded rows', () => {
+    expect(np.planImportRetention(100000, 5000, false)).toEqual({
+      startIndex: 95000,
+      retainedCount: 5000,
+      skippedCount: 95000,
+    });
+    expect(np.planImportRetention(100000, 5000, true)).toEqual({
+      startIndex: 0,
+      retainedCount: 100000,
+      skippedCount: 0,
+    });
+    expect(np.planImportRetention(-1, 5000, false)).toEqual({
+      startIndex: 0,
+      retainedCount: 0,
+      skippedCount: 0,
+    });
+  });
+
+  test('distinguishes embedded, empty, and unavailable imported HAR bodies', () => {
+    expect(np.classifyImportedResponseContent({ response: { content: { text: '' } } })).toEqual({
+      state: 'embedded',
+      reason: '',
+    });
+    expect(np.classifyImportedResponseContent({ response: { content: { size: 0 }, bodySize: 0 } })).toEqual({
+      state: 'empty',
+      reason: '',
+    });
+    const missing = np.classifyImportedResponseContent({
+      response: { content: { size: 512 }, bodySize: 512 },
+    });
+    expect(missing.state).toBe('unavailable');
+    expect(missing.reason).toContain('512-byte');
+    const reexported = np.buildHarResponseContent({
+      size: 512,
+      type: 'application/json',
+      responseHeaders: [],
+      responseContent: null,
+      responseContentState: missing.state,
+      responseContentReason: missing.reason,
+    });
+    expect(reexported.text).toBeUndefined();
+    expect(reexported._networkPlus).toEqual({
+      status: 'unavailable',
+      reason: missing.reason,
+    });
+    const marked = np.classifyImportedResponseContent({
+      response: { content: { _networkPlus: { status: 'omitted', reason: 'source limit' } } },
+    });
+    expect(marked).toEqual({
+      state: 'unavailable',
+      reason: 'Imported HAR body is omitted: source limit',
+    });
+    expect(np.classifyImportedResponseContent({ response: {} }).reason).toContain('explicit zero');
+  });
+
+  test('labels expected response retention states without treating them as errors', () => {
+    expect(np.describeResponseContentState({
+      responseContentState: 'omitted',
+      responseContentReason: 'over the limit',
+    })).toEqual({ label: 'omitted', reason: 'over the limit' });
+    expect(np.describeResponseContentState({ responseContentState: 'row-evicted' })).toEqual({
+      label: 'evicted',
+      reason: 'Full response content is unavailable.',
+    });
+    expect(np.describeResponseContentState({ responseContentState: 'loading' }, new Error('fetch failed'))).toEqual({
+      label: 'error',
+      reason: 'fetch failed',
+    });
+  });
+
+  test('preserves an imported unavailable reason without attempting retrieval', async () => {
+    const row = {
+      responseContent: null,
+      responseContentState: 'unavailable',
+      responseContentReason: 'The imported HAR omitted a declared body.',
+      responseContentError: null,
+      _responseContentPromise: null,
+      _reqObj: null,
+    };
+    await expect(np.cacheResponseContent(row)).rejects.toThrow('The imported HAR omitted a declared body.');
+    expect(row.responseContentState).toBe('unavailable');
+    expect(row.responseContentReason).toBe('The imported HAR omitted a declared body.');
+
+    row.responseContentState = 'evicted';
+    row.responseContentReason = 'Evicted from the bounded cache.';
+    await expect(np.cacheResponseContent(row)).rejects.toThrow('Evicted from the bounded cache.');
+    expect(np.describeResponseContentState(row).label).toBe('evicted');
   });
 });
 

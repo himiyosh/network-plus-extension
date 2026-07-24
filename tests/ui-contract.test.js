@@ -197,6 +197,62 @@ describe('accessible workbench static contracts', () => {
   });
 });
 
+describe('capture retention static contracts', () => {
+  test('provides a labelled narrow-safe retention dialog with an explicit unlimited warning', () => {
+    expect(html).toMatch(/id="retentionBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="retentionDialog"/);
+    expect(html).toMatch(/<dialog id="retentionDialog"[^>]*aria-labelledby="retentionDialogTitle"/);
+    expect(html).toMatch(/<label for="retentionLimit">Maximum retained requests<\/label>/);
+    expect(html).toMatch(/id="retentionUnlimited"[^>]*aria-describedby="retentionWarning"/);
+    expect(html).toMatch(/id="retentionWarning"[^>]*role="alert"[^>]*hidden/);
+    expect(html).toMatch(/id="retentionStatus">Retention:/);
+    expect(html).not.toMatch(/id="retentionStatus"[^>]*(?:role|aria-live)=/);
+    expect(html).toMatch(/id="retentionAnnouncement"[^>]*class="sr-only"[^>]*role="status"[^>]*aria-live="polite"/);
+    expect(css).toMatch(/#retentionDialog\{[^}]*width:min\(420px,calc\(100vw - 16px\)\)[^}]*overflow:auto/);
+  });
+
+  test('persists named budgets and routes live and imported rows through one policy', () => {
+    expect(js).toContain('const DEFAULT_REQUEST_RETENTION_LIMIT = 5000;');
+    expect(js).toContain('const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;');
+    expect(js).toContain('const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;');
+    expect(js).toContain("const RETENTION_KEY = 'networkPlus.retention.v1';");
+    expect(js).toContain("addRowsWithRetention(retainedCandidates, 'import')");
+    expect(js).toContain("addRowsWithRetention(chunk, 'import-buffer')");
+    expect(js).toContain("addRowsWithRetention([row], 'live')");
+    const clearBlock = js.slice(js.indexOf("$('#clearBtn').addEventListener"), js.indexOf('// Pause/Resume'));
+    expect(clearBlock).toContain('clearStoredRows();');
+    expect(clearBlock).not.toContain('state.nextId = 1');
+  });
+
+  test('uses constant-time row liveness and bounded import construction', () => {
+    expect(js).toContain('retainedRows: new Set()');
+    expect(js).not.toContain('state.rows.includes(row)');
+    expect(js).not.toContain('const importedRows = []');
+    expect(js).toContain('const importPlan = planImportRetention(');
+    expect(js).toContain('if (importChunk.length >= IMPORT_CHUNK_SIZE) flushImportChunk();');
+    expect(js).toContain("const renderedRows = $('#tbody') ? $all('tr[data-row-id]', $('#tbody')) : [];");
+    expect(js).not.toContain("document.querySelector('tr[data-row-id=\"' + row.id");
+  });
+
+  test('debounces meaningful retention announcements without making cache bytes live', () => {
+    expect(js).toContain('const RETENTION_ANNOUNCE_MS = 750;');
+    expect(js).toContain("const el = $('#retentionAnnouncement');");
+    const statusStart = js.indexOf('function updateRetentionStatus');
+    const statusEnd = js.indexOf('function updateTableSummary', statusStart);
+    expect(js.slice(statusStart, statusEnd)).not.toContain('queueRetentionAnnouncement');
+    expect(js).toContain("if (display.label === 'error')");
+  });
+
+  test('marks unavailable HAR content and incomplete body search explicitly', () => {
+    expect(js).toContain('content._networkPlus = {');
+    expect(js).toContain("' explicitly marked unavailable'");
+    expect(js).toContain('state.visibleBytes = Math.max(0, state.visibleBytes - evictedVisibleBytes);');
+    expect(js).toContain('if (!shouldRenderSelectedRow(state.selectedRow, row)) return;');
+    expect(js).toContain('renderCachedResponseContent(row);');
+    expect(js).toContain("' bodies not searched'");
+    expect(js).toContain("releaseResponseContent(row, 'row-evicted', false);");
+  });
+});
+
 
 describe('release trust static contracts', () => {
   test('gives every dynamic search and filter field a contextual accessible name', () => {
@@ -227,6 +283,7 @@ describe('release trust static contracts', () => {
     expect(selectBlock).not.toContain('row._reqObj.getContent');
     expect(js).toContain("iframe.sandbox = '';");
     expect(js).toContain("iframe.title = 'Response HTML preview';");
+    expect(js).toContain("if (row.responseContentState !== 'cached')");
     expect(js).toContain("img.alt = 'Response image preview';");
     expect(js).toContain("encoding === 'base64' && row.type && row.type.startsWith('image/')");
   });
@@ -260,7 +317,7 @@ describe('scale trust static contracts', () => {
     expect(appendBlock).toContain('document.createDocumentFragment()');
     expect(appendBlock).not.toContain('tbody.textContent =');
     expect(appendBlock).toContain('getIncrementalAppendBatch(liveRows, renderedRowIds)');
-    expect(js).toContain('retainRowsByIdentity(queuedRows, state.rows)');
+    expect(js).toContain('queuedRows.filter((row) => isRetainedRow(row, state.retainedRows))');
 
     expect(js).toContain('renderedRow.replaceWith(replacement);');
     const selectionBlock = js.slice(js.indexOf('function selectRow'), js.indexOf('const titleParts', js.indexOf('function selectRow')));
