@@ -202,6 +202,7 @@ const _NetworkPlus = (function () {
     { id: 'size', label: 'Size', width: 90, visible: true },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
     { id: 'url', label: 'URL', width: 420, visible: false },
+    { id: 'waterfall', label: 'Waterfall', width: 200, visible: false },
   ];
 
   const DEFAULT_METHOD_FILTERS = () => ({
@@ -2013,6 +2014,104 @@ const _NetworkPlus = (function () {
     return lines.join('\n');
   }
 
+  /**
+   * Compute aggregate statistics for a set of rows.
+   * Pure function — no DOM/state dependency.
+   * @param {Array} rows - Array of row objects (from buildRowFromRequest)
+   * @returns {{ count: number, totalDuration: number, avgDuration: number, minDuration: number, maxDuration: number, totalSize: number }}
+   */
+  function computeStats(rows) {
+    const validRows = Array.isArray(rows) ? rows : [];
+    const count = validRows.length;
+    if (count === 0) {
+      return { count: 0, totalDuration: 0, avgDuration: 0, minDuration: 0, maxDuration: 0, totalSize: 0 };
+    }
+    let totalDuration = 0;
+    let minDuration = Infinity;
+    let maxDuration = -Infinity;
+    let totalSize = 0;
+    for (const row of validRows) {
+      const dur = Number.isFinite(row.duration) ? row.duration : 0;
+      totalDuration += dur;
+      if (dur < minDuration) minDuration = dur;
+      if (dur > maxDuration) maxDuration = dur;
+      totalSize += Number.isFinite(row.size) ? row.size : 0;
+    }
+    return {
+      count,
+      totalDuration,
+      avgDuration: totalDuration / count,
+      minDuration: minDuration === Infinity ? 0 : minDuration,
+      maxDuration: maxDuration === -Infinity ? 0 : maxDuration,
+      totalSize,
+    };
+  }
+
+  /**
+   * Compute waterfall bar layout for a row within a time range.
+   * Pure function — no DOM/state dependency.
+   * @param {object} row - Row object with clientStartEpoch, serverDoneEpoch, duration, timings
+   * @param {{ start: number, end: number }} range - Epoch ms range for the full waterfall
+   * @returns {{ offsetPct: number, widthPct: number, segments: Array<{ label: string, pct: number }> }|null}
+   */
+  function computeWaterfallBar(row, range) {
+    if (!row || !range) return null;
+    const rangeStart = Number.isFinite(range.start) ? range.start : 0;
+    const rangeEnd = Number.isFinite(range.end) ? range.end : 0;
+    const rangeTotal = rangeEnd - rangeStart;
+    if (rangeTotal <= 0) return null;
+    const rowStart = Number.isFinite(row.clientStartEpoch) ? row.clientStartEpoch : 0;
+    const dur = Number.isFinite(row.duration) && row.duration > 0 ? row.duration : 0;
+    if (rowStart < rangeStart || rowStart > rangeEnd) return null;
+    const offsetPct = ((rowStart - rangeStart) / rangeTotal) * 100;
+    // Clamp: min bar of 0.5% but never let offsetPct + widthPct exceed 100%
+    const availablePct = Math.max(0, 100 - offsetPct);
+    const rawWidthPct = (dur / rangeTotal) * 100;
+    const minWidth = Math.min(0.5, availablePct);
+    const widthPct = Math.min(Math.max(rawWidthPct, minWidth), availablePct);
+    const timingBreakdown = calculateTimingSegments(row.timings || {}, dur);
+    const segments = [];
+    let segTotalPct = 0;
+    for (const segment of timingBreakdown.segments) {
+      if (segment.duration > 0 && dur > 0) {
+        const pct = (segment.duration / dur) * 100;
+        segments.push({ label: segment.label, pct });
+        segTotalPct += pct;
+      }
+    }
+    // Normalize segments so their total never exceeds 100%
+    if (segTotalPct > 100) {
+      const scale = 100 / segTotalPct;
+      for (const seg of segments) seg.pct = seg.pct * scale;
+    }
+    return { offsetPct, widthPct, segments };
+  }
+
+  /**
+   * Compute the epoch-ms start/end range that bounds all rows with valid timing data.
+   * Extracted to allow O(1) per-row waterfall rendering: callers compute this once per
+   * render pass and pass the result to computeWaterfallBar for every row.
+   * Pure function — no DOM/state dependency.
+   * @param {Array} rows
+   * @returns {{ start: number, end: number }|null}
+   */
+  function computeWaterfallRange(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    let rangeStart = Infinity;
+    let rangeEnd = -Infinity;
+    for (const r of rows) {
+      if (Number.isFinite(r.clientStartEpoch) && r.clientStartEpoch > 0) {
+        if (r.clientStartEpoch < rangeStart) rangeStart = r.clientStartEpoch;
+        const end = r.clientStartEpoch + (Number.isFinite(r.duration) ? r.duration : 0);
+        if (end > rangeEnd) rangeEnd = end;
+      }
+    }
+    if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd <= rangeStart) {
+      return null;
+    }
+    return { start: rangeStart, end: rangeEnd };
+  }
+
   // ============================================================
   // Section 4: State Management
   // ============================================================
@@ -2050,6 +2149,9 @@ const _NetworkPlus = (function () {
     nextId: 1,
     paused: false,
     autoScroll: true,
+    // Cached waterfall time range — computed once per render by renderBody(),
+    // then consumed O(1) per row by createTableRow(). Null when Waterfall is hidden.
+    waterfallRange: null,
     // Unified search state (replaces globalFilter + deepSearch)
     search: {
       keywords: [],       // array of {query: string, colorIdx: number}
@@ -2926,6 +3028,38 @@ const _NetworkPlus = (function () {
             td.textContent = txt;
           }
         }
+      } else if (c.id === 'waterfall') {
+        td.classList.add('waterfall-cell');
+        // Use the range cached once per render by renderBody() — O(1) per row.
+        const range = state.waterfallRange;
+        const wfBar = range ? computeWaterfallBar(row, range) : null;
+        // Provide accessible name describing relative start and duration; decorative bar is hidden.
+        const relStartMs = wfBar ? (wfBar.offsetPct / 100) * (range.end - range.start) : 0;
+        td.setAttribute(
+          'aria-label',
+          wfBar
+            ? 'Waterfall: starts at ' + fmtTime(relStartMs) + ', duration ' + fmtTime(row.duration)
+            : 'Waterfall: no timing data',
+        );
+        if (wfBar) {
+          const track = document.createElement('div');
+          track.className = 'wf-track';
+          track.setAttribute('aria-hidden', 'true');
+          const fill = document.createElement('div');
+          fill.className = 'wf-fill';
+          fill.style.marginLeft = wfBar.offsetPct.toFixed(2) + '%';
+          fill.style.width = wfBar.widthPct.toFixed(2) + '%';
+          if (wfBar.segments.length > 0) {
+            for (const seg of wfBar.segments) {
+              const segEl = document.createElement('div');
+              segEl.className = 'wf-seg timing-phase-' + seg.label;
+              segEl.style.width = seg.pct.toFixed(2) + '%';
+              fill.appendChild(segEl);
+            }
+          }
+          track.appendChild(fill);
+          td.appendChild(track);
+        }
       } else {
         let v = row[c.id];
         if (c.id === 'size') v = fmtBytes(row.size);
@@ -3771,11 +3905,27 @@ const _NetworkPlus = (function () {
       }
       queueSearchCountAnnouncement(countEl.textContent);
     }
+    const statsEl = $('#statsSummary');
+    if (statsEl) {
+      if (state.filteredRows.length > 0) {
+        const stats = computeStats(state.filteredRows);
+        statsEl.textContent =
+          'avg ' + fmtTime(stats.avgDuration) +
+          ' · min ' + fmtTime(stats.minDuration) +
+          ' · max ' + fmtTime(stats.maxDuration);
+      } else {
+        statsEl.textContent = '';
+      }
+    }
   }
 
   function appendIncrementalRows(liveRows) {
     const tbody = $('#tbody');
     if (!tbody) return false;
+    // When Waterfall is visible every new row changes the shared time range, so
+    // pre-existing bars would show stale geometry. Fall through to a full renderBody().
+    const waterfallCol = state.columns.find((c) => c.id === 'waterfall');
+    if (waterfallCol && waterfallCol.visible) return false;
     const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
     if (
       !isIncrementalAppendEligible(
@@ -3860,6 +4010,10 @@ const _NetworkPlus = (function () {
     const rows = getSortedRows(state.filteredRows);
     const visibleBytes = rows.reduce((total, row) => total + (row.size || 0), 0);
     updateEmptyState(rows.length);
+    // Cache waterfall range once per render — createTableRow reads state.waterfallRange
+    // in O(1) instead of scanning all rows on every call (prevents O(n²) render).
+    const waterfallCol = state.columns.find((c) => c.id === 'waterfall');
+    state.waterfallRange = (waterfallCol && waterfallCol.visible) ? computeWaterfallRange(rows) : null;
     const tbody = $('#tbody');
     const activeRow =
       document.activeElement && document.activeElement.closest
@@ -6180,6 +6334,9 @@ const _NetworkPlus = (function () {
     sanitizeHar,
     buildHarLogFromRows,
     retainRowsByIdentity,
+    computeStats,
+    computeWaterfallBar,
+    computeWaterfallRange,
     loadThemePref,
     saveThemePref,
   };

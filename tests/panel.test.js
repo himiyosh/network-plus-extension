@@ -1857,6 +1857,207 @@ describe('outbound sensitive-data policy', () => {
   });
 });
 
+describe('computeStats', () => {
+  test('returns zero stats for empty array', () => {
+    const stats = np.computeStats([]);
+    expect(stats).toEqual({ count: 0, totalDuration: 0, avgDuration: 0, minDuration: 0, maxDuration: 0, totalSize: 0 });
+  });
+
+  test('returns zero stats for null/undefined input', () => {
+    expect(np.computeStats(null)).toEqual({ count: 0, totalDuration: 0, avgDuration: 0, minDuration: 0, maxDuration: 0, totalSize: 0 });
+    expect(np.computeStats(undefined)).toEqual({ count: 0, totalDuration: 0, avgDuration: 0, minDuration: 0, maxDuration: 0, totalSize: 0 });
+  });
+
+  test('computes correct stats for a single row', () => {
+    const rows = [{ duration: 200, size: 1024 }];
+    const stats = np.computeStats(rows);
+    expect(stats.count).toBe(1);
+    expect(stats.totalDuration).toBe(200);
+    expect(stats.avgDuration).toBe(200);
+    expect(stats.minDuration).toBe(200);
+    expect(stats.maxDuration).toBe(200);
+    expect(stats.totalSize).toBe(1024);
+  });
+
+  test('computes correct stats for multiple rows', () => {
+    const rows = [
+      { duration: 100, size: 500 },
+      { duration: 300, size: 1500 },
+      { duration: 200, size: 1000 },
+    ];
+    const stats = np.computeStats(rows);
+    expect(stats.count).toBe(3);
+    expect(stats.totalDuration).toBe(600);
+    expect(stats.avgDuration).toBeCloseTo(200);
+    expect(stats.minDuration).toBe(100);
+    expect(stats.maxDuration).toBe(300);
+    expect(stats.totalSize).toBe(3000);
+  });
+
+  test('treats missing/non-finite duration and size as 0', () => {
+    const rows = [
+      { duration: undefined, size: NaN },
+      { duration: null, size: undefined },
+      { duration: 500, size: 2000 },
+    ];
+    const stats = np.computeStats(rows);
+    expect(stats.count).toBe(3);
+    expect(stats.totalDuration).toBe(500);
+    expect(stats.minDuration).toBe(0);
+    expect(stats.maxDuration).toBe(500);
+    expect(stats.totalSize).toBe(2000);
+  });
+});
+
+describe('computeWaterfallBar', () => {
+  test('returns null for null/undefined inputs', () => {
+    expect(np.computeWaterfallBar(null, { start: 0, end: 1000 })).toBeNull();
+    expect(np.computeWaterfallBar({ clientStartEpoch: 100, duration: 50, timings: {} }, null)).toBeNull();
+  });
+
+  test('returns null when range is zero or negative', () => {
+    const row = { clientStartEpoch: 100, duration: 50, timings: {} };
+    expect(np.computeWaterfallBar(row, { start: 1000, end: 1000 })).toBeNull();
+    expect(np.computeWaterfallBar(row, { start: 1000, end: 500 })).toBeNull();
+  });
+
+  test('returns null when row starts outside range', () => {
+    const row = { clientStartEpoch: 2000, duration: 50, timings: {} };
+    expect(np.computeWaterfallBar(row, { start: 0, end: 1000 })).toBeNull();
+  });
+
+  test('computes correct offsetPct and widthPct', () => {
+    // Row starts at 200ms into a 1000ms range, takes 100ms
+    const row = { clientStartEpoch: 200, duration: 100, timings: {} };
+    const bar = np.computeWaterfallBar(row, { start: 0, end: 1000 });
+    expect(bar).not.toBeNull();
+    expect(bar.offsetPct).toBeCloseTo(20); // 200/1000 * 100
+    expect(bar.widthPct).toBeCloseTo(10);  // 100/1000 * 100
+  });
+
+  test('enforces minimum widthPct of 0.5', () => {
+    // Row with 0 duration should get minimum width
+    const row = { clientStartEpoch: 0, duration: 0, timings: {} };
+    const bar = np.computeWaterfallBar(row, { start: 0, end: 10000 });
+    expect(bar).not.toBeNull();
+    expect(bar.widthPct).toBeGreaterThanOrEqual(0.5);
+  });
+
+  test('returns segments from timings', () => {
+    const row = {
+      clientStartEpoch: 0,
+      duration: 400,
+      timings: { wait: 200, receive: 200, blocked: -1, dns: -1, connect: -1, ssl: -1, send: -1 },
+    };
+    const bar = np.computeWaterfallBar(row, { start: 0, end: 1000 });
+    expect(bar).not.toBeNull();
+    const labels = bar.segments.map((s) => s.label);
+    expect(labels).toContain('wait');
+    expect(labels).toContain('receive');
+    // blocked, dns, connect, ssl, send are -1 so should not appear
+    expect(labels).not.toContain('blocked');
+  });
+
+  test('returns empty segments array when no timing data', () => {
+    const row = { clientStartEpoch: 0, duration: 200, timings: {} };
+    const bar = np.computeWaterfallBar(row, { start: 0, end: 1000 });
+    expect(bar).not.toBeNull();
+    expect(bar.segments).toEqual([]);
+  });
+
+  test('offsetPct + widthPct never exceeds 100 for row near end of range', () => {
+    // Row starts at 99.8% of a 1000ms range with 0 duration → minimum bar must not overflow
+    const row = { clientStartEpoch: 998, duration: 0, timings: {} };
+    const bar = np.computeWaterfallBar(row, { start: 0, end: 1000 });
+    expect(bar).not.toBeNull();
+    expect(bar.offsetPct + bar.widthPct).toBeLessThanOrEqual(100);
+  });
+
+  test('offsetPct + widthPct never exceeds 100 for a wide bar near end of range', () => {
+    // Row starts at 50% and is very long — should be clamped to remaining 50%
+    const row = { clientStartEpoch: 500, duration: 2000, timings: {} };
+    const bar = np.computeWaterfallBar(row, { start: 0, end: 1000 });
+    expect(bar).not.toBeNull();
+    expect(bar.offsetPct + bar.widthPct).toBeLessThanOrEqual(100);
+  });
+
+  test('timing segment percentages never exceed 100% in total', () => {
+    // Segments where each is 60% of dur — total 120%, must be normalized to 100%
+    const row = {
+      clientStartEpoch: 0,
+      duration: 100,
+      timings: { wait: 60, receive: 60, blocked: -1, dns: -1, connect: -1, ssl: -1, send: -1 },
+    };
+    const bar = np.computeWaterfallBar(row, { start: 0, end: 1000 });
+    expect(bar).not.toBeNull();
+    const totalPct = bar.segments.reduce((sum, seg) => sum + seg.pct, 0);
+    expect(totalPct).toBeLessThanOrEqual(100 + 1e-9); // floating-point tolerance
+  });
+});
+
+describe('computeWaterfallRange', () => {
+  test('returns null for empty or null input', () => {
+    expect(np.computeWaterfallRange([])).toBeNull();
+    expect(np.computeWaterfallRange(null)).toBeNull();
+    expect(np.computeWaterfallRange(undefined)).toBeNull();
+  });
+
+  test('returns null when no row has valid clientStartEpoch', () => {
+    const rows = [
+      { clientStartEpoch: -1, duration: 100 },
+      { clientStartEpoch: 0, duration: 100 },
+      { clientStartEpoch: null, duration: 100 },
+    ];
+    expect(np.computeWaterfallRange(rows)).toBeNull();
+  });
+
+  test('returns null when all start epochs are equal (range = 0)', () => {
+    const rows = [
+      { clientStartEpoch: 1000, duration: 0 },
+      { clientStartEpoch: 1000, duration: 0 },
+    ];
+    expect(np.computeWaterfallRange(rows)).toBeNull();
+  });
+
+  test('computes correct range from a small set of rows', () => {
+    const rows = [
+      { clientStartEpoch: 1000, duration: 200 },
+      { clientStartEpoch: 1050, duration: 300 },
+      { clientStartEpoch: 1100, duration: 100 },
+    ];
+    const range = np.computeWaterfallRange(rows);
+    expect(range).not.toBeNull();
+    expect(range.start).toBe(1000);
+    // latest end = 1050 + 300 = 1350
+    expect(range.end).toBe(1350);
+  });
+
+  test('deterministic 1,000-row range computation', () => {
+    // Build 1,000 rows with known start/duration values and verify range is correct
+    const BASE = 1000000;
+    const rows = Array.from({ length: 1000 }, (_, i) => ({
+      clientStartEpoch: BASE + i * 10,   // 1000000, 1000010, … 1009990
+      duration: 5,                        // each lasts 5 ms
+    }));
+    const range = np.computeWaterfallRange(rows);
+    expect(range).not.toBeNull();
+    expect(range.start).toBe(BASE);                 // first row starts at BASE
+    expect(range.end).toBe(BASE + 999 * 10 + 5);   // last row ends at BASE + 9995
+  });
+
+  test('1,000-row computeStats correctness', () => {
+    // All durations are known integers: 1, 2, …, 1000
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ duration: i + 1, size: 0 }));
+    const stats = np.computeStats(rows);
+    expect(stats.count).toBe(1000);
+    expect(stats.minDuration).toBe(1);
+    expect(stats.maxDuration).toBe(1000);
+    // Sum of 1..1000 = 500500
+    expect(stats.totalDuration).toBe(500500);
+    expect(stats.avgDuration).toBeCloseTo(500.5);
+  });
+});
+
 describe('loadThemePref', () => {
   beforeEach(() => {
     jest.clearAllMocks();

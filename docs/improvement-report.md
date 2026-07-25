@@ -187,3 +187,29 @@ v2.0.0 (メジャー):
 - manifest、HTML参照、local-only script、inline script禁止、CSP、UTF-8、PNG、配布allowlistを依存追加なしで検証
 - 監査済みランタイム10ファイルだけを格納する再現可能なZIP作成と、Node.js 22/24のCI gateを追加
 - packageをprivateにし、repository/homepage/bugs/engines、MIT LICENSE、1.6.0 release metadataを同期
+
+---
+
+## Cycle 4: Waterfall / Statistics — パフォーマンスと正確性の修正 (Issue #20 / PR #23, 2026-07-26)
+
+### 実施した修正
+
+| # | 種別 | 内容 |
+|---|---|---|
+| 1 | perf | `computeWaterfallRange(rows)` 純粋関数を追加し、`renderBody()` で1回だけ計算して `state.waterfallRange` にキャッシュ。`createTableRow` が毎行 `state.filteredRows` をスキャンする O(n²) を O(1) に改善 |
+| 2 | fix | `appendIncrementalRows` — Waterfall 列が表示中の場合はインクリメンタル追加ファストパスを無効化。新規行追加時に既存バーの位置がずれる問題を解消 |
+| 3 | fix | `computeWaterfallBar` — `offsetPct + widthPct <= 100` を保証するクランプ修正。利用可能スペースが 0.5% 未満の場合も正確に処理 |
+| 4 | fix | タイミングセグメントの合計が 100% を超えた場合に正規化し、セグメントバーが fill をはみ出さないよう修正 |
+| 5 | a11y | Waterfall gridcell に `aria-label="Waterfall: starts at X, duration Y"` を付与。装飾的なバー内部 (`.wf-track`) には `aria-hidden="true"` を設定 |
+| 6 | test | `computeWaterfallRange` の単体テスト追加 (null/空配列、範囲なし、3行、1,000行の決定論的検証) |
+| 7 | test | `computeWaterfallBar` に境界値テスト追加 (offsetPct + widthPct ≤ 100, セグメント合計 ≤ 100%) |
+| 8 | test | `computeStats` 1,000行の決定論的検証 |
+| 9 | test | `ui-contract.test.js` に回帰ガード追加 — createTableRow が `state.filteredRows` をスキャンしないこと、`state.waterfallRange` を使うこと、Waterfall 表示時にファストパスが無効になること、aria-label/aria-hidden の存在確認 |
+
+### 品質ゲート
+
+| チェック | 結果 |
+|---|---|
+| Jest テスト | ✅ PASS (13 新規テスト追加) |
+| ESLint | ✅ 0 errors, 0 warnings |
+| Version sync | ✅ OK (1.6.0) |

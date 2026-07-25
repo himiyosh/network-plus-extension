@@ -336,7 +336,12 @@ describe('keyboard trust static contracts', () => {
     expect(js).not.toContain("tr.setAttribute('aria-haspopup'");
     expect(js).not.toContain("tr.setAttribute('aria-expanded'");
     expect(js).not.toContain("tr.setAttribute('aria-label'");
-    expect(js).not.toContain("td.setAttribute('aria-label'");
+    // td aria-label is only permitted in the waterfall cell for describing decorative bar geometry;
+    // it must not appear on other gridcells where textContent already provides the accessible name.
+    const waterfallCellStart = js.indexOf("'waterfall-cell'");
+    const waterfallCellEnd = js.indexOf('} else {', waterfallCellStart + 1);
+    const outsideWaterfall = js.slice(0, waterfallCellStart) + js.slice(waterfallCellEnd);
+    expect(outsideWaterfall).not.toContain("td.setAttribute('aria-label'");
     expect(js).toContain('focus({ preventScroll: true })');
     const rowKeyboardBlock = js.slice(js.indexOf("tableWrap.addEventListener('keydown'"), js.indexOf('// Main workbench divider'));
     expect(rowKeyboardBlock).toContain("event.key === 'Enter' || event.key === ' '");
@@ -502,6 +507,113 @@ describe('outbound data-safety static contracts', () => {
   test('consumes full confirmation synchronously to prevent double activation', () => {
     expect(js).toContain("$('#dataSafetyConfirmBtn').disabled = true;");
     expect(js).toContain('createOneTimeConfirmationAction(source.onConfirm)');
+  });
+});
+
+describe('waterfall and stats topology', () => {
+  test('statsSummary span exists in the statusbar', () => {
+    expect(html).toContain('id="statsSummary"');
+    // Must be inside the footer.statusbar
+    const statusbarStart = html.indexOf('<footer class="statusbar">');
+    const statusbarEnd = html.indexOf('</footer>', statusbarStart);
+    expect(statusbarStart).toBeGreaterThan(-1);
+    const statusbar = html.slice(statusbarStart, statusbarEnd);
+    expect(statusbar).toContain('id="statsSummary"');
+  });
+
+  test('Waterfall column is declared in DEFAULT_COLUMNS as hidden', () => {
+    // Check the DEFAULT_COLUMNS definition contains waterfall with visible: false
+    const colsMatch = js.match(/const DEFAULT_COLUMNS\s*=\s*\[([\s\S]*?)\];/);
+    expect(colsMatch).not.toBeNull();
+    const colsBlock = colsMatch[1];
+    expect(colsBlock).toContain("id: 'waterfall'");
+    expect(colsBlock).toContain("visible: false");
+    // Specifically for waterfall entry
+    const waterfallEntry = colsBlock.slice(colsBlock.indexOf("id: 'waterfall'"));
+    expect(waterfallEntry).toContain("visible: false");
+  });
+
+  test('computeStats and computeWaterfallBar and computeWaterfallRange are exported', () => {
+    const np = require('../panel.js');
+    expect(typeof np.computeStats).toBe('function');
+    expect(typeof np.computeWaterfallBar).toBe('function');
+    expect(typeof np.computeWaterfallRange).toBe('function');
+  });
+
+  test('waterfall cell uses safe DOM creation (no innerHTML)', () => {
+    // Find waterfall-cell block in panel.js
+    const waterfallStart = js.indexOf("'waterfall-cell'");
+    expect(waterfallStart).toBeGreaterThan(-1);
+    // Find the block that follows the waterfall-cell class assignment
+    // up to the next '} else {' that ends the waterfall branch
+    const waterfallBlock = js.slice(waterfallStart, js.indexOf('} else {', waterfallStart + 1));
+    // The waterfall cell block must not use innerHTML
+    expect(waterfallBlock).not.toContain('innerHTML');
+    // Must use createElement and appendChild for the bar
+    expect(waterfallBlock).toContain('createElement');
+    expect(waterfallBlock).toContain('appendChild');
+  });
+
+  // Regression guard: createTableRow must NOT scan state.filteredRows per row to compute
+  // the waterfall range — that caused O(n²) full-render behavior. The range must be read
+  // from the pre-computed state.waterfallRange cache instead.
+  test('waterfall cell reads state.waterfallRange, never scans state.filteredRows', () => {
+    const waterfallStart = js.indexOf("'waterfall-cell'");
+    expect(waterfallStart).toBeGreaterThan(-1);
+    const waterfallBlock = js.slice(waterfallStart, js.indexOf('} else {', waterfallStart + 1));
+    expect(waterfallBlock).not.toContain('state.filteredRows');
+    expect(waterfallBlock).toContain('state.waterfallRange');
+  });
+
+  // Regression guard: renderBody() must compute and cache the waterfall range before
+  // iterating rows, so createTableRow reads it in O(1).
+  test('renderBody computes and caches state.waterfallRange once per render', () => {
+    const renderBodyStart = js.indexOf('function renderBody()');
+    expect(renderBodyStart).toBeGreaterThan(-1);
+    const renderBodyEnd = js.indexOf('\n  function ', renderBodyStart + 1);
+    const renderBodyFn = js.slice(renderBodyStart, renderBodyEnd);
+    expect(renderBodyFn).toContain('state.waterfallRange');
+    expect(renderBodyFn).toContain('computeWaterfallRange(');
+  });
+
+  // Accessibility: waterfall gridcell must have an aria-label describing start/duration,
+  // and decorative bar internals must be aria-hidden.
+  test('waterfall cell has aria-label and decorative track is aria-hidden', () => {
+    const waterfallStart = js.indexOf("'waterfall-cell'");
+    const waterfallBlock = js.slice(waterfallStart, js.indexOf('} else {', waterfallStart + 1));
+    expect(waterfallBlock).toContain("td.setAttribute(");
+    expect(waterfallBlock).toContain("'aria-label'");
+    expect(waterfallBlock).toContain("'aria-hidden', 'true'");
+  });
+
+  // Incremental-append fast path must be disabled when Waterfall column is visible
+  // because appending a row changes the shared time range, invalidating existing bars.
+  test('appendIncrementalRows disables fast path when waterfall column is visible', () => {
+    const fnStart = js.indexOf('function appendIncrementalRows(');
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = js.indexOf('\n  function ', fnStart + 1);
+    const fnBody = js.slice(fnStart, fnEnd);
+    expect(fnBody).toContain("id === 'waterfall'");
+    expect(fnBody).toContain('return false');
+  });
+
+  test('updateTableSummary updates statsSummary element', () => {
+    const summaryFnStart = js.indexOf('function updateTableSummary(');
+    const summaryFnEnd = js.indexOf('\n  function ', summaryFnStart + 1);
+    const summaryFn = js.slice(summaryFnStart, summaryFnEnd);
+    expect(summaryFn).toContain("'#statsSummary'");
+    expect(summaryFn).toContain('computeStats(');
+  });
+
+  test('waterfall CSS classes are defined: wf-track, wf-fill, wf-seg, waterfall-cell', () => {
+    expect(css).toContain('.wf-track');
+    expect(css).toContain('.wf-fill');
+    expect(css).toContain('.wf-seg');
+    expect(css).toContain('.waterfall-cell');
+  });
+
+  test('statsSummary CSS is defined in the status bar section', () => {
+    expect(css).toContain('#statsSummary');
   });
 });
 

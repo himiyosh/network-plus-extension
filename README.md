@@ -14,7 +14,7 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 |------|------|
 | 📡 リアルタイムキャプチャ | `chrome.devtools.network.onRequestFinished` (Edge 拡張 API の `chrome.*` namespace) でリクエストを取得。自然な追加順では 1 フレーム内の新規行だけをまとめて追記し、ソート・フィルター・検索中は安全な全体描画へ切り替え |
 | 🧠 キャプチャ保持上限 | 既定で最新 5,000 リクエストを保持し、超過時は最古行を一括整理。`Retention` から 100〜100,000 件へ変更でき、警告を確認した明示操作時のみリクエスト行を無制限に保持。レスポンス Body は常に 1 Body あたり 1 MiB、合計 32 MiB の独立した上限を適用 |
-| 🧱 カスタムカラム (11種) | ID, Time, Method, Status, Domain, Path, Type, Duration, Size, Initiator, URL |
+| 🧱 カスタムカラム (12種) | ID, Time, Method, Status, Domain, Path, Type, Duration, Size, Initiator, URL, Waterfall (既定では非表示) |
 | 👁️ カラム表示/非表示 | ツールバーの `Columns` ボタンでカラムの表示切替。設定は `localStorage` に永続化 |
 | ↔️ カラムリサイズ | ドラッグまたはフォーカスした境界の左右キー (`Shift` 併用で大きく調整) でカラム幅を変更可能。設定は永続化 |
 | 🔍 統合キーワード検索 | 複数キーワードをそれぞれ独立した入力欄で設定可能。URL/Domain/Path、リクエスト/レスポンスの Body・Headers を横断検索。各キーワードごとに 6 色のハイライトカラーを選択でき、マッチ行はキーワード色と `Match K1` バッジで対応を表示。キーワードごとの ▲▼ ナビゲーション・マッチ数表示に対応。遅延取得されたレスポンス Body もフレーム単位でまとめて検索結果へ反映し、現在の移動位置を可能な限り維持。検索できない Body がある場合は件数を明示。`Ctrl+F` で検索パネルを開閉。検索スコープ (URL/Body/Headers) は ⚙️ Scope ボタンで切替可能 |
@@ -30,6 +30,8 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 🪟 パネルリサイズ | テーブルと詳細パネルの境界をドラッグまたは矢印キーで調整可能。幅 700px 以下では上下配置へ切り替わり、上下キーで高さを調整。Request/Response 境界も上下キーに対応 |
 | ⌨️ キーボードナビゲーション | フォーカス行を上下キーで選択して自動スクロール。`Context Menu` または `Shift+F10` で行アクションを開き、メニュー内は上下キー / Home / End / Escape で操作。詳細タブは左右キー / Home / End で移動可能 |
 | ♿ アクセシブル表示 | 色だけに依存しない検索一致バッジ、読み上げ対応の状態・件数・コピー通知、`prefers-reduced-motion` による装飾モーション抑制 |
+| 📊 リクエスト統計 | ステータスバーにフィルター済み行の平均/最小/最大レスポンスタイムを表示。フィルター変更に連動してリアルタイム更新 |
+| 🌊 Waterfall カラム | 各リクエストの開始オフセットとタイミングフェーズ (blocked/dns/connect/ssl/send/wait/receive) を行内バーで可視化。`Columns` メニューで表示切替可能 (既定では非表示) |
 
 ### UI 安定表示ルール
 
