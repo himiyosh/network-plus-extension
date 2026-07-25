@@ -2300,29 +2300,74 @@ const _NetworkPlus = (function () {
   // Section 5: Theme
   // ============================================================
   function loadThemePref(cb) {
+    let called = false;
+    let fallbackAttempted = false;
+    const done = (v, warn) => {
+      if (called) return;
+      called = true;
+      cb(v, warn);
+    };
     try {
       chrome.storage.local.get([THEME_KEY], (obj) => {
-        cb(obj && obj[THEME_KEY] ? obj[THEME_KEY] : localStorage.getItem(THEME_KEY) || 'system');
+        if (called) return;
+        const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+        if (runtimeErr) {
+          if (fallbackAttempted) return;
+          fallbackAttempted = true;
+          try {
+            done(localStorage.getItem(THEME_KEY) || 'system');
+          } catch (_e) {
+            done('system', 'Theme preference could not be loaded.');
+          }
+          return;
+        }
+        try {
+          done(obj && obj[THEME_KEY] ? obj[THEME_KEY] : localStorage.getItem(THEME_KEY) || 'system');
+        } catch (_e) {
+          // Primary storage succeeded; localStorage probe failure is a first-run default, not a total failure
+          done('system');
+        }
       });
     } catch (_e) {
+      if (called || fallbackAttempted) return;
+      fallbackAttempted = true;
       try {
-        cb(localStorage.getItem(THEME_KEY) || 'system');
+        done(localStorage.getItem(THEME_KEY) || 'system');
       } catch (_err) {
-        cb('system');
+        done('system', 'Theme preference could not be loaded.');
       }
     }
   }
 
   function saveThemePref(v) {
+    let saved = false;
+    let fallbackAttempted = false;
     try {
       const data = {};
       data[THEME_KEY] = v;
-      chrome.storage.local.set(data, () => {});
+      chrome.storage.local.set(data, () => {
+        if (saved || fallbackAttempted) return;
+        const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+        if (!runtimeErr) {
+          saved = true;
+          return;
+        }
+        fallbackAttempted = true;
+        try {
+          localStorage.setItem(THEME_KEY, v);
+          saved = true;
+        } catch (_e) {
+          setStatus('Theme preference could not be saved.');
+        }
+      });
     } catch (_e) {
+      if (saved || fallbackAttempted) return;
+      fallbackAttempted = true;
       try {
         localStorage.setItem(THEME_KEY, v);
+        saved = true;
       } catch (_err) {
-        console.warn('Failed to save theme preference');
+        setStatus('Theme preference could not be saved.');
       }
     }
   }
@@ -4744,9 +4789,12 @@ const _NetworkPlus = (function () {
     };
 
     // Theme init
-    loadThemePref((pref) => applyTheme(pref));
+    loadThemePref((pref, warn) => {
+      applyTheme(pref);
+      if (warn) setStatus(warn);
+    });
     $('#themeBtn').addEventListener('click', () => {
-      loadThemePref((cur) => {
+      loadThemePref((cur, _warn) => {
         const nxt = nextTheme(cur);
         saveThemePref(nxt);
         applyTheme(nxt);
@@ -6132,6 +6180,8 @@ const _NetworkPlus = (function () {
     sanitizeHar,
     buildHarLogFromRows,
     retainRowsByIdentity,
+    loadThemePref,
+    saveThemePref,
   };
 })();
 

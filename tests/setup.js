@@ -7,6 +7,7 @@ global.chrome = {
     network: { onRequestFinished: null },
     panels: { openResource: jest.fn() },
   },
+  runtime: { lastError: null },
 };
 
 const mockElement = () => ({

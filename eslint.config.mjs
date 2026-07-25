@@ -45,6 +45,9 @@ export default [
       globals: {
         ...globals.jest,
         ...globals.node,
+        chrome: 'readonly',
+        localStorage: 'readonly',
+        document: 'readonly',
       },
     },
   },

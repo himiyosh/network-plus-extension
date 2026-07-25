@@ -1856,3 +1856,258 @@ describe('outbound sensitive-data policy', () => {
     expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.6.0');
   });
 });
+
+describe('loadThemePref', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    chrome.runtime.lastError = null;
+  });
+
+  test('async read failure falls back to localStorage value', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb({});
+      chrome.runtime.lastError = null;
+    });
+    localStorage.getItem.mockReturnValue('dark');
+    np.loadThemePref((theme) => {
+      expect(theme).toBe('dark');
+      done();
+    });
+  });
+
+  test('async read failure falls back to system when localStorage also empty (no warning)', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb({});
+      chrome.runtime.lastError = null;
+    });
+    localStorage.getItem.mockReturnValue(null);
+    np.loadThemePref((theme, warn) => {
+      expect(theme).toBe('system');
+      expect(warn).toBeUndefined();
+      done();
+    });
+  });
+
+  test('double-callback prevention: cb is called at most once when both paths fire', (done) => {
+    // Simulate both the async callback AND a sync throw to verify the at-most-once guard
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      cb({ 'networkPlus.theme': 'light' });
+      throw new Error('also throws after callback');
+    });
+    const calls = [];
+    np.loadThemePref((theme) => {
+      calls.push(theme);
+    });
+    setTimeout(() => {
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toBe('light');
+      done();
+    }, 0);
+  });
+
+  test('reads value from extension storage when no error', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      cb({ 'networkPlus.theme': 'dark' });
+    });
+    np.loadThemePref((theme) => {
+      expect(theme).toBe('dark');
+      done();
+    });
+  });
+
+  test('first-run: no saved value in extension storage returns system without warning', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      cb({});
+    });
+    localStorage.getItem.mockReturnValue(null);
+    np.loadThemePref((theme, warn) => {
+      expect(theme).toBe('system');
+      expect(warn).toBeUndefined();
+      done();
+    });
+  });
+
+  test('total read failure (storage error + localStorage throws) returns system with load warning', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb({});
+      chrome.runtime.lastError = null;
+    });
+    localStorage.getItem.mockImplementation(() => {
+      throw new Error('localStorage unavailable');
+    });
+    np.loadThemePref((theme, warn) => {
+      expect(theme).toBe('system');
+      expect(warn).toBe('Theme preference could not be loaded.');
+      done();
+    });
+  });
+
+  test('load warning does not expose raw error message', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      chrome.runtime.lastError = { message: 'Internal extension error with sensitive details' };
+      cb({});
+      chrome.runtime.lastError = null;
+    });
+    localStorage.getItem.mockImplementation(() => {
+      throw new Error('localStorage unavailable');
+    });
+    np.loadThemePref((theme, warn) => {
+      expect(warn).not.toContain('Internal extension error');
+      expect(warn).not.toContain('sensitive details');
+      expect(warn).toBe('Theme preference could not be loaded.');
+      done();
+    });
+  });
+
+  test('primary read succeeds with no saved key but localStorage probe throws: returns system with no warning', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      cb({});
+    });
+    localStorage.getItem.mockImplementation(() => {
+      throw new Error('localStorage unavailable');
+    });
+    np.loadThemePref((theme, warn) => {
+      expect(theme).toBe('system');
+      expect(warn).toBeUndefined();
+      done();
+    });
+  });
+
+  test('duplicate failing storage callbacks attempt localStorage fallback only once and emit one warning', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb({});
+      cb({});
+      chrome.runtime.lastError = null;
+    });
+    localStorage.getItem.mockImplementation(() => {
+      throw new Error('localStorage unavailable');
+    });
+    const warnings = [];
+    np.loadThemePref((_theme, warn) => {
+      if (warn !== undefined) warnings.push(warn);
+    });
+    setTimeout(() => {
+      expect(localStorage.getItem).toHaveBeenCalledTimes(1);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toBe('Theme preference could not be loaded.');
+      done();
+    }, 0);
+  });
+});
+
+describe('saveThemePref', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    chrome.runtime.lastError = null;
+  });
+
+  test('async write failure falls back to localStorage', (done) => {
+    chrome.storage.local.set.mockImplementation((_data, cb) => {
+      chrome.runtime.lastError = { message: 'Storage quota exceeded' };
+      cb();
+      chrome.runtime.lastError = null;
+    });
+    np.saveThemePref('dark');
+    setTimeout(() => {
+      expect(localStorage.setItem).toHaveBeenCalledWith('networkPlus.theme', 'dark');
+      done();
+    }, 0);
+  });
+
+  test('fallback success: localStorage receives value when extension storage fails async', (done) => {
+    chrome.storage.local.set.mockImplementation((_data, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb();
+      chrome.runtime.lastError = null;
+    });
+    np.saveThemePref('light');
+    setTimeout(() => {
+      expect(localStorage.setItem).toHaveBeenCalledWith('networkPlus.theme', 'light');
+      done();
+    }, 0);
+  });
+
+  test('total persistence failure surfaces status warning, does not throw', (done) => {
+    chrome.storage.local.set.mockImplementation((_data, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb();
+      chrome.runtime.lastError = null;
+    });
+    localStorage.setItem.mockImplementation(() => {
+      throw new Error('localStorage full');
+    });
+    const statusEl = { textContent: '' };
+    document.querySelector.mockImplementation((sel) =>
+      sel === '#statusText' ? statusEl : { textContent: '', style: {}, setAttribute: jest.fn(), removeAttribute: jest.fn() }
+    );
+    np.saveThemePref('dark');
+    setTimeout(() => {
+      expect(statusEl.textContent).toBe('Theme preference could not be saved.');
+      done();
+    }, 0);
+  });
+
+  test('does not call localStorage when extension storage succeeds', (done) => {
+    chrome.storage.local.set.mockImplementation((_data, cb) => {
+      cb();
+    });
+    np.saveThemePref('dark');
+    setTimeout(() => {
+      expect(localStorage.setItem).not.toHaveBeenCalled();
+      done();
+    }, 0);
+  });
+
+  test('at-most-once guard: sync throw after successful callback does not write to localStorage', (done) => {
+    // Simulate both the async success callback AND a sync throw; localStorage must not be written
+    chrome.storage.local.set.mockImplementation((_data, cb) => {
+      cb();
+      throw new Error('also throws after callback');
+    });
+    np.saveThemePref('dark');
+    setTimeout(() => {
+      expect(localStorage.setItem).not.toHaveBeenCalled();
+      done();
+    }, 0);
+  });
+
+  test('does not expose raw error message in status warning', (done) => {
+    chrome.storage.local.set.mockImplementation((_data, cb) => {
+      chrome.runtime.lastError = { message: 'Internal extension error with sensitive details' };
+      cb();
+      chrome.runtime.lastError = null;
+    });
+    localStorage.setItem.mockImplementation(() => {
+      throw new Error('localStorage full');
+    });
+    const statusEl = { textContent: '' };
+    document.querySelector.mockImplementation((sel) =>
+      sel === '#statusText' ? statusEl : { textContent: '', style: {}, setAttribute: jest.fn(), removeAttribute: jest.fn() }
+    );
+    np.saveThemePref('dark');
+    setTimeout(() => {
+      expect(statusEl.textContent).not.toContain('Internal extension error');
+      expect(statusEl.textContent).not.toContain('sensitive details');
+      expect(statusEl.textContent).toBe('Theme preference could not be saved.');
+      done();
+    }, 0);
+  });
+
+  test('duplicate failing storage callbacks attempt localStorage fallback only once', (done) => {
+    chrome.storage.local.set.mockImplementation((_data, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb();
+      cb();
+      chrome.runtime.lastError = null;
+    });
+    np.saveThemePref('dark');
+    setTimeout(() => {
+      expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+      done();
+    }, 0);
+  });
+});
