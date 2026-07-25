@@ -504,3 +504,55 @@ describe('outbound data-safety static contracts', () => {
     expect(js).toContain('createOneTimeConfirmationAction(source.onConfirm)');
   });
 });
+
+describe('visual-state dark-mode parity', () => {
+  const visualStateTokens = [
+    'hl-primary-pct',
+    'hl-secondary-pct',
+    'hl-row-primary-pct',
+    'hl-row-secondary-pct',
+    'multi-selected-pct',
+    'danger-tint',
+    'shadow-context-menu',
+  ];
+
+  test('defines visual-state custom properties in all four theme locations', () => {
+    for (const token of visualStateTokens) {
+      for (const [themeName, theme] of [
+        ['light', light],
+        ['system dark', systemDark],
+        ['forced dark', forcedDark],
+        ['forced light', forcedLight],
+      ]) {
+        expect({ themeName, token, value: theme[token] }).toMatchObject({
+          value: expect.stringMatching(/\S/),
+        });
+      }
+    }
+  });
+
+  test('forced dark matches system dark and forced light matches light for visual-state tokens', () => {
+    for (const token of visualStateTokens) {
+      expect({ token, value: forcedDark[token] }).toMatchObject({ value: systemDark[token] });
+      expect({ token, value: forcedLight[token] }).toMatchObject({ value: light[token] });
+    }
+  });
+
+  test('no unapproved color or shadow literals in component rules outside theme token blocks', () => {
+    // Component CSS begins after the four theme blocks (the forced-light block is last)
+    const componentCss = css.slice(css.indexOf('/* === Top Bar === */'));
+    // All colors must flow through CSS custom properties; bare rgba() is not permitted in component rules
+    expect(componentCss).not.toMatch(/rgba\(/);
+  });
+
+  test('visual-state highlight rules do not use dark-only selector overrides', () => {
+    // Parity with system dark is achieved through CSS custom properties defined in the theme blocks,
+    // not through html[data-theme="dark"] selector overrides on visual-state classes
+    expect(css).not.toMatch(/html\[data-theme="dark"\]\s+\.search-hl-/);
+    expect(css).not.toMatch(/html\[data-theme="dark"\]\s+\.search-highlight\b/);
+    expect(css).not.toMatch(/html\[data-theme="dark"\]\s+\.hl-(?:yellow|red|green|blue|purple|orange)\b/);
+    expect(css).not.toMatch(/html\[data-theme="dark"\]\s+\.search-row-/);
+    expect(css).not.toMatch(/html\[data-theme="dark"\]\s+\.multi-selected\b/);
+    expect(css).not.toMatch(/html\[data-theme="dark"\]\s+\.context-menu\b/);
+  });
+});
