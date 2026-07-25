@@ -293,6 +293,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-extension-package.js](scripts/check-extension-package.js) | 拡張機能の参照・権限・配布内容チェックとZIP作成 |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | manifest/package/package-lock/panel fallback バージョン同期チェックスクリプト |
+| [scripts/check-audit-policy.js](scripts/check-audit-policy.js) | 高優先度の監査を維持しつつ GHSA-mh99-v99m-4gvg 由来のみを一時許可する監査ポリシー |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
 | [LICENSE](LICENSE) | MIT License |
 

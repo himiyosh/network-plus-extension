@@ -13,7 +13,8 @@
     "integrity:check": "node scripts/check-repository-integrity.js",
     "text:check": "node scripts/check-text-integrity.js",
     "extension:check": "node scripts/check-extension-package.js --check",
-    "extension:package": "node scripts/check-extension-package.js --package"
+    "extension:package": "node scripts/check-extension-package.js --package",
+    "audit:strict": "node scripts/check-audit-policy.js"
   },
   "keywords": [],
   "author": "himiyosh",

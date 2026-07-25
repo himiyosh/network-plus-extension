@@ -69,4 +69,4 @@ jobs:
         run: npm run integrity:check
 
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: npm run audit:strict
