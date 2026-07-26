@@ -45,7 +45,13 @@ const _NetworkPlus = (function () {
   const MAX_REQUEST_RETENTION_LIMIT = 100000;
   const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;
   const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;
-  const IMPORT_CHUNK_SIZE = 256;
+  const MAX_IMPORT_SOURCE_BYTES = 32 * 1024 * 1024;
+  const MAX_SAZ_ARCHIVE_ENTRIES = 20000;
+  const MAX_SAZ_ENTRY_BYTES = 4 * 1024 * 1024;
+  const MAX_SAZ_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
+  const MAX_SAZ_CONCURRENT_EXTRACTIONS = 4;
+  const SAZ_SOURCE_CHUNK_BYTES = 16 * 1024;
+  const SAZ_ENTRY_PATH_PATTERN = /^raw\/(\d+)_([csm])\.(txt|xml)$/;
   const JSON_TREE_MAX_CHILDREN = 100;
   const JSON_TREE_MAX_DEPTH = 20;
   const JSON_TREE_PREVIEW_KEYS = 3;
@@ -1791,6 +1797,431 @@ const _NetworkPlus = (function () {
     };
   }
 
+  function createImportError(message) {
+    const error = new Error(message);
+    error.name = 'ImportError';
+    return error;
+  }
+
+  function getImportFormat(fileName) {
+    if (typeof fileName !== 'string') return '';
+    const normalizedName = fileName.toLowerCase();
+    if (normalizedName.endsWith('.har')) return 'har';
+    if (normalizedName.endsWith('.saz')) return 'saz';
+    return '';
+  }
+
+  function validateImportSource(fileName, sourceBytes) {
+    const format = getImportFormat(fileName);
+    if (!format) return { format: '', error: 'Only HAR and SAZ files are supported.' };
+    if (!Number.isSafeInteger(sourceBytes) || sourceBytes < 0) {
+      return { format, error: 'Import file size is unavailable.' };
+    }
+    if (sourceBytes > MAX_IMPORT_SOURCE_BYTES) {
+      return { format, error: 'Import file exceeds the 32 MiB source limit.' };
+    }
+    return { format, error: '' };
+  }
+
+  function isRecord(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function normalizeImportString(value) {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    return '';
+  }
+
+  function normalizeImportNumber(value, fallback) {
+    return typeof value === 'number' &&
+      Number.isFinite(value) &&
+      Math.abs(value) <= Number.MAX_SAFE_INTEGER
+      ? value
+      : fallback;
+  }
+
+  function normalizeHarHeaders(headers) {
+    if (!Array.isArray(headers)) return [];
+    return headers.map((header) => {
+      const source = isRecord(header) ? header : {};
+      return {
+        name: normalizeImportString(source.name),
+        value: normalizeImportString(source.value),
+      };
+    });
+  }
+
+  function validateHarDocument(data) {
+    if (!isRecord(data) || !isRecord(data.log) || !Array.isArray(data.log.entries)) {
+      throw createImportError('HAR must contain a log.entries array.');
+    }
+    for (const entry of data.log.entries) {
+      if (!isRecord(entry) || !isRecord(entry.request) || !isRecord(entry.response)) {
+        throw createImportError('HAR entries must contain request and response objects.');
+      }
+    }
+    return data.log.entries;
+  }
+
+  function normalizeHarEntry(entry) {
+    if (!isRecord(entry) || !isRecord(entry.request) || !isRecord(entry.response)) {
+      throw createImportError('HAR entries must contain request and response objects.');
+    }
+    const request = entry.request;
+    const response = entry.response;
+    const content = isRecord(response.content) ? response.content : {};
+    const postData = isRecord(request.postData)
+      ? {
+        mimeType: normalizeImportString(request.postData.mimeType),
+        text: normalizeImportString(request.postData.text),
+        encoding: request.postData.encoding === 'base64' ? 'base64' : '',
+      }
+      : null;
+    const normalizedContent = { mimeType: normalizeImportString(content.mimeType) };
+    const contentSize = normalizeImportNumber(content.size, null);
+    if (contentSize !== null && contentSize >= 0) normalizedContent.size = contentSize;
+    if (typeof content.text === 'string') normalizedContent.text = content.text;
+    if (content.encoding === 'base64') normalizedContent.encoding = 'base64';
+    if (isRecord(content._networkPlus)) {
+      normalizedContent._networkPlus = {
+        status: normalizeImportString(content._networkPlus.status),
+        reason: normalizeImportString(content._networkPlus.reason),
+      };
+    }
+    const timingsSource = isRecord(entry.timings) ? entry.timings : {};
+    const timings = {};
+    for (const phase of TIMING_PHASES) {
+      timings[phase] = normalizeImportNumber(timingsSource[phase], -1);
+    }
+    const normalizedResponse = {
+      status: normalizeImportNumber(response.status, 0),
+      statusText: normalizeImportString(response.statusText),
+      httpVersion: normalizeImportString(response.httpVersion),
+      headers: normalizeHarHeaders(response.headers),
+      content: normalizedContent,
+    };
+    const bodySize = normalizeImportNumber(response.bodySize, null);
+    if (bodySize !== null && bodySize >= 0) normalizedResponse.bodySize = bodySize;
+    return {
+      startedDateTime: normalizeImportString(entry.startedDateTime),
+      time: Math.max(0, normalizeImportNumber(entry.time, 0)),
+      request: {
+        method: normalizeImportString(request.method),
+        url: normalizeImportString(request.url),
+        httpVersion: normalizeImportString(request.httpVersion),
+        headers: normalizeHarHeaders(request.headers),
+        postData,
+      },
+      response: normalizedResponse,
+      timings,
+      initiator: null,
+    };
+  }
+
+  function parseSazEntryPath(path) {
+    if (typeof path !== 'string') return null;
+    const match = path.match(SAZ_ENTRY_PATH_PATTERN);
+    if (!match) return null;
+    return {
+      requestId: match[1],
+      kind: match[2],
+      extension: match[3],
+    };
+  }
+
+  function validateSazArchiveEntryBudget(currentBudget, entryInfo, limits) {
+    const current = currentBudget || { entryCount: 0, totalUncompressedBytes: 0 };
+    const configuredLimits = limits || {
+      maxEntries: MAX_SAZ_ARCHIVE_ENTRIES,
+      maxEntryBytes: MAX_SAZ_ENTRY_BYTES,
+      maxTotalBytes: MAX_SAZ_TOTAL_UNCOMPRESSED_BYTES,
+    };
+    const originalSize = entryInfo && entryInfo.originalSize;
+    const entryCount = current.entryCount + 1;
+    if (entryCount > configuredLimits.maxEntries) {
+      return { accepted: false, state: current, error: 'SAZ archive exceeds the 20,000-entry limit.' };
+    }
+    if (originalSize == null) {
+      return {
+        accepted: true,
+        state: { entryCount, totalUncompressedBytes: current.totalUncompressedBytes },
+        error: '',
+      };
+    }
+    if (!Number.isSafeInteger(originalSize) || originalSize < 0) {
+      return { accepted: false, state: current, error: 'SAZ entry size metadata is invalid.' };
+    }
+    if (originalSize > configuredLimits.maxEntryBytes) {
+      return { accepted: false, state: current, error: 'SAZ entry exceeds the 4 MiB uncompressed limit.' };
+    }
+    const totalUncompressedBytes = current.totalUncompressedBytes + originalSize;
+    if (
+      !Number.isSafeInteger(totalUncompressedBytes) ||
+      totalUncompressedBytes > configuredLimits.maxTotalBytes
+    ) {
+      return {
+        accepted: false,
+        state: current,
+        error: 'SAZ archive exceeds the 64 MiB total uncompressed limit.',
+      };
+    }
+    return {
+      accepted: true,
+      state: { entryCount, totalUncompressedBytes },
+      error: '',
+    };
+  }
+
+  function compareSazRequestIds(left, right) {
+    const normalizedLeft = String(left).replace(/^0+(?=\d)/, '');
+    const normalizedRight = String(right).replace(/^0+(?=\d)/, '');
+    if (normalizedLeft.length !== normalizedRight.length) {
+      return normalizedLeft.length - normalizedRight.length;
+    }
+    if (normalizedLeft !== normalizedRight) return normalizedLeft < normalizedRight ? -1 : 1;
+    return String(left).localeCompare(String(right));
+  }
+
+  function extractBoundedSazEntries(fflate, sourceBytes) {
+    return new Promise((resolve, reject) => {
+      if (!fflate || !fflate.Unzip || !fflate.UnzipInflate) {
+        reject(createImportError('SAZ decompression support is unavailable.'));
+        return;
+      }
+      if (!(sourceBytes instanceof Uint8Array)) {
+        reject(createImportError('SAZ source data is invalid.'));
+        return;
+      }
+
+      const extractedEntries = new Map();
+      const trackedFiles = new Set();
+      const queuedFiles = [];
+      let archiveBudget = { entryCount: 0, totalUncompressedBytes: 0 };
+      let producedBytes = 0;
+      let pendingFiles = 0;
+      let activeFileCount = 0;
+      let sourceOffset = 0;
+      let enumerationComplete = false;
+      let pumpScheduled = false;
+      let settled = false;
+      let unzip = null;
+
+      const terminateFile = (entry) => {
+        try {
+          entry.terminate();
+        } catch (_error) {
+          // Termination is best-effort after rejection or for ignored entries.
+        }
+      };
+      const stopTrackedFiles = () => {
+        for (const trackedFile of trackedFiles) terminateFile(trackedFile);
+        trackedFiles.clear();
+        queuedFiles.length = 0;
+      };
+      const fail = (message) => {
+        if (settled) return;
+        settled = true;
+        stopTrackedFiles();
+        reject(createImportError(message));
+      };
+      const finishIfReady = () => {
+        if (settled || !enumerationComplete || pendingFiles !== 0) return false;
+        settled = true;
+        resolve(extractedEntries);
+        return true;
+      };
+
+      let schedulePump;
+      const startQueuedFiles = () => {
+        let startedCount = 0;
+        while (
+          !settled &&
+          activeFileCount < MAX_SAZ_CONCURRENT_EXTRACTIONS &&
+          queuedFiles.length > 0 &&
+          startedCount < MAX_SAZ_CONCURRENT_EXTRACTIONS
+        ) {
+          const entry = queuedFiles.shift();
+          const chunks = [];
+          let entryBytes = 0;
+          activeFileCount += 1;
+          startedCount += 1;
+          entry.ondata = (error, chunk, final) => {
+            if (settled) return;
+            if (error) {
+              fail('SAZ extraction failed.');
+              return;
+            }
+            if (chunk && chunk.length > 0) {
+              entryBytes += chunk.length;
+              producedBytes += chunk.length;
+              if (entryBytes > MAX_SAZ_ENTRY_BYTES) {
+                fail('SAZ entry exceeds the 4 MiB uncompressed limit.');
+                return;
+              }
+              if (producedBytes > MAX_SAZ_TOTAL_UNCOMPRESSED_BYTES) {
+                fail('SAZ archive exceeds the 64 MiB total uncompressed limit.');
+                return;
+              }
+              chunks.push(chunk);
+            }
+            if (!final) return;
+            const content = new Uint8Array(entryBytes);
+            let offset = 0;
+            for (const chunkPart of chunks) {
+              content.set(chunkPart, offset);
+              offset += chunkPart.length;
+            }
+            extractedEntries.set(entry.name, content);
+            trackedFiles.delete(entry);
+            activeFileCount -= 1;
+            pendingFiles -= 1;
+            schedulePump();
+          };
+          try {
+            entry.start();
+          } catch (_error) {
+            fail('SAZ extraction failed.');
+          }
+        }
+      };
+      const pump = () => {
+        pumpScheduled = false;
+        if (settled) return;
+        startQueuedFiles();
+        if (finishIfReady()) return;
+        if (!enumerationComplete) {
+          const nextOffset = Math.min(sourceOffset + SAZ_SOURCE_CHUNK_BYTES, sourceBytes.length);
+          const final = nextOffset === sourceBytes.length;
+          try {
+            unzip.push(sourceBytes.subarray(sourceOffset, nextOffset), final);
+          } catch (_error) {
+            fail('SAZ archive is malformed.');
+            return;
+          }
+          sourceOffset = nextOffset;
+          if (final) enumerationComplete = true;
+        }
+        if (!finishIfReady()) schedulePump();
+      };
+      schedulePump = () => {
+        if (settled || pumpScheduled) return;
+        pumpScheduled = true;
+        setTimeout(pump, 0);
+      };
+
+      unzip = new fflate.Unzip((entry) => {
+        if (settled) {
+          terminateFile(entry);
+          return;
+        }
+        const budgetResult = validateSazArchiveEntryBudget(archiveBudget, entry);
+        if (!budgetResult.accepted) {
+          terminateFile(entry);
+          fail(budgetResult.error);
+          return;
+        }
+        archiveBudget = budgetResult.state;
+
+        const parsedPath = parseSazEntryPath(entry.name);
+        if (!parsedPath || parsedPath.kind === 'm' || parsedPath.extension !== 'txt') {
+          terminateFile(entry);
+          return;
+        }
+        if (entry.compression !== 0 && entry.compression !== 8) {
+          terminateFile(entry);
+          fail('SAZ payload uses an unsupported compression method.');
+          return;
+        }
+
+        pendingFiles += 1;
+        trackedFiles.add(entry);
+        queuedFiles.push(entry);
+      });
+      unzip.register(fflate.UnzipInflate);
+      schedulePump();
+    });
+  }
+
+  function parseSazHttpMessage(bytes) {
+    if (!(bytes instanceof Uint8Array)) throw createImportError('SAZ HTTP payload is invalid.');
+    const text = new TextDecoder().decode(bytes);
+    const separatorIndex = text.indexOf('\r\n\r\n');
+    const headerPart = separatorIndex >= 0 ? text.slice(0, separatorIndex) : text;
+    const body = separatorIndex >= 0 ? text.slice(separatorIndex + 4) : '';
+    const lines = headerPart.split('\r\n');
+    const startLine = lines.shift() || '';
+    if (!startLine) throw createImportError('SAZ HTTP start line is missing.');
+    const headers = [];
+    let currentHeader = null;
+    for (const line of lines) {
+      if (line.startsWith(' ') || line.startsWith('\t')) {
+        if (currentHeader) currentHeader.value += ' ' + line.trim();
+        continue;
+      }
+      const colonIndex = line.indexOf(':');
+      if (colonIndex <= 0) continue;
+      currentHeader = {
+        name: line.slice(0, colonIndex).trim(),
+        value: line.slice(colonIndex + 1).trim(),
+      };
+      headers.push(currentHeader);
+    }
+    return { startLine, headers, body };
+  }
+
+  function getNormalizedHeaderValue(headers, name) {
+    const normalizedName = name.toLowerCase();
+    const header = headers.find((item) => item.name.toLowerCase() === normalizedName);
+    return header ? header.value : '';
+  }
+
+  function createSazHarEntry(clientBytes, serverBytes, startedDateTime) {
+    const client = parseSazHttpMessage(clientBytes);
+    const server = parseSazHttpMessage(serverBytes);
+    const requestParts = client.startLine.trim().split(/\s+/);
+    const responseParts = server.startLine.trim().split(/\s+/);
+    if (requestParts.length < 3) throw createImportError('SAZ request start line is invalid.');
+    if (responseParts.length < 2 || !/^\d{3}$/.test(responseParts[1])) {
+      throw createImportError('SAZ response start line is invalid.');
+    }
+    const method = requestParts.shift();
+    const httpVersion = requestParts.pop();
+    const url = requestParts.join(' ');
+    if (!method || !url || !httpVersion) throw createImportError('SAZ request start line is invalid.');
+    const responseHttpVersion = responseParts.shift();
+    const status = Number(responseParts.shift());
+    const statusText = responseParts.join(' ');
+    const mimeType = getNormalizedHeaderValue(server.headers, 'content-type').split(';')[0];
+    const bodySize = getUtf8ByteLength(server.body);
+    return {
+      startedDateTime,
+      time: 0,
+      request: {
+        method,
+        url,
+        httpVersion,
+        headers: client.headers,
+        postData: client.body ? { mimeType: getNormalizedHeaderValue(client.headers, 'content-type'), text: client.body } : null,
+      },
+      response: {
+        status,
+        statusText,
+        httpVersion: responseHttpVersion,
+        headers: server.headers,
+        content: {
+          size: bodySize,
+          mimeType,
+          text: server.body,
+        },
+        bodySize,
+      },
+      timings: {},
+      initiator: null,
+    };
+  }
+
   function classifyImportedResponseContent(entry) {
     const response = entry && entry.response ? entry.response : {};
     const content = response.content && typeof response.content === 'object' ? response.content : {};
@@ -2559,7 +2990,7 @@ const _NetworkPlus = (function () {
     const evictedRows = overflowCount > 0 ? state.rows.splice(0, overflowCount) : [];
     cleanupEvictedRowReferences(evictedRows, true);
     const retainedIncomingRows = incomingRows.filter((row) => isRetainedRow(row, state.retainedRows));
-    if (source !== 'import-buffer') normalizeIncomingResponseContent(retainedIncomingRows, source);
+    normalizeIncomingResponseContent(retainedIncomingRows, source);
     return retainedIncomingRows;
   }
 
@@ -2973,7 +3404,7 @@ const _NetworkPlus = (function () {
     return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
 
-  function buildRowFromRequest(req) {
+  function buildRowFromRequest(req, assignedId) {
     const isoStr = (req && req.startedDateTime) || '';
     const durationMs = req && Number.isFinite(req.time) ? req.time : 0;
     const clientStartEpoch = getRequestEpoch(isoStr, INVALID_REQUEST_EPOCH);
@@ -3024,7 +3455,7 @@ const _NetworkPlus = (function () {
     const p = extractUrlParts(r.url);
     r.domain = p.domain;
     r.path = p.path;
-    r.id = state.nextId++;
+    r.id = Number.isInteger(assignedId) ? assignedId : state.nextId++;
     return r;
   }
 
@@ -6725,206 +7156,142 @@ const _NetworkPlus = (function () {
     const importBtn = $('#importBtn');
     const importFile = $('#importFile');
     if (importBtn && importFile) {
+      let importInProgress = false;
+
+      const setImportBusy = (busy) => {
+        importInProgress = busy;
+        importBtn.disabled = busy;
+        importFile.disabled = busy;
+        importBtn.setAttribute('aria-busy', busy ? 'true' : 'false');
+      };
+
+      const stageHarImport = async (file) => {
+        const text = await file.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (_error) {
+          throw createImportError('HAR is not valid JSON.');
+        }
+        const entries = validateHarDocument(data);
+        const importPlan = planImportRetention(
+          entries.length,
+          state.retention.requestLimit,
+          state.retention.unlimited,
+        );
+        const rows = [];
+        for (let index = importPlan.startIndex; index < entries.length; index++) {
+          const entry = normalizeHarEntry(entries[index]);
+          const row = buildRowFromRequest(entry, 0);
+          const availability = classifyImportedResponseContent(entry);
+          if (availability.state === 'empty') {
+            row.responseContent = '';
+            row.responseContentState = 'pending-admission';
+          } else if (availability.state === 'unavailable') {
+            row.responseContentState = 'unavailable';
+            row.responseContentReason = availability.reason;
+          }
+          rows.push(row);
+        }
+        return {
+          format: 'HAR',
+          totalCount: entries.length,
+          skippedCount: importPlan.skippedCount,
+          rows,
+        };
+      };
+
+      const stageSazImport = async (file) => {
+        if (!window.fflate || !window.fflate.Unzip) {
+          throw createImportError('SAZ decompression support is unavailable.');
+        }
+        const sourceBytes = new Uint8Array(await file.arrayBuffer());
+        const extractedEntries = await extractBoundedSazEntries(window.fflate, sourceBytes);
+        const requestIds = new Set();
+        for (const key of extractedEntries.keys()) {
+          const parsedPath = parseSazEntryPath(key);
+          if (parsedPath) requestIds.add(parsedPath.requestId);
+        }
+        const completeIds = Array.from(requestIds)
+          .filter((id) =>
+            extractedEntries.has(`raw/${id}_c.txt`) &&
+            extractedEntries.has(`raw/${id}_s.txt`))
+          .sort(compareSazRequestIds);
+        if (completeIds.length === 0) throw createImportError('SAZ contains no complete HTTP sessions.');
+
+        const importPlan = planImportRetention(
+          completeIds.length,
+          state.retention.requestLimit,
+          state.retention.unlimited,
+        );
+        const rows = [];
+        const startedDateTime = new Date().toISOString();
+        for (let index = importPlan.startIndex; index < completeIds.length; index++) {
+          const id = completeIds[index];
+          const entry = createSazHarEntry(
+            extractedEntries.get(`raw/${id}_c.txt`),
+            extractedEntries.get(`raw/${id}_s.txt`),
+            startedDateTime,
+          );
+          rows.push(buildRowFromRequest(entry, 0));
+        }
+        return {
+          format: 'SAZ',
+          totalCount: completeIds.length,
+          skippedCount: importPlan.skippedCount,
+          rows,
+        };
+      };
+
+      const commitStagedImport = (stagedImport) => {
+        state.paused = true;
+        updateRecordState();
+        resetPendingLiveRows();
+        clearStoredRows();
+        state.selectedRow = null;
+        state.focusedRow = null;
+        state.selectedRows.clear();
+        state.highlightedRows.clear();
+        recordSkippedImportRows(stagedImport.skippedCount);
+        for (const row of stagedImport.rows) row.id = state.nextId++;
+        const retainedRows = addRowsWithRetention(stagedImport.rows, 'import');
+        renderBody();
+        return retainedRows.length;
+      };
+
       importBtn.addEventListener('click', () => {
+        if (importInProgress) return;
         importFile.click();
       });
 
       importFile.addEventListener('change', async (e) => {
         const file = e.target.files[0];
-        if (!file) return;
-
-        setStatus(`Importing ${file.name}...`);
-
-        try {
-          // HAR import
-          if (file.name.toLowerCase().endsWith('.har')) {
-            const text = await file.text();
-            const data = JSON.parse(text);
-            if (data && data.log && data.log.entries) {
-              state.paused = true;
-              updateRecordState();
-
-              resetPendingLiveRows();
-              clearStoredRows();
-              state.selectedRow = null;
-              state.focusedRow = null;
-              state.selectedRows.clear();
-              state.highlightedRows.clear();
-
-              const entries = data.log.entries;
-              const importPlan = planImportRetention(
-                entries.length,
-                state.retention.requestLimit,
-                state.retention.unlimited,
-              );
-              recordSkippedImportRows(importPlan.skippedCount);
-              const retainedCandidates = [];
-              for (let index = importPlan.startIndex; index < entries.length; index++) {
-                const entry = entries[index];
-                const row = buildRowFromRequest(entry);
-                const availability = classifyImportedResponseContent(entry);
-                if (availability.state === 'empty') {
-                  row.responseContent = '';
-                  row.responseContentState = 'pending-admission';
-                } else if (availability.state === 'unavailable') {
-                  row.responseContentState = 'unavailable';
-                  row.responseContentReason = availability.reason;
-                }
-                retainedCandidates.push(row);
-              }
-              const retainedImports = addRowsWithRetention(retainedCandidates, 'import');
-
-              renderBody();
-              setStatus(
-                `Imported ${entries.length} requests from HAR; retained ${retainedImports.length}`,
-              );
-            } else {
-              setStatus('Invalid HAR format');
-            }
-          }
-          // SAZ import
-          else if (file.name.toLowerCase().endsWith('.saz')) {
-            if (!window.fflate) {
-              setStatus('fflate library missing, cannot extract SAZ');
-              return;
-            }
-
-            const buf = await file.arrayBuffer();
-            const unzipped = window.fflate.unzipSync(new Uint8Array(buf));
-
-            const rawKeys = Object.keys(unzipped).filter((k) => k.startsWith('raw/'));
-            const reqIds = new Set();
-            rawKeys.forEach((k) => {
-              const m = k.match(/^raw\/(\d+)_([csm])\.(txt|xml)$/);
-              if (m) reqIds.add(m[1]);
-            });
-
-            if (reqIds.size === 0) {
-              setStatus('No payload found in SAZ');
-              return;
-            }
-
-            state.paused = true;
-            updateRecordState();
-            resetPendingLiveRows();
-            clearStoredRows();
-            state.selectedRow = null;
-            state.focusedRow = null;
-            state.selectedRows.clear();
-            state.highlightedRows.clear();
-            const importChunk = [];
-            let importedCount = 0;
-            const flushImportChunk = () => {
-              if (importChunk.length === 0) return;
-              const chunk = importChunk.splice(0, importChunk.length);
-              addRowsWithRetention(chunk, 'import-buffer');
-            };
-
-            const parseHttpMessage = (uint8arr) => {
-              const txt = new TextDecoder().decode(uint8arr);
-              const parts = txt.split('\r\n\r\n');
-              const headerPart = parts[0];
-              const body = parts.slice(1).join('\r\n\r\n');
-              const lines = headerPart.split('\r\n');
-              const startLine = lines[0];
-
-              const headers = [];
-              let currentHeader = null;
-              for (let i = 1; i < lines.length; i++) {
-                const line = lines[i];
-                if (line.startsWith(' ') || line.startsWith('\t')) {
-                  if (currentHeader) currentHeader.value += ' ' + line.trim();
-                } else {
-                  const colonIdx = line.indexOf(':');
-                  if (colonIdx > 0) {
-                    currentHeader = {
-                      name: line.substring(0, colonIdx).trim(),
-                      value: line.substring(colonIdx + 1).trim(),
-                    };
-                    headers.push(currentHeader);
-                  }
-                }
-              }
-              return { startLine, headers, body };
-            };
-
-            const getHeaderVal = (hdrs, name) => {
-              const h = hdrs.find((x) => x.name.toLowerCase() === name.toLowerCase());
-              return h ? h.value : null;
-            };
-
-            Array.from(reqIds)
-              .sort((a, b) => parseInt(a) - parseInt(b))
-              .forEach((id) => {
-                const reqKey = `raw/${id}_c.txt`;
-                const resKey = `raw/${id}_s.txt`;
-
-                if (!unzipped[reqKey] || !unzipped[resKey]) return;
-
-                try {
-                  const clientRaw = parseHttpMessage(unzipped[reqKey]);
-                  const serverRaw = parseHttpMessage(unzipped[resKey]);
-
-                  const reqParts = clientRaw.startLine.split(' ');
-                  const method = reqParts[0];
-                  const url = reqParts.slice(1, reqParts.length - 1).join(' ');
-                  const reqHttpVersion = reqParts[reqParts.length - 1];
-
-                  const resParts = serverRaw.startLine.split(' ');
-                  const resHttpVersion = resParts[0];
-                  const status = parseInt(resParts[1], 10) || 0;
-                  const statusText = resParts.slice(2).join(' ');
-
-                  const resType = getHeaderVal(serverRaw.headers, 'content-type') || '';
-                  const bodySize = serverRaw.body ? new TextEncoder().encode(serverRaw.body).length : 0;
-
-                  const entry = {
-                    startedDateTime: new Date().toISOString(),
-                    time: 0,
-                    request: {
-                      method: method,
-                      url: url,
-                      httpVersion: reqHttpVersion,
-                      headers: clientRaw.headers,
-                      postData: clientRaw.body ? { text: clientRaw.body } : null,
-                    },
-                    response: {
-                      status: status,
-                      statusText: statusText,
-                      httpVersion: resHttpVersion,
-                      headers: serverRaw.headers,
-                      content: {
-                        size: bodySize,
-                        mimeType: resType.split(';')[0],
-                        text: serverRaw.body,
-                      },
-                      bodySize: bodySize,
-                    },
-                  };
-
-                  const row = buildRowFromRequest(entry);
-                  importedCount += 1;
-                  importChunk.push(row);
-                  if (importChunk.length >= IMPORT_CHUNK_SIZE) flushImportChunk();
-                } catch (ex) {
-                  console.error('Failed to parse SAZ pair', id, ex);
-                }
-              });
-
-            flushImportChunk();
-            normalizeIncomingResponseContent(state.rows, 'import');
-            const retainedImportCount = state.rows.length;
-            renderBody();
-            setStatus(
-              `Imported ${importedCount} requests from SAZ; retained ${retainedImportCount}`,
-            );
-          }
-        } catch (err) {
-          setStatus('Import Error: ' + err.message);
-          console.error(err);
+        if (!file || importInProgress) {
+          importFile.value = '';
+          return;
         }
-
-        importFile.value = ''; // allow re-importing the same file
+        const sourceValidation = validateImportSource(file.name, file.size);
+        setImportBusy(true);
+        try {
+          if (sourceValidation.error) throw createImportError(sourceValidation.error);
+          setStatus(`Importing ${sourceValidation.format.toUpperCase()}...`);
+          const stagedImport =
+            sourceValidation.format === 'har'
+              ? await stageHarImport(file)
+              : await stageSazImport(file);
+          const retainedCount = commitStagedImport(stagedImport);
+          setStatus(
+            `Imported ${stagedImport.totalCount} requests from ${stagedImport.format}; retained ${retainedCount}`,
+          );
+        } catch (error) {
+          const message =
+            error && error.name === 'ImportError' ? error.message : 'The selected file could not be imported.';
+          setStatus('Import failed: ' + message);
+          console.error('Network+ import failed: ' + message);
+        } finally {
+          importFile.value = '';
+          setImportBusy(false);
+        }
       });
     }
 
@@ -7073,6 +7440,22 @@ const _NetworkPlus = (function () {
     createRowEvictionPlan,
     isRetainedRow,
     planImportRetention,
+    createImportError,
+    getImportFormat,
+    validateImportSource,
+    isRecord,
+    normalizeImportString,
+    normalizeImportNumber,
+    normalizeHarHeaders,
+    validateHarDocument,
+    normalizeHarEntry,
+    parseSazEntryPath,
+    validateSazArchiveEntryBudget,
+    compareSazRequestIds,
+    extractBoundedSazEntries,
+    parseSazHttpMessage,
+    getNormalizedHeaderValue,
+    createSazHarEntry,
     classifyImportedResponseContent,
     describeResponseContentState,
     getUtf8ByteLength,
@@ -7084,6 +7467,11 @@ const _NetworkPlus = (function () {
     DEFAULT_REQUEST_RETENTION_LIMIT,
     MAX_RESPONSE_BODY_BYTES,
     MAX_RESPONSE_CACHE_BYTES,
+    MAX_IMPORT_SOURCE_BYTES,
+    MAX_SAZ_ARCHIVE_ENTRIES,
+    MAX_SAZ_ENTRY_BYTES,
+    MAX_SAZ_TOTAL_UNCOMPRESSED_BYTES,
+    MAX_SAZ_CONCURRENT_EXTRACTIONS,
     REDACTION_MARKER,
     OMISSION_MARKER,
     MAX_SANITIZED_BODY_BYTES,

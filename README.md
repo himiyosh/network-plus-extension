@@ -119,8 +119,10 @@ Microsoft Edge DevTools
 - 1 MiB を超える Body は部分データとして保存せず省略します。詳細、検索、HAR は省略・退避・取得不能を完全データとして表示しません。
 - 退避 Body は DevTools の取得元が利用できる間、詳細表示時に再取得できます。HAR は Body を 1 件ずつ一時取得するため、共有キャッシュを無制限に復元しません。
 - ステータスバーは現在の保持ポリシー、Body キャッシュ使用量、累積の行退避数、Body 省略数、Body 退避数、プレビュー省略数を常時表示します。
-- 有界モードの HAR 読み込みは最終保持範囲だけを行オブジェクト化し、SAZ は 256 件ずつ同じ保持ポリシーへ投入するため、入力件数分の行オブジェクトを二重保持しません。
-- これらはリクエスト行数とレスポンス Body 共有キャッシュの上限です。保持中の各行が参照する URL、ヘッダー、requestPostData、DevTools のリクエストオブジェクト、およびインポート解析中のファイルデータを含む拡張機能全体の絶対メモリ上限ではありません。機密データの編集・出力ポリシーは後続の data-safety 層で扱います。
+- Import は `.har` と Fiddler SAZ (`.saz`) のみを受け付けます。入力ファイルは 32 MiB 以下、SAZ は 20,000 entry 以下、各 entry の展開後 4 MiB 以下、archive 全体の展開後合計 64 MiB 以下に制限します。SAZ は `raw/<数値>_[csm].(txt|xml)` だけを候補として扱い、HTTP session には `_c.txt` と `_s.txt` の完全な pair を要求します。
+- HAR は `log.entries` array と各 request/response object を検証し、文字列・header・post-data を安全な型へ正規化します。有界モードでは最終保持範囲だけを行オブジェクト化します。SAZ は extension CSP と互換性のある fflate streaming 展開を 16 KiB 入力 chunk・最大 4 entry ごとに event loop へ譲りながら実行し、entry ごとに上限を検査して保持対象の完全な session だけを行オブジェクト化します。
+- Import は staging 完了後にだけ現在の capture を置き換える atomic 操作です。形式不正、JSON/HTTP 解析失敗、未対応圧縮、上限超過、展開失敗では既存の行、選択、recording 状態、詳細表示を維持します。処理中は Import control を無効化して重複実行を防ぎ、完了後は同じファイルを再選択できます。
+- これらはリクエスト行数、インポート staging、レスポンス Body 共有キャッシュの上限です。保持中の各行が参照する URL、ヘッダー、requestPostData、DevTools のリクエストオブジェクトを含む拡張機能全体の絶対メモリ上限ではありません。機密データの編集・出力ポリシーは後続の data-safety 層で扱います。
 - 保存済み設定が不正または読み書き不能な場合は既定値へ戻し、その理由を保持ステータスまたは操作ステータスへ表示します。
 
 ### 外向きデータの安全性

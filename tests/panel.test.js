@@ -490,6 +490,236 @@ describe('capture retention helpers', () => {
     });
   });
 
+  test('validates import format and source size before reading', () => {
+    expect(np.createImportError('safe message')).toEqual(
+      expect.objectContaining({ name: 'ImportError', message: 'safe message' }),
+    );
+    expect(np.getImportFormat('capture.HAR')).toBe('har');
+    expect(np.getImportFormat('capture.saz')).toBe('saz');
+    expect(np.getImportFormat('capture.zip')).toBe('');
+    expect(np.validateImportSource('capture.har', np.MAX_IMPORT_SOURCE_BYTES)).toEqual({
+      format: 'har',
+      error: '',
+    });
+    expect(np.validateImportSource('capture.har', np.MAX_IMPORT_SOURCE_BYTES + 1).error).toContain('32 MiB');
+    expect(np.validateImportSource('capture.har', Number.MAX_SAFE_INTEGER).error).toContain('32 MiB');
+    expect(np.validateImportSource('capture.har', NaN).error).toContain('unavailable');
+    expect(np.validateImportSource('capture.txt', 1).error).toContain('HAR and SAZ');
+  });
+
+  test('requires HAR structure and normalizes unsafe scalar and header values', () => {
+    expect(np.isRecord({})).toBe(true);
+    expect(np.isRecord([])).toBe(false);
+    expect(np.isRecord(null)).toBe(false);
+    expect(np.normalizeImportNumber(42, -1)).toBe(42);
+    expect(np.normalizeImportNumber(Number.MAX_VALUE, -1)).toBe(-1);
+    expect(() => np.validateHarDocument(null)).toThrow('log.entries array');
+    expect(() => np.validateHarDocument({ log: { entries: {} } })).toThrow('log.entries array');
+    expect(() => np.validateHarDocument({ log: { entries: [null] } })).toThrow('request and response');
+    const hostileHeader = {
+      name: { toString: () => { throw new Error('must not run'); } },
+      value: Symbol('secret'),
+    };
+    expect(np.normalizeHarHeaders([hostileHeader, null, { name: true, value: 42 }])).toEqual([
+      { name: '', value: '' },
+      { name: '', value: '' },
+      { name: 'true', value: '42' },
+    ]);
+    expect(np.normalizeImportString(1e308)).toBe('1e+308');
+    expect(np.normalizeImportString(Infinity)).toBe('');
+    expect(np.normalizeImportString({})).toBe('');
+  });
+
+  test('normalizes retained HAR entries for every downstream string consumer', () => {
+    const source = {
+      startedDateTime: 123,
+      time: 'slow',
+      request: {
+        method: 7,
+        url: false,
+        httpVersion: {},
+        headers: 'not-an-array',
+        postData: { mimeType: 9, text: false, encoding: 'base64' },
+      },
+      response: {
+        status: '200',
+        statusText: true,
+        httpVersion: 2,
+        headers: [{ name: 'Content-Type', value: 99 }],
+        bodySize: Number.MAX_VALUE,
+        content: {
+          size: -12,
+          mimeType: ['json'],
+          text: { hostile: true },
+          _networkPlus: { status: false, reason: 404 },
+        },
+      },
+      timings: { wait: 'forever', receive: 1e308 },
+    };
+    expect(np.validateHarDocument({ log: { entries: [source] } })).toEqual([source]);
+    const normalized = np.normalizeHarEntry(source);
+    expect(normalized).toEqual(
+      expect.objectContaining({
+        startedDateTime: '123',
+        time: 0,
+        request: {
+          method: '7',
+          url: 'false',
+          httpVersion: '',
+          headers: [],
+          postData: { mimeType: '9', text: 'false', encoding: 'base64' },
+        },
+        response: expect.objectContaining({
+          status: 0,
+          statusText: 'true',
+          httpVersion: '2',
+          headers: [{ name: 'Content-Type', value: '99' }],
+          content: {
+            mimeType: '',
+            _networkPlus: { status: 'false', reason: '404' },
+          },
+        }),
+      }),
+    );
+    expect(normalized.timings.wait).toBe(-1);
+    expect(normalized.timings.receive).toBe(-1);
+  });
+
+  test('restricts SAZ paths and enforces archive entry budgets', () => {
+    expect(np.parseSazEntryPath('raw/123_c.txt')).toEqual({
+      requestId: '123',
+      kind: 'c',
+      extension: 'txt',
+    });
+    expect(np.parseSazEntryPath('raw/123_m.xml')).toEqual({
+      requestId: '123',
+      kind: 'm',
+      extension: 'xml',
+    });
+    for (const path of ['../raw/1_c.txt', 'raw/a_c.txt', 'raw/1_x.txt', 'raw/1_c.bin', 'other/1_c.txt']) {
+      expect(np.parseSazEntryPath(path)).toBeNull();
+    }
+    const limits = { maxEntries: 2, maxEntryBytes: 5, maxTotalBytes: 8 };
+    const first = np.validateSazArchiveEntryBudget(null, { originalSize: 4 }, limits);
+    expect(first).toEqual({
+      accepted: true,
+      state: { entryCount: 1, totalUncompressedBytes: 4 },
+      error: '',
+    });
+    expect(np.validateSazArchiveEntryBudget(null, {}, limits)).toEqual({
+      accepted: true,
+      state: { entryCount: 1, totalUncompressedBytes: 0 },
+      error: '',
+    });
+    expect(np.validateSazArchiveEntryBudget(first.state, { originalSize: 6 }, limits).error).toContain('4 MiB');
+    const second = np.validateSazArchiveEntryBudget(first.state, { originalSize: 4 }, limits);
+    expect(second.accepted).toBe(true);
+    expect(np.validateSazArchiveEntryBudget(second.state, { originalSize: 0 }, limits).error).toContain('20,000');
+    expect(np.validateSazArchiveEntryBudget(first.state, { originalSize: 5 }, limits).error).toContain('64 MiB');
+    expect(np.validateSazArchiveEntryBudget(first.state, { originalSize: Number.MAX_SAFE_INTEGER }, limits).accepted).toBe(false);
+    expect(np.validateSazArchiveEntryBudget(first.state, { originalSize: -1 }, limits).error).toContain('metadata');
+    expect(np.compareSazRequestIds('9007199254740992', '9007199254740993')).toBeLessThan(0);
+    expect(np.compareSazRequestIds('10', '2')).toBeGreaterThan(0);
+    expect(np.compareSazRequestIds('001', '1')).not.toBe(0);
+  });
+
+  test('streams only expected SAZ payloads without worker or recursion requirements', async () => {
+    const fflate = require('../vendor/fflate');
+    const encoder = new TextEncoder();
+    const archiveEntries = {
+      'raw/9007199254740993_c.txt': encoder.encode('GET /later HTTP/1.1\r\n\r\n'),
+      'raw/9007199254740993_s.txt': encoder.encode('HTTP/1.1 200 OK\r\n\r\nlater'),
+      'raw/9007199254740992_c.txt': encoder.encode('GET /first HTTP/1.1\r\n\r\n'),
+      'raw/9007199254740992_s.txt': encoder.encode('HTTP/1.1 200 OK\r\n\r\nfirst'),
+      'raw/1_m.xml': encoder.encode('<Session/>'),
+      '../raw/1_c.txt': encoder.encode('ignored'),
+      'other/payload.bin': encoder.encode('ignored'),
+    };
+    for (let index = 0; index < 3000; index++) {
+      archiveEntries[`other/${index}.txt`] = encoder.encode('x');
+    }
+    const archive = fflate.zipSync(archiveEntries);
+    const extracted = await np.extractBoundedSazEntries(fflate, archive);
+    expect(Array.from(extracted.keys()).sort()).toEqual([
+      'raw/9007199254740992_c.txt',
+      'raw/9007199254740992_s.txt',
+      'raw/9007199254740993_c.txt',
+      'raw/9007199254740993_s.txt',
+    ]);
+    expect(new TextDecoder().decode(extracted.get('raw/9007199254740992_s.txt'))).toContain('first');
+  });
+
+  test('accepts streaming SAZ entries whose sizes arrive through data descriptors', async () => {
+    const fflate = require('../vendor/fflate');
+    const encoder = new TextEncoder();
+    const chunks = [];
+    const archive = await new Promise((resolve, reject) => {
+      const zip = new fflate.Zip((error, chunk, final) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        chunks.push(chunk);
+        if (!final) return;
+        const size = chunks.reduce((total, part) => total + part.length, 0);
+        const result = new Uint8Array(size);
+        let offset = 0;
+        for (const part of chunks) {
+          result.set(part, offset);
+          offset += part.length;
+        }
+        resolve(result);
+      });
+      const request = new fflate.ZipDeflate('raw/1_c.txt');
+      const response = new fflate.ZipDeflate('raw/1_s.txt');
+      zip.add(request);
+      zip.add(response);
+      request.push(encoder.encode('GET / HTTP/1.1\r\n\r\n'), true);
+      response.push(encoder.encode('HTTP/1.1 200 OK\r\n\r\nok'), true);
+      zip.end();
+    });
+    const extracted = await np.extractBoundedSazEntries(fflate, archive);
+    expect(Array.from(extracted.keys()).sort()).toEqual(['raw/1_c.txt', 'raw/1_s.txt']);
+  });
+
+  test('parses complete SAZ HTTP pairs without exposing malformed payloads in errors', () => {
+    const encoder = new TextEncoder();
+    const entry = np.createSazHarEntry(
+      encoder.encode('POST https://example.test/api HTTP/1.1\r\nContent-Type: application/json\r\nX-Test: one\r\n two\r\n\r\n{"ok":true}'),
+      encoder.encode('HTTP/1.1 201 Created\r\nContent-Type: application/json; charset=utf-8\r\n\r\n{"id":1}'),
+      '2026-01-01T00:00:00.000Z',
+    );
+    expect(entry.request).toEqual(
+      expect.objectContaining({
+        method: 'POST',
+        url: 'https://example.test/api',
+        httpVersion: 'HTTP/1.1',
+        headers: [
+          { name: 'Content-Type', value: 'application/json' },
+          { name: 'X-Test', value: 'one two' },
+        ],
+        postData: { mimeType: 'application/json', text: '{"ok":true}' },
+      }),
+    );
+    expect(entry.response).toEqual(
+      expect.objectContaining({
+        status: 201,
+        statusText: 'Created',
+        content: expect.objectContaining({ mimeType: 'application/json', text: '{"id":1}' }),
+      }),
+    );
+    expect(np.getNormalizedHeaderValue(entry.response.headers, 'CONTENT-TYPE')).toBe(
+      'application/json; charset=utf-8',
+    );
+    expect(np.getNormalizedHeaderValue([], 'content-type')).toBe('');
+    expect(() =>
+      np.createSazHarEntry(
+        encoder.encode('hostile-payload-that-must-not-appear'),
+        encoder.encode('HTTP/1.1 nope\r\n\r\n'),
+        '',
+      )).toThrow('SAZ request start line is invalid');
+  });
+
   test('distinguishes embedded, empty, and unavailable imported HAR bodies', () => {
     expect(np.classifyImportedResponseContent({ response: { content: { text: '' } } })).toEqual({
       state: 'embedded',
@@ -525,6 +755,8 @@ describe('capture retention helpers', () => {
       reason: 'Imported HAR body is omitted: source limit',
     });
     expect(np.classifyImportedResponseContent({ response: {} }).reason).toContain('explicit zero');
+    const normalizedMissing = np.normalizeHarEntry({ request: {}, response: {} });
+    expect(np.classifyImportedResponseContent(normalizedMissing).state).toBe('unavailable');
   });
 
   test('labels expected response retention states without treating them as errors', () => {

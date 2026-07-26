@@ -216,8 +216,7 @@ describe('capture retention static contracts', () => {
     expect(js).toContain('const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;');
     expect(js).toContain('const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;');
     expect(js).toContain("const RETENTION_KEY = 'networkPlus.retention.v1';");
-    expect(js).toContain("addRowsWithRetention(retainedCandidates, 'import')");
-    expect(js).toContain("addRowsWithRetention(chunk, 'import-buffer')");
+    expect(js).toContain("addRowsWithRetention(stagedImport.rows, 'import')");
     expect(js).toContain("addRowsWithRetention([row], 'live')");
     const clearBlock = js.slice(js.indexOf("$('#clearBtn').addEventListener"), js.indexOf('// Pause/Resume'));
     expect(clearBlock).toContain('clearStoredRows();');
@@ -229,9 +228,35 @@ describe('capture retention static contracts', () => {
     expect(js).not.toContain('state.rows.includes(row)');
     expect(js).not.toContain('const importedRows = []');
     expect(js).toContain('const importPlan = planImportRetention(');
-    expect(js).toContain('if (importChunk.length >= IMPORT_CHUNK_SIZE) flushImportChunk();');
+    expect(js).toContain('const extractedEntries = new Map();');
+    expect(js).toContain('unzip.register(fflate.UnzipInflate);');
+    expect(js).toContain('sourceOffset + SAZ_SOURCE_CHUNK_BYTES');
+    expect(js).toContain('activeFileCount < MAX_SAZ_CONCURRENT_EXTRACTIONS');
+    expect(js).not.toContain('AsyncUnzipInflate');
+    expect(js).not.toContain('window.fflate.unzipSync');
     expect(js).toContain("const renderedRows = $('#tbody') ? $all('tr[data-row-id]', $('#tbody')) : [];");
     expect(js).not.toContain("document.querySelector('tr[data-row-id=\"' + row.id");
+  });
+
+  test('keeps imports atomic, bounded, and single-flight', () => {
+    expect(html).toMatch(/id="importBtn"[^>]*aria-busy="false"/);
+    expect(js).toContain('const commitStagedImport = (stagedImport) => {');
+    expect(js).toContain('const stagedImport =');
+    expect(js.indexOf('const stagedImport =')).toBeLessThan(js.indexOf('commitStagedImport(stagedImport)'));
+    expect(js).toContain('let importInProgress = false;');
+    expect(js).toContain('importBtn.disabled = busy;');
+    expect(js).toContain("importBtn.setAttribute('aria-busy', busy ? 'true' : 'false');");
+    expect(js).toContain('importFile.value = \'\';');
+    expect(js).toContain('MAX_IMPORT_SOURCE_BYTES = 32 * 1024 * 1024');
+    expect(js).toContain('MAX_SAZ_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024');
+    expect(js).toContain('MAX_SAZ_CONCURRENT_EXTRACTIONS = 4');
+    expect(js).not.toContain("console.error('Failed to parse SAZ pair'");
+    const catchBlock = js.slice(
+      js.indexOf('} catch (error) {', js.indexOf("importFile.addEventListener('change'")),
+      js.indexOf('} finally {', js.indexOf("importFile.addEventListener('change'")),
+    );
+    expect(catchBlock).not.toContain('clearStoredRows');
+    expect(catchBlock).not.toContain('state.paused');
   });
 
   test('debounces meaningful retention announcements without making cache bytes live', () => {
