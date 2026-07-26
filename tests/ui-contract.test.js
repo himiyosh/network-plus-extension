@@ -349,6 +349,41 @@ describe('scale trust static contracts', () => {
     const selectionBlock = js.slice(js.indexOf('function selectRow'), js.indexOf('const titleParts', js.indexOf('function selectRow')));
     expect(selectionBlock).toContain('replaceRenderedRowStates');
   });
+
+  test('navigates search matches through targeted row replacement without full-table rendering', () => {
+    const scrollStart = js.indexOf('function scrollToSearchMatch');
+    const navigationStart = js.indexOf('function navigateKeywordSearch');
+    const navigationEnd = js.indexOf("searchToggleBtn.addEventListener('click'", navigationStart);
+    const scrollBlock = js.slice(scrollStart, navigationStart);
+    const navigationBlock = js.slice(navigationStart, navigationEnd);
+    const selectionStart = js.indexOf('function selectRow');
+    const selectionEnd = js.indexOf('const titleParts', selectionStart);
+    const selectionBlock = js.slice(selectionStart, selectionEnd);
+
+    expect(navigationBlock).toContain('planKeywordSearchNavigation(');
+    expect(navigationBlock).toContain('selectRow(navigation.targetRow, null, false, [previousCurrentRow]);');
+    expect(navigationBlock).toContain('scrollToSearchMatch(navigation.targetRow);');
+    expect(navigationBlock).not.toContain('renderBody();');
+    expect(scrollBlock).not.toContain('renderBody();');
+    expect(scrollBlock).not.toContain('selectRow(');
+    const searchRowsStart = js.indexOf('function renderSearchRows');
+    const searchRowsEnd = js.indexOf("searchAddBtn.addEventListener('click'", searchRowsStart);
+    const searchRowsBlock = js.slice(searchRowsStart, searchRowsEnd);
+    expect(searchRowsBlock).toContain("activeEl.classList.contains('search-kw-nav')");
+    expect(searchRowsBlock).toContain('prevBtn.dataset.searchDirection = \'-1\';');
+    expect(searchRowsBlock).toContain('nextBtn.dataset.searchDirection = \'1\';');
+    expect(searchRowsBlock).toContain('if (navButton) navButton.focus();');
+    expect(selectionBlock).toContain('...state.selectedRows');
+    expect(selectionBlock).toContain('extraAffectedRows');
+    expect(selectionBlock).toContain('if (!replaceRenderedRowStates(affectedRows)) renderBody();');
+    const replacementStart = js.indexOf('function replaceRenderedRowStates');
+    const replacementEnd = js.indexOf('function renderBody', replacementStart);
+    const replacementBlock = js.slice(replacementStart, replacementEnd);
+    expect(replacementBlock).toContain("const previousTabStop = tbody.querySelector('tr[tabindex=\"0\"]');");
+    expect(replacementBlock).toContain('previousTabStop.tabIndex = -1;');
+    expect(replacementBlock).toContain('nextTabStop.tabIndex = 0;');
+    expect(js).not.toMatch(/renderBody\(\);[\s\S]{0,300}scrollToSearchMatch\([^)]*\);[\s\S]{0,300}renderBody\(\);/);
+  });
 });
 
 describe('keyboard trust static contracts', () => {

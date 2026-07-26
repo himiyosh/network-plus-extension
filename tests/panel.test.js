@@ -848,6 +848,45 @@ describe('release trust helpers', () => {
     expect(np.preserveMatchingRowIndex([{ id: 1 }], 0, [])).toBe(-1);
   });
 
+  test('plans forward and backward keyword navigation with wraparound', () => {
+    const first = { id: 1 };
+    const second = { id: 2 };
+    const matches = [first, second];
+
+    expect(np.planKeywordSearchNavigation(matches, 1, 1, matches)).toEqual({
+      targetRow: first,
+      keywordIndex: 0,
+      globalIndex: 0,
+    });
+    expect(np.planKeywordSearchNavigation(matches, 0, -1, matches)).toEqual({
+      targetRow: second,
+      keywordIndex: 1,
+      globalIndex: 1,
+    });
+    expect(np.planKeywordSearchNavigation(matches, -1, -1, matches).targetRow).toBe(second);
+  });
+
+  test('skips stale keyword matches and rejects missing navigation targets', () => {
+    const stale = { id: 1 };
+    const retained = { id: 2 };
+
+    expect(np.planKeywordSearchNavigation([stale, retained], -1, 1, [retained])).toEqual({
+      targetRow: retained,
+      keywordIndex: 1,
+      globalIndex: 0,
+    });
+    expect(np.planKeywordSearchNavigation([stale], 0, 1, [retained])).toBeNull();
+    expect(np.planKeywordSearchNavigation([], -1, 1, [retained])).toBeNull();
+    expect(np.planKeywordSearchNavigation([retained], -1, 0, [retained])).toBeNull();
+  });
+
+  test('plans navigation deterministically for the default retained-request scale', () => {
+    const rows = Array.from({ length: 5000 }, (_, index) => ({ id: index + 1 }));
+    const plan = np.planKeywordSearchNavigation(rows, rows.length - 1, 1, rows);
+
+    expect(plan).toEqual({ targetRow: rows[0], keywordIndex: 0, globalIndex: 0 });
+  });
+
   test('guards deferred detail rendering by selected row identity', () => {
     const rowA = { id: 1 };
     const rowB = { id: 2 };
@@ -875,6 +914,45 @@ describe('release trust helpers', () => {
     expect(row.responseContent).toBe('eyJsYXRlIjp0cnVlfQ==');
     expect(row.responseContentEncoding).toBe('base64');
     expect(row.responseContentText).toBe('{"late":true}');
+  });
+});
+
+describe('multi-keyword highlight planning', () => {
+  test('prefers the longest overlapping literal at the same position', () => {
+    expect(
+      np.planKeywordHighlights('/api/v2/api', [
+        { query: 'api', colorIdx: 1 },
+        { query: 'api/v2', colorIdx: 4 },
+      ]),
+    ).toEqual([
+      { start: 1, end: 7, colorIdx: 4, keywordIndex: 1 },
+      { start: 8, end: 11, colorIdx: 1, keywordIndex: 0 },
+    ]);
+  });
+
+  test('uses the earliest visible keyword for duplicate case-insensitive literals', () => {
+    expect(
+      np.planKeywordHighlights('API api', [
+        { query: 'Api', colorIdx: 2 },
+        { query: 'aPI', colorIdx: 5 },
+      ]),
+    ).toEqual([
+      { start: 0, end: 3, colorIdx: 2, keywordIndex: 0 },
+      { start: 4, end: 7, colorIdx: 2, keywordIndex: 0 },
+    ]);
+  });
+
+  test('ignores empty keywords and escapes regex-special literals', () => {
+    expect(np.planKeywordHighlights('a+b? then [x]', [{ query: '' }, { query: '   ' }])).toEqual([]);
+    expect(
+      np.planKeywordHighlights('a+b? then [x]', [
+        { query: 'a+b?', colorIdx: 3 },
+        { query: '[x]', colorIdx: 4 },
+      ]),
+    ).toEqual([
+      { start: 0, end: 4, colorIdx: 3, keywordIndex: 0 },
+      { start: 10, end: 13, colorIdx: 4, keywordIndex: 1 },
+    ]);
   });
 });
 

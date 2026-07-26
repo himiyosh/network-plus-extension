@@ -1704,6 +1704,75 @@ const _NetworkPlus = (function () {
     return previousIndex >= 0 ? Math.min(previousIndex, nextMatches.length - 1) : -1;
   }
 
+  function planKeywordSearchNavigation(keywordMatches, currentIndex, direction, globalMatches) {
+    if (
+      !Array.isArray(keywordMatches) ||
+      keywordMatches.length === 0 ||
+      !Array.isArray(globalMatches) ||
+      globalMatches.length === 0 ||
+      (direction !== -1 && direction !== 1)
+    ) {
+      return null;
+    }
+    const startIndex =
+      Number.isInteger(currentIndex) && currentIndex >= 0 && currentIndex < keywordMatches.length
+        ? currentIndex
+        : direction > 0
+          ? -1
+          : 0;
+    const globalIndexes = new Map(globalMatches.map((row, index) => [row, index]));
+    for (let offset = 1; offset <= keywordMatches.length; offset++) {
+      const keywordIndex =
+        (startIndex + direction * offset + keywordMatches.length * offset) % keywordMatches.length;
+      const targetRow = keywordMatches[keywordIndex];
+      const globalIndex = globalIndexes.get(targetRow);
+      if (globalIndex != null) return { targetRow, keywordIndex, globalIndex };
+    }
+    return null;
+  }
+
+  function planKeywordHighlights(text, keywords) {
+    const source = text == null ? '' : String(text);
+    if (!source || !Array.isArray(keywords) || keywords.length === 0) return [];
+
+    const candidates = [];
+    const earliestByLiteral = new Map();
+    for (let keywordIndex = 0; keywordIndex < keywords.length; keywordIndex++) {
+      const keyword = keywords[keywordIndex];
+      const query = keyword && keyword.query != null ? String(keyword.query) : '';
+      if (!query.trim()) continue;
+      const literal = query.toLowerCase();
+      if (earliestByLiteral.has(literal)) continue;
+      const candidate = {
+        query,
+        literal,
+        colorIdx: keyword.colorIdx,
+        keywordIndex,
+      };
+      earliestByLiteral.set(literal, candidate);
+      candidates.push(candidate);
+    }
+    if (candidates.length === 0) return [];
+
+    candidates.sort((a, b) => b.query.length - a.query.length || a.keywordIndex - b.keywordIndex);
+    const escapedParts = candidates.map((candidate) =>
+      candidate.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    );
+    const regex = new RegExp(escapedParts.join('|'), 'gi');
+    const highlights = [];
+    let match;
+    while ((match = regex.exec(source)) !== null) {
+      const winner = earliestByLiteral.get(match[0].toLowerCase());
+      highlights.push({
+        start: match.index,
+        end: regex.lastIndex,
+        colorIdx: winner ? winner.colorIdx : 0,
+        keywordIndex: winner ? winner.keywordIndex : -1,
+      });
+    }
+    return highlights;
+  }
+
   function shouldRenderSelectedRow(selectedRow, resolvedRow) {
     return !!resolvedRow && selectedRow === resolvedRow;
   }
@@ -2370,43 +2439,21 @@ const _NetworkPlus = (function () {
    */
   function highlightTextMulti(text, keywords) {
     const fragment = document.createDocumentFragment();
-    if (!text || !keywords || keywords.length === 0) {
-      fragment.appendChild(document.createTextNode(text || ''));
-      return fragment;
-    }
-
-    // Build combined regex from all keywords (escaped, case-insensitive)
-    const validKws = keywords.filter((kw) => kw.query && kw.query.trim());
-    if (validKws.length === 0) {
-      fragment.appendChild(document.createTextNode(text));
-      return fragment;
-    }
-
-    const escapedParts = validKws.map((kw) => kw.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const regex = new RegExp('(' + escapedParts.join('|') + ')', 'gi');
-
-    // Build a map from lowercase query to colorIdx
-    const queryColorMap = new Map();
-    for (const kw of validKws) {
-      queryColorMap.set(kw.query.toLowerCase(), kw.colorIdx);
-    }
-
+    const source = text == null ? '' : String(text);
+    const highlights = planKeywordHighlights(source, keywords);
     let lastIndex = 0;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      if (match.index > lastIndex) {
-        fragment.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+    for (const highlight of highlights) {
+      if (highlight.start > lastIndex) {
+        fragment.appendChild(document.createTextNode(source.substring(lastIndex, highlight.start)));
       }
       const mark = document.createElement('mark');
-      const matchedLc = match[0].toLowerCase();
-      const colorIdx = queryColorMap.get(matchedLc);
-      mark.className = 'search-hl-' + (colorIdx != null ? colorIdx : 0);
-      mark.textContent = match[0];
+      mark.className = 'search-hl-' + (highlight.colorIdx != null ? highlight.colorIdx : 0);
+      mark.textContent = source.substring(highlight.start, highlight.end);
       fragment.appendChild(mark);
-      lastIndex = regex.lastIndex;
+      lastIndex = highlight.end;
     }
-    if (lastIndex < text.length) {
-      fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
+    if (lastIndex < source.length || highlights.length === 0) {
+      fragment.appendChild(document.createTextNode(source.substring(lastIndex)));
     }
     return fragment;
   }
@@ -4717,6 +4764,7 @@ const _NetworkPlus = (function () {
   function replaceRenderedRowStates(rows) {
     const tbody = $('#tbody');
     if (!tbody) return false;
+    const previousTabStop = tbody.querySelector('tr[tabindex="0"]');
     const activeRow =
       document.activeElement && document.activeElement.closest
         ? document.activeElement.closest('tr[data-row-id]')
@@ -4738,6 +4786,13 @@ const _NetworkPlus = (function () {
       const replacement = createTableRow(row, (event) => selectRow(row, event), row === tabStopRow);
       renderedRow.replaceWith(replacement);
     }
+    const nextTabStop = tabStopRow
+      ? tbody.querySelector(`tr[data-row-id="${tabStopRow.id}"]`)
+      : null;
+    if (previousTabStop && previousTabStop !== nextTabStop && previousTabStop.isConnected !== false) {
+      previousTabStop.tabIndex = -1;
+    }
+    if (nextTabStop) nextTabStop.tabIndex = 0;
     if (focusRowId) {
       const rowToFocus = tbody.querySelector(`tr[data-row-id="${focusRowId}"]`);
       if (rowToFocus) rowToFocus.focus({ preventScroll: true });
@@ -5305,7 +5360,7 @@ const _NetworkPlus = (function () {
     resRawPane.appendChild(rawResPre);
   }
 
-  function selectRow(row, event, moveFocus) {
+  function selectRow(row, event, moveFocus, extraAffectedRows) {
     const previousFocusedRow = state.focusedRow;
     const previousSelectedRow = state.selectedRow;
     if (row) state.focusedRow = row;
@@ -5333,7 +5388,13 @@ const _NetworkPlus = (function () {
       }
     }
     // Normal click: update only rows whose primary or multi-selection state changed.
-    const affectedRows = [previousFocusedRow, previousSelectedRow, row, ...state.selectedRows];
+    const affectedRows = [
+      previousFocusedRow,
+      previousSelectedRow,
+      row,
+      ...state.selectedRows,
+      ...(Array.isArray(extraAffectedRows) ? extraAffectedRows : []),
+    ];
     state.selectedRows.clear();
     state.selectedRow = row;
     // A normal single-row click dismisses any active two-request comparison.
@@ -6936,11 +6997,16 @@ const _NetworkPlus = (function () {
       let focusedIdx = -1;
       let selStart = 0;
       let selEnd = 0;
+      let focusedNavSelector = '';
       if (activeEl && activeEl.classList.contains('search-keyword-input')) {
         const inputs = searchRows.querySelectorAll('.search-keyword-input');
         focusedIdx = Array.from(inputs).indexOf(activeEl);
         selStart = activeEl.selectionStart || 0;
         selEnd = activeEl.selectionEnd || 0;
+      } else if (activeEl && activeEl.classList.contains('search-kw-nav')) {
+        focusedNavSelector =
+          '.search-kw-nav[data-keyword-index="' + activeEl.dataset.keywordIndex +
+          '"][data-search-direction="' + activeEl.dataset.searchDirection + '"]';
       }
 
       searchRows.textContent = '';
@@ -7019,6 +7085,8 @@ const _NetworkPlus = (function () {
         prevBtn.className = 'search-kw-nav';
         prevBtn.textContent = '▲';
         prevBtn.title = 'Previous match (Shift+Enter)';
+        prevBtn.dataset.keywordIndex = String(i);
+        prevBtn.dataset.searchDirection = '-1';
         prevBtn.setAttribute('aria-label', 'Previous match for search keyword ' + (i + 1));
         prevBtn.disabled = kwMatchCount === 0;
         prevBtn.addEventListener('click', () => navigateKeywordSearch(i, -1));
@@ -7028,6 +7096,8 @@ const _NetworkPlus = (function () {
         nextBtn.className = 'search-kw-nav';
         nextBtn.textContent = '▼';
         nextBtn.title = 'Next match (Enter)';
+        nextBtn.dataset.keywordIndex = String(i);
+        nextBtn.dataset.searchDirection = '1';
         nextBtn.setAttribute('aria-label', 'Next match for search keyword ' + (i + 1));
         nextBtn.disabled = kwMatchCount === 0;
         nextBtn.addEventListener('click', () => navigateKeywordSearch(i, 1));
@@ -7057,6 +7127,9 @@ const _NetworkPlus = (function () {
           inputs[focusedIdx].focus();
           inputs[focusedIdx].setSelectionRange(selStart, selEnd);
         }
+      } else if (focusedNavSelector) {
+        const navButton = searchRows.querySelector(focusedNavSelector);
+        if (navButton) navButton.focus();
       }
     }
 
@@ -7110,35 +7183,32 @@ const _NetworkPlus = (function () {
       renderSearchRows();
     }
 
-    function scrollToSearchMatch() {
-      const srch = state.search;
-      if (srch.currentIndex < 0 || srch.currentIndex >= srch.matches.length) return;
-      const matchRow = srch.matches[srch.currentIndex];
+    function scrollToSearchMatch(matchRow) {
+      if (!matchRow) return;
       const matchTr = $('#tableWrap').querySelector('tr[data-row-id="' + matchRow.id + '"]');
-      if (matchTr) {
-        matchTr.scrollIntoView({ block: 'nearest' });
-        // Update detail panel without stealing focus
-        state.selectedRow = matchRow;
-        state.selectedRows.clear();
-        renderBody();
-        selectRow(matchRow);
-      }
+      if (matchTr) matchTr.scrollIntoView({ block: 'nearest' });
     }
 
     function navigateKeywordSearch(kwIndex, direction) {
       const srch = state.search;
       const kwData = srch.perKeyword.get(kwIndex);
-      if (!kwData || kwData.matches.length === 0) return;
-      kwData.currentIndex += direction;
-      if (kwData.currentIndex >= kwData.matches.length) kwData.currentIndex = 0;
-      if (kwData.currentIndex < 0) kwData.currentIndex = kwData.matches.length - 1;
-      // Also update global currentIndex to point at the same row
-      const targetRow = kwData.matches[kwData.currentIndex];
-      const globalIdx = srch.matches.indexOf(targetRow);
-      if (globalIdx >= 0) srch.currentIndex = globalIdx;
+      if (!kwData) return;
+      const previousCurrentRow =
+        srch.currentIndex >= 0 && srch.currentIndex < srch.matches.length
+          ? srch.matches[srch.currentIndex]
+          : null;
+      const navigation = planKeywordSearchNavigation(
+        kwData.matches,
+        kwData.currentIndex,
+        direction,
+        srch.matches,
+      );
+      if (!navigation) return;
+      kwData.currentIndex = navigation.keywordIndex;
+      srch.currentIndex = navigation.globalIndex;
       renderSearchRows();
-      renderBody();
-      scrollToSearchMatch();
+      selectRow(navigation.targetRow, null, false, [previousCurrentRow]);
+      scrollToSearchMatch(navigation.targetRow);
     }
 
     searchToggleBtn.addEventListener('click', () => toggleSearchPanel());
@@ -7432,6 +7502,8 @@ const _NetworkPlus = (function () {
     countActiveColumnFilters,
     hasActiveSearchKeywords,
     preserveMatchingRowIndex,
+    planKeywordSearchNavigation,
+    planKeywordHighlights,
     shouldRenderSelectedRow,
     isIncrementalAppendEligible,
     getIncrementalAppendBatch,
