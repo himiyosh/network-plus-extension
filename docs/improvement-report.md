@@ -2,14 +2,26 @@
 
 > 初回生成日: 2026-03-09
 > 初回分析対象バージョン: 1.4.0
-> 現在のリリース: 1.7.0 (開発中)
-> 初回分析対象: panel.js (2400+ 行, 15 セクション), panel.css, panel.html, manifest.json
+> 現在のリリース: 1.6.0
+> 初回分析対象スナップショット: 2026-03-09 時点の v1.4.0 (`panel.js` 2400+ 行・15 セクション、`panel.css`、`panel.html`、`manifest.json`)
+
+---
+
+## Current state (2026-07-26, v1.6.0, merged PRs through #30)
+
+`package.json`、`manifest.json`、README のリリースメタデータは v1.6.0 で同期している。1.7.0 は未リリースであり、必要な全ファイルを同期する正式なリリース更新までは現行版として扱わない。
+
+Cycle 1 で提案したコマンドコピー、フィルタープリセット、統計、Waterfall、ショートカット一覧、2 リクエスト比較、レスポンス Body 検索、カラム並べ替えは Cycle 2 以降で実装され、その後の回帰修復とハードニングも Cycle 3〜7 に記録している。現行 README は保持上限、sanitized outbound data、アクセシビリティ、HAR/SAZ import を含む v1.6.0 の機能と制約を正としている。
+
+現行の品質ゲートは Jest、ESLint、version sync、Prettier、text/lock/package integrity、audit、coordinator contract で構成され、CI は Node.js 22/24 で実行する。本レポート内の `43/43` や `54/54` などの正確な件数は 2026-03-09 の履歴値であり、現在のテスト総数を表さない。
 
 ---
 
 ## Cycle 1: 初回分析 (2026-03-09)
 
-### 実施した改善
+この Cycle の機能評価、提案、行数、テスト数、ロードマップはすべて 2026-03-09 時点の v1.4.0 スナップショットであり、現在の未実装一覧や将来計画ではない。後続 Cycle での実装・修復履歴を削らず、当時の判断根拠として保存する。
+
+### 実施した改善 (2026-03-09 v1.4.0 スナップショット)
 
 | # | 種別 | 内容 | コミット |
 |---|---|---|---|
@@ -18,7 +30,7 @@
 | 3 | feat | UI/UX Review Agent 作成 (6 軸レビューフレームワーク) | `299de75` |
 | 4 | feat | NetworkPlusAgent 統合オーケストレーター作成 (8 ロール自動選択) | `82efcab` |
 
-### UI/UX レビュー結果
+### UI/UX レビュー結果 (2026-03-09 v1.4.0 スナップショット)
 
 | 軸 | 状態 | 指摘事項 |
 |---|---|---|
@@ -27,15 +39,15 @@
 | ⌨️ 操作性・キーボード | ✅ OK | Ctrl+F、上下キー、ソート、フィルタ、タブ切替すべて実装 |
 | 🔒 XSS 安全性 | ✅ OK | innerHTML 使用 1 箇所のみ (静的 SVG リテラル)。ユーザーデータとの結合なし |
 | 📊 データ表示品質 | ✅ OK | Status/Method/Duration の色分け、fmtBytes/fmtTime のフォーマット、空状態メッセージ |
-| 🧹 コード品質 | ✅ OK | ESLint 0/0、Jest 43/43 PASS、15 セクション構成準拠 |
+| 🧹 コード品質 | ✅ OK | 当時の結果: ESLint 0/0、Jest 43/43 PASS、15 セクション構成準拠 |
 
 ---
 
-### 🔍 新機能提案
+### 🔍 新機能提案 (2026-03-09 v1.4.0 スナップショット)
 
-#### 現在の機能マップ
+#### 当時の機能マップ
 
-| カテゴリ | 実装済み | 未実装 (提案対象) |
+| カテゴリ | 当時の実装済み | 当時の未実装 (提案対象) |
 |---|---|---|
 | キャプチャ | リアルタイムキャプチャ, Pause/Resume | ウォーターフォール表示 |
 | フィルタ | グローバル, カラム別, 正規表現, 複合条件 | フィルタプリセット保存/復元 |
@@ -47,7 +59,7 @@
 | 操作 | キーボードナビ, 右クリック, ハイライト, マルチ選択 | ショートカット一覧 |
 | 連携 | Initiator リンク | cURL/fetch/PowerShell コピー |
 
-#### 提案一覧
+#### 当時の提案一覧
 
 | # | 優先度 | 機能名 | カテゴリ | 工数 | 実装セクション |
 |---|---|---|---|---|---|
@@ -60,7 +72,7 @@
 | 7 | **P2** | レスポンスボディ検索 | フィルタ | 🟡 M | Section 7 |
 | 8 | **P2** | カラムドラッグ並べ替え永続化 | 表示 | 🟡 M | Section 6 + Section 12 |
 
-#### 提案詳細
+#### 当時の提案詳細
 
 ##### #1: cURL / fetch / PowerShell コマンドコピー (P0 🟢)
 
@@ -126,7 +138,7 @@
 - **リスク**: カラムリサイズとの競合
 - **依存関係**: なし
 
-#### 推奨ロードマップ
+#### 当時の推奨ロードマップ
 
 ```
 v1.5.0 (次回リリース):
@@ -161,11 +173,11 @@ v2.0.0 (メジャー):
 | 7 | P2 | レスポンスボディ検索 | ✅ 完了 | `577af76` |
 | 8 | P2 | カラムドラッグ並替永続化 | ✅ 既存実装 | (v1.4.0 で実装済み) |
 
-### 品質ゲート
+### 品質ゲート (2026-03-09 v1.4.0 実装時スナップショット)
 
 | チェック | 結果 |
 |---|---|
-| Jest テスト | ✅ 54/54 PASS (11 新規テスト追加) |
+| Jest テスト | ✅ 当時 54/54 PASS (11 新規テスト追加) |
 | ESLint | ✅ 0 errors, 0 warnings |
 | Version sync | ✅ OK (1.4.0) |
 
@@ -295,3 +307,23 @@ Commit `2321d67` が deep search 実装時に panel.js を大幅置換し、Cycl
 | Jest テスト | ✅ PASS |
 | ESLint | ✅ 0 errors, 0 warnings |
 | Version sync | ✅ OK (1.6.0) |
+
+---
+
+## Cycle 7: PR #30 — HAR/SAZ import hardening (2026-07-26)
+
+### 実施した修正
+
+| # | 種別 | 内容 |
+|---|---|---|
+| 1 | fix | HAR/SAZ の検証・正規化・行オブジェクト生成がすべて成功してから既存キャプチャを置換する atomic import に変更し、失敗時は元データを保持 |
+| 2 | security | 入力ファイルを 32 MiB 以下、SAZ を 20,000 entry 以下、各 entry の展開後 4 MiB 以下、archive 全体の展開後合計 64 MiB 以下に制限 |
+| 3 | perf | SAZ を 16 KiB chunk で streaming 展開し、同時展開を最大 4 entry に制限。保持対象となる完全な HTTP session だけを行オブジェクト化 |
+| 4 | fix | hostile/malformed HAR の `log.entries`、request/response、文字列、数値、header、post-data、timing を検証・安全な型へ正規化 |
+| 5 | a11y | Import を single-flight 化し、処理中はボタンと file input を無効化して `aria-busy` と状態表示を同期 |
+| 6 | test | pure helper、archive budget/streaming、atomic replacement、busy state の回帰テストと 3,000-entry SAZ stress check を追加 |
+| 7 | ci/review | Node.js 22/24 の既存 CI quality gates で検証し、Network+ の 6 軸 specialist review を実施 |
+
+### 品質ゲート
+
+PR #30 では version、repository/text/package integrity、audit、coordinator contract、構文・静的チェック、SAZ stress/data-descriptor checks、6 軸 specialist review を完了した。Jest、ESLint、Prettier は当該作業環境の依存取得障害でローカル実行できず、Node.js 22/24 CI の gate 対象とした。
