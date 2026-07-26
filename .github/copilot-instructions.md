@@ -267,7 +267,40 @@ npm run version:check      # package.json と manifest.json の version 同期�
 
 ---
 
-## 7. Lessons Learned
+## 7. コーディネーターセッション トポロジー
+
+長期プロジェクト作業のセッション管理ルール。詳細は [`docs/coordinator-topology.md`](../docs/coordinator-topology.md) を参照。
+
+### 7.1 構成ルール
+
+- **セッション命名**: `🌐 YYYY-MM-DD Network+ 統括`（絵文字を先頭に置く）
+- **最大アクティブチャイルド数**: 同時に 3 つまで。4 件目はスロットが空くまでブロック
+- **チャイルド 1 つにつきブランチ 1 本・PR 1 件**。チャイルドはコーディネーターのハンドオフのみを起点として作成する（非フォーク）
+- **エージェント `tools:` フィールド禁止**: プライマリエージェントのフロントマターに `tools:` を宣言しない。[公式仕様](https://docs.github.com/en/copilot/reference/custom-agents-configuration#tools)により `tools:` を省略するとホストが利用可能なすべてのツールを供給する
+
+### 7.2 サイズ制限
+
+| フェーズ | 上限 |
+|---|---|
+| キックオフ | 32 KiB |
+| 完了報告 | 8 KiB |
+| ハンドオフ | 64 KiB |
+
+### 7.3 ロールオーバー条件
+
+コンテキスト使用率が既知の API 上限の約 70%、または出力が著しく長大・断片化した場合、またはターン数が約 100 を超えた場合。ロールオーバー状態はセッション artifact または durable issue/git リファレンスに記録する。リポジトリへの追跡ファイルのコミットは行わない。
+
+### 7.4 Host-Tool Fallback
+
+セッション管理ツールが利用できない場合: 安全な in-session 作業のみ継続し、アプリ DB 編集・OS プロセス強制終了・マネージドワークツリー削除・破壊的 git 操作をアーカイブの代替として行わない。次の進捗報告の `BLOCKERS:` 行にツール名と影響を記載する。
+
+### 7.5 データ安全性
+
+ハンドオフ・セッション artifact に PII・顧客データ・認証情報・生の診断ペイロードを含めない。
+
+---
+
+## 8. Lessons Learned
 
 ### LL-004: ルートフォルダへの一時ファイル散乱
 - **事象**: `fix.js`, `fix_empty.js`, `test.svg`, `test_output.txt`, `eslint.json` 等の一時ファイル・出力ファイルがルートに放置されていた

@@ -70,3 +70,6 @@ jobs:
 
       - name: Audit dependencies
         run: npm run audit:strict
+
+      - name: Check coordinator contract
+        run: npm run contract:check

@@ -1,6 +1,5 @@
 ---
 description: "Network+ for DevTools 統合エキスパートエージェント。リクエスト内容を分析し、適切な専門ロール（JS Expert / Security / QA / Debug / UX Review / Feature Proposer / Janitor / Plan）を自動選択して対応する。"
-tools: [vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/newWorkspace, vscode/runCommand, vscode/vscodeAPI, vscode/extensions, vscode/askQuestions, execute/runNotebookCell, execute/testFailure, execute/getTerminalOutput, execute/awaitTerminal, execute/killTerminal, execute/createAndRunTask, execute/runInTerminal, read/getNotebookSummary, read/problems, read/readFile, read/readNotebookCellOutput, read/terminalSelection, read/terminalLastCommand, agent/runSubagent, edit/createDirectory, edit/createFile, edit/createJupyterNotebook, edit/editFiles, edit/editNotebook, edit/rename, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/textSearch, search/searchSubagent, search/usages, web/fetch, web/githubRepo, playwright/browser_click, playwright/browser_close, playwright/browser_console_messages, playwright/browser_drag, playwright/browser_evaluate, playwright/browser_file_upload, playwright/browser_fill_form, playwright/browser_handle_dialog, playwright/browser_hover, playwright/browser_install, playwright/browser_navigate, playwright/browser_navigate_back, playwright/browser_network_requests, playwright/browser_press_key, playwright/browser_resize, playwright/browser_run_code, playwright/browser_select_option, playwright/browser_snapshot, playwright/browser_tabs, playwright/browser_take_screenshot, playwright/browser_type, playwright/browser_wait_for, browser/openBrowserPage, browser/readPage, browser/screenshotPage, browser/navigatePage, browser/clickElement, browser/dragElement, browser/hoverElement, browser/typeInPage, browser/runPlaywrightCode, browser/handleDialog, azure-mcp/search, todo]
 ---
 
 # NetworkPlusAgent
@@ -220,11 +219,24 @@ tools: [vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vsco
 
 ---
 
+## 🛡️ Host-Tool Fallback
+
+ホスト環境でセッション管理ツール（セッション名変更、タスクセッション作成、メッセージング、アーカイブ）が利用できない場合は、以下のフォールバック手順に従う。詳細は `docs/coordinator-topology.md` の「Host-Tool Fallback」セクションを参照。
+
+1. **安全な in-session 作業のみ継続**: ファイル編集・テスト実行・ファイル読み取り・git 操作に限定する。
+2. **偽アーカイブ禁止**: アプリ DB の編集・OS プロセスの強制終了・マネージドワークツリーの削除・破壊的 git 操作（force-push、ブランチ削除）をアーカイブ代替として実行しない。
+3. **セッション/ブランチ名変更禁止**: ツールがエラーを返した場合は元の名前のまま継続し、次の進捗報告でブロッカーを報告する。
+4. **フォールバック状態の保存**: セッション artifact または簡潔な durable issue/git リファレンスに記録する。リポジトリへのファイルコミットは行わない。
+5. **ブロッカーを報告**: 次の進捗報告の `BLOCKERS:` 行に利用できないツール名と影響を記載する。
+
+---
+
 ## 📋 リファレンス
 
 | 基準 | ファイル |
 |---|---|
 | コーディング規約 | `.github/copilot-instructions.md` |
+| コーディネータートポロジー | `docs/coordinator-topology.md` |
 | テーマ定義 | `panel.css` |
 | UI レイアウト | `panel.html` |
 | コアロジック | `panel.js` (IIFE, 15 セクション) |

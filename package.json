@@ -14,7 +14,8 @@
     "text:check": "node scripts/check-text-integrity.js",
     "extension:check": "node scripts/check-extension-package.js --check",
     "extension:package": "node scripts/check-extension-package.js --package",
-    "audit:strict": "node scripts/check-audit-policy.js"
+    "audit:strict": "node scripts/check-audit-policy.js",
+    "contract:check": "node scripts/check-coordinator-contract.js"
   },
   "keywords": [],
   "author": "himiyosh",
