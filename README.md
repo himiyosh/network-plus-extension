@@ -21,6 +21,7 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能。ステータスバーとボタンに有効なカラムフィルタ数を表示 |
 | ↕️ カラムソート | ヘッダーのクリックまたは `Enter` / `Space` でソート切替 (昇順 → 降順 → ソート解除)。`Alt+←` / `Alt+→` でカラムを並べ替え、順序を永続化。時刻カラムは取得時のリクエスト epoch で正確に比較 |
 | 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示。選択中レスポンスは上限付き共有 Body キャッシュから描画し、遅延完了した別リクエストによる表示上書きを防止。Body が省略・退避・取得不能の場合は理由を明示し、取得元が残る退避 Body は選択時に安全に再取得。Timing は SSL と Connect を重複させずに可視化 |
+| 🔀 2リクエスト差分比較 | `Ctrl`/`Cmd` クリックでちょうど 2 行を複数選択し、右クリックメニューの「Compare 2 selected requests」で比較ビューを表示。URL/クエリパラメータ、Method/Status/Protocol、リクエスト/レスポンスヘッダー、レスポンス Body をセクション別に並べて比較し、一致・変更・片側のみの行を色で区別。Body は保持上限内のキャッシュ済みデータのみ表示し、省略・退避・未取得の状態を明示。比較ビューのすべてのレンダリングは XSS 安全な DOM API を使用。✕ ボタンまたは別の行をクリックすると通常の詳細ビューに戻る |
 | 📤 安全な HAR エクスポート | 通常操作では `network-plus-sanitized.har` を出力し、機密値を置換して解析不能・不透明・base64・multipart・制限超過 Body を明示的に省略。`_networkPlus` に方針、件数、Body の不完全性を記録。`network-plus-full.har` は Authorization、Cookie、query、Body の警告を確認したその 1 回だけ出力 |
 | 🎨 テーマ切替 | System / Dark / Light の3モードを循環切替。小さいステータス・補助テキストは WCAG 2.2 AA、操作境界と主要セパレーターは 3:1 以上のコントラストを全テーマで維持し、設定は `chrome.storage.local` (Edge 互換 API) に永続化 |
 | ⏯️ 録画制御 | Pause / Resume ボタン。録画中は赤、一時停止中はグレーのインジケータ表示 |
@@ -221,6 +222,11 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 - [ ] ヘッダーの `Enter` / `Space` で `aria-sort` と表示順が同期し、`Alt+←` / `Alt+→` 後も同じヘッダーへフォーカスが戻る
 - [ ] カラム、メイン分割、Request/Response 分割の各境界を矢印キーで変更でき、最小サイズを下回らない
 - [ ] 行の上下選択、`Ctrl` / `Cmd+C`、複数選択、`Context Menu` / `Shift+F10` のメニュー操作とフォーカス復帰が維持される
+- [ ] `Ctrl`/`Cmd` クリックでちょうど 2 行を選択した後、右クリックメニューに「Compare 2 selected requests」が表示される
+- [ ] 比較ビューで URL・クエリパラメータ・Method/Status・リクエスト/レスポンスヘッダー・Body のセクションが正しく表示される
+- [ ] 比較ビューの Body セクションで、省略・退避・未取得の Body が適切な状態ラベルで表示される
+- [ ] ✕ ボタンをクリックすると比較ビューが閉じて通常の詳細パネルに戻る
+- [ ] 比較ビュー表示中に別の行を単一クリックすると比較ビューが閉じて選択行の詳細に切り替わる
 - [ ] 通常の Summary / URL / Body / Raw / cURL / fetch / PowerShell copy が sanitized と表示され、完全 copy は警告確認後だけ clipboard へ書き込まれる
 - [ ] Export ダイアログの sanitized HAR と full HAR が別 filename になり、full HAR の確認状態が次の操作へ残らない
 - [ ] Filter / Columns / Scope / Color をキーボードで開閉でき、初期フォーカス、`Escape`、画面端でのクランプが機能する

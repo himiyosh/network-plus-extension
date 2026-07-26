@@ -213,3 +213,52 @@ v2.0.0 (メジャー):
 | Jest テスト | ✅ PASS (13 新規テスト追加) |
 | ESLint | ✅ 0 errors, 0 warnings |
 | Version sync | ✅ OK (1.6.0) |
+
+---
+
+## Cycle 5: Issue #16 / PR #28 — 比較パネル完成度 (2026-07-26)
+
+### 対象 PR
+
+PR #28 「feat: restore two-request diff comparison」のレビューコメント対応。
+
+### 実施した修正
+
+| # | 種別 | 内容 |
+|---|---|---|
+| 1 | fix | `diffHeaders` を multimap 方式に変更し `Set-Cookie` 等の重複ヘッダーを occurrence-index でペアリングして保持するよう修正 |
+| 2 | feat | `describeRequestBodyForComparison(row)` 新規追加。`requestPostData.text` をキャッシュから読み取り、`TRUNCATE_LIMIT` を適用 |
+| 3 | fix | `describeBodyForComparison` / `describeRequestBodyForComparison` の両関数に `TRUNCATE_LIMIT`（2000 文字）上限を追加。超過時は `{ stateLabel: 'truncated', text: …(先頭2000文字), totalLength: N }` を返す |
+| 4 | feat | 比較パネルに「Request Bodies」セクションを追加（「Response Bodies」の前に配置） |
+| 5 | fix | `createBodyComparisonBlock` に `truncated` ステートの表示を追加。「showing N of M chars」ノーティスを本文の下に表示 |
+| 6 | fix | 蒸発（eviction）時に `hideComparisonPanel()` を呼び出し、比較パネルを実際に非表示にするよう修正（以前は state のみクリアしてパネルが残っていた） |
+| 7 | fix | `renderComparisonPanel`: 閉じるボタンのクリック時に `state.comparisonInvokingRowId` を参照してフォーカスを呼び出し元の行に復元 |
+| 8 | feat | `showComparisonPanel`: `setTimeout(0)` で閉じるボタンにフォーカスを移動（コンテキストメニューのクローズ後に実行） |
+| 9 | feat | `init` 内に comparePanel の `keydown` リスナーを追加し Escape キーでパネルを閉じてフォーカスを復元 |
+| 10 | feat | `renderComparisonPanel`: `role="region"` + `aria-labelledby` を panel に設定し、heading に id を付与してラベル関係を確立 |
+| 11 | fix | `.compare-close-btn:focus-visible` を CSS に明示追加 |
+
+### 品質ゲート
+
+| チェック | 結果 |
+|---|---|
+| Jest テスト | ✅ PASS |
+| ESLint | ✅ 0 errors, 0 warnings |
+| Version sync | ✅ OK (1.6.0) |
+
+### 追加テスト
+
+**panel.test.js**
+- `diffHeaders`: `Set-Cookie` 重複保持 (2 テスト)
+- `describeBodyForComparison`: truncated state / at-limit available (2 テスト)
+- `describeRequestBodyForComparison`: 全ケース (8 テスト)
+
+**ui-contract.test.js**
+- `describeRequestBodyForComparison` エクスポート確認
+- request body descriptor が fetch しないことの確認
+- 比較パネルに Request Bodies / Response Bodies 両セクション存在確認
+- `showComparisonPanel` の setTimeout フォーカス確認
+- Escape キーハンドラの init 設置確認
+- 閉じるボタンの invoking row フォーカス復元確認
+- `diffHeaders` multimap 使用確認
+- `.compare-close-btn:focus-visible` CSS 存在確認

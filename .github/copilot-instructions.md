@@ -259,6 +259,9 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - [ ] Pause/Resume が動作する
 - [ ] カラムのリサイズが機能する
 - [ ] `Columns` ボタンでカラム表示切替メニューが出る
+- [ ] `Ctrl`/`Cmd` クリックでちょうど 2 行を選択後、右クリックメニューに「Compare 2 selected requests」が表示され、比較ビューが開く
+- [ ] 比較ビューで URL・クエリパラメータ・Method/Status・ヘッダー・Body が正しく差分表示される
+- [ ] 比較ビューの ✕ ボタンで通常の詳細ビューに戻る
 - [ ] `Ctrl+F` または `🔍` ボタンでディープサーチバーが表示される
 - [ ] ディープサーチでリクエストBody・レスポンスBody・ヘッダーを検索できる
 - [ ] ディープサーチの Enter/Shift+Enter でマッチ間を移動できる

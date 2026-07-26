@@ -2015,6 +2015,137 @@ const _NetworkPlus = (function () {
   }
 
   /**
+   * Compute a symmetric diff of two header arrays.
+   * Each entry in headersA / headersB must be { name, value }.
+   * Returns an array sorted by name, each entry:
+   *   { name, valueA, valueB, state: 'match' | 'changed' | 'only-a' | 'only-b' }
+   *
+   * Duplicate header names (e.g. Set-Cookie) are preserved by occurrence index;
+   * each pair is emitted independently so no occurrence is silently dropped.
+   */
+  function diffHeaders(headersA, headersB) {
+    const safeA = Array.isArray(headersA) ? headersA : [];
+    const safeB = Array.isArray(headersB) ? headersB : [];
+    // Build multimap: name.toLowerCase() -> [{name, value}]
+    // Preserves duplicate headers such as Set-Cookie, aligned by occurrence index.
+    const makeMultimap = (arr) => {
+      const m = new Map();
+      for (const h of arr) {
+        const key = (h && typeof h.name === 'string' ? h.name : '').toLowerCase();
+        if (!m.has(key)) m.set(key, []);
+        m.get(key).push({ name: h.name || '', value: typeof h.value === 'string' ? h.value : '' });
+      }
+      return m;
+    };
+    const mapA = makeMultimap(safeA);
+    const mapB = makeMultimap(safeB);
+    const allKeys = new Set([...mapA.keys(), ...mapB.keys()]);
+    const result = [];
+    for (const key of allKeys) {
+      const listA = mapA.get(key) || [];
+      const listB = mapB.get(key) || [];
+      const len = Math.max(listA.length, listB.length);
+      for (let i = 0; i < len; i++) {
+        const a = listA[i];
+        const b = listB[i];
+        const name = (a || b).name;
+        if (a && b) {
+          result.push({ name, valueA: a.value, valueB: b.value, state: a.value === b.value ? 'match' : 'changed' });
+        } else if (a) {
+          result.push({ name, valueA: a.value, valueB: null, state: 'only-a' });
+        } else {
+          result.push({ name, valueA: null, valueB: b.value, state: 'only-b' });
+        }
+      }
+    }
+    return result.sort((x, y) => x.name.localeCompare(y.name, undefined, { sensitivity: 'base' }));
+  }
+
+  /**
+   * Compute a symmetric diff of two query-parameter arrays.
+   * Each entry must be { name, value }.  Duplicate names are kept as separate
+   * entries (unlike headers where multimap-paired semantics apply).
+   * Returns entries sorted by name then value, each with the same shape as
+   * diffHeaders plus an `indexA` / `indexB` original-position hint.
+   */
+  function diffQueryParams(paramsA, paramsB) {
+    const safeA = Array.isArray(paramsA) ? paramsA : [];
+    const safeB = Array.isArray(paramsB) ? paramsB : [];
+    // Build multimap: name.toLowerCase() -> [{name, value}]
+    const makeMultimap = (arr) => {
+      const m = new Map();
+      for (const p of arr) {
+        const key = (p && typeof p.name === 'string' ? p.name : '').toLowerCase();
+        if (!m.has(key)) m.set(key, []);
+        m.get(key).push({ name: p.name || '', value: typeof p.value === 'string' ? p.value : '' });
+      }
+      return m;
+    };
+    const mapA = makeMultimap(safeA);
+    const mapB = makeMultimap(safeB);
+    const allKeys = new Set([...mapA.keys(), ...mapB.keys()]);
+    const result = [];
+    for (const key of allKeys) {
+      const listA = mapA.get(key) || [];
+      const listB = mapB.get(key) || [];
+      const len = Math.max(listA.length, listB.length);
+      for (let i = 0; i < len; i++) {
+        const a = listA[i];
+        const b = listB[i];
+        const name = (a || b).name;
+        if (a && b) {
+          result.push({ name, valueA: a.value, valueB: b.value, state: a.value === b.value ? 'match' : 'changed' });
+        } else if (a) {
+          result.push({ name, valueA: a.value, valueB: null, state: 'only-a' });
+        } else {
+          result.push({ name, valueA: null, valueB: b.value, state: 'only-b' });
+        }
+      }
+    }
+    return result.sort((x, y) => x.name.localeCompare(y.name, undefined, { sensitivity: 'base' }));
+  }
+
+  /**
+   * Return a description of the response body for comparison purposes.
+   * Uses only already-cached data — never triggers a new fetch.
+   * Returns { text: string|null, stateLabel: string, totalLength?: number }
+   *   stateLabel: 'available' | 'empty' | 'truncated' | 'missing' | 'omitted' | 'evicted' | 'unavailable'
+   */
+  function describeBodyForComparison(row) {
+    if (!row) return { text: null, stateLabel: 'missing' };
+    const s = row.responseContentState || 'unavailable';
+    if ((s === 'cached' || s === 'embedded') && typeof row.responseContentText === 'string') {
+      const full = row.responseContentText;
+      if (full.length === 0) return { text: '', stateLabel: 'empty' };
+      if (full.length > TRUNCATE_LIMIT) {
+        return { text: full.substring(0, TRUNCATE_LIMIT), stateLabel: 'truncated', totalLength: full.length };
+      }
+      return { text: full, stateLabel: 'available' };
+    }
+    if (s === 'omitted') return { text: null, stateLabel: 'omitted' };
+    if (s === 'evicted' || s === 'row-evicted') return { text: null, stateLabel: 'evicted' };
+    return { text: null, stateLabel: 'unavailable' };
+  }
+
+  /**
+   * Return a description of the request body for comparison purposes.
+   * Uses only already-cached data — never triggers a new fetch.
+   * Returns { text: string|null, stateLabel: string, totalLength?: number }
+   *   stateLabel: 'available' | 'empty' | 'truncated' | 'missing'
+   */
+  function describeRequestBodyForComparison(row) {
+    if (!row) return { text: null, stateLabel: 'missing' };
+    const postData = row.requestPostData;
+    if (!postData || typeof postData.text !== 'string') return { text: null, stateLabel: 'missing' };
+    const full = postData.text;
+    if (full.length === 0) return { text: '', stateLabel: 'empty' };
+    if (full.length > TRUNCATE_LIMIT) {
+      return { text: full.substring(0, TRUNCATE_LIMIT), stateLabel: 'truncated', totalLength: full.length };
+    }
+    return { text: full, stateLabel: 'available' };
+  }
+
+  /**
    * Compute aggregate statistics for a set of rows.
    * Pure function — no DOM/state dependency.
    * @param {Array} rows - Array of row objects (from buildRowFromRequest)
@@ -2139,6 +2270,8 @@ const _NetworkPlus = (function () {
     pendingRowFocusId: null,
     pendingHeaderFocusId: null,
     selectedRows: new Set(), // [U7] multi-row selection
+    comparedRows: null,     // [U8] two-request diff comparison: [rowA, rowB] or null
+    comparisonInvokingRowId: null, // [U8] row id that opened the comparison (for focus restoration)
     highlightedRows: new Map(), // [U7] highlighted rows: row -> color class
     onResponseContentChanged: null,
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
@@ -2333,6 +2466,12 @@ const _NetworkPlus = (function () {
         detailsWereCleared = true;
       }
       if (state.focusedRow === row) state.focusedRow = null;
+      if (state.comparedRows && state.comparedRows.includes(row)) {
+        state.comparedRows = null;
+        state.comparisonInvokingRowId = null;
+        hideComparisonPanel();
+        detailsWereCleared = true;
+      }
     }
     if (detailsWereCleared) clearDetailsPanel();
     if (countRetention) {
@@ -4593,6 +4732,11 @@ const _NetworkPlus = (function () {
     const affectedRows = [previousFocusedRow, previousSelectedRow, row, ...state.selectedRows];
     state.selectedRows.clear();
     state.selectedRow = row;
+    // A normal single-row click dismisses any active two-request comparison.
+    if (state.comparedRows) {
+      state.comparedRows = null;
+      hideComparisonPanel();
+    }
     if (!replaceRenderedRowStates(affectedRows)) renderBody();
     if (!row) return;
 
@@ -4790,6 +4934,321 @@ const _NetworkPlus = (function () {
       }
       resTimingPane.appendChild(legend);
     }
+  }
+
+  // ============================================================
+  // Section 13b: Two-Request Diff Comparison [U8]
+  // ============================================================
+
+  /**
+   * Build a single diff-table row (XSS-safe).
+   * state: 'match' | 'changed' | 'only-a' | 'only-b'
+   */
+  function createDiffRow(name, valueA, valueB, diffState) {
+    const tr = document.createElement('tr');
+    tr.className = 'diff-row diff-row--' + diffState;
+
+    const nameTd = document.createElement('td');
+    nameTd.className = 'diff-cell diff-cell--name';
+    nameTd.textContent = name;
+    tr.appendChild(nameTd);
+
+    const aTd = document.createElement('td');
+    aTd.className = 'diff-cell diff-cell--a' + (diffState === 'only-b' ? ' diff-cell--absent' : diffState === 'only-a' ? ' diff-cell--present' : diffState === 'changed' ? ' diff-cell--changed' : '');
+    aTd.textContent = valueA == null ? '—' : String(valueA);
+    tr.appendChild(aTd);
+
+    const bTd = document.createElement('td');
+    bTd.className = 'diff-cell diff-cell--b' + (diffState === 'only-a' ? ' diff-cell--absent' : diffState === 'only-b' ? ' diff-cell--present' : diffState === 'changed' ? ' diff-cell--changed' : '');
+    bTd.textContent = valueB == null ? '—' : String(valueB);
+    tr.appendChild(bTd);
+
+    return tr;
+  }
+
+  /**
+   * Build a diff table from a list of diff entries.
+   * Each entry: { name, valueA, valueB, state }
+   * colLabelA / colLabelB: truncated URL labels for column headers
+   */
+  function createDiffTable(entries, colLabelA, colLabelB) {
+    if (entries.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'diff-empty';
+      empty.textContent = '(no items)';
+      return empty;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'diff-table';
+    table.setAttribute('role', 'table');
+
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    for (const label of ['Name', colLabelA || 'Request A', colLabelB || 'Request B']) {
+      const th = document.createElement('th');
+      th.className = 'diff-cell diff-cell--header';
+      th.scope = 'col';
+      th.textContent = label;
+      headerRow.appendChild(th);
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (const entry of entries) {
+      tbody.appendChild(createDiffRow(entry.name, entry.valueA, entry.valueB, entry.state));
+    }
+    table.appendChild(tbody);
+
+    return table;
+  }
+
+  /**
+   * Build a body comparison block (XSS-safe).
+   * Shows available text or an explanatory label for missing/omitted/evicted bodies.
+   */
+  function createBodyComparisonBlock(bodyDesc, label) {
+    const wrap = document.createElement('div');
+    wrap.className = 'diff-body-block';
+
+    const header = document.createElement('div');
+    header.className = 'diff-body-header';
+    header.textContent = label;
+    wrap.appendChild(header);
+
+    const content = document.createElement('div');
+    content.className = 'diff-body-content';
+
+    if (bodyDesc.stateLabel === 'available' || bodyDesc.stateLabel === 'truncated') {
+      const pre = document.createElement('pre');
+      pre.className = 'code-block diff-body-pre';
+      pre.textContent = bodyDesc.text;
+      content.appendChild(pre);
+      if (bodyDesc.stateLabel === 'truncated') {
+        const truncNotice = document.createElement('p');
+        truncNotice.className = 'diff-body-notice diff-body-notice--truncated';
+        truncNotice.textContent = '(showing ' + bodyDesc.text.length.toLocaleString() + ' of ' + bodyDesc.totalLength.toLocaleString() + ' chars — view full body in the detail panel)';
+        content.appendChild(truncNotice);
+      }
+    } else {
+      const notice = document.createElement('p');
+      notice.className = 'diff-body-notice diff-body-notice--' + bodyDesc.stateLabel;
+      const labels = {
+        empty: '(empty body)',
+        missing: '(no body)',
+        omitted: '(body omitted — exceeded the 1 MiB per-body retention limit)',
+        evicted: '(body evicted from the 32 MiB cache — re-select the request to retry)',
+        unavailable: '(body not available)',
+      };
+      notice.textContent = labels[bodyDesc.stateLabel] || '(body not available)';
+      content.appendChild(notice);
+    }
+
+    wrap.appendChild(content);
+    return wrap;
+  }
+
+  /** Truncate a URL to fit in a narrow column header. */
+  function truncateUrlLabel(url) {
+    if (!url) return '(no URL)';
+    try {
+      const u = new URL(url);
+      return (u.pathname + (u.search || '')).slice(0, 40) || u.host;
+    } catch (_e) {
+      return url.slice(0, 40);
+    }
+  }
+
+  /**
+   * Render the full two-request comparison view into the #comparePanel element.
+   * Uses only data already in the row objects — never triggers a new body fetch.
+   */
+  function renderComparisonPanel(rowA, rowB) {
+    const panel = $('#comparePanel');
+    if (!panel) return;
+    panel.textContent = '';
+
+    // Labelled region relationship: the h2 heading labels the panel element.
+    panel.setAttribute('role', 'region');
+    const panelTitleId = 'compare-panel-title';
+    panel.setAttribute('aria-labelledby', panelTitleId);
+
+    const labelA = truncateUrlLabel(rowA.url);
+    const labelB = truncateUrlLabel(rowB.url);
+
+    // Close button + heading
+    const headerRow = document.createElement('div');
+    headerRow.className = 'compare-header';
+    const heading = document.createElement('h2');
+    heading.id = panelTitleId;
+    heading.className = 'compare-title';
+    heading.textContent = 'Comparing 2 requests';
+    headerRow.appendChild(heading);
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'compare-close-btn';
+    closeBtn.textContent = '✕ Close';
+    closeBtn.title = 'Close comparison view';
+    closeBtn.setAttribute('aria-label', 'Close comparison view');
+    closeBtn.addEventListener('click', () => {
+      const invokingRowId = state.comparisonInvokingRowId;
+      state.comparedRows = null;
+      state.comparisonInvokingRowId = null;
+      hideComparisonPanel();
+      // Restore focus to the row that opened the comparison
+      if (invokingRowId) {
+        const tr = document.querySelector('tbody tr[data-row-id="' + invokingRowId + '"]');
+        if (tr) tr.focus({ preventScroll: false });
+      }
+    });
+    headerRow.appendChild(closeBtn);
+    panel.appendChild(headerRow);
+
+    // --- Column labels legend ---
+    const legend = document.createElement('div');
+    legend.className = 'compare-legend';
+    legend.setAttribute('aria-label', 'Compared requests');
+    const makeLabel = (letter, row) => {
+      const item = document.createElement('div');
+      item.className = 'compare-legend-item';
+      const badge = document.createElement('span');
+      badge.className = 'compare-legend-badge compare-legend-badge--' + letter.toLowerCase();
+      badge.textContent = letter;
+      badge.setAttribute('aria-hidden', 'true');
+      item.appendChild(badge);
+      const text = document.createElement('span');
+      text.className = 'compare-legend-text';
+      text.textContent = (row.method || '') + ' ' + (row.url || '');
+      item.appendChild(text);
+      return item;
+    };
+    legend.appendChild(makeLabel('A', rowA));
+    legend.appendChild(makeLabel('B', rowB));
+    panel.appendChild(legend);
+
+    // --- Overview section ---
+    const overviewSection = document.createElement('section');
+    overviewSection.className = 'compare-section';
+    const overviewHeading = document.createElement('h3');
+    overviewHeading.className = 'compare-section-title';
+    overviewHeading.textContent = 'Overview';
+    overviewSection.appendChild(overviewHeading);
+    const overviewEntries = [
+      { name: 'Method',   valueA: rowA.method || '', valueB: rowB.method || '',
+        state: rowA.method === rowB.method ? 'match' : 'changed' },
+      { name: 'Status',   valueA: rowA.status ? String(rowA.status) + (rowA.statusText ? ' ' + rowA.statusText : '') : '',
+        valueB: rowB.status ? String(rowB.status) + (rowB.statusText ? ' ' + rowB.statusText : '') : '',
+        state: rowA.status === rowB.status ? 'match' : 'changed' },
+      { name: 'Protocol', valueA: rowA.protocol || '', valueB: rowB.protocol || '',
+        state: rowA.protocol === rowB.protocol ? 'match' : 'changed' },
+      { name: 'Type',     valueA: rowA.type || '', valueB: rowB.type || '',
+        state: rowA.type === rowB.type ? 'match' : 'changed' },
+      { name: 'Duration', valueA: fmtTime(rowA.duration), valueB: fmtTime(rowB.duration),
+        state: rowA.duration === rowB.duration ? 'match' : 'changed' },
+      { name: 'Size',     valueA: fmtBytes(rowA.size), valueB: fmtBytes(rowB.size),
+        state: rowA.size === rowB.size ? 'match' : 'changed' },
+    ];
+    overviewSection.appendChild(createDiffTable(overviewEntries, labelA, labelB));
+    panel.appendChild(overviewSection);
+
+    // --- URL / Query section ---
+    const urlSection = document.createElement('section');
+    urlSection.className = 'compare-section';
+    const urlHeading = document.createElement('h3');
+    urlHeading.className = 'compare-section-title';
+    urlHeading.textContent = 'URL';
+    urlSection.appendChild(urlHeading);
+
+    const urlRowA = rowA.url || '';
+    const urlRowB = rowB.url || '';
+    const urlBaseEntries = [{
+      name: 'Full URL',
+      valueA: urlRowA,
+      valueB: urlRowB,
+      state: urlRowA === urlRowB ? 'match' : 'changed',
+    }];
+    urlSection.appendChild(createDiffTable(urlBaseEntries, labelA, labelB));
+
+    const qHeading = document.createElement('h4');
+    qHeading.className = 'compare-subsection-title';
+    qHeading.textContent = 'Query Parameters';
+    urlSection.appendChild(qHeading);
+
+    let queryParamsA;
+    let queryParamsB;
+    try { queryParamsA = parseQueryString(urlRowA); } catch (_e) { queryParamsA = []; }
+    try { queryParamsB = parseQueryString(urlRowB); } catch (_e) { queryParamsB = []; }
+    const queryDiff = diffQueryParams(queryParamsA, queryParamsB);
+    urlSection.appendChild(createDiffTable(queryDiff, labelA, labelB));
+    panel.appendChild(urlSection);
+
+    // --- Request Headers section ---
+    const reqHdrSection = document.createElement('section');
+    reqHdrSection.className = 'compare-section';
+    const reqHdrHeading = document.createElement('h3');
+    reqHdrHeading.className = 'compare-section-title';
+    reqHdrHeading.textContent = 'Request Headers';
+    reqHdrSection.appendChild(reqHdrHeading);
+    reqHdrSection.appendChild(createDiffTable(diffHeaders(rowA.requestHeaders, rowB.requestHeaders), labelA, labelB));
+    panel.appendChild(reqHdrSection);
+
+    // --- Response Headers section ---
+    const resHdrSection = document.createElement('section');
+    resHdrSection.className = 'compare-section';
+    const resHdrHeading = document.createElement('h3');
+    resHdrHeading.className = 'compare-section-title';
+    resHdrHeading.textContent = 'Response Headers';
+    resHdrSection.appendChild(resHdrHeading);
+    resHdrSection.appendChild(createDiffTable(diffHeaders(rowA.responseHeaders, rowB.responseHeaders), labelA, labelB));
+    panel.appendChild(resHdrSection);
+
+    // --- Request Bodies section ---
+    const reqBodySection = document.createElement('section');
+    reqBodySection.className = 'compare-section';
+    const reqBodyHeading = document.createElement('h3');
+    reqBodyHeading.className = 'compare-section-title';
+    reqBodyHeading.textContent = 'Request Bodies';
+    reqBodySection.appendChild(reqBodyHeading);
+    const reqBodyWrap = document.createElement('div');
+    reqBodyWrap.className = 'compare-bodies';
+    reqBodyWrap.appendChild(createBodyComparisonBlock(describeRequestBodyForComparison(rowA), 'A — ' + labelA));
+    reqBodyWrap.appendChild(createBodyComparisonBlock(describeRequestBodyForComparison(rowB), 'B — ' + labelB));
+    reqBodySection.appendChild(reqBodyWrap);
+    panel.appendChild(reqBodySection);
+
+    // --- Response Bodies section ---
+    const bodySection = document.createElement('section');
+    bodySection.className = 'compare-section';
+    const bodyHeading = document.createElement('h3');
+    bodyHeading.className = 'compare-section-title';
+    bodyHeading.textContent = 'Response Bodies';
+    bodySection.appendChild(bodyHeading);
+    const bodyWrap = document.createElement('div');
+    bodyWrap.className = 'compare-bodies';
+    bodyWrap.appendChild(createBodyComparisonBlock(describeBodyForComparison(rowA), 'A — ' + labelA));
+    bodyWrap.appendChild(createBodyComparisonBlock(describeBodyForComparison(rowB), 'B — ' + labelB));
+    bodySection.appendChild(bodyWrap);
+    panel.appendChild(bodySection);
+  }
+
+  function showComparisonPanel() {
+    const panel = $('#comparePanel');
+    const inspectorPanels = $('.inspector-panels');
+    if (panel) { panel.hidden = false; panel.removeAttribute('aria-hidden'); }
+    if (inspectorPanels) { inspectorPanels.hidden = true; inspectorPanels.setAttribute('aria-hidden', 'true'); }
+    // Move focus into the comparison panel after the context menu has finished closing
+    setTimeout(() => {
+      const closeBtn = panel && panel.querySelector('.compare-close-btn');
+      if (closeBtn) closeBtn.focus();
+    }, 0);
+  }
+
+  function hideComparisonPanel() {
+    const panel = $('#comparePanel');
+    const inspectorPanels = $('.inspector-panels');
+    if (panel) { panel.hidden = true; panel.setAttribute('aria-hidden', 'true'); }
+    if (inspectorPanels) { inspectorPanels.hidden = false; inspectorPanels.removeAttribute('aria-hidden'); }
+    clearDetailsPanel();
   }
 
   // ============================================================
@@ -5408,6 +5867,21 @@ const _NetworkPlus = (function () {
 
       if (state.selectedRows.size > 0) {
         const selectedCount = state.selectedRows.size;
+        if (selectedCount === 2) {
+          const compareLabel = document.createElement('div');
+          compareLabel.className = 'context-menu-label';
+          compareLabel.setAttribute('role', 'presentation');
+          compareLabel.textContent = 'Compare';
+          contextMenu.appendChild(compareLabel);
+          const [rowX, rowY] = [...state.selectedRows];
+          contextMenu.appendChild(createRowMenuButton('Compare 2 selected requests', () => {
+            state.comparedRows = [rowX, rowY];
+            state.comparisonInvokingRowId = contextMenuInvokerRowId;
+            $('#detailsTitle').textContent = 'Comparing 2 requests';
+            renderComparisonPanel(rowX, rowY);
+            showComparisonPanel();
+          }));
+        }
         contextMenu.appendChild(createRowMenuButton('Keep Selected (' + selectedCount + ')', () => {
           const rowsToRemove = state.rows.filter((targetRow) => !state.selectedRows.has(targetRow));
           removeRowsFromState(rowsToRemove, false);
@@ -6237,6 +6711,25 @@ const _NetworkPlus = (function () {
     window.addEventListener('unhandledrejection', (e) =>
       setStatus('Promise error: ' + ((e.reason && e.reason.message) || e.reason)),
     );
+
+    // Comparison panel: dismiss on Escape and restore focus to invoking row
+    const comparePanel = $('#comparePanel');
+    if (comparePanel) {
+      comparePanel.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !comparePanel.hidden) {
+          e.preventDefault();
+          e.stopPropagation();
+          const invokingRowId = state.comparisonInvokingRowId;
+          state.comparedRows = null;
+          state.comparisonInvokingRowId = null;
+          hideComparisonPanel();
+          if (invokingRowId) {
+            const tr = tableWrap.querySelector('tbody tr[data-row-id="' + invokingRowId + '"]');
+            if (tr) tr.focus({ preventScroll: false });
+          }
+        }
+      });
+    }
   }
 
   document.addEventListener('DOMContentLoaded', init);
@@ -6339,6 +6832,11 @@ const _NetworkPlus = (function () {
     computeWaterfallRange,
     loadThemePref,
     saveThemePref,
+    diffHeaders,
+    diffQueryParams,
+    describeBodyForComparison,
+    describeRequestBodyForComparison,
+    truncateUrlLabel,
   };
 })();
 

@@ -668,3 +668,159 @@ describe('visual-state dark-mode parity', () => {
     expect(css).not.toMatch(/html\[data-theme="dark"\]\s+\.context-menu\b/);
   });
 });
+
+// ============================================================
+// Two-request diff comparison — static UI / security regression
+// ============================================================
+describe('two-request diff comparison', () => {
+  const diffTokens = [
+    'diff-add-bg',
+    'diff-add-border',
+    'diff-remove-bg',
+    'diff-remove-border',
+    'diff-changed-bg',
+    'diff-changed-border',
+    'diff-badge-a-color',
+    'diff-badge-b-color',
+  ];
+
+  test('diff color tokens are defined in all four theme locations', () => {
+    for (const token of diffTokens) {
+      for (const [themeName, theme] of [
+        ['light', light],
+        ['system dark', systemDark],
+        ['forced dark', forcedDark],
+        ['forced light', forcedLight],
+      ]) {
+        expect({ themeName, token, value: theme[token] }).toMatchObject({
+          value: expect.stringMatching(/\S/),
+        });
+      }
+    }
+  });
+
+  test('forced dark diff tokens match system dark; forced light matches light', () => {
+    for (const token of diffTokens) {
+      expect({ token, value: forcedDark[token] }).toMatchObject({ value: systemDark[token] });
+      expect({ token, value: forcedLight[token] }).toMatchObject({ value: light[token] });
+    }
+  });
+
+  test('comparePanel element is present and hidden by default in HTML', () => {
+    expect(html).toContain('id="comparePanel"');
+    expect(html).toMatch(/id="comparePanel"[^>]*hidden/);
+    expect(html).toMatch(/id="comparePanel"[^>]*aria-hidden="true"/);
+  });
+
+  test('comparison rendering functions use textContent and createElement, not innerHTML', () => {
+    const renderStart = js.indexOf('function renderComparisonPanel(');
+    const renderEnd = js.indexOf('function showComparisonPanel(', renderStart);
+    const renderSource = js.slice(renderStart, renderEnd);
+    // No innerHTML with user data inside renderComparisonPanel
+    expect(renderSource).not.toMatch(/\.innerHTML\s*=/);
+    // textContent must be used for user-derived string display
+    expect(renderSource).toContain('.textContent =');
+    // createElement must be used for DOM construction
+    expect(renderSource).toContain('createElement(');
+  });
+
+  test('diffHeaders and diffQueryParams are exported as testable pure functions', () => {
+    expect(js).toContain('diffHeaders,');
+    expect(js).toContain('diffQueryParams,');
+    expect(js).toContain('describeBodyForComparison,');
+    expect(js).toContain('describeRequestBodyForComparison,');
+  });
+
+  test('compare context menu item requires exactly two selected rows', () => {
+    // The comparison action must only appear when exactly 2 rows are selected
+    expect(js).toContain("selectedCount === 2");
+    expect(js).toContain("'Compare 2 selected requests'");
+  });
+
+  test('comparison panel is dismissed when a single row is clicked (selectRow clears comparedRows)', () => {
+    const selectRowStart = js.indexOf('function selectRow(');
+    const selectRowEnd = js.indexOf('const titleParts', selectRowStart);
+    const selectRowSource = js.slice(selectRowStart, selectRowEnd);
+    expect(selectRowSource).toContain('state.comparedRows = null');
+    expect(selectRowSource).toContain('hideComparisonPanel()');
+  });
+
+  test('evicted rows hide the comparison panel and clear state', () => {
+    const evictStart = js.indexOf('function cleanupEvictedRowReferences(');
+    const evictEnd = js.indexOf('function removeRowsFromState(', evictStart);
+    const evictSource = js.slice(evictStart, evictEnd);
+    expect(evictSource).toContain('state.comparedRows = null');
+    expect(evictSource).toContain('hideComparisonPanel()');
+    expect(evictSource).toContain('detailsWereCleared = true');
+  });
+
+  test('comparison bodies use only cached data — no new fetch is triggered', () => {
+    const descStart = js.indexOf('function describeBodyForComparison(');
+    const descEnd = js.indexOf('// ============================================================', descStart);
+    const descSource = js.slice(descStart, descEnd);
+    // Must not call cacheResponseContent or fetchResponsePayload inside the body helper
+    expect(descSource).not.toContain('cacheResponseContent(');
+    expect(descSource).not.toContain('fetchResponsePayload(');
+    expect(descSource).not.toContain('chrome.devtools');
+  });
+
+  test('request body descriptor does not fetch — reads only requestPostData', () => {
+    const reqDescStart = js.indexOf('function describeRequestBodyForComparison(');
+    const reqDescEnd = js.indexOf('\n  }', reqDescStart) + 4;
+    const reqDescSource = js.slice(reqDescStart, reqDescEnd);
+    expect(reqDescSource).not.toContain('cacheResponseContent(');
+    expect(reqDescSource).not.toContain('fetchResponsePayload(');
+    expect(reqDescSource).not.toContain('chrome.devtools');
+    // Must read requestPostData
+    expect(reqDescSource).toContain('requestPostData');
+  });
+
+  test('comparison panel renders both request and response body sections', () => {
+    const renderStart = js.indexOf('function renderComparisonPanel(');
+    const renderEnd = js.indexOf('function showComparisonPanel(', renderStart);
+    const renderSource = js.slice(renderStart, renderEnd);
+    expect(renderSource).toContain('Request Bodies');
+    expect(renderSource).toContain('Response Bodies');
+    expect(renderSource).toContain('describeRequestBodyForComparison(');
+    expect(renderSource).toContain('describeBodyForComparison(');
+  });
+
+  test('showComparisonPanel focuses close button via setTimeout after context menu closes', () => {
+    const showStart = js.indexOf('function showComparisonPanel(');
+    const showEnd = js.indexOf('function hideComparisonPanel(', showStart);
+    const showSource = js.slice(showStart, showEnd);
+    expect(showSource).toContain('setTimeout(');
+    expect(showSource).toContain('.compare-close-btn');
+    expect(showSource).toContain('.focus()');
+  });
+
+  test('comparison panel Escape key handler is installed in init', () => {
+    const initStart = js.indexOf('function init()');
+    const initEnd = js.indexOf('\n  document.addEventListener(', initStart);
+    const initSource = js.slice(initStart, initEnd);
+    expect(initSource).toContain("e.key === 'Escape'");
+    expect(initSource).toContain('comparePanel');
+    expect(initSource).toContain('hideComparisonPanel()');
+  });
+
+  test('close button restores focus to invoking row on click', () => {
+    const renderStart = js.indexOf('function renderComparisonPanel(');
+    const renderEnd = js.indexOf('function showComparisonPanel(', renderStart);
+    const renderSource = js.slice(renderStart, renderEnd);
+    expect(renderSource).toContain('comparisonInvokingRowId');
+    expect(renderSource).toContain('tr.focus(');
+  });
+
+  test('diffHeaders uses multimap to preserve duplicate header names', () => {
+    const diffStart = js.indexOf('function diffHeaders(');
+    const diffEnd = js.indexOf('function diffQueryParams(', diffStart);
+    const diffSource = js.slice(diffStart, diffEnd);
+    // Must use a multimap pattern (array of occurrences), not a plain Map first-occurrence
+    expect(diffSource).toContain('makeMultimap');
+    expect(diffSource).toContain('Math.max(listA.length, listB.length)');
+  });
+
+  test('compare-close-btn has explicit focus-visible style in CSS', () => {
+    expect(css).toContain('.compare-close-btn:focus-visible');
+  });
+});

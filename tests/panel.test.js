@@ -2312,3 +2312,323 @@ describe('saveThemePref', () => {
     }, 0);
   });
 });
+
+// ============================================================
+// Two-request diff comparison — pure utility functions [U8]
+// ============================================================
+
+describe('diffHeaders', () => {
+  test('returns empty array for two empty header lists', () => {
+    expect(np.diffHeaders([], [])).toEqual([]);
+  });
+
+  test('returns empty array for null/undefined inputs', () => {
+    expect(np.diffHeaders(null, null)).toEqual([]);
+    expect(np.diffHeaders(undefined, undefined)).toEqual([]);
+    expect(np.diffHeaders(null, [{ name: 'x', value: 'v' }])).toHaveLength(1);
+  });
+
+  test('marks headers present in only A as only-a', () => {
+    const result = np.diffHeaders([{ name: 'X-Token', value: 'abc' }], []);
+    expect(result).toHaveLength(1);
+    expect(result[0].state).toBe('only-a');
+    expect(result[0].name).toBe('X-Token');
+    expect(result[0].valueA).toBe('abc');
+    expect(result[0].valueB).toBeNull();
+  });
+
+  test('marks headers present in only B as only-b', () => {
+    const result = np.diffHeaders([], [{ name: 'Content-Type', value: 'application/json' }]);
+    expect(result).toHaveLength(1);
+    expect(result[0].state).toBe('only-b');
+    expect(result[0].valueA).toBeNull();
+    expect(result[0].valueB).toBe('application/json');
+  });
+
+  test('marks headers with the same value as match', () => {
+    const h = { name: 'Content-Type', value: 'text/plain' };
+    const result = np.diffHeaders([h], [h]);
+    expect(result).toHaveLength(1);
+    expect(result[0].state).toBe('match');
+  });
+
+  test('marks headers with different values as changed', () => {
+    const result = np.diffHeaders(
+      [{ name: 'Accept', value: 'text/html' }],
+      [{ name: 'Accept', value: 'application/json' }],
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].state).toBe('changed');
+    expect(result[0].valueA).toBe('text/html');
+    expect(result[0].valueB).toBe('application/json');
+  });
+
+  test('header name comparison is case-insensitive', () => {
+    const result = np.diffHeaders(
+      [{ name: 'content-type', value: 'text/plain' }],
+      [{ name: 'Content-Type', value: 'text/plain' }],
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].state).toBe('match');
+  });
+
+  test('preserves duplicate headers such as Set-Cookie, aligned by occurrence', () => {
+    const result = np.diffHeaders(
+      [{ name: 'Set-Cookie', value: 'a=1' }, { name: 'Set-Cookie', value: 'b=2' }],
+      [{ name: 'Set-Cookie', value: 'a=1' }],
+    );
+    // Two occurrences in A, one in B — expect 2 diff rows
+    expect(result).toHaveLength(2);
+    // First occurrence: a=1 vs a=1 → match
+    const match = result.find((r) => r.state === 'match');
+    expect(match).toBeDefined();
+    expect(match.valueA).toBe('a=1');
+    expect(match.valueB).toBe('a=1');
+    // Second occurrence: b=2 only in A
+    const onlyA = result.find((r) => r.state === 'only-a');
+    expect(onlyA).toBeDefined();
+    expect(onlyA.valueA).toBe('b=2');
+    expect(onlyA.valueB).toBeNull();
+  });
+
+  test('all duplicates match when both sides share identical occurrences', () => {
+    const result = np.diffHeaders(
+      [{ name: 'Set-Cookie', value: 'a=1' }, { name: 'Set-Cookie', value: 'b=2' }],
+      [{ name: 'Set-Cookie', value: 'a=1' }, { name: 'Set-Cookie', value: 'b=2' }],
+    );
+    expect(result).toHaveLength(2);
+    expect(result.every((r) => r.state === 'match')).toBe(true);
+  });
+
+  test('result is sorted alphabetically by name', () => {
+    const result = np.diffHeaders(
+      [{ name: 'Zebra', value: 'z' }, { name: 'Alpha', value: 'a' }],
+      [{ name: 'Zebra', value: 'z' }, { name: 'Alpha', value: 'a' }],
+    );
+    expect(result.map((r) => r.name)).toEqual(['Alpha', 'Zebra']);
+  });
+
+  test('XSS: names and values are returned as plain strings (not HTML-escaped)', () => {
+    // The function is pure and does no escaping — the caller must use textContent.
+    const result = np.diffHeaders(
+      [{ name: '<script>', value: 'alert(1)' }],
+      [{ name: '<script>', value: 'safe' }],
+    );
+    expect(result[0].name).toBe('<script>');
+    expect(result[0].valueA).toBe('alert(1)');
+    expect(result[0].state).toBe('changed');
+  });
+});
+
+describe('diffQueryParams', () => {
+  test('returns empty array for two empty param lists', () => {
+    expect(np.diffQueryParams([], [])).toEqual([]);
+  });
+
+  test('returns empty array for null/undefined inputs', () => {
+    expect(np.diffQueryParams(null, null)).toEqual([]);
+  });
+
+  test('marks params present in only A as only-a', () => {
+    const result = np.diffQueryParams([{ name: 'q', value: 'foo' }], []);
+    expect(result).toHaveLength(1);
+    expect(result[0].state).toBe('only-a');
+    expect(result[0].valueB).toBeNull();
+  });
+
+  test('marks params present in only B as only-b', () => {
+    const result = np.diffQueryParams([], [{ name: 'page', value: '2' }]);
+    expect(result).toHaveLength(1);
+    expect(result[0].state).toBe('only-b');
+    expect(result[0].valueA).toBeNull();
+  });
+
+  test('marks params with the same value as match', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'lang', value: 'en' }],
+      [{ name: 'lang', value: 'en' }],
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].state).toBe('match');
+  });
+
+  test('marks params with different values as changed', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'sort', value: 'asc' }],
+      [{ name: 'sort', value: 'desc' }],
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].state).toBe('changed');
+  });
+
+  test('handles duplicate param names as separate entries', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'tag', value: 'a' }, { name: 'tag', value: 'b' }],
+      [{ name: 'tag', value: 'a' }, { name: 'tag', value: 'c' }],
+    );
+    expect(result).toHaveLength(2);
+    const byValue = result.map((r) => ({ va: r.valueA, vb: r.valueB, s: r.state }));
+    expect(byValue).toContainEqual({ va: 'a', vb: 'a', s: 'match' });
+    expect(byValue).toContainEqual({ va: 'b', vb: 'c', s: 'changed' });
+  });
+
+  test('XSS: values with HTML metacharacters are returned as-is', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'q', value: '<img src=x onerror=alert(1)>' }],
+      [{ name: 'q', value: 'safe' }],
+    );
+    expect(result[0].valueA).toBe('<img src=x onerror=alert(1)>');
+    expect(result[0].state).toBe('changed');
+  });
+});
+
+describe('describeBodyForComparison', () => {
+  test('returns missing for null row', () => {
+    expect(np.describeBodyForComparison(null)).toEqual({ text: null, stateLabel: 'missing' });
+  });
+
+  test('returns available with text when responseContentState is cached', () => {
+    const row = { responseContentState: 'cached', responseContentText: 'hello world' };
+    const result = np.describeBodyForComparison(row);
+    expect(result.stateLabel).toBe('available');
+    expect(result.text).toBe('hello world');
+  });
+
+  test('returns available with text when responseContentState is embedded', () => {
+    const row = { responseContentState: 'embedded', responseContentText: '{"ok":true}' };
+    const result = np.describeBodyForComparison(row);
+    expect(result.stateLabel).toBe('available');
+    expect(result.text).toBe('{"ok":true}');
+  });
+
+  test('returns empty when body is cached but text is empty string', () => {
+    const row = { responseContentState: 'cached', responseContentText: '' };
+    const result = np.describeBodyForComparison(row);
+    expect(result.stateLabel).toBe('empty');
+    expect(result.text).toBe('');
+  });
+
+  test('returns omitted for omitted bodies', () => {
+    const row = { responseContentState: 'omitted' };
+    expect(np.describeBodyForComparison(row)).toEqual({ text: null, stateLabel: 'omitted' });
+  });
+
+  test('returns evicted for evicted bodies', () => {
+    expect(np.describeBodyForComparison({ responseContentState: 'evicted' }))
+      .toEqual({ text: null, stateLabel: 'evicted' });
+    expect(np.describeBodyForComparison({ responseContentState: 'row-evicted' }))
+      .toEqual({ text: null, stateLabel: 'evicted' });
+  });
+
+  test('returns unavailable for unknown state', () => {
+    const row = { responseContentState: 'loading' };
+    expect(np.describeBodyForComparison(row)).toEqual({ text: null, stateLabel: 'unavailable' });
+  });
+
+  test('returns truncated state when response body exceeds TRUNCATE_LIMIT', () => {
+    const longText = 'x'.repeat(2001);
+    const row = { responseContentState: 'cached', responseContentText: longText };
+    const result = np.describeBodyForComparison(row);
+    expect(result.stateLabel).toBe('truncated');
+    expect(result.text.length).toBe(2000);
+    expect(result.totalLength).toBe(2001);
+  });
+
+  test('returns available when response body is exactly at TRUNCATE_LIMIT', () => {
+    const exactText = 'x'.repeat(2000);
+    const row = { responseContentState: 'cached', responseContentText: exactText };
+    const result = np.describeBodyForComparison(row);
+    expect(result.stateLabel).toBe('available');
+    expect(result.text).toBe(exactText);
+    expect(result.totalLength).toBeUndefined();
+  });
+});
+
+describe('describeRequestBodyForComparison', () => {
+  test('returns missing for null row', () => {
+    expect(np.describeRequestBodyForComparison(null)).toEqual({ text: null, stateLabel: 'missing' });
+  });
+
+  test('returns missing when row has no requestPostData', () => {
+    expect(np.describeRequestBodyForComparison({})).toEqual({ text: null, stateLabel: 'missing' });
+    expect(np.describeRequestBodyForComparison({ requestPostData: null }))
+      .toEqual({ text: null, stateLabel: 'missing' });
+  });
+
+  test('returns missing when requestPostData.text is not a string', () => {
+    expect(np.describeRequestBodyForComparison({ requestPostData: {} }))
+      .toEqual({ text: null, stateLabel: 'missing' });
+    expect(np.describeRequestBodyForComparison({ requestPostData: { text: null } }))
+      .toEqual({ text: null, stateLabel: 'missing' });
+  });
+
+  test('returns empty when request body text is empty string', () => {
+    const row = { requestPostData: { text: '' } };
+    expect(np.describeRequestBodyForComparison(row)).toEqual({ text: '', stateLabel: 'empty' });
+  });
+
+  test('returns available with text for a normal request body', () => {
+    const row = { requestPostData: { text: '{"key":"value"}' } };
+    const result = np.describeRequestBodyForComparison(row);
+    expect(result.stateLabel).toBe('available');
+    expect(result.text).toBe('{"key":"value"}');
+  });
+
+  test('returns truncated state when request body exceeds TRUNCATE_LIMIT', () => {
+    const longText = 'A'.repeat(2001);
+    const row = { requestPostData: { text: longText } };
+    const result = np.describeRequestBodyForComparison(row);
+    expect(result.stateLabel).toBe('truncated');
+    expect(result.text.length).toBe(2000);
+    expect(result.totalLength).toBe(2001);
+  });
+
+  test('returns available when request body is exactly at TRUNCATE_LIMIT', () => {
+    const exactText = 'B'.repeat(2000);
+    const row = { requestPostData: { text: exactText } };
+    const result = np.describeRequestBodyForComparison(row);
+    expect(result.stateLabel).toBe('available');
+    expect(result.totalLength).toBeUndefined();
+  });
+
+  test('XSS: request body text is returned as-is (caller must use textContent)', () => {
+    const row = { requestPostData: { text: '<img src=x onerror=alert(1)>' } };
+    const result = np.describeRequestBodyForComparison(row);
+    expect(result.text).toBe('<img src=x onerror=alert(1)>');
+    expect(result.stateLabel).toBe('available');
+  });
+});
+
+describe('truncateUrlLabel', () => {
+  test('returns path+search for a valid URL', () => {
+    const label = np.truncateUrlLabel('https://example.com/api/data?q=1');
+    expect(label).toBe('/api/data?q=1');
+  });
+
+  test('truncates long paths to 40 characters', () => {
+    const long = 'https://example.com/' + 'a'.repeat(50);
+    const label = np.truncateUrlLabel(long);
+    expect(label.length).toBe(40);
+  });
+
+  test('returns slash when path is root only', () => {
+    const label = np.truncateUrlLabel('https://example.com');
+    expect(label).toBe('/');
+  });
+
+  test('returns host for very short labels', () => {
+    const label = np.truncateUrlLabel('https://api.example.com/v2/data');
+    expect(label).toBe('/v2/data');
+  });
+
+  test('returns fallback for null/undefined', () => {
+    expect(np.truncateUrlLabel(null)).toBe('(no URL)');
+    expect(np.truncateUrlLabel(undefined)).toBe('(no URL)');
+    expect(np.truncateUrlLabel('')).toBe('(no URL)');
+  });
+
+  test('returns truncated string for invalid URL', () => {
+    const label = np.truncateUrlLabel('not-a-valid-url');
+    expect(label).toBe('not-a-valid-url');
+  });
+});
