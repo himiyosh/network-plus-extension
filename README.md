@@ -33,6 +33,8 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | ♿ アクセシブル表示 | 色だけに依存しない検索一致バッジ、読み上げ対応の状態・件数・コピー通知、`prefers-reduced-motion` による装飾モーション抑制 |
 | 📊 リクエスト統計 | ステータスバーにフィルター済み行の平均/最小/最大レスポンスタイムを表示。フィルター変更に連動してリアルタイム更新 |
 | 🌊 Waterfall カラム | 各リクエストの開始オフセットとタイミングフェーズ (blocked/dns/connect/ssl/send/wait/receive) を行内バーで可視化。`Columns` メニューで表示切替可能 (既定では非表示) |
+| 🔖 フィルタープリセット | カラムフィルターの設定を名前付きで最大 20 件保存・復元・削除。キャプチャしたリクエスト情報は保存しない。`Presets` ボタンからアクセス可能 |
+| ⌨️ ショートカット一覧 | `?` キーまたはツールバーの `⌨️ ?` ボタンでキーボードショートカット一覧をダイアログ表示。`Esc` または `Close` ボタンで閉じ、開いていたボタンへフォーカスを復帰 |
 
 ### UI 安定表示ルール
 
@@ -310,6 +312,13 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 <details>
 <summary>📋 変更履歴 (クリックで展開)</summary>
+
+### Unreleased
+
+- フィルタープリセット: `Presets` ボタンからカラムフィルター設定を名前付きで最大 20 件保存・復元・削除。キャプチャしたリクエスト情報は保存せず、localStorage のみ使用
+- キーボードショートカット一覧: `?` キーまたはツールバーの `⌨️ ?` ボタンで一覧をダイアログ表示。Esc / Close でフォーカス復帰
+- `serializeFilterState` / `deserializeFilterState` / `normalizePresetName` を純粋関数として、`loadFilterPresets` / `saveFilterPresets` をテスト可能なストレージ関数としてエクスポートし、Jest テストを追加
+- フィルタープリセットおよびショートカット機能の消失を防ぐ静的回帰テストを `tests/ui-contract.test.js` に追加
 
 ### v1.6.0
 

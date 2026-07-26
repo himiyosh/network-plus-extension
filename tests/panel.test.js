@@ -2313,6 +2313,252 @@ describe('saveThemePref', () => {
   });
 });
 
+describe('serializeFilterState', () => {
+  test('returns empty object for empty input', () => {
+    expect(np.serializeFilterState({})).toEqual({});
+  });
+
+  test('deep-clones a simple filter rule', () => {
+    const rules = { url: { op: 'contains', value: 'api' } };
+    const serialized = np.serializeFilterState(rules);
+    expect(serialized).toEqual(rules);
+    // Mutation of original must not affect serialized copy
+    rules.url.value = 'changed';
+    expect(serialized.url.value).toBe('api');
+  });
+
+  test('round-trips a complex methodSet rule', () => {
+    const rules = { method: { mode: 'methodSet', include: { GET: true, POST: false } } };
+    const serialized = np.serializeFilterState(rules);
+    expect(serialized).toEqual(rules);
+  });
+
+  test('returns empty object when JSON.stringify throws (circular reference guard)', () => {
+    const circular = {};
+    circular.self = circular;
+    expect(np.serializeFilterState(circular)).toEqual({});
+  });
+});
+
+describe('deserializeFilterState', () => {
+  test('returns defaults for null/undefined/non-object input', () => {
+    // Every column defined in DEFAULT_COLUMNS should have a key
+    const result = np.deserializeFilterState(null);
+    expect(typeof result).toBe('object');
+    expect(Array.isArray(result)).toBe(false);
+    expect(result).toHaveProperty('url');
+    expect(result).toHaveProperty('method');
+    expect(result).toHaveProperty('status');
+  });
+
+  test('returns defaults for array input', () => {
+    const result = np.deserializeFilterState([{ op: 'contains', value: 'test' }]);
+    expect(typeof result).toBe('object');
+    expect(Array.isArray(result)).toBe(false);
+  });
+
+  test('fills missing columns with defaults', () => {
+    // Only provide 'url' key; all other columns should get their defaults
+    const result = np.deserializeFilterState({ url: { op: 'contains', value: 'test' } });
+    expect(result.url).toEqual({ op: 'contains', value: 'test' });
+    expect(result).toHaveProperty('method');
+    expect(result).toHaveProperty('status');
+  });
+
+  test('round-trips through serializeFilterState', () => {
+    const original = {
+      url: { op: 'contains', value: 'api' },
+      method: { mode: 'methodSet', include: { GET: true, POST: true } },
+      status: { op: 'equals', value: '200' },
+    };
+    const serialized = np.serializeFilterState(original);
+    const deserialized = np.deserializeFilterState(serialized);
+    expect(deserialized.url).toEqual(original.url);
+    expect(deserialized.method).toEqual(original.method);
+    expect(deserialized.status).toEqual(original.status);
+  });
+});
+
+describe('normalizePresetName', () => {
+  test('trims whitespace', () => {
+    expect(np.normalizePresetName('  API only  ')).toBe('API only');
+  });
+
+  test('truncates to MAX_PRESET_NAME_LENGTH', () => {
+    const long = 'a'.repeat(100);
+    expect(np.normalizePresetName(long).length).toBe(np.MAX_PRESET_NAME_LENGTH);
+  });
+
+  test('returns empty string for null/undefined', () => {
+    expect(np.normalizePresetName(null)).toBe('');
+    expect(np.normalizePresetName(undefined)).toBe('');
+    expect(np.normalizePresetName('')).toBe('');
+  });
+});
+
+describe('loadFilterPresets / saveFilterPresets', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+    localStorage.getItem.mockReturnValue(null);
+  });
+
+  // --- loadFilterPresets ---
+
+  test('returns { presets: [], error: null } when nothing is stored', () => {
+    const result = np.loadFilterPresets();
+    expect(result).toEqual({ presets: [], error: null });
+  });
+
+  test('returns error string for malformed JSON', () => {
+    localStorage.getItem.mockReturnValue('not-json{{{');
+    const { presets, error } = np.loadFilterPresets();
+    expect(presets).toEqual([]);
+    expect(typeof error).toBe('string');
+    expect(error.length).toBeGreaterThan(0);
+  });
+
+  test('returns error string when stored value is not an array', () => {
+    localStorage.getItem.mockReturnValue(JSON.stringify({ name: 'x', filterRules: {} }));
+    const { presets, error } = np.loadFilterPresets();
+    expect(presets).toEqual([]);
+    expect(typeof error).toBe('string');
+  });
+
+  test('returns error string when stored blob is oversized (ASCII)', () => {
+    // Simulate a stored blob larger than 2 * MAX_PRESET_TOTAL_BYTES (ASCII chars, 1 byte each)
+    localStorage.getItem.mockReturnValue('x'.repeat(np.MAX_PRESET_TOTAL_BYTES * 2 + 1));
+    const { presets, error } = np.loadFilterPresets();
+    expect(presets).toEqual([]);
+    expect(typeof error).toBe('string');
+    expect(error.length).toBeGreaterThan(0);
+  });
+
+  test('returns error string when stored blob exceeds 2×MAX_PRESET_TOTAL_BYTES in UTF-8 bytes (multibyte regression)', () => {
+    // Each '日' encodes to 3 UTF-8 bytes but 1 JS char.
+    // (MAX_PRESET_TOTAL_BYTES * 2 / 3) + 1 chars × 3 bytes/char > MAX_PRESET_TOTAL_BYTES * 2 bytes.
+    const multibyteCount = Math.floor((np.MAX_PRESET_TOTAL_BYTES * 2) / 3) + 1;
+    localStorage.getItem.mockReturnValue('日'.repeat(multibyteCount));
+    const { presets, error } = np.loadFilterPresets();
+    expect(presets).toEqual([]);
+    expect(typeof error).toBe('string');
+    expect(error.length).toBeGreaterThan(0);
+  });
+
+  test('returns error: null and no-sensitive message on localStorage read failure', () => {
+    localStorage.getItem.mockImplementation(() => { throw new Error('SecurityError'); });
+    const { presets, error } = np.loadFilterPresets();
+    expect(presets).toEqual([]);
+    expect(typeof error).toBe('string');
+    // Error message must not echo the internal exception message
+    expect(error).not.toContain('SecurityError');
+  });
+
+  test('filters out entries missing name or filterRules', () => {
+    const data = [
+      { name: 'Valid', filterRules: { url: { op: 'contains', value: '' } } },
+      { name: '', filterRules: {} },
+      { filterRules: {} },
+      null,
+    ];
+    localStorage.getItem.mockReturnValue(JSON.stringify(data));
+    const { presets, error } = np.loadFilterPresets();
+    expect(error).toBeNull();
+    expect(presets).toHaveLength(1);
+    expect(presets[0].name).toBe('Valid');
+  });
+
+  test('enforces MAX_FILTER_PRESETS limit on load', () => {
+    const data = Array.from({ length: np.MAX_FILTER_PRESETS + 5 }, (_, i) => ({
+      name: 'Preset ' + i,
+      filterRules: {},
+    }));
+    localStorage.getItem.mockReturnValue(JSON.stringify(data));
+    const { presets, error } = np.loadFilterPresets();
+    expect(error).toBeNull();
+    expect(presets).toHaveLength(np.MAX_FILTER_PRESETS);
+  });
+
+  test('loadFilterPresets normalizes names and strips unknown filterRules fields on load', () => {
+    const data = [
+      { name: '  padded  ', filterRules: { url: { op: 'contains', value: 'api', __unknown: true }, _extra: 'drop' } },
+    ];
+    localStorage.getItem.mockReturnValue(JSON.stringify(data));
+    const { presets, error } = np.loadFilterPresets();
+    expect(error).toBeNull();
+    expect(presets[0].name).toBe('padded');
+    expect(presets[0].filterRules).not.toHaveProperty('_extra');
+  });
+
+  // --- saveFilterPresets ---
+
+  test('saveFilterPresets writes to localStorage', () => {
+    const presets = [{ name: 'Errors only', filterRules: { status: { op: 'gte', value: '400' } } }];
+    np.saveFilterPresets(presets);
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      np.FILTER_PRESET_KEY,
+      expect.stringContaining('"Errors only"'),
+    );
+  });
+
+  test('saveFilterPresets returns true on success', () => {
+    expect(np.saveFilterPresets([])).toBe(true);
+  });
+
+  test('saveFilterPresets returns false and does not throw when localStorage throws', () => {
+    localStorage.setItem.mockImplementation(() => { throw new Error('QuotaExceededError'); });
+    expect(np.saveFilterPresets([])).toBe(false);
+  });
+
+  test('saveFilterPresets silently caps to MAX_FILTER_PRESETS when given more', () => {
+    const tooMany = Array.from({ length: np.MAX_FILTER_PRESETS + 5 }, (_, i) => ({
+      name: 'P' + i,
+      filterRules: {},
+    }));
+    const ok = np.saveFilterPresets(tooMany);
+    expect(ok).toBe(true);
+    const stored = JSON.parse(localStorage.setItem.mock.calls[0][1]);
+    expect(stored).toHaveLength(np.MAX_FILTER_PRESETS);
+  });
+
+  test('saveFilterPresets returns false when serialized data exceeds MAX_PRESET_TOTAL_BYTES', () => {
+    // Build a preset with a filterRules payload large enough to exceed 64 KiB in UTF-8 bytes
+    const bigValue = 'x'.repeat(70 * 1024);
+    const oversized = [{ name: 'Big', filterRules: { url: { op: 'contains', value: bigValue } } }];
+    expect(np.saveFilterPresets(oversized)).toBe(false);
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  test('saveFilterPresets normalizes names before writing', () => {
+    const presets = [{ name: '  trailing  ', filterRules: {} }];
+    np.saveFilterPresets(presets);
+    const stored = JSON.parse(localStorage.setItem.mock.calls[0][1]);
+    expect(stored[0].name).toBe('trailing');
+  });
+
+  test('saveFilterPresets drops entries without a name', () => {
+    const presets = [
+      { name: 'OK', filterRules: {} },
+      { name: '', filterRules: {} },
+      { name: '   ', filterRules: {} },
+    ];
+    np.saveFilterPresets(presets);
+    const stored = JSON.parse(localStorage.setItem.mock.calls[0][1]);
+    expect(stored).toHaveLength(1);
+    expect(stored[0].name).toBe('OK');
+  });
+
+  test('saveFilterPresets normalizes filterRules through serializer/deserializer stripping unknown fields', () => {
+    const presets = [{
+      name: 'Clean',
+      filterRules: { url: { op: 'contains', value: 'api', __unknown: true }, _extra: 'drop' },
+    }];
+    np.saveFilterPresets(presets);
+    const stored = JSON.parse(localStorage.setItem.mock.calls[0][1]);
+    // The top-level _extra key should not be in the stored filterRules (only known column keys survive)
+    expect(stored[0].filterRules).not.toHaveProperty('_extra');
+  });
+});
+
 // ============================================================
 // Two-request diff comparison — pure utility functions [U8]
 // ============================================================

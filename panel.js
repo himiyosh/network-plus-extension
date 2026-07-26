@@ -56,6 +56,10 @@ const _NetworkPlus = (function () {
   const COL_PREF_KEY = 'networkPlus.cols';
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
+  const FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1';
+  const MAX_FILTER_PRESETS = 20;
+  const MAX_PRESET_NAME_LENGTH = 40;
+  const MAX_PRESET_TOTAL_BYTES = 64 * 1024; // 64 KiB — filter-config only, no traffic data
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
@@ -709,6 +713,42 @@ const _NetworkPlus = (function () {
       }
     }
     return out;
+  }
+
+  function serializeFilterState(columnFilterRules) {
+    // Deep-clone filter rules to a plain JSON-safe object.
+    // Never includes captured network data (URLs, headers, bodies).
+    try {
+      return JSON.parse(JSON.stringify(columnFilterRules));
+    } catch (_e) {
+      return {};
+    }
+  }
+
+  function deserializeFilterState(raw) {
+    // Validate and return a safe filter-rules object.
+    // Unknown keys are dropped; missing keys are filled from defaults.
+    const defaults = DEFAULT_COLUMN_FILTER_RULES();
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+    const result = {};
+    for (const colId of Object.keys(defaults)) {
+      const r = raw[colId];
+      if (r && typeof r === 'object' && !Array.isArray(r)) {
+        // Shallow-clone, keeping only JSON-scalar children safe for storage.
+        try {
+          result[colId] = JSON.parse(JSON.stringify(r));
+        } catch (_e) {
+          result[colId] = defaults[colId];
+        }
+      } else {
+        result[colId] = defaults[colId];
+      }
+    }
+    return result;
+  }
+
+  function normalizePresetName(name) {
+    return String(name || '').trim().slice(0, MAX_PRESET_NAME_LENGTH);
   }
 
   function getExtensionVersion(runtimeApi) {
@@ -2856,6 +2896,62 @@ const _NetworkPlus = (function () {
     });
   }
 
+  function loadFilterPresets() {
+    // Returns { presets: Array, error: string|null }.
+    // error is non-null when stored data is present but unreadable (corruption/oversize).
+    // A missing key (first use) returns { presets: [], error: null }.
+    try {
+      const saved = localStorage.getItem(FILTER_PRESET_KEY);
+      if (!saved) return { presets: [], error: null };
+      // Pre-parse size guard: reject oversize blobs before JSON.parse using actual UTF-8 byte count.
+      if (new TextEncoder().encode(saved).length > MAX_PRESET_TOTAL_BYTES * 2) {
+        return { presets: [], error: 'Preset store is oversized and could not be loaded.' };
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(saved);
+      } catch (_e) {
+        return { presets: [], error: 'Preset store is corrupted and could not be loaded.' };
+      }
+      if (!Array.isArray(parsed)) {
+        return { presets: [], error: 'Preset store is corrupted and could not be loaded.' };
+      }
+      // Normalize names and filter rules through the same known-state path as saveFilterPresets.
+      const presets = parsed
+        .filter((p) => p && typeof p.name === 'string' && p.name.trim() && p.filterRules != null)
+        .slice(0, MAX_FILTER_PRESETS)
+        .map((p) => ({
+          name: normalizePresetName(p.name),
+          filterRules: serializeFilterState(deserializeFilterState(p.filterRules ?? {})),
+        }));
+      return { presets, error: null };
+    } catch (_e) {
+      return { presets: [], error: 'Preset store could not be read.' };
+    }
+  }
+
+  function saveFilterPresets(presets) {
+    try {
+      // Normalize names, run rules through the known serializer/deserializer to strip
+      // unknown fields, and cap to MAX_FILTER_PRESETS before writing.
+      const normalized = presets
+        .filter((p) => p && typeof p.name === 'string' && p.name.trim())
+        .slice(0, MAX_FILTER_PRESETS)
+        .map((p) => ({
+          name: normalizePresetName(p.name),
+          filterRules: serializeFilterState(deserializeFilterState(p.filterRules ?? {})),
+        }));
+      const serialized = JSON.stringify(normalized);
+      // Guard against exceeding the storage limit using actual UTF-8 byte count.
+      const byteLength = new TextEncoder().encode(serialized).length;
+      if (byteLength > MAX_PRESET_TOTAL_BYTES) return false;
+      localStorage.setItem(FILTER_PRESET_KEY, serialized);
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+
   // ============================================================
   // Section 8: Data Model
   // ============================================================
@@ -3673,6 +3769,83 @@ const _NetworkPlus = (function () {
     root.appendChild(control);
 
     return root;
+  }
+
+  function createPresetDropdownContent(presets, onApply, onDelete, onSave, onClearAll) {
+    const container = document.createElement('div');
+    container.style.cssText = 'min-width:min(240px,calc(100vw - 16px))';
+
+    if (presets.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'preset-empty';
+      empty.textContent = 'No saved presets';
+      container.appendChild(empty);
+    } else {
+      presets.forEach((preset, idx) => {
+        const row = document.createElement('div');
+        row.className = 'preset-row';
+
+        const applyBtn = document.createElement('button');
+        applyBtn.className = 'context-menu-item preset-apply';
+        applyBtn.textContent = preset.name;
+        applyBtn.title = 'Apply preset: ' + preset.name;
+        applyBtn.addEventListener('click', () => onApply(preset, idx));
+        row.appendChild(applyBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'context-menu-item preset-delete';
+        deleteBtn.setAttribute('aria-label', 'Delete preset ' + preset.name);
+        deleteBtn.textContent = '×';
+        deleteBtn.addEventListener('click', () => onDelete(idx));
+        row.appendChild(deleteBtn);
+
+        container.appendChild(row);
+      });
+    }
+
+    const divider = document.createElement('div');
+    divider.className = 'preset-divider';
+    container.appendChild(divider);
+
+    const saveSection = document.createElement('div');
+    saveSection.className = 'preset-save-section';
+
+    const nameLabel = document.createElement('label');
+    nameLabel.className = 'preset-name-label';
+    nameLabel.textContent = 'New preset name';
+    const nameInputId = 'presetNameInput_' + Date.now();
+    nameLabel.htmlFor = nameInputId;
+    saveSection.appendChild(nameLabel);
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.id = nameInputId;
+    nameInput.className = 'preset-name-input';
+    nameInput.placeholder = 'Preset name…';
+    nameInput.maxLength = MAX_PRESET_NAME_LENGTH;
+    const doSave = () => { onSave(nameInput.value); };
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+    });
+    saveSection.appendChild(nameInput);
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'context-menu-item preset-save-btn';
+    saveBtn.textContent = 'Save current filters';
+    saveBtn.addEventListener('click', doSave);
+    saveSection.appendChild(saveBtn);
+
+    if (presets.length > 0) {
+      const clearBtn = document.createElement('button');
+      clearBtn.className = 'context-menu-item preset-clear-btn';
+      clearBtn.textContent = 'Clear active filters';
+      clearBtn.title = 'Reset all column filters to defaults';
+      clearBtn.addEventListener('click', () => onClearAll());
+      saveSection.appendChild(clearBtn);
+    }
+
+    container.appendChild(saveSection);
+    return container;
   }
 
   function toggleSort(colId) {
@@ -5650,6 +5823,126 @@ const _NetworkPlus = (function () {
       openFilterPopup(rect.left, rect.bottom, null, filterBtn);
     });
 
+    // Filter preset dropdown
+    const presetsBtn = $('#presetsBtn');
+    const presetsMenu = document.createElement('div');
+    presetsMenu.id = 'presetsMenu';
+    presetsMenu.className = 'filter-dropdown-content dropdown-content preset-menu';
+    presetsMenu.style.position = 'fixed';
+    presetsMenu.style.display = 'none';
+    presetsMenu.setAttribute('role', 'dialog');
+    presetsMenu.setAttribute('aria-label', 'Filter presets');
+    installPopupKeyboardSupport(presetsMenu);
+    document.body.appendChild(presetsMenu);
+
+    const renderPresetsMenu = () => {
+      const { presets, error: loadError } = loadFilterPresets();
+      if (loadError) setStatus(loadError);
+      presetsMenu.textContent = '';
+      const header = document.createElement('div');
+      header.className = 'preset-header';
+      header.textContent = 'Filter Presets';
+      presetsMenu.appendChild(header);
+      presetsMenu.appendChild(
+        createPresetDropdownContent(
+          presets,
+          (preset) => {
+            state.columnFilterRules = deserializeFilterState(preset.filterRules);
+            filterRows();
+            renderBody();
+            updateTableSummary(state.filteredRows.length);
+            closeAccessiblePopup(presetsMenu, true);
+            setStatus('Applied preset: ' + preset.name);
+          },
+          (idx) => {
+            const { presets: updated, error: delLoadError } = loadFilterPresets();
+            if (delLoadError) { setStatus(delLoadError); return; }
+            const name = updated[idx] ? updated[idx].name : '';
+            updated.splice(idx, 1);
+            const ok = saveFilterPresets(updated);
+            if (!ok) { setStatus('Could not delete preset. Storage unavailable.'); return; }
+            renderPresetsMenu();
+            const firstItem = getPopupFocusableItems(presetsMenu, false)[0];
+            if (firstItem) firstItem.focus();
+            setStatus('Deleted preset: ' + name);
+          },
+          (name) => {
+            const safeName = normalizePresetName(name);
+            if (!safeName) { setStatus('Enter a preset name before saving.'); return; }
+            const { presets: presetList, error: saveLoadError } = loadFilterPresets();
+            if (saveLoadError) { setStatus(saveLoadError); return; }
+            if (presetList.length >= MAX_FILTER_PRESETS) {
+              setStatus('Preset limit reached (' + MAX_FILTER_PRESETS + '). Delete one before saving.');
+              return;
+            }
+            presetList.push({ name: safeName, filterRules: serializeFilterState(state.columnFilterRules) });
+            const ok = saveFilterPresets(presetList);
+            if (!ok) { setStatus('Could not save preset. Storage unavailable or data too large.'); return; }
+            renderPresetsMenu();
+            const firstItem = getPopupFocusableItems(presetsMenu, false)[0];
+            if (firstItem) firstItem.focus();
+            setStatus('Saved preset: ' + safeName);
+          },
+          () => {
+            state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
+            filterRows();
+            renderBody();
+            updateTableSummary(state.filteredRows.length);
+            closeAccessiblePopup(presetsMenu, true);
+            setStatus('Column filters cleared');
+          },
+        ),
+      );
+    };
+
+    if (presetsBtn) {
+      presetsBtn.addEventListener('click', (event) => {
+        if (presetsMenu.classList.contains('show')) {
+          closeAccessiblePopup(presetsMenu, true);
+          return;
+        }
+        renderPresetsMenu();
+        const rect = event.currentTarget.getBoundingClientRect();
+        showAccessiblePopupAt(presetsMenu, rect.left, rect.bottom, presetsBtn);
+      });
+    }
+
+    // Keyboard shortcut help dialog
+    const shortcutDialog = $('#shortcutDialog');
+    const shortcutBtn = $('#shortcutBtn');
+    const openShortcutDialog = (trigger) => {
+      if (!shortcutDialog) return;
+      if (shortcutDialog.open) return; // already open — preserve the original trigger
+      // Don't open if another modal <dialog> is active (e.g. retention, data-safety)
+      const otherModal = Array.from(document.querySelectorAll('dialog[open]')).some((d) => d !== shortcutDialog);
+      if (otherModal) return;
+      shortcutDialog._networkPlusTrigger = trigger || null;
+      shortcutDialog.showModal();
+    };
+    if (shortcutDialog) {
+      shortcutDialog.addEventListener('cancel', (e) => { e.preventDefault(); shortcutDialog.close(); });
+      shortcutDialog.addEventListener('close', () => {
+        const trigger = shortcutDialog._networkPlusTrigger;
+        if (trigger && trigger.focus && trigger.isConnected !== false) trigger.focus();
+      });
+      shortcutDialog.addEventListener('click', (event) => {
+        if (event.target === shortcutDialog) shortcutDialog.close();
+      });
+      $('#shortcutCloseBtn').addEventListener('click', () => shortcutDialog.close());
+    }
+    if (shortcutBtn) {
+      shortcutBtn.addEventListener('click', (event) => openShortcutDialog(event.currentTarget));
+    }
+    // '?' key opens shortcut help (when focus is not in an input/textarea/select)
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== '?') return;
+      const tag = document.activeElement && document.activeElement.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (document.activeElement && document.activeElement.isContentEditable) return;
+      e.preventDefault();
+      openShortcutDialog(document.activeElement);
+    });
+
     // Tab switching for inspector panels
     const initTabBar = (barId) => {
       const bar = $('#' + barId);
@@ -6832,6 +7125,15 @@ const _NetworkPlus = (function () {
     computeWaterfallRange,
     loadThemePref,
     saveThemePref,
+    serializeFilterState,
+    deserializeFilterState,
+    normalizePresetName,
+    loadFilterPresets,
+    saveFilterPresets,
+    FILTER_PRESET_KEY,
+    MAX_FILTER_PRESETS,
+    MAX_PRESET_NAME_LENGTH,
+    MAX_PRESET_TOTAL_BYTES,
     diffHeaders,
     diffQueryParams,
     describeBodyForComparison,

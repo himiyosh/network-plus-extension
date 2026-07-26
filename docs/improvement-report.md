@@ -2,7 +2,7 @@
 
 > 初回生成日: 2026-03-09
 > 初回分析対象バージョン: 1.4.0
-> 現在のリリース: 1.6.0
+> 現在のリリース: 1.7.0 (開発中)
 > 初回分析対象: panel.js (2400+ 行, 15 セクション), panel.css, panel.html, manifest.json
 
 ---
@@ -262,3 +262,36 @@ PR #28 「feat: restore two-request diff comparison」のレビューコメン�
 - 閉じるボタンの invoking row フォーカス復元確認
 - `diffHeaders` multimap 使用確認
 - `.compare-close-btn:focus-visible` CSS 存在確認
+
+---
+
+## Cycle 6: フィルタープリセット・ショートカット一覧の復元 (Issue #18 / PR #29, 2026-07-25)
+
+### 背景
+
+Commit `2321d67` が deep search 実装時に panel.js を大幅置換し、Cycle 2 で完成させたフィルタープリセット保存/復元機能とキーボードショートカット一覧を消失させた。`docs/improvement-report.md` には完了済みと記録されているが v1.6.0 ランタイムでは機能が存在しなかった。
+
+### 実施した修正
+
+| # | 種別 | 内容 |
+|---|---|---|
+| 1 | feat | `FILTER_PRESET_KEY` / `MAX_FILTER_PRESETS` / `MAX_PRESET_NAME_LENGTH` 定数を Section 1 に追加 |
+| 2 | feat | `serializeFilterState(columnFilterRules)` — ディープクローンで JSON-safe なフィルタールール複製 (キャプチャデータを含まない) を Section 3 に追加 |
+| 3 | feat | `deserializeFilterState(raw)` — 不明キーを除去しデフォルト値で補完する安全な逆シリアライズ関数を Section 3 に追加 |
+| 4 | feat | `normalizePresetName(name)` — プリセット名のトリム・切り詰め純粋関数を Section 3 に追加 |
+| 5 | feat | `loadFilterPresets()` / `saveFilterPresets(presets)` を Section 7 (Filtering) に追加。localStorage を使用し、実 UTF-8 バイト数で上限チェック、MAX_FILTER_PRESETS を強制。`loadFilterPresets` は `{ presets, error }` を返し呼び出し元が corruption を `setStatus` で表示できる |
+| 6 | feat | `createPresetDropdownContent()` UI コンポーネントを Section 11 に追加。apply / delete / save / clear-all の 4 アクションをすべて XSS-safe DOM API で実装 |
+| 7 | feat | `Presets` ボタン (`aria-haspopup="dialog"`) を panel.html に追加し、Section 15 でドロップダウン表示・フォーカス復帰をワイヤリング |
+| 8 | feat | ショートカットヘルプ `<dialog id="shortcutDialog">` を panel.html に追加 (静的 HTML、ユーザーデータなし)。`?` キー + `⌨️ ?` ボタンで開閉し、Esc / Close / バックドロップクリックで閉じてフォーカス復帰 |
+| 9 | style | プリセットドロップダウン (`.preset-menu`, `.preset-row`, `.preset-name-input` 等) と `#shortcutDialog` / `kbd` 要素の CSS を panel.css に追加。すべての色値は CSS カスタムプロパティを使用 |
+| 10 | test | `serializeFilterState` / `deserializeFilterState` / `normalizePresetName` / `loadFilterPresets` / `saveFilterPresets` の単体テストを `tests/panel.test.js` に追加 |
+| 11 | test | フィルタープリセットとショートカット一覧の消失を防ぐ静的回帰テストを `tests/ui-contract.test.js` に追加 |
+| 12 | docs | README と本レポートを更新 |
+
+### 品質ゲート
+
+| チェック | 結果 |
+|---|---|
+| Jest テスト | ✅ PASS |
+| ESLint | ✅ 0 errors, 0 warnings |
+| Version sync | ✅ OK (1.6.0) |

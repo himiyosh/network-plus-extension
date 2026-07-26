@@ -669,6 +669,201 @@ describe('visual-state dark-mode parity', () => {
   });
 });
 
+describe('filter preset static contracts', () => {
+  test('FILTER_PRESET_KEY constant is defined in panel.js and bounded to MAX_FILTER_PRESETS', () => {
+    expect(js).toContain("const FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1';");
+    expect(js).toContain('const MAX_FILTER_PRESETS = 20;');
+    expect(js).toContain('const MAX_PRESET_NAME_LENGTH = 40;');
+    expect(js).toContain('const MAX_PRESET_TOTAL_BYTES =');
+    // Limit must be enforced when saving a new preset
+    expect(js).toContain('if (presetList.length >= MAX_FILTER_PRESETS)');
+  });
+
+  test('serializeFilterState and deserializeFilterState are exported', () => {
+    const np = require('../panel.js');
+    expect(typeof np.serializeFilterState).toBe('function');
+    expect(typeof np.deserializeFilterState).toBe('function');
+    expect(typeof np.normalizePresetName).toBe('function');
+    expect(typeof np.loadFilterPresets).toBe('function');
+    expect(typeof np.saveFilterPresets).toBe('function');
+  });
+
+  test('presetsBtn is in HTML with correct aria attributes and controls presetsMenu', () => {
+    expect(html).toMatch(/id="presetsBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="presetsMenu"/);
+  });
+
+  test('presets dropdown is created dynamically and uses safe DOM API (no innerHTML)', () => {
+    // Preset popup content must be built with createElement, not innerHTML
+    const presetBlock = js.slice(js.indexOf('createPresetDropdownContent'), js.indexOf('function toggleSort'));
+    expect(presetBlock).not.toContain('.innerHTML =');
+    expect(presetBlock).toContain('createElement');
+    expect(presetBlock).toContain('textContent');
+    expect(presetBlock).toContain('appendChild');
+  });
+
+  test('filter preset save never persists captured network traffic', () => {
+    // serializeFilterState must operate on columnFilterRules only, not state.rows or row objects
+    const serBlock = js.slice(js.indexOf('function serializeFilterState'), js.indexOf('function deserializeFilterState'));
+    expect(serBlock).not.toContain('state.rows');
+    expect(serBlock).not.toContain('.url');
+    expect(serBlock).not.toContain('.body');
+    expect(serBlock).not.toContain('request');
+    expect(serBlock).not.toContain('response');
+  });
+
+  test('applyFilterPreset calls filterRows and renderBody to refresh UI without re-loading rows', () => {
+    expect(js).toContain('state.columnFilterRules = deserializeFilterState(preset.filterRules);');
+    expect(js).toContain('filterRows();');
+    expect(js).toContain('renderBody();');
+  });
+
+  test('loadFilterPresets and saveFilterPresets use the FILTER_PRESET_KEY', () => {
+    const loadBlock = js.slice(js.indexOf('function loadFilterPresets'), js.indexOf('function saveFilterPresets'));
+    expect(loadBlock).toContain('FILTER_PRESET_KEY');
+    const saveBlock = js.slice(js.indexOf('function saveFilterPresets'), js.indexOf('// Section 8'));
+    expect(saveBlock).toContain('FILTER_PRESET_KEY');
+  });
+
+  test('focus is restored to presetsBtn after closing the preset popup', () => {
+    // closeAccessiblePopup restores focus to _networkPlusTrigger; the presetsBtn must be passed as trigger
+    expect(js).toContain('showAccessiblePopupAt(presetsMenu, rect.left, rect.bottom, presetsBtn)');
+  });
+
+  test('presetsMenu is non-modal: must not carry aria-modal', () => {
+    // Regression: presetsMenu is a floating popup, not a true modal dialog
+    const menuBlock = js.slice(js.indexOf("presetsMenu.id = 'presetsMenu'"), js.indexOf('const renderPresetsMenu'));
+    expect(menuBlock).not.toContain("aria-modal");
+  });
+
+  test('preset dropdown buttons must not carry role=menuitem inside a dialog container', () => {
+    const presetBlock = js.slice(js.indexOf('function createPresetDropdownContent'), js.indexOf('function toggleSort'));
+    // Buttons inside a role=dialog must not have role=menuitem
+    expect(presetBlock).not.toContain("setAttribute('role', 'menuitem')");
+  });
+
+  test('preset-name input has a visible label element, not only placeholder/aria-label', () => {
+    const presetBlock = js.slice(js.indexOf('function createPresetDropdownContent'), js.indexOf('function toggleSort'));
+    // A <label> element must be created and associated with the input via htmlFor
+    expect(presetBlock).toContain("'label'");
+    expect(presetBlock).toContain('.htmlFor =');
+    // CSS must style the visible label
+    expect(css).toContain('.preset-name-label{');
+  });
+
+  test('saveFilterPresets normalizes filterRules through serializer/deserializer before writing', () => {
+    // saveFilterPresets must run filterRules through deserializeFilterState so unknown top-level
+    // payload fields cannot be persisted.
+    const saveBlock = js.slice(js.indexOf('function saveFilterPresets'), js.indexOf('// Section 8'));
+    expect(saveBlock).toContain('deserializeFilterState');
+    expect(saveBlock).toContain('serializeFilterState');
+  });
+
+  test('loadFilterPresets returns { presets, error } shape', () => {
+    const loadBlock = js.slice(js.indexOf('function loadFilterPresets'), js.indexOf('function saveFilterPresets'));
+    // Must return an object with presets and error fields
+    expect(loadBlock).toContain('{ presets:');
+    expect(loadBlock).toContain('error:');
+  });
+
+  test('loadFilterPresets signals corruption via error field surfaced by renderPresetsMenu', () => {
+    // renderPresetsMenu must destructure { presets, error } and call setStatus when error is non-null
+    const renderBlock = js.slice(js.indexOf('const renderPresetsMenu'), js.indexOf('if (presetsBtn)'));
+    expect(renderBlock).toMatch(/const \{[^}]*error[^}]*\}\s*=\s*loadFilterPresets\(\)/);
+    expect(renderBlock).toContain('if (loadError) setStatus(loadError)');
+  });
+
+  test('saveFilterPresets enforces total serialized-size limit using actual byte count', () => {
+    // Returns false for oversize data so callers can surface a storage error.
+    // Must use real UTF-8 byte count (TextEncoder), not JS string .length.
+    const saveBlock = js.slice(js.indexOf('function saveFilterPresets'), js.indexOf('// Section 8'));
+    expect(saveBlock).toContain('MAX_PRESET_TOTAL_BYTES');
+    expect(saveBlock).toContain('TextEncoder');
+    expect(saveBlock).toContain('return false;');
+  });
+
+  test('save and delete handlers check saveFilterPresets return value and surface errors', () => {
+    const renderBlock = js.slice(js.indexOf('const renderPresetsMenu'), js.indexOf('if (presetsBtn)'));
+    // Handlers must check `ok` return value from saveFilterPresets
+    expect(renderBlock).toContain('const ok = saveFilterPresets(');
+    expect(renderBlock).toContain('if (!ok)');
+    // Must not silently swallow errors — must call setStatus on failure
+    const failureMatches = [...renderBlock.matchAll(/if \(!ok\)\s*\{[^}]+setStatus\(/g)];
+    expect(failureMatches.length).toBeGreaterThanOrEqual(2); // save + delete
+  });
+});
+
+describe('shortcut help static contracts', () => {
+  test('shortcutDialog exists in HTML with correct aria labeling', () => {
+    expect(html).toMatch(/<dialog id="shortcutDialog"[^>]*aria-labelledby="shortcutDialogTitle"/);
+    expect(html).toContain('id="shortcutDialogTitle"');
+    expect(html).toContain('id="shortcutCloseBtn"');
+  });
+
+  test('shortcut table documents all primary keyboard interactions', () => {
+    // Verify core shortcuts are documented in the static HTML
+    expect(html).toContain('Ctrl');
+    expect(html).toContain('⌘');
+    expect(html).toContain('Navigate rows');
+    expect(html).toContain('Row context menu');
+    expect(html).toContain('Reorder column');
+    expect(html).toContain('Sort by column');
+  });
+
+  test('shortcut table includes orientation-aware divider arrows for both layouts', () => {
+    // Horizontal layout uses ← / →; vertical (≤700 px) uses ↑ / ↓ for the panel divider
+    expect(html).toMatch(/panel divider.*horizontal/i);
+    expect(html).toMatch(/panel divider.*vertical/i);
+  });
+
+  test('shortcutBtn is in HTML with correct aria attributes', () => {
+    expect(html).toMatch(/id="shortcutBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="shortcutDialog"/);
+    expect(html).toMatch(/id="shortcutBtn"[^>]*aria-keyshortcuts="\?"/);
+  });
+
+  test('panel.js wires the ? key to open the shortcut dialog', () => {
+    expect(js).toContain("if (e.key !== '?') return;");
+    expect(js).toContain("tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'");
+    expect(js).toContain('openShortcutDialog(');
+  });
+
+  test('openShortcutDialog guards against opening when another modal is already active', () => {
+    const openBlock = js.slice(js.indexOf('const openShortcutDialog'), js.indexOf('if (shortcutDialog) {'));
+    expect(openBlock).toContain("if (shortcutDialog.open) return;");
+    expect(openBlock).toContain("querySelectorAll('dialog[open]')");
+  });
+
+  test('shortcut dialog uses native dialog with Escape, backdrop-close, and focus restoration', () => {
+    expect(js).toContain("shortcutDialog.addEventListener('cancel'");
+    expect(js).toContain("shortcutDialog.addEventListener('close'");
+    expect(js).toContain("if (event.target === shortcutDialog) shortcutDialog.close();");
+    // Guard: must not open when already open (preserves original trigger)
+    expect(js).toContain("if (shortcutDialog.open) return;");
+    expect(js).toContain("shortcutDialog.showModal();");
+  });
+
+  test('shortcut dialog CSS uses theme tokens for shortcut-form and kbd elements', () => {
+    expect(css).toContain('#shortcutDialog{');
+    expect(css).toContain('#shortcutDialog::backdrop{');
+    expect(css).toContain('.shortcut-form{');
+    expect(css).toContain('kbd{');
+    // Must use CSS custom properties, not hard-coded colours
+    expect(css).toMatch(/kbd\{[^}]*var\(--/);
+  });
+
+  test('shortcut dialog first-column cells do not have forced nowrap', () => {
+    // Forcing white-space:nowrap on long shortcut descriptions makes the 320px dialog unusable
+    const tdRule = css.match(/\.shortcut-table td:first-child\{([^}]*)\}/);
+    expect(tdRule).not.toBeNull();
+    expect(tdRule[1]).not.toContain('white-space:nowrap');
+  });
+
+  test('shortcut dialog uses dvh for max-height to handle mobile toolbars', () => {
+    const dialogRule = css.match(/#shortcutDialog\{([^}]*)\}/);
+    expect(dialogRule).not.toBeNull();
+    expect(dialogRule[1]).toContain('dvh');
+  });
+});
+
 // ============================================================
 // Two-request diff comparison — static UI / security regression
 // ============================================================

@@ -322,6 +322,38 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .data-safety-actions{display:flex;justify-content:flex-end;gap:8px}
 @media (max-width:420px){.data-safety-choices{grid-template-columns:1fr}.data-safety-actions{flex-wrap:wrap}.data-safety-actions button{flex:1 1 auto}}
 
+/* === Filter Presets === */
+.preset-menu{min-width:min(260px,calc(100vw - 16px));padding:8px}
+.preset-header{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);padding:2px 4px 6px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.preset-empty{font-size:11px;color:var(--text-muted);padding:6px 4px;margin:0}
+.preset-row{display:flex;align-items:center;gap:2px;margin-bottom:2px}
+.preset-apply{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preset-delete{flex-shrink:0;width:22px;min-width:22px;padding:2px 4px;font-size:13px;line-height:1;color:var(--text-muted)}
+.preset-delete:hover{color:var(--status-5xx-text);border-color:var(--status-5xx-text)}
+.preset-divider{height:1px;background:var(--border);margin:6px 0}
+.preset-save-section{display:flex;flex-direction:column;gap:4px}
+.preset-name-label{font-size:11px;color:var(--text-muted);font-weight:600}
+.preset-name-input{width:100%;box-sizing:border-box;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);padding:4px 6px;font:inherit;font-size:11px}
+.preset-name-input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+.preset-save-btn{text-align:left}
+.preset-clear-btn{text-align:left;color:var(--text-muted)}
+.preset-clear-btn:hover{color:var(--text-accent)}
+
+/* === Shortcut Help Dialog === */
+#shortcutDialog{position:fixed;inset:0;margin:auto;width:min(480px,calc(100vw - 16px));max-height:min(calc(100vh - 16px),calc(100dvh - 16px));overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
+#shortcutDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
+.shortcut-form{display:grid;gap:12px;padding:16px}
+.shortcut-form h2{margin:0;font-size:15px;font-style:normal}
+.shortcut-table{width:100%;border-collapse:collapse;font-size:11px}
+.shortcut-table th{text-align:left;padding:4px 8px;border-bottom:2px solid var(--border);color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;font-size:10px}
+.shortcut-table td{padding:5px 8px;border-bottom:1px solid var(--stripe);vertical-align:middle}
+.shortcut-table td:first-child{color:var(--text-muted)}
+.shortcut-table td:last-child{color:var(--fg)}
+kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid var(--control-border);border-radius:4px;font-family:monospace;font-size:10px;line-height:1.6;color:var(--fg);box-shadow:0 1px 0 var(--border)}
+.shortcut-actions{display:flex;justify-content:flex-end}
+.shortcut-form button{min-height:28px;padding:4px 14px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;cursor:pointer}
+.shortcut-form button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
+
 /* === Column Resizer === */
 .col-resizer{position:absolute;top:0;right:0;width:5px;height:100%;cursor:col-resize;z-index:1}
 .col-resizer:hover,.col-resizer:focus-visible{background:var(--accent-dim)}
