@@ -513,6 +513,54 @@ describe('guided local sample capture', () => {
     });
   });
 
+  test('plans an explicit exit only for the complete retained local sample signature', () => {
+    const rows = createNavigationRows();
+
+    expect(np.planSampleCaptureExit({
+      sampleCaptureActive: true,
+      rows,
+    })).toEqual({
+      available: true,
+      reason: '',
+      rows,
+    });
+    expect(np.planSampleCaptureExit({
+      sampleCaptureActive: false,
+      rows,
+    })).toEqual({
+      available: false,
+      reason: 'sample-inactive',
+      rows: [],
+    });
+    expect(np.planSampleCaptureExit({
+      sampleCaptureActive: true,
+      rows: rows.slice(0, 2),
+    })).toEqual({
+      available: false,
+      reason: 'sample-incomplete',
+      rows: [],
+    });
+
+    const importedRows = createNavigationRows();
+    importedRows[0]._captureSource = 'import';
+    expect(np.planSampleCaptureExit({
+      sampleCaptureActive: true,
+      rows: importedRows,
+    }).reason).toBe('sample-provenance-mismatch');
+
+    const alteredRows = createNavigationRows();
+    alteredRows[0].url = 'https://api.example.com/v1/projects/demo?view=summary';
+    expect(np.planSampleCaptureExit({
+      sampleCaptureActive: true,
+      rows: alteredRows,
+    }).reason).toBe('sample-signature-mismatch');
+
+    expect(np.planSampleCaptureExit({
+      sampleCaptureActive: true,
+      rows: [rows[0], rows[0], rows[2]],
+    }).reason).toBe('sample-signature-mismatch');
+  });
+
   test('temporarily defaults non-default filters and restores an isolated exact snapshot', () => {
     const currentRules = np.deserializeFilterState({
       url: { mode: 'urlAdvanced', includeAny: 'api', includeAll: '', excludeAny: 'health' },

@@ -96,7 +96,7 @@
       </div>
     </aside>
   </main>
-  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="retentionStatus">Retention: 5,000 requests · body cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span><span id="counter" aria-hidden="true">0 / 0 requests · 0 active column filters</span><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
+  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" hidden disabled>Exit · restore prior recording state</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="retentionStatus">Retention: 5,000 requests · body cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span><span id="counter" aria-hidden="true">0 / 0 requests · 0 active column filters</span><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
   <dialog id="retentionDialog" aria-labelledby="retentionDialogTitle" aria-describedby="retentionHelp">
     <form method="dialog" class="retention-form">
       <h2 id="retentionDialogTitle">Capture retention</h2>
@@ -199,8 +199,10 @@
         <li>What limitation applies to what browser timing can prove?</li>
       </ol>
       <div id="sampleGuideEvidence" class="sample-guide-evidence" aria-live="polite" aria-atomic="true" hidden></div>
+      <p id="sampleGuideExitHelp" class="sample-guide-exit-help" hidden>Exiting removes all three local sample requests and restores the recording state and column filters from before the sample.</p>
       <div class="sample-guide-actions">
         <button id="sampleGuideCloseBtn" type="button">Close</button>
+        <button id="sampleGuideExitBtn" type="button" class="sample-guide-exit-btn" aria-describedby="sampleGuideExitHelp" hidden disabled>Exit · restore prior recording state</button>
         <button id="sampleGuideRevealBtn" type="button" class="sample-guide-primary">Reveal evidence</button>
       </div>
     </form>

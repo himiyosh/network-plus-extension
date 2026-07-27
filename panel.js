@@ -59,6 +59,26 @@ const _NetworkPlus = (function () {
   const SAZ_SOURCE_CHUNK_BYTES = 16 * 1024;
   const SAZ_ENTRY_PATH_PATTERN = /^raw\/(\d+)_([csm])\.(txt|xml)$/;
   const SAMPLE_CAPTURE_BASE_TIMESTAMP = Date.parse('2026-01-15T12:00:00.000Z');
+  const SAMPLE_CAPTURE_SIGNATURES = Object.freeze([
+    Object.freeze({
+      method: 'GET',
+      domain: 'api.network-plus.test',
+      path: '/v1/projects/demo?view=summary',
+      status: 200,
+    }),
+    Object.freeze({
+      method: 'POST',
+      domain: 'checkout.network-plus.test',
+      path: '/v1/orders/preview',
+      status: 503,
+    }),
+    Object.freeze({
+      method: 'GET',
+      domain: 'static.network-plus.test',
+      path: '/assets/network-plus.css',
+      status: 304,
+    }),
+  ]);
   const SAMPLE_EVIDENCE_SIGNATURE = Object.freeze({
     source: 'sample',
     method: 'POST',
@@ -839,6 +859,34 @@ const _NetworkPlus = (function () {
       (count === 1 ? 'request remains.' : 'requests remain.') +
       ' Live recording is paused; Clear exits sample mode.'
     );
+  }
+
+  function planSampleCaptureExit(options) {
+    const context = options || {};
+    const rows = Array.isArray(context.rows) ? context.rows : [];
+    const unavailable = (reason) => ({ available: false, reason, rows: [] });
+    if (context.sampleCaptureActive !== true) return unavailable('sample-inactive');
+    if (rows.length !== SAMPLE_CAPTURE_SIGNATURES.length) return unavailable('sample-incomplete');
+
+    const matchedSignatures = new Set();
+    for (const row of rows) {
+      if (!row || row._captureSource !== 'sample') {
+        return unavailable('sample-provenance-mismatch');
+      }
+      const url = extractUrlParts(row.url);
+      const signatureIndex = SAMPLE_CAPTURE_SIGNATURES.findIndex(
+        (signature) =>
+          String(row.method || '').toUpperCase() === signature.method &&
+          Number(row.status) === signature.status &&
+          url.domain === signature.domain &&
+          url.path === signature.path,
+      );
+      if (signatureIndex < 0 || matchedSignatures.has(signatureIndex)) {
+        return unavailable('sample-signature-mismatch');
+      }
+      matchedSignatures.add(signatureIndex);
+    }
+    return { available: true, reason: '', rows: rows.slice() };
   }
 
   function createSampleCaptureRequests(baseTimestamp) {
@@ -5928,6 +5976,64 @@ const _NetworkPlus = (function () {
     });
   }
 
+  function getSampleCaptureExitPlan() {
+    const retainedActiveRows = state.rows.filter((row) =>
+      isActiveRetainedRow(row, state.retainedRows, state.activeRows),
+    );
+    if (retainedActiveRows.length !== state.rows.length) {
+      return { available: false, reason: 'sample-retention-mismatch', rows: [] };
+    }
+    return planSampleCaptureExit({
+      sampleCaptureActive: state.sampleCaptureActive,
+      rows: retainedActiveRows,
+    });
+  }
+
+  function updateSampleCaptureExitAvailability() {
+    const available = getSampleCaptureExitPlan().available;
+    for (const id of ['sampleExitBtn', 'sampleGuideExitBtn']) {
+      const button = $('#' + id);
+      if (!button) continue;
+      button.hidden = !available;
+      button.disabled = !available;
+    }
+    const help = $('#sampleGuideExitHelp');
+    if (help) help.hidden = !available;
+  }
+
+  function exitLocalSampleCapture() {
+    const plan = getSampleCaptureExitPlan();
+    if (!plan.available) {
+      setStatus(
+        'Sample exit is unavailable because the complete local sample is no longer present. Use Clear to reset the current requests.',
+        true,
+      );
+      return false;
+    }
+
+    removeRowsFromState(plan.rows, false);
+    render();
+    syncSearchUIAfterRender();
+    clearDetailsPanel();
+    const focusTarget = document.querySelector('.empty-state-action') || $('#clearBtn');
+    if (focusTarget) focusTarget.focus({ preventScroll: true });
+    setStatus(
+      'Local sample exited. Previous recording state and column filters restored. ' +
+        (state.paused ? 'Recording remains paused.' : 'Live recording is active.'),
+      true,
+    );
+    return true;
+  }
+
+  function initializeSampleCaptureExitActions() {
+    const statusButton = $('#sampleExitBtn');
+    const guideButton = $('#sampleGuideExitBtn');
+    if (!statusButton || !guideButton) return;
+    statusButton.addEventListener('click', exitLocalSampleCapture);
+    guideButton.addEventListener('click', exitLocalSampleCapture);
+    updateSampleCaptureExitAvailability();
+  }
+
   function toggleSort(colId) {
     if (state.sort.colId !== colId) {
       state.sort.colId = colId;
@@ -6191,6 +6297,7 @@ const _NetworkPlus = (function () {
       const dialog = $('#sampleGuideDialog');
       if (dialog && dialog.open) closeSampleGuideDialog(false);
     }
+    updateSampleCaptureExitAvailability();
   }
 
   function updateSampleCaptureStatus() {
@@ -6198,9 +6305,9 @@ const _NetworkPlus = (function () {
     const active = state.sampleCaptureActive;
     if (status) {
       status.hidden = !active;
-      status.textContent = active ? 'Local sample · live paused · Clear to exit' : '';
+      status.textContent = active ? 'Local sample · live paused' : '';
       status.title = active
-        ? 'Local synthetic requests are loaded. No network traffic was sent. Clear removes them and restores the previous recording state.'
+        ? 'Local synthetic requests are loaded. No network traffic was sent. Exiting restores the previous recording state and column filters.'
         : '';
     }
     updateSampleGuideAvailability(state.filteredRows.length);
@@ -7852,6 +7959,7 @@ const _NetworkPlus = (function () {
     loadRetentionSetting();
     initializeDataSafetyDialog();
     initializeSampleGuideDialog();
+    initializeSampleCaptureExitActions();
     setStatus('panel.js loaded');
 
     const pendingLiveRows = state.pendingLiveRows;
@@ -9483,6 +9591,7 @@ const _NetworkPlus = (function () {
     toHarHeaders,
     getEmptyStateMode,
     planSampleCaptureTransition,
+    planSampleCaptureExit,
     planSampleCaptureFilterTransition,
     formatSampleCaptureRemainingStatus,
     createSampleCaptureRequests,
