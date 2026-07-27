@@ -198,6 +198,161 @@ describe('accessible workbench static contracts', () => {
   });
 });
 
+describe('guided sample capture static contracts', () => {
+  test('renders one local-only action only for a truly empty capture', () => {
+    expect(js).toContain('const mode = getEmptyStateMode(state.rows.length, visibleRowCount);');
+    expect(js).toContain("if (mode === 'filtered')");
+    expect(js).toContain("action.textContent = 'Explore sample capture';");
+    expect(js).not.toContain("action.setAttribute('aria-label'");
+    expect(js).toContain("action.setAttribute('aria-describedby', description.id);");
+    expect(js).toContain("action.addEventListener('click', activateSampleCapture);");
+    expect(js).toContain('No network request is sent.');
+    expect(html).not.toContain('Explore sample capture');
+
+    const emptyStateBlock = js.slice(
+      js.indexOf('function updateEmptyState'),
+      js.indexOf('function updateRetentionStatus'),
+    );
+    expect(emptyStateBlock).not.toContain('innerHTML');
+    expect(emptyStateBlock).toContain("if (mode === 'capture')");
+  });
+
+  test('keeps the action responsive, keyboard visible, and on existing theme tokens', () => {
+    expect(css).toMatch(
+      /\.empty-state-action\{[^}]*min-height:32px[^}]*max-width:100%[^}]*background:var\(--accent-dim\)[^}]*color:var\(--text-accent\)[^}]*white-space:nowrap/,
+    );
+    expect(css).toContain('.empty-state-action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}');
+    expect(css).toContain(
+      '.empty-state-action:active{background:var(--accent-fill);color:var(--on-accent);box-shadow:inset 0 0 0 1px var(--on-accent)}',
+    );
+    expect(css).toContain('.empty-state-action:disabled,.empty-state-action[aria-busy="true"]');
+    expect(css).toMatch(/\.empty-state\{[^}]*min-width:0[^}]*padding:24px 16px[^}]*text-align:center/);
+    expect(css).toMatch(/\.empty-state-description\{[^}]*max-width:380px[^}]*overflow-wrap:anywhere/);
+  });
+
+  test('rechecks emptiness, pauses live capture, selects the first row, and performs no external action', () => {
+    const activationBlock = js.slice(
+      js.indexOf('function activateSampleCapture'),
+      js.indexOf('function updateEmptyState'),
+    );
+    expect(activationBlock).toContain('if (!enterSampleCaptureMode())');
+    expect(activationBlock).toContain('createSampleCaptureRequests(SAMPLE_CAPTURE_BASE_TIMESTAMP)');
+    expect(activationBlock).toContain("addRowsWithRetention(rows, 'sample')");
+    expect(activationBlock).toContain('selectRow(retainedRows[0], null, true);');
+    expect(activationBlock).toContain('No network traffic was sent.');
+    expect(activationBlock).not.toMatch(
+      /fetch\s*\(|XMLHttpRequest|sendBeacon|chrome\.storage|localStorage|triggerObjectUrlDownload|exportHAR|\.click\(\)/,
+    );
+    const enterModeBlock = js.slice(
+      js.indexOf('function enterSampleCaptureMode'),
+      js.indexOf('function exitSampleCaptureMode'),
+    );
+    expect(enterModeBlock).toContain("}, 'enter');");
+    expect(enterModeBlock).toContain('state.sampleCaptureActive = transition.active;');
+    expect(enterModeBlock).toContain('state.paused = transition.paused;');
+
+    const generatorBlock = js.slice(
+      js.indexOf('function createSampleCaptureRequests'),
+      js.indexOf('function serializeFilterState'),
+    );
+    expect(generatorBlock).not.toContain('Date.now');
+    expect((generatorBlock.match(/\.test/g) || [])).toHaveLength(5);
+  });
+
+  test('prevents sample/live mixing and restores the normal capture path on Clear', () => {
+    expect(js).toContain('if (state.paused || state.sampleCaptureActive) return;');
+    expect(js).toContain('pauseBtn.disabled = state.sampleCaptureActive;');
+    expect(js).toContain(
+      'if (state.sampleCaptureActive && state.rows.length === 0 && exitSampleCaptureMode())',
+    );
+    expect(js).toContain('else if (sampleCaptureWasActive && evictedRows.length > 0)');
+    expect(js).toContain('setStatus(formatSampleCaptureRemainingStatus(state.rows.length));');
+    expect(js).toContain('Local sample capture removed. Live capture resumed.');
+    const clearBlock = js.slice(js.indexOf("$('#clearBtn').addEventListener"), js.indexOf('// Pause/Resume'));
+    expect(clearBlock).toContain('const clearedSampleCapture = state.sampleCaptureActive;');
+    expect(clearBlock).toContain('updateRecordState(false);');
+    expect(clearBlock).toContain('clearStoredRows();');
+    expect(clearBlock.indexOf('clearStoredRows();')).toBeLessThan(
+      clearBlock.indexOf('state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();'),
+    );
+    expect(clearBlock).toContain('render();');
+    expect(clearBlock).toContain("$('#clearBtn').focus({ preventScroll: true });");
+    expect(clearBlock).toContain('Local sample capture cleared. Live capture resumed.');
+    expect(js).toContain("const fallbackControl = document.querySelector('.empty-state-action') || $('#clearBtn');");
+
+    const importCommitBlock = js.slice(
+      js.indexOf('const commitStagedImport = (stagedImport) => {'),
+      js.indexOf('importBtn.addEventListener', js.indexOf('const commitStagedImport = (stagedImport) => {')),
+    );
+    expect(importCommitBlock).toContain('exitSampleCaptureMode();');
+    expect(importCommitBlock.indexOf('exitSampleCaptureMode();')).toBeLessThan(
+      importCommitBlock.indexOf('state.paused = true;'),
+    );
+  });
+
+  test('preserves user filters across temporary sample mode without persistence', () => {
+    expect(js).toContain('sampleCapturePreviousColumnFilterRules: null');
+    const enterModeBlock = js.slice(
+      js.indexOf('function enterSampleCaptureMode'),
+      js.indexOf('function exitSampleCaptureMode'),
+    );
+    expect(enterModeBlock).toContain('planSampleCaptureFilterTransition(');
+    expect(enterModeBlock).toContain('state.columnFilterRules,');
+    expect(enterModeBlock).toContain("'enter',");
+    expect(enterModeBlock).toContain('state.columnFilterRules = filterTransition.columnFilterRules;');
+    expect(enterModeBlock).toContain(
+      'state.sampleCapturePreviousColumnFilterRules = filterTransition.previousColumnFilterRules;',
+    );
+
+    const exitModeBlock = js.slice(
+      js.indexOf('function exitSampleCaptureMode'),
+      js.indexOf('function isFocusInsideEmptyState'),
+    );
+    expect(exitModeBlock).toContain('planSampleCaptureFilterTransition(');
+    expect(exitModeBlock).toContain('state.sampleCapturePreviousColumnFilterRules,');
+    expect(exitModeBlock).toContain("'exit',");
+    expect(exitModeBlock).toContain('state.columnFilterRules = filterTransition.columnFilterRules;');
+    expect(exitModeBlock).toContain(
+      'state.sampleCapturePreviousColumnFilterRules = filterTransition.previousColumnFilterRules;',
+    );
+
+    const activationBlock = js.slice(
+      js.indexOf('function activateSampleCapture'),
+      js.indexOf('function updateEmptyState'),
+    );
+    expect(activationBlock).not.toContain('state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();');
+
+    const filterTransitionBlock = js.slice(
+      js.indexOf('function planSampleCaptureFilterTransition'),
+      js.indexOf('function normalizePresetName'),
+    );
+    expect(filterTransitionBlock).toContain('deserializeFilterState(serializeFilterState(currentRules))');
+    expect(filterTransitionBlock).toContain('deserializeFilterState(serializeFilterState(previousRules))');
+    expect(filterTransitionBlock).not.toMatch(/localStorage|chrome\.storage|state\.rows|requestHeaders|responseContent/);
+  });
+
+  test('keeps sample trust visible and transfers focus when the empty action disappears', () => {
+    expect(html).toMatch(/id="sampleCaptureStatus"[^>]*class="sample-capture-status"[^>]*hidden/);
+    expect(js).toContain("status.textContent = state.sampleCaptureActive ? 'Local sample · live paused · Clear to exit' : '';");
+    expect(js).toContain('Local synthetic requests are loaded. No network traffic was sent.');
+    expect(css).toMatch(
+      /\.sample-capture-status\{[^}]*border:1px solid var\(--accent\)[^}]*background:var\(--accent-dim\)[^}]*color:var\(--text-accent\)[^}]*white-space:nowrap/,
+    );
+    expect(css).toContain('.sample-capture-status[hidden]{display:none}');
+    expect(css).toMatch(/\.statusbar\{[^}]*overflow-x:auto[^}]*white-space:nowrap/);
+    expect(js).toContain('const restoreEmptyStateFocus = isFocusInsideEmptyState();');
+    expect(js).toContain('restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);');
+    expect(js).toContain("const target = (tbody && tbody.querySelector('tr[tabindex=\"0\"]')) || $('#filterBtn');");
+    expect(js).toContain('Resume recording to capture real requests');
+    const pauseBlock = js.slice(
+      js.indexOf("pauseBtn.addEventListener('click'"),
+      js.indexOf('// Export', js.indexOf("pauseBtn.addEventListener('click'")),
+    );
+    expect(pauseBlock).toContain('updateRecordState();');
+    expect(pauseBlock).toContain('updateEmptyState(state.filteredRows.length);');
+  });
+});
+
 describe('capture retention static contracts', () => {
   test('provides a labelled narrow-safe retention dialog with an explicit unlimited warning', () => {
     expect(html).toMatch(/id="retentionBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="retentionDialog"/);

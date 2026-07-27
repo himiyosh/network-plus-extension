@@ -52,6 +52,7 @@ const _NetworkPlus = (function () {
   const MAX_SAZ_CONCURRENT_EXTRACTIONS = 4;
   const SAZ_SOURCE_CHUNK_BYTES = 16 * 1024;
   const SAZ_ENTRY_PATH_PATTERN = /^raw\/(\d+)_([csm])\.(txt|xml)$/;
+  const SAMPLE_CAPTURE_BASE_TIMESTAMP = Date.parse('2026-01-15T12:00:00.000Z');
   const JSON_TREE_MAX_CHILDREN = 100;
   const JSON_TREE_MAX_DEPTH = 20;
   const JSON_TREE_PREVIEW_KEYS = 3;
@@ -721,6 +722,186 @@ const _NetworkPlus = (function () {
     return out;
   }
 
+  function getEmptyStateMode(totalRowCount, visibleRowCount) {
+    if (!Number.isFinite(totalRowCount) || totalRowCount <= 0) return 'capture';
+    if (!Number.isFinite(visibleRowCount) || visibleRowCount <= 0) return 'filtered';
+    return 'hidden';
+  }
+
+  function planSampleCaptureTransition(currentState, action) {
+    const current = currentState || {};
+    const active = current.active === true;
+    const paused = current.paused === true;
+    const previousPaused = current.previousPaused === true;
+    const rowCount = Number.isInteger(current.rowCount) && current.rowCount > 0 ? current.rowCount : 0;
+    if (action === 'enter') {
+      if (active || rowCount !== 0) {
+        return { active, paused, previousPaused, changed: false };
+      }
+      return { active: true, paused: true, previousPaused: paused, changed: true };
+    }
+    if (action === 'exit') {
+      if (!active) return { active, paused, previousPaused, changed: false };
+      return { active: false, paused: previousPaused, previousPaused: false, changed: true };
+    }
+    return { active, paused, previousPaused, changed: false };
+  }
+
+  function formatSampleCaptureRemainingStatus(rowCount) {
+    const count = Number.isInteger(rowCount) && rowCount > 0 ? rowCount : 0;
+    return (
+      'Local sample capture: ' +
+      count +
+      ' synthetic ' +
+      (count === 1 ? 'request remains.' : 'requests remain.') +
+      ' Live recording is paused; Clear exits sample mode.'
+    );
+  }
+
+  function createSampleCaptureRequests(baseTimestamp) {
+    const requestedBase = Number.isFinite(baseTimestamp) ? baseTimestamp : SAMPLE_CAPTURE_BASE_TIMESTAMP;
+    const base = Number.isFinite(new Date(requestedBase).getTime())
+      ? requestedBase
+      : SAMPLE_CAPTURE_BASE_TIMESTAMP;
+    const startedAt = (offsetMs) => new Date(base + offsetMs).toISOString();
+    const successBody = JSON.stringify({
+      project: { id: 'demo-project', status: 'ready', requests: 12 },
+      source: 'local-sample',
+    });
+    const failureRequestBody = JSON.stringify({ cartItems: 2, mode: 'sample-preview' });
+    const failureBody = JSON.stringify({
+      error: 'service_unavailable',
+      retryAfterSeconds: 30,
+      source: 'local-sample',
+    });
+
+    return [
+      {
+        startedDateTime: startedAt(0),
+        time: 184,
+        request: {
+          method: 'GET',
+          url: 'https://api.network-plus.test/v1/projects/demo?view=summary',
+          httpVersion: 'HTTP/2',
+          headers: [
+            { name: 'Accept', value: 'application/json' },
+            { name: 'X-NetworkPlus-Sample', value: 'local-only' },
+          ],
+        },
+        response: {
+          status: 200,
+          statusText: 'OK',
+          httpVersion: 'HTTP/2',
+          headers: [
+            { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+            { name: 'Content-Length', value: String(successBody.length) },
+            { name: 'Cache-Control', value: 'no-store' },
+          ],
+          bodySize: successBody.length,
+          content: {
+            size: successBody.length,
+            mimeType: 'application/json',
+            text: successBody,
+          },
+        },
+        timings: { blocked: 3, dns: 12, connect: 38, ssl: 20, send: 2, wait: 112, receive: 17 },
+        initiator: {
+          type: 'script',
+          stack: {
+            callFrames: [
+              {
+                functionName: 'loadProjectSummary',
+                url: 'https://app.network-plus.test/assets/app.js',
+                lineNumber: 18,
+              },
+            ],
+          },
+        },
+      },
+      {
+        startedDateTime: startedAt(500),
+        time: 2450,
+        request: {
+          method: 'POST',
+          url: 'https://checkout.network-plus.test/v1/orders/preview',
+          httpVersion: 'HTTP/2',
+          headers: [
+            { name: 'Accept', value: 'application/json' },
+            { name: 'Content-Type', value: 'application/json' },
+            { name: 'X-NetworkPlus-Sample', value: 'local-only' },
+          ],
+          postData: {
+            mimeType: 'application/json',
+            text: failureRequestBody,
+          },
+        },
+        response: {
+          status: 503,
+          statusText: 'Service Unavailable',
+          httpVersion: 'HTTP/2',
+          headers: [
+            { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+            { name: 'Content-Length', value: String(failureBody.length) },
+            { name: 'Cache-Control', value: 'no-store' },
+            { name: 'Retry-After', value: '30' },
+          ],
+          bodySize: failureBody.length,
+          content: {
+            size: failureBody.length,
+            mimeType: 'application/json',
+            text: failureBody,
+          },
+        },
+        timings: { blocked: 5, dns: 30, connect: 120, ssl: 50, send: 15, wait: 2200, receive: 80 },
+        initiator: {
+          type: 'script',
+          stack: {
+            callFrames: [
+              {
+                functionName: 'previewOrder',
+                url: 'https://app.network-plus.test/assets/app.js',
+                lineNumber: 64,
+              },
+            ],
+          },
+        },
+      },
+      {
+        startedDateTime: startedAt(3500),
+        time: 24,
+        request: {
+          method: 'GET',
+          url: 'https://static.network-plus.test/assets/network-plus.css',
+          httpVersion: 'HTTP/2',
+          headers: [
+            { name: 'Accept', value: 'text/css,*/*;q=0.1' },
+            { name: 'If-None-Match', value: '"network-plus-sample-v1"' },
+            { name: 'X-NetworkPlus-Sample', value: 'local-only' },
+          ],
+        },
+        response: {
+          status: 304,
+          statusText: 'Not Modified',
+          httpVersion: 'HTTP/2',
+          headers: [
+            { name: 'Content-Type', value: 'text/css; charset=utf-8' },
+            { name: 'Cache-Control', value: 'public, max-age=3600' },
+            { name: 'ETag', value: '"network-plus-sample-v1"' },
+            { name: 'Age', value: '840' },
+          ],
+          bodySize: 0,
+          content: {
+            size: 0,
+            mimeType: 'text/css',
+            text: '',
+          },
+        },
+        timings: { blocked: 1, dns: -1, connect: -1, ssl: -1, send: 1, wait: 20, receive: 2 },
+        initiator: { type: 'parser' },
+      },
+    ];
+  }
+
   function serializeFilterState(columnFilterRules) {
     // Deep-clone filter rules to a plain JSON-safe object.
     // Never includes captured network data (URLs, headers, bodies).
@@ -751,6 +932,27 @@ const _NetworkPlus = (function () {
       }
     }
     return result;
+  }
+
+  function planSampleCaptureFilterTransition(currentRules, previousRules, action) {
+    if (action === 'enter') {
+      return {
+        columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
+        previousColumnFilterRules: deserializeFilterState(serializeFilterState(currentRules)),
+      };
+    }
+    if (action === 'exit') {
+      return {
+        columnFilterRules: deserializeFilterState(serializeFilterState(previousRules)),
+        previousColumnFilterRules: null,
+      };
+    }
+    return {
+      columnFilterRules: deserializeFilterState(serializeFilterState(currentRules)),
+      previousColumnFilterRules: previousRules
+        ? deserializeFilterState(serializeFilterState(previousRules))
+        : null,
+    };
   }
 
   function normalizePresetName(name) {
@@ -2815,6 +3017,9 @@ const _NetworkPlus = (function () {
     nextId: 1,
     paused: false,
     autoScroll: true,
+    sampleCaptureActive: false,
+    sampleCapturePreviousPaused: false,
+    sampleCapturePreviousColumnFilterRules: null,
     // Cached waterfall time range — computed once per render by renderBody(),
     // then consumed O(1) per row by createTableRow(). Null when Waterfall is hidden.
     waterfallRange: null,
@@ -3017,9 +3222,19 @@ const _NetworkPlus = (function () {
   function removeRowsFromState(rows, countRetention) {
     const removedSet = new Set(rows || []);
     if (removedSet.size === 0) return;
+    const sampleCaptureWasActive = state.sampleCaptureActive;
     const evictedRows = state.rows.filter((row) => removedSet.has(row));
     state.rows = state.rows.filter((row) => !removedSet.has(row));
     cleanupEvictedRowReferences(evictedRows, countRetention);
+    if (state.sampleCaptureActive && state.rows.length === 0 && exitSampleCaptureMode()) {
+      setStatus(
+        state.paused
+          ? 'Local sample capture removed. Recording remains paused.'
+          : 'Local sample capture removed. Live capture resumed.',
+      );
+    } else if (sampleCaptureWasActive && evictedRows.length > 0) {
+      setStatus(formatSampleCaptureRemainingStatus(state.rows.length));
+    }
   }
 
   function normalizeIncomingResponseContent(rows, source) {
@@ -3034,7 +3249,7 @@ const _NetworkPlus = (function () {
           row.responseContentError = error;
         }
       }
-      if (source === 'import') row._reqObj = null;
+      if (source === 'import' || source === 'sample') row._reqObj = null;
     }
   }
 
@@ -4592,32 +4807,178 @@ const _NetworkPlus = (function () {
     srch.currentIndex = preserveMatchingRowIndex(previousMatches, previousIndex, srch.matches);
   }
 
+  function updateSampleCaptureStatus() {
+    const status = $('#sampleCaptureStatus');
+    if (!status) return;
+    status.hidden = !state.sampleCaptureActive;
+    status.textContent = state.sampleCaptureActive ? 'Local sample · live paused · Clear to exit' : '';
+    status.title = state.sampleCaptureActive
+      ? 'Local synthetic requests are loaded. No network traffic was sent. Clear removes them and restores the previous recording state.'
+      : '';
+  }
+
+  function updateRecordState(announceStatus) {
+    const pauseBtn = $('#pauseBtn');
+    const topbar = $('.topbar');
+    if (!pauseBtn || !topbar) return;
+    pauseBtn.innerHTML = state.paused ? PLAY_ICON_SVG : PAUSE_ICON_SVG;
+    pauseBtn.disabled = state.sampleCaptureActive;
+    const actionLabel = state.sampleCaptureActive
+      ? 'Live recording is paused while local sample capture is active'
+      : state.paused
+        ? 'Resume recording'
+        : 'Pause recording';
+    pauseBtn.title = actionLabel;
+    pauseBtn.setAttribute('aria-label', actionLabel);
+    if (state.paused) {
+      topbar.classList.add('paused');
+      topbar.classList.remove('recording');
+    } else {
+      topbar.classList.add('recording');
+      topbar.classList.remove('paused');
+    }
+    updateSampleCaptureStatus();
+    if (announceStatus !== false) setStatus(state.paused ? 'Paused' : 'Recording...');
+  }
+
+  function enterSampleCaptureMode() {
+    const transition = planSampleCaptureTransition({
+      active: state.sampleCaptureActive,
+      paused: state.paused,
+      previousPaused: state.sampleCapturePreviousPaused,
+      rowCount: state.rows.length,
+    }, 'enter');
+    if (!transition.changed) return false;
+    const filterTransition = planSampleCaptureFilterTransition(
+      state.columnFilterRules,
+      state.sampleCapturePreviousColumnFilterRules,
+      'enter',
+    );
+    state.sampleCaptureActive = transition.active;
+    state.paused = transition.paused;
+    state.sampleCapturePreviousPaused = transition.previousPaused;
+    state.columnFilterRules = filterTransition.columnFilterRules;
+    state.sampleCapturePreviousColumnFilterRules = filterTransition.previousColumnFilterRules;
+    updateRecordState(false);
+    return true;
+  }
+
+  function exitSampleCaptureMode() {
+    const transition = planSampleCaptureTransition({
+      active: state.sampleCaptureActive,
+      paused: state.paused,
+      previousPaused: state.sampleCapturePreviousPaused,
+      rowCount: state.rows.length,
+    }, 'exit');
+    if (!transition.changed) return false;
+    const filterTransition = planSampleCaptureFilterTransition(
+      state.columnFilterRules,
+      state.sampleCapturePreviousColumnFilterRules,
+      'exit',
+    );
+    state.sampleCaptureActive = transition.active;
+    state.paused = transition.paused;
+    state.sampleCapturePreviousPaused = transition.previousPaused;
+    state.columnFilterRules = filterTransition.columnFilterRules;
+    state.sampleCapturePreviousColumnFilterRules = filterTransition.previousColumnFilterRules;
+    updateRecordState(false);
+    return true;
+  }
+
+  function isFocusInsideEmptyState() {
+    const emptyState = document.getElementById('empty-state-msg');
+    return !!emptyState && !!document.activeElement && emptyState.contains(document.activeElement);
+  }
+
+  function restoreFocusAfterEmptyStateChange(shouldRestore) {
+    if (!shouldRestore) return;
+    const tbody = $('#tbody');
+    const target = (tbody && tbody.querySelector('tr[tabindex="0"]')) || $('#filterBtn');
+    if (target && target.focus) target.focus({ preventScroll: true });
+  }
+
+  function activateSampleCapture() {
+    if (!enterSampleCaptureMode()) {
+      renderBody();
+      const tbody = $('#tbody');
+      const firstVisibleRow = tbody ? tbody.querySelector('tr[tabindex="0"]') : null;
+      const fallbackControl = $('#filterBtn');
+      if (firstVisibleRow) firstVisibleRow.focus({ preventScroll: true });
+      else if (fallbackControl) fallbackControl.focus();
+      setStatus('Local sample capture was not added because captured requests are already present.');
+      return false;
+    }
+
+    const rows = createSampleCaptureRequests(SAMPLE_CAPTURE_BASE_TIMESTAMP).map((request) =>
+      buildRowFromRequest(request),
+    );
+    const retainedRows = addRowsWithRetention(rows, 'sample');
+    renderBody();
+    if (retainedRows[0]) selectRow(retainedRows[0], null, true);
+    setStatus(
+      'Local sample capture: 3 synthetic requests loaded. No network traffic was sent. ' +
+        (state.sampleCapturePreviousPaused
+          ? 'Recording remains paused; Clear removes the sample.'
+          : 'Live recording is paused; Clear removes the sample and resumes capture.'),
+    );
+    return true;
+  }
+
   function updateEmptyState(visibleRowCount) {
     const tableWrap = $('#tableWrap');
     if (!tableWrap) return;
+    const mode = getEmptyStateMode(state.rows.length, visibleRowCount);
     let emptyState = document.getElementById('empty-state-msg');
-    if (visibleRowCount === 0 && !state.paused) {
-      if (!emptyState) {
-        emptyState = document.createElement('div');
-        emptyState.id = 'empty-state-msg';
-        emptyState.className = 'empty-state';
-        const icon = document.createElement('div');
-        icon.className = 'icon';
+    if (mode === 'hidden') {
+      if (emptyState) emptyState.style.display = 'none';
+      return;
+    }
+    if (!emptyState) {
+      emptyState = document.createElement('div');
+      emptyState.id = 'empty-state-msg';
+      emptyState.className = 'empty-state';
+      tableWrap.appendChild(emptyState);
+    }
+    const renderKey = mode + ':' + (state.paused ? 'paused' : 'recording');
+    if (emptyState.dataset.renderKey !== renderKey) {
+      emptyState.textContent = '';
+      emptyState.dataset.renderKey = renderKey;
+      const icon = document.createElement('div');
+      icon.className = 'icon';
+      icon.setAttribute('aria-hidden', 'true');
+      const title = document.createElement('div');
+      title.className = 'empty-state-title';
+      const description = document.createElement('div');
+      description.id = 'empty-state-description';
+      description.className = 'empty-state-description';
+      if (mode === 'filtered') {
+        icon.textContent = '🔎';
+        title.textContent = 'No requests match the current filters.';
+        description.textContent = 'Clear or adjust filters to show captured requests.';
+      } else {
         icon.textContent = '📡';
-        const text1 = document.createElement('div');
-        text1.textContent = 'Recording network activity...';
-        const text2 = document.createElement('div');
-        text2.style.fontSize = '0.8em';
-        text2.style.marginTop = '10px';
-        text2.textContent = 'Perform a request or reload the page to see activity.';
-        emptyState.appendChild(icon);
-        emptyState.appendChild(text1);
-        emptyState.appendChild(text2);
-        tableWrap.appendChild(emptyState);
+        title.textContent = state.paused ? 'Recording is paused.' : 'Recording network activity...';
+        description.textContent = state.paused
+          ? 'Resume recording to capture real requests, or explore three local-only sample requests. No network request is sent.'
+          : 'Perform a request or reload the page, or explore three local-only sample requests. No network request is sent.';
       }
-      emptyState.style.display = 'flex';
-    } else if (emptyState) {
-      emptyState.style.display = 'none';
+      emptyState.appendChild(icon);
+      emptyState.appendChild(title);
+      emptyState.appendChild(description);
+      if (mode === 'capture') {
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'empty-state-action';
+        action.textContent = 'Explore sample capture';
+        action.setAttribute('aria-describedby', description.id);
+        action.addEventListener('click', activateSampleCapture);
+        emptyState.appendChild(action);
+      }
+    }
+    emptyState.style.display = 'flex';
+    if (mode !== 'capture') {
+      const action = emptyState.querySelector('.empty-state-action');
+      if (action) action.remove();
     }
   }
 
@@ -4723,6 +5084,7 @@ const _NetworkPlus = (function () {
   function appendIncrementalRows(liveRows) {
     const tbody = $('#tbody');
     if (!tbody) return false;
+    const restoreEmptyStateFocus = isFocusInsideEmptyState();
     // When Waterfall is visible every new row changes the shared time range, so
     // pre-existing bars would show stale geometry. Fall through to a full renderBody().
     const waterfallCol = state.columns.find((c) => c.id === 'waterfall');
@@ -4744,6 +5106,7 @@ const _NetworkPlus = (function () {
     if (rowsToAppend.length === 0) {
       updateEmptyState(state.filteredRows.length);
       updateTableSummary(state.filteredRows.length);
+      restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);
       return true;
     }
     const filteredSet = new Set(state.filteredRows);
@@ -4769,6 +5132,7 @@ const _NetworkPlus = (function () {
     state.visibleBytes += rowsToAppend.reduce((total, row) => total + (row.size || 0), 0);
     updateEmptyState(state.filteredRows.length);
     updateTableSummary(state.filteredRows.length);
+    restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);
     return true;
   }
 
@@ -4813,6 +5177,7 @@ const _NetworkPlus = (function () {
   }
 
   function renderBody() {
+    const restoreEmptyStateFocus = isFocusInsideEmptyState();
     filterRows();
     state.renderedActiveFilterCount = countActiveColumnFilters(state.columnFilterRules);
     refreshSearchMatches();
@@ -4832,6 +5197,7 @@ const _NetworkPlus = (function () {
     state.pendingRowFocusId = null;
     if (!tbody) {
       updateTableSummary(rows.length, visibleBytes);
+      restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);
       return;
     }
     const fragment = document.createDocumentFragment();
@@ -4852,6 +5218,7 @@ const _NetworkPlus = (function () {
       if (rowToFocus) rowToFocus.focus({ preventScroll: true });
     }
     updateTableSummary(rows.length, visibleBytes);
+    restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);
   }
 
   function render() {
@@ -6166,6 +6533,7 @@ const _NetworkPlus = (function () {
 
     // [U4] Clear — reset filters properly, keeping method defaults
     $('#clearBtn').addEventListener('click', () => {
+      const clearedSampleCapture = state.sampleCaptureActive;
       resetPendingLiveRows();
       clearStoredRows();
       state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
@@ -6180,32 +6548,30 @@ const _NetworkPlus = (function () {
       state.search.rowColors.clear();
       state.search.rowKeywords.clear();
       state.search.perKeyword.clear();
+      updateRecordState(false);
       render();
       updateRetentionStatus();
       clearDetailsPanel();
-      setStatus('Cleared');
+      $('#clearBtn').focus({ preventScroll: true });
+      setStatus(
+        clearedSampleCapture
+          ? state.paused
+            ? 'Local sample capture cleared. Recording remains paused.'
+            : 'Local sample capture cleared. Live capture resumed.'
+          : 'Cleared',
+      );
     });
 
     // Pause/Resume
     const pauseBtn = $('#pauseBtn');
-    const topbar = $('.topbar');
-    const updateRecordState = () => {
-      pauseBtn.innerHTML = state.paused ? PLAY_ICON_SVG : PAUSE_ICON_SVG;
-      const actionLabel = state.paused ? 'Resume recording' : 'Pause recording';
-      pauseBtn.title = actionLabel;
-      pauseBtn.setAttribute('aria-label', actionLabel);
-      if (state.paused) {
-        topbar.classList.add('paused');
-        topbar.classList.remove('recording');
-      } else {
-        topbar.classList.add('recording');
-        topbar.classList.remove('paused');
-      }
-      setStatus(state.paused ? 'Paused' : 'Recording...');
-    };
     pauseBtn.addEventListener('click', () => {
+      if (state.sampleCaptureActive) {
+        setStatus('Clear the local sample capture before resuming live recording.');
+        return;
+      }
       state.paused = !state.paused;
       updateRecordState();
+      updateEmptyState(state.filteredRows.length);
     });
     updateRecordState();
 
@@ -6559,7 +6925,11 @@ const _NetworkPlus = (function () {
         ? tableWrap.querySelector('tr[data-row-id="' + contextMenuInvokerRowId + '"]')
         : null;
       const fallbackRow = invokingRow || tableWrap.querySelector('tbody tr[data-row-id]');
-      if (!fallbackRow) return;
+      if (!fallbackRow) {
+        const fallbackControl = document.querySelector('.empty-state-action') || $('#clearBtn');
+        if (fallbackControl) fallbackControl.focus({ preventScroll: true });
+        return;
+      }
       $all('tbody tr[data-row-id]', tableWrap).forEach((rowElement) => {
         rowElement.tabIndex = rowElement === fallbackRow ? 0 : -1;
       });
@@ -7325,6 +7695,7 @@ const _NetworkPlus = (function () {
       };
 
       const commitStagedImport = (stagedImport) => {
+        exitSampleCaptureMode();
         state.paused = true;
         updateRecordState();
         resetPendingLiveRows();
@@ -7421,7 +7792,7 @@ const _NetworkPlus = (function () {
 
     if (chrome && chrome.devtools && chrome.devtools.network && chrome.devtools.network.onRequestFinished) {
       chrome.devtools.network.onRequestFinished.addListener((request) => {
-        if (state.paused) return;
+        if (state.paused || state.sampleCaptureActive) return;
         const row = buildRowFromRequest(request);
         addRowsWithRetention([row], 'live');
         if (!isRetainedRow(row, state.retainedRows)) return;
@@ -7494,6 +7865,11 @@ const _NetworkPlus = (function () {
     parseQueryString,
     guessMimeType,
     toHarHeaders,
+    getEmptyStateMode,
+    planSampleCaptureTransition,
+    planSampleCaptureFilterTransition,
+    formatSampleCaptureRemainingStatus,
+    createSampleCaptureRequests,
     debounce,
     highlightText,
     getRowFilterValue,
@@ -7546,6 +7922,7 @@ const _NetworkPlus = (function () {
     measureResponsePayload,
     planResponseCacheAdmission,
     countUnsearchedResponseBodies,
+    buildRowFromRequest,
     fetchResponsePayload,
     resolveHarResponseContent,
     DEFAULT_REQUEST_RETENTION_LIMIT,

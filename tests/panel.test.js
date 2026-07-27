@@ -39,6 +39,244 @@ describe('fmtTime', () => {
   });
 });
 
+describe('guided local sample capture', () => {
+  const baseTimestamp = Date.parse('2026-01-15T12:00:00.000Z');
+
+  test('generates exactly three deterministic HAR-shaped requests from an injected timestamp', () => {
+    const first = np.createSampleCaptureRequests(baseTimestamp);
+    const second = np.createSampleCaptureRequests(baseTimestamp);
+
+    expect(first).toEqual(second);
+    expect(first).toHaveLength(3);
+    expect(first.map((request) => request.startedDateTime)).toEqual([
+      '2026-01-15T12:00:00.000Z',
+      '2026-01-15T12:00:00.500Z',
+      '2026-01-15T12:00:03.500Z',
+    ]);
+    expect(np.createSampleCaptureRequests()).toEqual(first);
+    expect(np.createSampleCaptureRequests(Infinity)).toEqual(first);
+  });
+
+  test('covers successful API, slow failure, and cached not-modified scenarios on reserved domains', () => {
+    const requests = np.createSampleCaptureRequests(baseTimestamp);
+    const [success, failure, cached] = requests;
+
+    expect(requests.map((request) => [request.request.method, request.response.status, request.time])).toEqual([
+      ['GET', 200, 184],
+      ['POST', 503, 2450],
+      ['GET', 304, 24],
+    ]);
+    for (const request of requests) {
+      expect(new URL(request.request.url).hostname.endsWith('.test')).toBe(true);
+      const timing = np.calculateTimingSegments(request.timings, request.time);
+      expect(timing.segments.reduce((total, segment) => total + segment.duration, 0)).toBe(request.time);
+    }
+    expect(success.response.content.text).toContain('"source":"local-sample"');
+    expect(failure.request.postData.text).toContain('"mode":"sample-preview"');
+    expect(failure.response.content.text).toContain('"error":"service_unavailable"');
+    expect(failure.timings.wait).toBe(2200);
+    expect(cached.response.statusText).toBe('Not Modified');
+    expect(cached.response.content.text).toBe('');
+    expect(cached.request.headers).toContainEqual({
+      name: 'If-None-Match',
+      value: '"network-plus-sample-v1"',
+    });
+  });
+
+  test('contains no secret-like or customer-like sample values', () => {
+    const serialized = JSON.stringify(np.createSampleCaptureRequests(baseTimestamp));
+
+    expect(serialized).not.toMatch(
+      /authorization|bearer|password|passwd|client[_-]?secret|access[_-]?token|refresh[_-]?token|api[_-]?key|cookie|set-cookie|@/i,
+    );
+    expect(serialized).not.toMatch(/\b(?:Jane|John|Acme)\b/i);
+  });
+
+  test('builds rows that exercise search, timing, statistics, and sanitized HAR export', () => {
+    const rows = np.createSampleCaptureRequests(baseTimestamp).map((request, index) =>
+      np.buildRowFromRequest(request, index + 1),
+    );
+
+    expect(rows.map((row) => row.domain)).toEqual([
+      'api.network-plus.test',
+      'checkout.network-plus.test',
+      'static.network-plus.test',
+    ]);
+    expect(np.deepSearchMatch(rows[0], 'local-sample', {
+      url: true,
+      reqBody: true,
+      resBody: true,
+      reqHeaders: true,
+      resHeaders: true,
+    })).toBe(true);
+    expect(np.deepSearchMatch(rows[1], 'service_unavailable', {
+      url: false,
+      reqBody: false,
+      resBody: true,
+      reqHeaders: false,
+      resHeaders: false,
+    })).toBe(true);
+    expect(np.computeStats(rows)).toEqual(expect.objectContaining({
+      count: 3,
+      avgDuration: 886,
+      minDuration: 24,
+      maxDuration: 2450,
+    }));
+
+    const sanitizedHar = np.sanitizeHar(np.buildHarLogFromRows(rows));
+    expect(sanitizedHar.log.entries).toHaveLength(3);
+    expect(sanitizedHar.log.entries.map((entry) => entry.response.status)).toEqual([200, 503, 304]);
+    expect(JSON.stringify(sanitizedHar)).toContain(np.REDACTION_MARKER);
+    expect(JSON.stringify(sanitizedHar)).not.toContain('local-only');
+  });
+
+  test('uses total rows rather than filtered rows to decide whether the sample action is available', () => {
+    expect(np.getEmptyStateMode(0, 0)).toBe('capture');
+    expect(np.getEmptyStateMode(0, 3)).toBe('capture');
+    expect(np.getEmptyStateMode(3, 0)).toBe('filtered');
+    expect(np.getEmptyStateMode(3, 2)).toBe('hidden');
+  });
+
+  test('plans guarded entry and restores either prior recording state on exit', () => {
+    expect(np.planSampleCaptureTransition({
+      active: false,
+      paused: false,
+      previousPaused: false,
+      rowCount: 0,
+    }, 'enter')).toEqual({
+      active: true,
+      paused: true,
+      previousPaused: false,
+      changed: true,
+    });
+    expect(np.planSampleCaptureTransition({
+      active: false,
+      paused: true,
+      previousPaused: false,
+      rowCount: 0,
+    }, 'enter')).toEqual({
+      active: true,
+      paused: true,
+      previousPaused: true,
+      changed: true,
+    });
+    expect(np.planSampleCaptureTransition({
+      active: true,
+      paused: true,
+      previousPaused: false,
+      rowCount: 0,
+    }, 'enter').changed).toBe(false);
+    expect(np.planSampleCaptureTransition({
+      active: false,
+      paused: false,
+      previousPaused: false,
+      rowCount: 1,
+    }, 'enter').changed).toBe(false);
+    expect(np.planSampleCaptureTransition({
+      active: true,
+      paused: true,
+      previousPaused: false,
+      rowCount: 0,
+    }, 'exit')).toEqual({
+      active: false,
+      paused: false,
+      previousPaused: false,
+      changed: true,
+    });
+    expect(np.planSampleCaptureTransition({
+      active: true,
+      paused: true,
+      previousPaused: true,
+      rowCount: 0,
+    }, 'exit')).toEqual({
+      active: false,
+      paused: true,
+      previousPaused: false,
+      changed: true,
+    });
+  });
+
+  test('temporarily defaults non-default filters and restores an isolated exact snapshot', () => {
+    const currentRules = np.deserializeFilterState({
+      url: { mode: 'urlAdvanced', includeAny: 'api', includeAll: '', excludeAny: 'health' },
+      method: { mode: 'methodSet', include: { GET: true, POST: false } },
+      status: { op: 'gte', value: '400' },
+    });
+    const entered = np.planSampleCaptureFilterTransition(currentRules, null, 'enter');
+
+    expect(np.countActiveColumnFilters(currentRules)).toBe(3);
+    expect(np.countActiveColumnFilters(entered.columnFilterRules)).toBe(0);
+    expect(entered.previousColumnFilterRules).toEqual(currentRules);
+    expect(entered.previousColumnFilterRules).not.toBe(currentRules);
+    expect(entered.previousColumnFilterRules.url).not.toBe(currentRules.url);
+
+    entered.columnFilterRules.url.value = 'temporary sample mutation';
+    expect(entered.previousColumnFilterRules.url).toEqual(currentRules.url);
+
+    const exited = np.planSampleCaptureFilterTransition(
+      entered.columnFilterRules,
+      entered.previousColumnFilterRules,
+      'exit',
+    );
+    expect(exited.columnFilterRules).toEqual(currentRules);
+    expect(exited.previousColumnFilterRules).toBeNull();
+    expect(np.countActiveColumnFilters(exited.columnFilterRules)).toBe(3);
+  });
+
+  test('takes a fresh filter snapshot on every sample entry', () => {
+    const firstRules = np.deserializeFilterState({
+      domain: { mode: 'multiText', conditions: [{ op: 'contains', value: 'first.test' }] },
+    });
+    const firstEntry = np.planSampleCaptureFilterTransition(firstRules, null, 'enter');
+    const firstExit = np.planSampleCaptureFilterTransition(
+      firstEntry.columnFilterRules,
+      firstEntry.previousColumnFilterRules,
+      'exit',
+    );
+    const secondRules = np.deserializeFilterState(firstExit.columnFilterRules);
+    secondRules.domain.conditions[0].value = 'second.test';
+    const secondEntry = np.planSampleCaptureFilterTransition(
+      secondRules,
+      firstEntry.previousColumnFilterRules,
+      'enter',
+    );
+
+    expect(secondEntry.previousColumnFilterRules.domain.conditions[0].value).toBe('second.test');
+    expect(secondEntry.previousColumnFilterRules).not.toEqual(firstEntry.previousColumnFilterRules);
+    expect(np.countActiveColumnFilters(secondEntry.columnFilterRules)).toBe(0);
+  });
+
+  test('formats accurate remaining counts after partial sample removal', () => {
+    expect(np.formatSampleCaptureRemainingStatus(2)).toBe(
+      'Local sample capture: 2 synthetic requests remain. Live recording is paused; Clear exits sample mode.',
+    );
+    expect(np.formatSampleCaptureRemainingStatus(1)).toBe(
+      'Local sample capture: 1 synthetic request remains. Live recording is paused; Clear exits sample mode.',
+    );
+  });
+
+  test('does not touch network or storage APIs while generating sample data', () => {
+    const previousFetch = global.fetch;
+    const previousXhr = global.XMLHttpRequest;
+    global.fetch = jest.fn();
+    global.XMLHttpRequest = jest.fn();
+    jest.clearAllMocks();
+
+    try {
+      np.createSampleCaptureRequests(baseTimestamp);
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(global.XMLHttpRequest).not.toHaveBeenCalled();
+      expect(chrome.storage.local.get).not.toHaveBeenCalled();
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(localStorage.getItem).not.toHaveBeenCalled();
+      expect(localStorage.setItem).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = previousFetch;
+      global.XMLHttpRequest = previousXhr;
+    }
+  });
+});
+
 describe('extractUrlParts', () => {
   test('extracts domain and path from valid URL', () => {
     const result = np.extractUrlParts('https://example.com/api/data?q=1');
