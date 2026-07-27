@@ -13,6 +13,7 @@ const repositoryRoot = path.join(__dirname, '..');
 const temporaryDirectories = [];
 const fixtureFiles = [
   'manifest.json',
+  'package.json',
   'docs/edge-addons-submission.md',
   'docs/privacy.md',
   'docs/store-assets/inventory.json',
@@ -50,6 +51,32 @@ describe('Edge Add-ons submission kit', () => {
     expect(result.summary.searchTerms).toBe(EXPECTED_SEARCH_TERMS.length);
     expect(result.summary.searchWordCount).toBeLessThanOrEqual(21);
     expect(result.summary.assets).toBe(Object.keys(EXPECTED_ASSETS).length);
+  });
+
+  test('rejects empty or drifting checked-in discovery metadata', () => {
+    const root = createFixture();
+    const packagePath = 'package.json';
+    const packageJson = JSON.parse(read(root, packagePath));
+    packageJson.description = '';
+    packageJson.homepage = '';
+    packageJson.bugs.url = 'https://github.com/himiyosh/network-plus-extension/issues';
+    packageJson.repository = {
+      type: 'https',
+      url: 'https://github.com/himiyosh/network-plus-extension',
+    };
+    packageJson.keywords = [];
+    write(root, packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+
+    expect(validate(root)).toEqual(
+      expect.arrayContaining([
+        'package description must match manifest description',
+        'package homepage must be https://github.com/himiyosh/network-plus-extension',
+        'package support URL must be https://github.com/himiyosh/network-plus-extension/issues/new/choose',
+        'package repository type must be git',
+        'package repository URL must be git+https://github.com/himiyosh/network-plus-extension.git',
+        'package keywords must match the reviewed truthful set: network debugging, developer tools, HTTP inspector, HAR export, request filtering, response timing, Edge DevTools',
+      ]),
+    );
   });
 
   test('rejects manifest drift, a short description, and excessive search terms', () => {

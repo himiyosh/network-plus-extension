@@ -1,6 +1,6 @@
 # Microsoft Edge Add-ons submission dossier (en-US)
 
-Last reviewed: 2026-07-27
+Last reviewed: 2026-07-28
 
 ## Submission status and evidence boundary
 
@@ -11,7 +11,12 @@ This dossier is a repository-local recommendation for a future Partner Center su
 - `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.6.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The checked-in package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
 - GitHub release `v1.6.0` and `network-plus-extension-1.6.0.zip` were publicly observable on 2026-07-27. The asset download count was 0 at that observation time; this point-in-time repository statistic is not an adoption or store-distribution claim.
-- The repository description, homepage, and topics were empty when observed on 2026-07-27. This kit does not change repository metadata.
+- A read-only GitHub query still returned an empty live repository description, homepage, and topic list on 2026-07-28. This point-in-time observation describes external state; the repository-local kit does not change those settings.
+
+### Checked-in discovery intent
+
+- `package.json` is the reviewable source of intent for the repository/package description, homepage, support route, repository URL, and seven-term search vocabulary. `npm run store:check` ties those values to the reviewed manifest and submission dossier and rejects empty or drifting fields.
+- Applying the checked-in intent to GitHub repository settings or a Partner Center listing remains an explicit coordinator/operator action after review.
 
 ### Unknown external state
 
@@ -129,6 +134,6 @@ Machine-readable provenance and expected dimensions are recorded in `docs/store-
 |---|---|---|---|
 | [Publish a Microsoft Edge extension](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension) | Microsoft Learn page updated 2026-06-12; page metadata date 2026-05-05 | 2026-07-27 | Required listing fields, 250-10,000 character description, 300 x 300 recommended logo, allowed screenshot dimensions, privacy declarations, search-term limits, and certification notes |
 | [Developer policies for the Microsoft Edge Add-ons store](https://learn.microsoft.com/en-us/legal/microsoft-edge/extensions/developer-policies) | Microsoft Learn page updated 2026-07-24 | 2026-07-27 | Accurate representation, single purpose, testability, permission minimization, screenshot clarity, and personal-information disclosure |
-| [Public repository](https://github.com/himiyosh/network-plus-extension) | Public GitHub repository; description, homepage, and topics empty when queried | 2026-07-27 | Website route and repository evidence |
+| [Public repository](https://github.com/himiyosh/network-plus-extension) | Public GitHub repository; live description, homepage, and topics empty when queried read-only | 2026-07-28 | External-state observation, website route, and repository evidence |
 | [Public support route](https://github.com/himiyosh/network-plus-extension/issues/new/choose) | Existing GitHub Issues chooser route | 2026-07-27 | Support contact route |
 | [Public v1.6.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) | Release published 2026-07-24 with one 87,775-byte ZIP asset | 2026-07-27 | Existing release-ZIP onboarding evidence only; not store-listing evidence |
