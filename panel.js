@@ -28,6 +28,7 @@ const _NetworkPlus = (function () {
   const SEARCH_COUNT_ANNOUNCE_MS = 500;
   const RETENTION_ANNOUNCE_MS = 750;
   const DATA_SAFETY_ANNOUNCE_MS = 500;
+  const CLEAR_UNDO_TIMEOUT_MS = 10000;
   const COPY_FEEDBACK_DURATION_MS = 1800;
   const SCROLL_THRESHOLD = 10;
   const TRUNCATE_LIMIT = 2000;
@@ -267,6 +268,14 @@ const _NetworkPlus = (function () {
     }
     return rules;
   };
+
+  const DEFAULT_SEARCH_SCOPE = () => ({
+    url: true,
+    reqBody: true,
+    resBody: true,
+    reqHeaders: true,
+    resHeaders: true,
+  });
 
   const PLAY_ICON_SVG =
     '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16px" height="16px"><path d="M8 5V19L19 12L8 5Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -2091,6 +2100,108 @@ const _NetworkPlus = (function () {
     };
   }
 
+  function planClearUndoRetention(heldRows, activeRows, incomingRows, requestLimit, unlimited) {
+    const held = Array.isArray(heldRows) ? heldRows : [];
+    const active = Array.isArray(activeRows) ? activeRows : [];
+    const incoming = Array.isArray(incomingRows) ? incomingRows : [];
+    const combined = held.concat(active, incoming);
+    const normalizedLimit = Number.isInteger(requestLimit) && requestLimit >= 0 ? requestLimit : 0;
+    const evictionCount = unlimited ? 0 : Math.max(0, combined.length - normalizedLimit);
+    const evictedRows = combined.slice(0, evictionCount);
+    const retainedSet = new Set(combined.slice(evictionCount));
+    return {
+      retainedHeldRows: held.filter((row) => retainedSet.has(row)),
+      retainedActiveRows: active.concat(incoming).filter((row) => retainedSet.has(row)),
+      retainedIncomingRows: incoming.filter((row) => retainedSet.has(row)),
+      evictedRows,
+    };
+  }
+
+  function planClearUndoAction(snapshot, action) {
+    if (!snapshot) return { disposition: 'none', consume: false };
+    if (action === 'undo') return { disposition: 'restore', consume: true };
+    if (action === 'live') {
+      return snapshot.sampleCaptureActive
+        ? { disposition: 'dispose', consume: true }
+        : { disposition: 'keep', consume: false };
+    }
+    if (['clear', 'import', 'sample', 'timeout', 'retention-exhausted'].includes(action)) {
+      return { disposition: 'dispose', consume: true };
+    }
+    return { disposition: 'keep', consume: false };
+  }
+
+  function formatRequestCount(count) {
+    return count + ' ' + (count === 1 ? 'request' : 'requests');
+  }
+
+  function createClearUndoRestorePlan(snapshot, retainedRows) {
+    const sourceRows = snapshot && Array.isArray(snapshot.rows) ? snapshot.rows : [];
+    const retainedSet = retainedRows instanceof Set ? retainedRows : new Set(retainedRows || []);
+    const rows = sourceRows.filter(
+      (row) => retainedSet.has(row) && row && row._retentionDisposed !== true,
+    );
+    const restoredSet = new Set(rows);
+    const context = snapshot && snapshot.context ? snapshot.context : {};
+    const retainRow = (row) => (restoredSet.has(row) ? row : null);
+    const comparedRows =
+      Array.isArray(context.comparedRows) &&
+      context.comparedRows.length === 2 &&
+      context.comparedRows.every((row) => restoredSet.has(row))
+        ? context.comparedRows.slice()
+        : null;
+    const searchScope = DEFAULT_SEARCH_SCOPE();
+    for (const key of Object.keys(searchScope)) {
+      if (context.searchScope && typeof context.searchScope[key] === 'boolean') {
+        searchScope[key] = context.searchScope[key];
+      }
+    }
+    return {
+      rows,
+      originalCount:
+        snapshot && Number.isInteger(snapshot.originalCount) ? snapshot.originalCount : sourceRows.length,
+      columnFilterRules: deserializeFilterState(serializeFilterState(context.columnFilterRules)),
+      searchKeywords: Array.isArray(context.searchKeywords)
+        ? context.searchKeywords.map((keyword) => ({
+          query: String((keyword && keyword.query) || ''),
+          colorIdx: Number.isInteger(keyword && keyword.colorIdx) ? keyword.colorIdx : 0,
+        }))
+        : [],
+      searchScope,
+      searchCurrentRow: retainRow(context.searchCurrentRow),
+      searchPerKeywordCurrentRows: Array.isArray(context.searchPerKeywordCurrentRows)
+        ? context.searchPerKeywordCurrentRows.filter(
+          (entry) => Array.isArray(entry) && entry.length === 2 && restoredSet.has(entry[1]),
+        )
+        : [],
+      selectedRow: retainRow(context.selectedRow),
+      focusedRow: retainRow(context.focusedRow),
+      selectedRows: retainRowsByIdentity(context.selectedRows || [], rows),
+      highlightedRows: Array.isArray(context.highlightedRows)
+        ? context.highlightedRows.filter(
+          (entry) => Array.isArray(entry) && entry.length === 2 && restoredSet.has(entry[0]),
+        )
+        : [],
+      comparedRows,
+      comparisonInvokingRowId: comparedRows ? context.comparisonInvokingRowId || null : null,
+      sort: {
+        colId: context.sort && context.sort.colId ? context.sort.colId : 'id',
+        direction:
+          context.sort && ['asc', 'desc', null].includes(context.sort.direction)
+            ? context.sort.direction
+            : 'asc',
+      },
+      paused: context.paused === true,
+      autoScroll: context.autoScroll !== false,
+      sampleCaptureActive: context.sampleCaptureActive === true,
+      sampleCapturePreviousPaused: context.sampleCapturePreviousPaused === true,
+      sampleCapturePreviousColumnFilterRules: context.sampleCapturePreviousColumnFilterRules
+        ? deserializeFilterState(serializeFilterState(context.sampleCapturePreviousColumnFilterRules))
+        : null,
+      searchPanelVisible: context.searchPanelVisible === true,
+    };
+  }
+
   function createRowEvictionPlan(evictedRows, references) {
     const evictedSet = new Set(evictedRows || []);
     const refs = references || {};
@@ -3052,6 +3163,7 @@ const _NetworkPlus = (function () {
     nextId: 1,
     paused: false,
     autoScroll: true,
+    clearUndoSnapshot: null,
     sampleCaptureActive: false,
     sampleCapturePreviousPaused: false,
     sampleCapturePreviousColumnFilterRules: null,
@@ -3063,7 +3175,7 @@ const _NetworkPlus = (function () {
       keywords: [],       // array of {query: string, colorIdx: number}
       matches: [],        // array of row references that match any keyword
       currentIndex: -1,   // index into matches[] for navigation
-      scope: { url: true, reqBody: true, resBody: true, reqHeaders: true, resHeaders: true },
+      scope: DEFAULT_SEARCH_SCOPE(),
       // Per-row match maps keep color and keyword correspondence lookup linear.
       rowColors: new Map(),
       rowKeywords: new Map(),
@@ -3071,6 +3183,7 @@ const _NetworkPlus = (function () {
       perKeyword: new Map(),
     },
   };
+  let clearUndoTimer = null;
 
   function loadRetentionSetting() {
     let parsed = null;
@@ -3230,6 +3343,7 @@ const _NetworkPlus = (function () {
       search.rowKeywords.delete(row);
       state.highlightedRows.delete(row);
       releaseResponseContent(row, 'row-evicted', false);
+      row._responseContentPromise = null;
       row._retentionDisposed = true;
       state.retainedRows.delete(row);
       row._reqObj = null;
@@ -3293,15 +3407,23 @@ const _NetworkPlus = (function () {
     for (const row of incomingRows) {
       row._managedRetention = true;
       row._retentionDisposed = false;
-      state.rows.push(row);
       state.retainedRows.add(row);
     }
-    const overflowCount = state.retention.unlimited
-      ? 0
-      : Math.max(0, state.rows.length - state.retention.requestLimit);
-    const evictedRows = overflowCount > 0 ? state.rows.splice(0, overflowCount) : [];
-    cleanupEvictedRowReferences(evictedRows, true);
-    const retainedIncomingRows = incomingRows.filter((row) => isRetainedRow(row, state.retainedRows));
+    const undoSnapshot = state.clearUndoSnapshot;
+    const retentionPlan = planClearUndoRetention(
+      undoSnapshot ? undoSnapshot.rows : [],
+      state.rows,
+      incomingRows,
+      state.retention.requestLimit,
+      state.retention.unlimited,
+    );
+    state.rows = retentionPlan.retainedActiveRows;
+    if (undoSnapshot) undoSnapshot.rows = retentionPlan.retainedHeldRows;
+    cleanupEvictedRowReferences(retentionPlan.evictedRows, true);
+    reconcileClearUndoAfterRetentionPressure();
+    const retainedIncomingRows = retentionPlan.retainedIncomingRows.filter((row) =>
+      isRetainedRow(row, state.retainedRows),
+    );
     normalizeIncomingResponseContent(retainedIncomingRows, source);
     return retainedIncomingRows;
   }
@@ -3318,6 +3440,142 @@ const _NetworkPlus = (function () {
     removeRowsFromState(state.rows.slice(), false);
     state.filteredRows = [];
     state.visibleBytes = 0;
+  }
+
+  function createClearUndoSnapshot(searchPanelVisible) {
+    const rows = state.rows.slice();
+    const currentSearchRow =
+      state.search.currentIndex >= 0 && state.search.currentIndex < state.search.matches.length
+        ? state.search.matches[state.search.currentIndex]
+        : null;
+    const searchPerKeywordCurrentRows = Array.from(
+      state.search.perKeyword,
+      ([keywordIndex, keywordState]) => [
+        keywordIndex,
+        keywordState.currentIndex >= 0 && keywordState.currentIndex < keywordState.matches.length
+          ? keywordState.matches[keywordState.currentIndex]
+          : null,
+      ],
+    ).filter((entry) => entry[1]);
+    return {
+      rows,
+      originalCount: rows.length,
+      sampleCaptureActive: state.sampleCaptureActive,
+      context: {
+        columnFilterRules: deserializeFilterState(serializeFilterState(state.columnFilterRules)),
+        searchKeywords: state.search.keywords.map((keyword) => ({
+          query: String(keyword.query || ''),
+          colorIdx: Number.isInteger(keyword.colorIdx) ? keyword.colorIdx : 0,
+        })),
+        searchScope: { ...state.search.scope },
+        searchCurrentRow: currentSearchRow,
+        searchPerKeywordCurrentRows,
+        selectedRow: state.selectedRow,
+        focusedRow: state.focusedRow,
+        selectedRows: Array.from(state.selectedRows),
+        highlightedRows: Array.from(state.highlightedRows.entries()),
+        comparedRows: state.comparedRows ? state.comparedRows.slice() : null,
+        comparisonInvokingRowId: state.comparisonInvokingRowId,
+        sort: { ...state.sort },
+        paused: state.paused,
+        autoScroll: state.autoScroll,
+        sampleCaptureActive: state.sampleCaptureActive,
+        sampleCapturePreviousPaused: state.sampleCapturePreviousPaused,
+        sampleCapturePreviousColumnFilterRules: state.sampleCapturePreviousColumnFilterRules
+          ? deserializeFilterState(serializeFilterState(state.sampleCapturePreviousColumnFilterRules))
+          : null,
+        searchPanelVisible: searchPanelVisible === true,
+      },
+    };
+  }
+
+  function detachStoredRowsForClearUndo() {
+    state.rows = [];
+    state.filteredRows = [];
+    state.visibleBytes = 0;
+    if (state.sampleCaptureActive) exitSampleCaptureMode();
+  }
+
+  function updateClearUndoAction() {
+    const button = $('#undoClearBtn');
+    if (!button) return;
+    const snapshot = state.clearUndoSnapshot;
+    const remainingCount = snapshot
+      ? snapshot.rows.filter((row) => isRetainedRow(row, state.retainedRows)).length
+      : 0;
+    const available = !!snapshot && remainingCount > 0;
+    button.hidden = !available;
+    button.disabled = !available;
+    button.setAttribute(
+      'aria-label',
+      available
+        ? 'Undo clear, ' + formatRequestCount(remainingCount) + ' available'
+        : 'Undo clear',
+    );
+    button.title = available ? 'Restore the retained requests and working context from the last Clear' : '';
+  }
+
+  function consumeClearUndoSnapshot(action) {
+    const snapshot = state.clearUndoSnapshot;
+    const transition = planClearUndoAction(snapshot, action);
+    if (!transition.consume) return null;
+    const button = $('#undoClearBtn');
+    const undoHadFocus = !!button && document.activeElement === button;
+    state.clearUndoSnapshot = null;
+    if (clearUndoTimer) {
+      clearTimeout(clearUndoTimer);
+      clearUndoTimer = null;
+    }
+    updateClearUndoAction();
+    return { snapshot, disposition: transition.disposition, undoHadFocus };
+  }
+
+  function focusClearAfterUndoUnavailable(consumed) {
+    if (!consumed || !consumed.undoHadFocus) return;
+    const clearButton = $('#clearBtn');
+    if (clearButton) clearButton.focus({ preventScroll: true });
+  }
+
+  function disposeClearUndoSnapshot(action, statusMessage) {
+    const consumed = consumeClearUndoSnapshot(action);
+    if (!consumed || consumed.disposition !== 'dispose') return false;
+    const retainedSnapshotRows = consumed.snapshot.rows.filter((row) =>
+      isRetainedRow(row, state.retainedRows),
+    );
+    cleanupEvictedRowReferences(retainedSnapshotRows, false);
+    focusClearAfterUndoUnavailable(consumed);
+    if (statusMessage) setStatus(statusMessage);
+    return true;
+  }
+
+  function armClearUndoSnapshot(snapshot) {
+    if (!snapshot || snapshot.rows.length === 0) return false;
+    state.clearUndoSnapshot = snapshot;
+    updateClearUndoAction();
+    clearUndoTimer = setTimeout(() => {
+      if (state.clearUndoSnapshot !== snapshot) return;
+      const remainingCount = snapshot.rows.filter((row) =>
+        isRetainedRow(row, state.retainedRows),
+      ).length;
+      disposeClearUndoSnapshot(
+        'timeout',
+        'Undo expired; ' + formatRequestCount(remainingCount) + ' from the last Clear released.',
+      );
+    }, CLEAR_UNDO_TIMEOUT_MS);
+    return true;
+  }
+
+  function reconcileClearUndoAfterRetentionPressure() {
+    const snapshot = state.clearUndoSnapshot;
+    if (!snapshot) return;
+    snapshot.rows = snapshot.rows.filter((row) => isRetainedRow(row, state.retainedRows));
+    if (snapshot.rows.length > 0) {
+      updateClearUndoAction();
+      return;
+    }
+    const consumed = consumeClearUndoSnapshot('retention-exhausted');
+    focusClearAfterUndoUnavailable(consumed);
+    setStatus('Cleared requests were evicted by the retention limit; Undo is no longer available.');
   }
 
   // ============================================================
@@ -4957,6 +5215,7 @@ const _NetworkPlus = (function () {
   }
 
   function activateSampleCapture() {
+    disposeClearUndoSnapshot('sample');
     if (!enterSampleCaptureMode()) {
       renderBody();
       const tbody = $('#tbody');
@@ -6595,18 +6854,124 @@ const _NetworkPlus = (function () {
     updateRetentionStatus();
     if (state.retention.settingWarning) queueRetentionSummary(state.retention.settingWarning);
 
-    // [U4] Clear — reset filters properly, keeping method defaults
-    $('#clearBtn').addEventListener('click', () => {
-      const clearedSampleCapture = state.sampleCaptureActive;
-      resetPendingLiveRows();
-      clearStoredRows();
-      state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
+    const clearButton = $('#clearBtn');
+    const undoClearButton = $('#undoClearBtn');
+
+    const restoreSearchNavigation = (restorePlan) => {
+      state.search.currentIndex = restorePlan.searchCurrentRow
+        ? state.search.matches.indexOf(restorePlan.searchCurrentRow)
+        : -1;
+      for (const [keywordIndex, currentRow] of restorePlan.searchPerKeywordCurrentRows) {
+        const keywordState = state.search.perKeyword.get(keywordIndex);
+        if (!keywordState) continue;
+        keywordState.currentIndex = keywordState.matches.indexOf(currentRow);
+      }
+    };
+
+    const restoreClearUndoSnapshot = (snapshot) => {
+      const restorePlan = createClearUndoRestorePlan(snapshot, state.retainedRows);
+      if (restorePlan.rows.length === 0) {
+        clearButton.focus({ preventScroll: true });
+        setStatus('Nothing from the last Clear remains available to restore.');
+        return;
+      }
+      const activeRows = state.rows.slice();
+      if (restorePlan.sampleCaptureActive && activeRows.length > 0) {
+        cleanupEvictedRowReferences(restorePlan.rows, false);
+        clearButton.focus({ preventScroll: true });
+        setStatus('The cleared local sample could not be restored after live traffic arrived.');
+        return;
+      }
+      const activeRowSet = new Set(activeRows);
+      const activeHighlights = Array.from(state.highlightedRows.entries()).filter(([row]) =>
+        activeRowSet.has(row),
+      );
+      state.rows = restorePlan.rows.concat(activeRows);
+      state.columnFilterRules = restorePlan.columnFilterRules;
+      state.sort = restorePlan.sort;
+      state.paused = restorePlan.paused;
+      state.autoScroll = restorePlan.autoScroll;
+      state.sampleCaptureActive = restorePlan.sampleCaptureActive;
+      state.sampleCapturePreviousPaused = restorePlan.sampleCapturePreviousPaused;
+      state.sampleCapturePreviousColumnFilterRules =
+        restorePlan.sampleCapturePreviousColumnFilterRules;
+      state.search.keywords = restorePlan.searchKeywords;
+      state.search.scope = restorePlan.searchScope;
+      state.search.matches = [];
+      state.search.currentIndex = -1;
+      state.search.rowColors.clear();
+      state.search.rowKeywords.clear();
+      state.search.perKeyword.clear();
       state.selectedRow = null;
       state.focusedRow = null;
       state.selectedRows.clear();
+      state.highlightedRows = new Map(activeHighlights);
+      state.comparedRows = null;
+      state.comparisonInvokingRowId = null;
+      hideComparisonPanel();
+      clearDetailsPanel();
+      if (restorePlan.selectedRow) selectRow(restorePlan.selectedRow, null, false);
+      state.selectedRow = restorePlan.selectedRow;
+      state.focusedRow = restorePlan.focusedRow;
+      state.selectedRows = new Set(restorePlan.selectedRows);
+      for (const [row, colorClass] of restorePlan.highlightedRows) {
+        state.highlightedRows.set(row, colorClass);
+      }
+      state.comparedRows = restorePlan.comparedRows;
+      state.comparisonInvokingRowId = restorePlan.comparisonInvokingRowId;
+      const focusRow = restorePlan.focusedRow || restorePlan.selectedRow || restorePlan.rows[0];
+      state.pendingRowFocusId = focusRow ? String(focusRow.id) : null;
+      updateRecordState(false);
+      syncSearchScopeControls();
+      toggleSearchPanel(restorePlan.searchPanelVisible, false);
+      render();
+      restoreSearchNavigation(restorePlan);
+      updateSearchUI();
+      if (restorePlan.comparedRows) {
+        $('#detailsTitle').textContent = 'Comparing 2 requests';
+        renderComparisonPanel(restorePlan.comparedRows[0], restorePlan.comparedRows[1]);
+        showComparisonPanel();
+      }
+      const activeRow =
+        document.activeElement && document.activeElement.closest
+          ? document.activeElement.closest('tr[data-row-id]')
+          : null;
+      if (!activeRow) {
+        const fallbackRow = $('#tbody') ? $('#tbody').querySelector('tr[tabindex="0"]') : null;
+        if (fallbackRow) fallbackRow.focus({ preventScroll: true });
+        else clearButton.focus({ preventScroll: true });
+      }
+      updateRetentionStatus();
+      const missingCount = Math.max(0, restorePlan.originalCount - restorePlan.rows.length);
+      setStatus(
+        'Restored ' +
+          formatRequestCount(restorePlan.rows.length) +
+          ' from the last Clear' +
+          (missingCount > 0
+            ? '; ' + formatRequestCount(missingCount) + ' had already been evicted by retention.'
+            : '.'),
+      );
+    };
+
+    // [U4] Clear — reset visible working state and retain one bounded Undo snapshot.
+    clearButton.addEventListener('click', () => {
+      disposeClearUndoSnapshot('clear');
+      const snapshot = createClearUndoSnapshot(searchPanelVisible);
+      const clearedSampleCapture = snapshot.sampleCaptureActive;
+      resetPendingLiveRows();
+      detachStoredRowsForClearUndo();
+      state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
+      state.selectedRow = null;
+      state.focusedRow = null;
+      state.pendingRowFocusId = null;
+      state.selectedRows.clear();
       state.highlightedRows.clear();
+      state.comparedRows = null;
+      state.comparisonInvokingRowId = null;
+      hideComparisonPanel();
       // Reset search
       state.search.keywords = [];
+      state.search.scope = DEFAULT_SEARCH_SCOPE();
       state.search.matches = [];
       state.search.currentIndex = -1;
       state.search.rowColors.clear();
@@ -6614,16 +6979,35 @@ const _NetworkPlus = (function () {
       state.search.perKeyword.clear();
       updateRecordState(false);
       render();
+      syncSearchScopeControls();
+      toggleSearchPanel(searchPanelVisible, false);
+      updateSearchUI();
       updateRetentionStatus();
       clearDetailsPanel();
-      $('#clearBtn').focus({ preventScroll: true });
+      const undoAvailable = armClearUndoSnapshot(snapshot);
+      clearButton.focus({ preventScroll: true });
+      const undoMessage = undoAvailable
+        ? ' Undo available for ' + CLEAR_UNDO_TIMEOUT_MS / 1000 + ' seconds.'
+        : '';
       setStatus(
         clearedSampleCapture
           ? state.paused
-            ? 'Local sample capture cleared. Recording remains paused.'
-            : 'Local sample capture cleared. Live capture resumed.'
-          : 'Cleared',
+            ? 'Local sample capture cleared. Recording remains paused.' + undoMessage
+            : 'Local sample capture cleared. Live capture resumed.' + undoMessage
+          : snapshot.originalCount > 0
+            ? 'Cleared ' + formatRequestCount(snapshot.originalCount) + '.' + undoMessage
+            : 'Cleared',
       );
+    });
+    undoClearButton.addEventListener('click', () => {
+      const consumed = consumeClearUndoSnapshot('undo');
+      if (!consumed || consumed.disposition !== 'restore') {
+        clearButton.focus({ preventScroll: true });
+        setStatus('Nothing is available to undo.');
+        return;
+      }
+      resetPendingLiveRows();
+      restoreClearUndoSnapshot(consumed.snapshot);
     });
 
     // Pause/Resume
@@ -7331,7 +7715,7 @@ const _NetworkPlus = (function () {
     // Track search panel visibility
     let searchPanelVisible = false;
 
-    function toggleSearchPanel(forceOpen) {
+    function toggleSearchPanel(forceOpen, focusInput) {
       const shouldShow = forceOpen != null ? forceOpen : !searchPanelVisible;
       searchPanelVisible = shouldShow;
       searchPanel.style.display = shouldShow ? 'block' : 'none';
@@ -7345,7 +7729,7 @@ const _NetworkPlus = (function () {
         renderSearchRows();
         // Focus the first input
         const firstInput = searchRows.querySelector('.search-keyword-input');
-        if (firstInput) firstInput.focus();
+        if (focusInput !== false && firstInput) firstInput.focus();
       }
     }
 
@@ -7362,18 +7746,19 @@ const _NetworkPlus = (function () {
     document.body.appendChild(scopePopup);
 
     const scopeLabels = [
-      { key: 'url', text: 'URL / Method / Status / Type', checked: true },
-      { key: 'reqBody', text: 'Request Body', checked: true },
-      { key: 'resBody', text: 'Response Body', checked: true },
-      { key: 'reqHeaders', text: 'Request Headers', checked: true },
-      { key: 'resHeaders', text: 'Response Headers', checked: true },
+      { key: 'url', text: 'URL / Method / Status / Type' },
+      { key: 'reqBody', text: 'Request Body' },
+      { key: 'resBody', text: 'Response Body' },
+      { key: 'reqHeaders', text: 'Request Headers' },
+      { key: 'resHeaders', text: 'Response Headers' },
     ];
 
     for (const sl of scopeLabels) {
       const label = document.createElement('label');
       const cb = document.createElement('input');
       cb.type = 'checkbox';
-      cb.checked = sl.checked;
+      cb.checked = state.search.scope[sl.key];
+      cb.dataset.searchScope = sl.key;
       const span = document.createElement('span');
       span.textContent = sl.text;
       label.appendChild(cb);
@@ -7383,6 +7768,12 @@ const _NetworkPlus = (function () {
         state.search.scope[sl.key] = cb.checked;
         executeSearch();
       });
+    }
+
+    function syncSearchScopeControls() {
+      for (const input of $all('input[data-search-scope]', scopePopup)) {
+        input.checked = state.search.scope[input.dataset.searchScope] === true;
+      }
     }
 
     searchScopeBtn.addEventListener('click', (event) => {
@@ -7759,6 +8150,7 @@ const _NetworkPlus = (function () {
       };
 
       const commitStagedImport = (stagedImport) => {
+        disposeClearUndoSnapshot('import');
         exitSampleCaptureMode();
         state.paused = true;
         updateRecordState();
@@ -7857,6 +8249,10 @@ const _NetworkPlus = (function () {
     if (chrome && chrome.devtools && chrome.devtools.network && chrome.devtools.network.onRequestFinished) {
       chrome.devtools.network.onRequestFinished.addListener((request) => {
         if (state.paused || state.sampleCaptureActive) return;
+        disposeClearUndoSnapshot(
+          'live',
+          'Undo for the cleared local sample was closed before live capture to keep sample and live traffic separate.',
+        );
         const row = buildRowFromRequest(request);
         addRowsWithRetention([row], 'live');
         if (!isRetainedRow(row, state.retainedRows)) return;
@@ -7960,6 +8356,10 @@ const _NetworkPlus = (function () {
     shouldRenderSelectedRow,
     isIncrementalAppendEligible,
     getIncrementalAppendBatch,
+    planClearUndoRetention,
+    planClearUndoAction,
+    formatRequestCount,
+    createClearUndoRestorePlan,
     normalizeRetentionSetting,
     getRetentionPresentation,
     appendRowsWithRetention,
@@ -7992,6 +8392,7 @@ const _NetworkPlus = (function () {
     fetchResponsePayload,
     resolveHarResponseContent,
     DEFAULT_REQUEST_RETENTION_LIMIT,
+    CLEAR_UNDO_TIMEOUT_MS,
     MAX_RESPONSE_BODY_BYTES,
     MAX_RESPONSE_CACHE_BYTES,
     MAX_IMPORT_SOURCE_BYTES,

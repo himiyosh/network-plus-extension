@@ -682,6 +682,129 @@ describe('capture retention helpers', () => {
     expect(np.appendRowsWithRetention([], incoming, 3, true).evictedRows).toEqual([]);
   });
 
+  test('counts held Clear rows inside retention and evicts them before newer active traffic', () => {
+    const held = rows(3);
+    const active = [{ id: 4 }];
+    const incoming = [{ id: 5 }, { id: 6 }];
+    const plan = np.planClearUndoRetention(held, active, incoming, 4, false);
+
+    expect(plan.evictedRows).toEqual([held[0], held[1]]);
+    expect(plan.retainedHeldRows).toEqual([held[2]]);
+    expect(plan.retainedActiveRows).toEqual(active.concat(incoming));
+    expect(plan.retainedIncomingRows).toEqual(incoming);
+    expect(plan.retainedHeldRows[0]).toBe(held[2]);
+    expect(np.planClearUndoRetention(held, active, incoming, 1, true)).toEqual({
+      retainedHeldRows: held,
+      retainedActiveRows: active.concat(incoming),
+      retainedIncomingRows: incoming,
+      evictedRows: [],
+    });
+  });
+
+  test('makes Undo one-shot and isolates a cleared sample from the first live row', () => {
+    const normalSnapshot = { sampleCaptureActive: false };
+    const sampleSnapshot = { sampleCaptureActive: true };
+
+    expect(np.CLEAR_UNDO_TIMEOUT_MS).toBe(10000);
+    expect(np.planClearUndoAction(normalSnapshot, 'undo')).toEqual({
+      disposition: 'restore',
+      consume: true,
+    });
+    expect(np.planClearUndoAction(normalSnapshot, 'live')).toEqual({
+      disposition: 'keep',
+      consume: false,
+    });
+    expect(np.planClearUndoAction(sampleSnapshot, 'live')).toEqual({
+      disposition: 'dispose',
+      consume: true,
+    });
+    for (const action of ['clear', 'import', 'sample', 'timeout', 'retention-exhausted']) {
+      expect(np.planClearUndoAction(normalSnapshot, action)).toEqual({
+        disposition: 'dispose',
+        consume: true,
+      });
+    }
+    expect(np.planClearUndoAction(null, 'undo')).toEqual({
+      disposition: 'none',
+      consume: false,
+    });
+  });
+
+  test('formats restored and released request counts truthfully', () => {
+    expect(np.formatRequestCount(0)).toBe('0 requests');
+    expect(np.formatRequestCount(1)).toBe('1 request');
+    expect(np.formatRequestCount(5)).toBe('5 requests');
+  });
+
+  test('restores only retained row identities while rebuilding the prior working context', () => {
+    const [evicted, retained, disposed] = rows(3);
+    disposed._retentionDisposed = true;
+    const filterRules = np.deserializeFilterState({
+      status: { op: 'gte', value: '400' },
+    });
+    const previousSampleFilters = np.deserializeFilterState({
+      domain: { mode: 'multiText', conditions: [{ op: 'contains', value: '.test' }] },
+    });
+    const snapshot = {
+      rows: [evicted, retained, disposed],
+      originalCount: 3,
+      context: {
+        columnFilterRules: filterRules,
+        searchKeywords: [{ query: 'failure', colorIdx: 2 }],
+        searchScope: {
+          url: false,
+          reqBody: true,
+          resBody: true,
+          reqHeaders: false,
+          resHeaders: true,
+        },
+        searchCurrentRow: retained,
+        searchPerKeywordCurrentRows: [[0, retained], [1, disposed]],
+        selectedRow: evicted,
+        focusedRow: retained,
+        selectedRows: [evicted, retained],
+        highlightedRows: [[evicted, 'hl-red'], [retained, 'hl-green']],
+        comparedRows: [evicted, retained],
+        comparisonInvokingRowId: String(retained.id),
+        sort: { colId: 'duration', direction: 'desc' },
+        paused: true,
+        autoScroll: false,
+        sampleCaptureActive: true,
+        sampleCapturePreviousPaused: false,
+        sampleCapturePreviousColumnFilterRules: previousSampleFilters,
+        searchPanelVisible: true,
+      },
+    };
+
+    const plan = np.createClearUndoRestorePlan(snapshot, new Set([retained, disposed]));
+
+    expect(plan.rows).toEqual([retained]);
+    expect(plan.rows[0]).toBe(retained);
+    expect(plan.originalCount).toBe(3);
+    expect(plan.selectedRow).toBeNull();
+    expect(plan.focusedRow).toBe(retained);
+    expect(plan.selectedRows).toEqual([retained]);
+    expect(plan.highlightedRows).toEqual([[retained, 'hl-green']]);
+    expect(plan.comparedRows).toBeNull();
+    expect(plan.searchCurrentRow).toBe(retained);
+    expect(plan.searchPerKeywordCurrentRows).toEqual([[0, retained]]);
+    expect(plan.columnFilterRules).toEqual(filterRules);
+    expect(plan.columnFilterRules).not.toBe(filterRules);
+    expect(plan.searchKeywords).toEqual([{ query: 'failure', colorIdx: 2 }]);
+    expect(plan.searchKeywords[0]).not.toBe(snapshot.context.searchKeywords[0]);
+    expect(plan.searchScope.url).toBe(false);
+    expect(plan.sort).toEqual({ colId: 'duration', direction: 'desc' });
+    expect(plan).toEqual(expect.objectContaining({
+      paused: true,
+      autoScroll: false,
+      sampleCaptureActive: true,
+      sampleCapturePreviousPaused: false,
+      searchPanelVisible: true,
+    }));
+    expect(plan.sampleCapturePreviousColumnFilterRules).toEqual(previousSampleFilters);
+    expect(plan.sampleCapturePreviousColumnFilterRules).not.toBe(previousSampleFilters);
+  });
+
   test('plans cleanup for selection, focus, search, and pending batches by identity', () => {
     const [first, second, third] = rows(3);
     const plan = np.createRowEvictionPlan([first, second], {

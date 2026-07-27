@@ -281,16 +281,20 @@ describe('guided sample capture static contracts', () => {
     expect(js).toContain('else if (sampleCaptureWasActive && evictedRows.length > 0)');
     expect(js).toContain('setStatus(formatSampleCaptureRemainingStatus(state.rows.length));');
     expect(js).toContain('Local sample capture removed. Live capture resumed.');
-    const clearBlock = js.slice(js.indexOf("$('#clearBtn').addEventListener"), js.indexOf('// Pause/Resume'));
-    expect(clearBlock).toContain('const clearedSampleCapture = state.sampleCaptureActive;');
+    const clearBlock = js.slice(
+      js.indexOf("clearButton.addEventListener('click'"),
+      js.indexOf('// Pause/Resume'),
+    );
+    expect(clearBlock).toContain('const clearedSampleCapture = snapshot.sampleCaptureActive;');
     expect(clearBlock).toContain('updateRecordState(false);');
-    expect(clearBlock).toContain('clearStoredRows();');
-    expect(clearBlock.indexOf('clearStoredRows();')).toBeLessThan(
+    expect(clearBlock).toContain('detachStoredRowsForClearUndo();');
+    expect(clearBlock.indexOf('detachStoredRowsForClearUndo();')).toBeLessThan(
       clearBlock.indexOf('state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();'),
     );
     expect(clearBlock).toContain('render();');
-    expect(clearBlock).toContain("$('#clearBtn').focus({ preventScroll: true });");
+    expect(clearBlock).toContain('clearButton.focus({ preventScroll: true });');
     expect(clearBlock).toContain('Local sample capture cleared. Live capture resumed.');
+    expect(clearBlock).toContain('Undo available for ');
     expect(js).toContain("const fallbackControl = document.querySelector('.empty-state-action') || $('#clearBtn');");
 
     const importCommitBlock = js.slice(
@@ -366,6 +370,128 @@ describe('guided sample capture static contracts', () => {
   });
 });
 
+describe('recoverable Clear Undo static contracts', () => {
+  test('adds a transient named keyboard action beside the polite status text', () => {
+    expect(html).toMatch(
+      /<button id="undoClearBtn"[^>]*type="button"[^>]*aria-label="Undo clear"[^>]*hidden disabled>Undo clear<\/button><span id="statusText"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"[^>]*>Loaded<\/span>/,
+    );
+    expect(css).toMatch(
+      /\.undo-clear-btn\{[^}]*min-height:24px[^}]*border:1px solid var\(--accent\)[^}]*background:var\(--accent-dim\)[^}]*color:var\(--text-accent\)[^}]*white-space:nowrap[^}]*transition:background-color 0\.15s/,
+    );
+    expect(css).toContain('.undo-clear-btn:hover{background:var(--accent-fill);border-color:var(--accent);color:var(--on-accent)}');
+    expect(css).toContain('.undo-clear-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}');
+    expect(css).toContain('.undo-clear-btn:disabled{opacity:.5;cursor:not-allowed}');
+    expect(css).toContain('.undo-clear-btn[hidden]{display:none}');
+  });
+
+  test('consumes each snapshot before restoring or disposing it and expires on a named timeout', () => {
+    expect(js).toContain('const CLEAR_UNDO_TIMEOUT_MS = 10000;');
+    const consumeStart = js.indexOf('function consumeClearUndoSnapshot');
+    const consumeEnd = js.indexOf('function focusClearAfterUndoUnavailable', consumeStart);
+    const consumeBlock = js.slice(consumeStart, consumeEnd);
+    expect(consumeBlock).toContain('state.clearUndoSnapshot = null;');
+    expect(consumeBlock.indexOf('state.clearUndoSnapshot = null;')).toBeLessThan(
+      consumeBlock.indexOf('updateClearUndoAction();'),
+    );
+    expect(consumeBlock).toContain('clearTimeout(clearUndoTimer);');
+
+    const armStart = js.indexOf('function armClearUndoSnapshot');
+    const armEnd = js.indexOf('function reconcileClearUndoAfterRetentionPressure', armStart);
+    const armBlock = js.slice(armStart, armEnd);
+    expect(armBlock).toContain('setTimeout(() => {');
+    expect(armBlock).toContain('}, CLEAR_UNDO_TIMEOUT_MS);');
+    expect(armBlock).toContain("disposeClearUndoSnapshot(\n        'timeout'");
+
+    const undoStart = js.indexOf("undoClearButton.addEventListener('click'");
+    const undoEnd = js.indexOf('// Pause/Resume', undoStart);
+    const undoBlock = js.slice(undoStart, undoEnd);
+    expect(undoBlock).toContain("consumeClearUndoSnapshot('undo')");
+    expect(undoBlock.indexOf("consumeClearUndoSnapshot('undo')")).toBeLessThan(
+      undoBlock.indexOf('restoreClearUndoSnapshot(consumed.snapshot)'),
+    );
+  });
+
+  test('holds row identities inside existing request and body-cache accounting', () => {
+    const snapshotStart = js.indexOf('function createClearUndoSnapshot');
+    const snapshotEnd = js.indexOf('function detachStoredRowsForClearUndo', snapshotStart);
+    const snapshotBlock = js.slice(snapshotStart, snapshotEnd);
+    expect(snapshotBlock).toContain('const rows = state.rows.slice();');
+    expect(snapshotBlock).not.toMatch(/requestHeaders|responseHeaders|requestPostData|responseContent|localStorage|chrome\.storage/);
+
+    const addStart = js.indexOf('function addRowsWithRetention');
+    const addEnd = js.indexOf('function recordSkippedImportRows', addStart);
+    const addBlock = js.slice(addStart, addEnd);
+    expect(addBlock).toContain('undoSnapshot ? undoSnapshot.rows : []');
+    expect(addBlock).toContain('state.rows = retentionPlan.retainedActiveRows;');
+    expect(addBlock).toContain('undoSnapshot.rows = retentionPlan.retainedHeldRows;');
+    expect(addBlock.indexOf('undoSnapshot ? undoSnapshot.rows : []')).toBeLessThan(
+      addBlock.indexOf('state.rows,'),
+    );
+    expect(addBlock).toContain('cleanupEvictedRowReferences(retentionPlan.evictedRows, true);');
+    expect(js).toContain("releaseResponseContent(row, 'row-evicted', false);");
+    expect(js).toContain('row._responseContentPromise = null;');
+    expect(js).toContain('row._reqObj = null;');
+  });
+
+  test('restores prior filters, search, selection, detail, sort, sample, pause, and focus context', () => {
+    const restoreStart = js.indexOf('const restoreClearUndoSnapshot = (snapshot) => {');
+    const restoreEnd = js.indexOf('// [U4] Clear', restoreStart);
+    const restoreBlock = js.slice(restoreStart, restoreEnd);
+    for (const expected of [
+      'state.rows = restorePlan.rows.concat(activeRows);',
+      'state.columnFilterRules = restorePlan.columnFilterRules;',
+      'state.sort = restorePlan.sort;',
+      'state.paused = restorePlan.paused;',
+      'state.sampleCaptureActive = restorePlan.sampleCaptureActive;',
+      'state.search.keywords = restorePlan.searchKeywords;',
+      'state.search.scope = restorePlan.searchScope;',
+      'state.selectedRows = new Set(restorePlan.selectedRows);',
+      'state.highlightedRows.set(row, colorClass);',
+      'selectRow(restorePlan.selectedRow, null, false);',
+      'syncSearchScopeControls();',
+      'toggleSearchPanel(restorePlan.searchPanelVisible, false);',
+      'restoreSearchNavigation(restorePlan);',
+      'state.pendingRowFocusId = focusRow ? String(focusRow.id) : null;',
+      'Restored ',
+    ]) {
+      expect(restoreBlock).toContain(expected);
+    }
+    expect(restoreBlock).toContain('state.rows = restorePlan.rows.concat(activeRows);');
+    expect(restoreBlock).not.toContain('state.nextId =');
+  });
+
+  test('commits superseded snapshots and invalidates a sample before accepting live traffic', () => {
+    const clearStart = js.indexOf("clearButton.addEventListener('click'");
+    const clearEnd = js.indexOf("undoClearButton.addEventListener('click'", clearStart);
+    const clearBlock = js.slice(clearStart, clearEnd);
+    expect(clearBlock.indexOf("disposeClearUndoSnapshot('clear')")).toBeLessThan(
+      clearBlock.indexOf('createClearUndoSnapshot(searchPanelVisible)'),
+    );
+
+    const sampleStart = js.indexOf('function activateSampleCapture');
+    const sampleEnd = js.indexOf('function updateEmptyState', sampleStart);
+    const sampleBlock = js.slice(sampleStart, sampleEnd);
+    expect(sampleBlock.indexOf("disposeClearUndoSnapshot('sample')")).toBeLessThan(
+      sampleBlock.indexOf('enterSampleCaptureMode()'),
+    );
+
+    const importStart = js.indexOf('const commitStagedImport = (stagedImport) => {');
+    const importEnd = js.indexOf('importBtn.addEventListener', importStart);
+    const importBlock = js.slice(importStart, importEnd);
+    expect(importBlock.indexOf("disposeClearUndoSnapshot('import')")).toBeLessThan(
+      importBlock.indexOf('clearStoredRows();'),
+    );
+
+    const liveStart = js.indexOf('chrome.devtools.network.onRequestFinished.addListener');
+    const liveEnd = js.indexOf('cacheResponseContent(row)', liveStart);
+    const liveBlock = js.slice(liveStart, liveEnd);
+    expect(liveBlock.indexOf("disposeClearUndoSnapshot(\n          'live'")).toBeLessThan(
+      liveBlock.indexOf('const row = buildRowFromRequest(request);'),
+    );
+    expect(liveBlock).toContain('keep sample and live traffic separate');
+  });
+});
+
 describe('capture retention static contracts', () => {
   test('provides a labelled narrow-safe retention dialog with an explicit unlimited warning', () => {
     expect(html).toMatch(/id="retentionBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="retentionDialog"/);
@@ -386,8 +512,8 @@ describe('capture retention static contracts', () => {
     expect(js).toContain("const RETENTION_KEY = 'networkPlus.retention.v1';");
     expect(js).toContain("addRowsWithRetention(stagedImport.rows, 'import')");
     expect(js).toContain("addRowsWithRetention([row], 'live')");
-    const clearBlock = js.slice(js.indexOf("$('#clearBtn').addEventListener"), js.indexOf('// Pause/Resume'));
-    expect(clearBlock).toContain('clearStoredRows();');
+    const clearBlock = js.slice(js.indexOf("clearButton.addEventListener('click'"), js.indexOf('// Pause/Resume'));
+    expect(clearBlock).toContain('detachStoredRowsForClearUndo();');
     expect(clearBlock).not.toContain('state.nextId = 1');
   });
 
