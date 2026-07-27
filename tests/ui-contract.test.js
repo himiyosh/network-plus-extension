@@ -350,7 +350,7 @@ describe('guided sample capture static contracts', () => {
 
   test('keeps sample trust visible and transfers focus when the empty action disappears', () => {
     expect(html).toMatch(/id="sampleCaptureStatus"[^>]*class="sample-capture-status"[^>]*hidden/);
-    expect(js).toContain("status.textContent = state.sampleCaptureActive ? 'Local sample · live paused · Clear to exit' : '';");
+    expect(js).toContain("status.textContent = active ? 'Local sample · live paused · Clear to exit' : '';");
     expect(js).toContain('Local synthetic requests are loaded. No network traffic was sent.');
     expect(css).toMatch(
       /\.sample-capture-status\{[^}]*border:1px solid var\(--accent\)[^}]*background:var\(--accent-dim\)[^}]*color:var\(--text-accent\)[^}]*white-space:nowrap/,
@@ -367,6 +367,120 @@ describe('guided sample capture static contracts', () => {
     );
     expect(pauseBlock).toContain('updateRecordState();');
     expect(pauseBlock).toContain('updateEmptyState(state.filteredRows.length);');
+  });
+});
+
+describe('sample evidence guide static contracts', () => {
+  const dialogStart = html.indexOf('<dialog id="sampleGuideDialog"');
+  const dialogEnd = html.indexOf('</dialog>', dialogStart);
+  const dialogBlock = html.slice(dialogStart, dialogEnd);
+  const guideUiStart = js.indexOf('function resetSampleGuideDialog');
+  const guideUiEnd = js.indexOf('function toggleSort', guideUiStart);
+  const guideUiBlock = js.slice(guideUiStart, guideUiEnd);
+
+  test('keeps one sample-only entry and an answer-free prompt before explicit reveal', () => {
+    expect(html).toMatch(
+      /id="sampleGuideBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="sampleGuideDialog"[^>]*aria-expanded="false"[^>]*hidden disabled>Sample guide<\/button>/,
+    );
+    expect(dialogBlock).toContain('Which request failed?');
+    expect(dialogBlock).toContain('Which Timing phase accounts for most of its duration?');
+    expect(dialogBlock).toContain('Which response header gives a retry hint?');
+    expect(dialogBlock).toContain('What limitation applies to what browser timing can prove?');
+    expect(dialogBlock).toMatch(
+      /id="sampleGuideEvidence"[^>]*aria-live="polite"[^>]*aria-atomic="true"[^>]*hidden><\/div>/,
+    );
+    expect(dialogBlock).not.toMatch(
+      /\bPOST\b|\/v1\/orders\/preview|\b503\b|2,?200|Retry-After|root cause/i,
+    );
+    expect(html.match(/>Sample guide<\/button>/g)).toHaveLength(1);
+  });
+
+  test('creates revealed evidence from the deterministic source using safe DOM APIs', () => {
+    expect(guideUiBlock).toContain(
+      'deriveSampleGuideEvidence(\n      createSampleCaptureRequests(SAMPLE_CAPTURE_BASE_TIMESTAMP)',
+    );
+    expect(guideUiBlock).toContain("heading.textContent = 'Evidence to verify';");
+    expect(guideUiBlock).toContain("document.createElement('dl')");
+    expect(guideUiBlock).toContain("appendSampleGuideEvidenceItem(\n      list,\n      'Failed request'");
+    expect(guideUiBlock).toContain("'Dominant Timing phase'");
+    expect(guideUiBlock).toContain("'Retry hint'");
+    expect(guideUiBlock).toContain("'Browser evidence limit'");
+    expect(guideUiBlock).not.toContain('innerHTML');
+    expect(guideUiBlock).not.toMatch(
+      /fetch\s*\(|XMLHttpRequest|sendBeacon|chrome\.storage|localStorage|analytics|telemetry/,
+    );
+  });
+
+  test('shows only in sample mode and resets on close, Clear exit, and sample Undo', () => {
+    const availabilityStart = js.indexOf('function updateSampleGuideAvailability');
+    const availabilityEnd = js.indexOf('function updateSampleCaptureStatus', availabilityStart);
+    const availabilityBlock = js.slice(availabilityStart, availabilityEnd);
+    expect(availabilityBlock).toContain(
+      'state.sampleCaptureActive && Number.isFinite(visibleRowCount) && visibleRowCount > 0',
+    );
+    expect(availabilityBlock).toContain('guideButton.hidden = !available;');
+    expect(availabilityBlock).toContain('guideButton.disabled = !available;');
+    expect(availabilityBlock).toContain('closeSampleGuideDialog(false);');
+
+    const emptyStateStart = js.indexOf('function updateEmptyState');
+    const emptyStateEnd = js.indexOf('function updateRetentionStatus', emptyStateStart);
+    expect(js.slice(emptyStateStart, emptyStateEnd)).toContain(
+      'updateSampleGuideAvailability(visibleRowCount);',
+    );
+
+    const openStart = js.indexOf('function openSampleGuideDialog');
+    const openEnd = js.indexOf('function closeSampleGuideDialog', openStart);
+    expect(js.slice(openStart, openEnd)).toContain('if (!state.sampleCaptureActive');
+
+    const exitStart = js.indexOf('function exitSampleCaptureMode');
+    const exitEnd = js.indexOf('function isFocusInsideEmptyState', exitStart);
+    expect(js.slice(exitStart, exitEnd)).toContain('closeSampleGuideDialog(false);');
+
+    const resetStart = js.indexOf('function resetSampleGuideDialog');
+    const resetEnd = js.indexOf('function appendSampleGuideEvidenceItem', resetStart);
+    const resetBlock = js.slice(resetStart, resetEnd);
+    expect(resetBlock).toContain("evidence.textContent = '';");
+    expect(resetBlock).toContain('evidence.hidden = true;');
+    expect(resetBlock).toContain('revealButton.hidden = false;');
+
+    const restoreStart = js.indexOf('const restoreClearUndoSnapshot = (snapshot) => {');
+    const restoreEnd = js.indexOf('// [U4] Clear', restoreStart);
+    expect(js.slice(restoreStart, restoreEnd)).toContain('updateRecordState(false);');
+    expect(js).not.toContain('sampleGuideRevealed');
+  });
+
+  test('restores focus for close and Escape without targeting a hidden trigger on exit', () => {
+    expect(guideUiBlock).toContain("dialog.addEventListener('cancel', (event) => {");
+    expect(guideUiBlock).toContain('event.preventDefault();');
+    expect(guideUiBlock).toContain('closeSampleGuideDialog(true);');
+    expect(guideUiBlock).toContain('if (event.target === dialog) closeSampleGuideDialog(true);');
+    expect(guideUiBlock).toContain('if (restoreFocus === false) sampleGuideDialogTrigger = null;');
+    expect(guideUiBlock).toContain('trigger.isConnected !== false && !trigger.hidden');
+    expect(guideUiBlock).toContain('trigger.focus({ preventScroll: true });');
+    expect(guideUiBlock).toContain('heading.focus({ preventScroll: true });');
+    expect(guideUiBlock).toContain("const closeButton = $('#sampleGuideCloseBtn');");
+    expect(guideUiBlock).toContain('if (!dialog || !button || !closeButton || !revealButton) return;');
+    expect(guideUiBlock).toContain(
+      "closeButton.addEventListener('click', () => closeSampleGuideDialog(true));",
+    );
+  });
+
+  test('keeps prompt, reveal, and close controls narrow-safe and at least 24px', () => {
+    expect(css).toMatch(
+      /\.sample-guide-btn\{[^}]*min-height:24px[^}]*white-space:nowrap/,
+    );
+    expect(css).toMatch(
+      /#sampleGuideDialog\{[^}]*width:min\(480px,calc\(100vw - 16px\)\)[^}]*max-height:min\(calc\(100vh - 16px\),calc\(100dvh - 16px\)\)[^}]*overflow:auto/,
+    );
+    expect(css).toMatch(/\.sample-guide-form button\{[^}]*min-height:32px/);
+    expect(css).toContain('.sample-guide-form button:focus-visible');
+    expect(css).toContain('.sample-guide-prompts{');
+    expect(css).toContain('overflow-wrap:anywhere');
+    expect(css).toContain('.sample-guide-actions{flex-wrap:wrap}');
+    expect(css).toContain('.sample-guide-actions button{flex:1 1 auto}');
+    const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
+    expect(reducedMotion).toContain('.sample-guide-btn');
+    expect(reducedMotion).toContain('transition:none');
   });
 });
 

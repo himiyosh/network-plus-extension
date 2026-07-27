@@ -96,7 +96,7 @@
       </div>
     </aside>
   </main>
-  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="retentionStatus">Retention: 5,000 requests · body cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span><span id="counter" aria-hidden="true">0 / 0 requests · 0 active column filters</span><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
+  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="retentionStatus">Retention: 5,000 requests · body cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span><span id="counter" aria-hidden="true">0 / 0 requests · 0 active column filters</span><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
   <dialog id="retentionDialog" aria-labelledby="retentionDialogTitle" aria-describedby="retentionHelp">
     <form method="dialog" class="retention-form">
       <h2 id="retentionDialogTitle">Capture retention</h2>
@@ -179,6 +179,23 @@
       </table>
       <div class="shortcut-actions">
         <button id="shortcutCloseBtn" type="button">Close</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="sampleGuideDialog" aria-labelledby="sampleGuideDialogTitle" aria-describedby="sampleGuideIntro">
+    <form method="dialog" class="sample-guide-form">
+      <h2 id="sampleGuideDialogTitle">Sample evidence guide</h2>
+      <p id="sampleGuideIntro">Inspect the three local requests before revealing the evidence.</p>
+      <ol class="sample-guide-prompts">
+        <li>Which request failed?</li>
+        <li>Which Timing phase accounts for most of its duration?</li>
+        <li>Which response header gives a retry hint?</li>
+        <li>What limitation applies to what browser timing can prove?</li>
+      </ol>
+      <div id="sampleGuideEvidence" class="sample-guide-evidence" aria-live="polite" aria-atomic="true" hidden></div>
+      <div class="sample-guide-actions">
+        <button id="sampleGuideCloseBtn" type="button">Close</button>
+        <button id="sampleGuideRevealBtn" type="button" class="sample-guide-primary">Reveal evidence</button>
       </div>
     </form>
   </dialog>

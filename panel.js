@@ -105,7 +105,7 @@ const _NetworkPlus = (function () {
      description: 'Time reported to receive the response after its first byte.',
    }),
   });
-  const TIMING_EVIDENCE_LIMITATION = 'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause.';
+  const TIMING_EVIDENCE_LIMITATION = 'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause on the server.';
   const TEST_EXTENSION_VERSION_FALLBACK = '1.6.0';
   const OBJECT_URL_REVOKE_DELAY_MS = 1000;
   const SENSITIVE_KEY_NAMES = new Set([
@@ -940,6 +940,40 @@ const _NetworkPlus = (function () {
         initiator: { type: 'parser' },
       },
     ];
+  }
+
+  function deriveSampleGuideEvidence(requests) {
+    const source = Array.isArray(requests) ? requests : [];
+    const failedRequest = source.find((entry) => {
+      const status = entry && entry.response ? Number(entry.response.status) : NaN;
+      return Number.isFinite(status) && status >= 400;
+    });
+    if (!failedRequest) return null;
+
+    const request = failedRequest.request || {};
+    const response = failedRequest.response || {};
+    const timing = calculateTimingSegments(failedRequest.timings, failedRequest.time);
+    const dominant = timing.segments.reduce((largest, segment) => {
+      if (!segment.available) return largest;
+      return !largest || segment.duration > largest.duration ? segment : largest;
+    }, null);
+    const retryHeader = (response.headers || []).find(
+      (header) => String((header && header.name) || '').toLowerCase() === 'retry-after',
+    );
+    const phaseGuidance = dominant ? getTimingPhaseGuidance(dominant.label) : null;
+
+    return {
+      method: String(request.method || ''),
+      path: extractUrlParts(request.url).path,
+      status: Number(response.status),
+      totalDurationMs: Number.isFinite(failedRequest.time) ? failedRequest.time : timing.total,
+      dominantPhase: dominant ? dominant.label : '',
+      dominantPhaseLabel: phaseGuidance ? phaseGuidance.label : dominant ? dominant.label : '',
+      dominantDurationMs: dominant ? dominant.duration : 0,
+      retryHeaderName: retryHeader ? String(retryHeader.name || '') : '',
+      retryAfter: retryHeader ? String(retryHeader.value == null ? '' : retryHeader.value) : '',
+      limitation: TIMING_EVIDENCE_LIMITATION,
+    };
   }
 
   function serializeFilterState(columnFilterRules) {
@@ -4873,6 +4907,149 @@ const _NetworkPlus = (function () {
     return container;
   }
 
+  let sampleGuideDialogTrigger = null;
+
+  function resetSampleGuideDialog() {
+    const evidence = $('#sampleGuideEvidence');
+    const revealButton = $('#sampleGuideRevealBtn');
+    if (evidence) {
+      evidence.textContent = '';
+      evidence.hidden = true;
+    }
+    if (revealButton) {
+      revealButton.hidden = false;
+      revealButton.disabled = false;
+    }
+  }
+
+  function appendSampleGuideEvidenceItem(list, label, value) {
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const detail = document.createElement('dd');
+    detail.textContent = value;
+    list.appendChild(term);
+    list.appendChild(detail);
+  }
+
+  function renderSampleGuideEvidence() {
+    const container = $('#sampleGuideEvidence');
+    if (!container) return null;
+    const evidence = deriveSampleGuideEvidence(
+      createSampleCaptureRequests(SAMPLE_CAPTURE_BASE_TIMESTAMP),
+    );
+    if (!evidence) {
+      setStatus('Sample guide evidence is unavailable because the failed sample request is missing.');
+      return null;
+    }
+
+    container.textContent = '';
+    const heading = document.createElement('h3');
+    heading.tabIndex = -1;
+    heading.textContent = 'Evidence to verify';
+    container.appendChild(heading);
+
+    const list = document.createElement('dl');
+    list.className = 'sample-guide-evidence-list';
+    appendSampleGuideEvidenceItem(
+      list,
+      'Failed request',
+      evidence.method +
+        ' ' +
+        evidence.path +
+        ' · HTTP ' +
+        evidence.status +
+        ' · ' +
+        evidence.totalDurationMs.toLocaleString('en-US') +
+        ' ms total',
+    );
+    appendSampleGuideEvidenceItem(
+      list,
+      'Dominant Timing phase',
+      evidence.dominantPhaseLabel +
+        ' · ' +
+        evidence.dominantDurationMs.toLocaleString('en-US') +
+        ' ms',
+    );
+    appendSampleGuideEvidenceItem(
+      list,
+      'Retry hint',
+      evidence.retryHeaderName + ': ' + evidence.retryAfter + ' seconds',
+    );
+    appendSampleGuideEvidenceItem(list, 'Browser evidence limit', evidence.limitation);
+    container.appendChild(list);
+    container.hidden = false;
+    return heading;
+  }
+
+  function openSampleGuideDialog(trigger) {
+    const dialog = $('#sampleGuideDialog');
+    const button = $('#sampleGuideBtn');
+    if (!state.sampleCaptureActive || !dialog || !button || button.hidden) {
+      setStatus('Sample guide is available only while the local sample capture is active.');
+      return false;
+    }
+    if (dialog.open) return true;
+    const otherModal = Array.from(document.querySelectorAll('dialog[open]')).some(
+      (candidate) => candidate !== dialog,
+    );
+    if (otherModal) return false;
+
+    resetSampleGuideDialog();
+    sampleGuideDialogTrigger = trigger || document.activeElement;
+    button.setAttribute('aria-expanded', 'true');
+    dialog.showModal();
+    setTimeout(() => {
+      const revealButton = $('#sampleGuideRevealBtn');
+      if (dialog.open && revealButton) revealButton.focus();
+    }, 0);
+    return true;
+  }
+
+  function closeSampleGuideDialog(restoreFocus) {
+    const dialog = $('#sampleGuideDialog');
+    if (restoreFocus === false) sampleGuideDialogTrigger = null;
+    if (dialog && dialog.open) {
+      dialog.close();
+      return;
+    }
+    resetSampleGuideDialog();
+    const button = $('#sampleGuideBtn');
+    if (button) button.setAttribute('aria-expanded', 'false');
+  }
+
+  function initializeSampleGuideDialog() {
+    const dialog = $('#sampleGuideDialog');
+    const button = $('#sampleGuideBtn');
+    const closeButton = $('#sampleGuideCloseBtn');
+    const revealButton = $('#sampleGuideRevealBtn');
+    if (!dialog || !button || !closeButton || !revealButton) return;
+
+    button.addEventListener('click', (event) => openSampleGuideDialog(event.currentTarget));
+    closeButton.addEventListener('click', () => closeSampleGuideDialog(true));
+    revealButton.addEventListener('click', () => {
+      const heading = renderSampleGuideEvidence();
+      if (!heading) return;
+      revealButton.hidden = true;
+      heading.focus({ preventScroll: true });
+    });
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeSampleGuideDialog(true);
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) closeSampleGuideDialog(true);
+    });
+    dialog.addEventListener('close', () => {
+      const trigger = sampleGuideDialogTrigger;
+      sampleGuideDialogTrigger = null;
+      resetSampleGuideDialog();
+      button.setAttribute('aria-expanded', 'false');
+      if (trigger && trigger.focus && trigger.isConnected !== false && !trigger.hidden) {
+        trigger.focus({ preventScroll: true });
+      }
+    });
+  }
+
   function toggleSort(colId) {
     if (state.sort.colId !== colId) {
       state.sort.colId = colId;
@@ -5124,14 +5301,31 @@ const _NetworkPlus = (function () {
     srch.currentIndex = preserveMatchingRowIndex(previousMatches, previousIndex, srch.matches);
   }
 
+  function updateSampleGuideAvailability(visibleRowCount) {
+    const guideButton = $('#sampleGuideBtn');
+    if (!guideButton) return;
+    const available =
+      state.sampleCaptureActive && Number.isFinite(visibleRowCount) && visibleRowCount > 0;
+    guideButton.hidden = !available;
+    guideButton.disabled = !available;
+    if (!available) {
+      guideButton.setAttribute('aria-expanded', 'false');
+      const dialog = $('#sampleGuideDialog');
+      if (dialog && dialog.open) closeSampleGuideDialog(false);
+    }
+  }
+
   function updateSampleCaptureStatus() {
     const status = $('#sampleCaptureStatus');
-    if (!status) return;
-    status.hidden = !state.sampleCaptureActive;
-    status.textContent = state.sampleCaptureActive ? 'Local sample · live paused · Clear to exit' : '';
-    status.title = state.sampleCaptureActive
-      ? 'Local synthetic requests are loaded. No network traffic was sent. Clear removes them and restores the previous recording state.'
-      : '';
+    const active = state.sampleCaptureActive;
+    if (status) {
+      status.hidden = !active;
+      status.textContent = active ? 'Local sample · live paused · Clear to exit' : '';
+      status.title = active
+        ? 'Local synthetic requests are loaded. No network traffic was sent. Clear removes them and restores the previous recording state.'
+        : '';
+    }
+    updateSampleGuideAvailability(state.filteredRows.length);
   }
 
   function updateRecordState(announceStatus) {
@@ -5188,6 +5382,7 @@ const _NetworkPlus = (function () {
       rowCount: state.rows.length,
     }, 'exit');
     if (!transition.changed) return false;
+    closeSampleGuideDialog(false);
     const filterTransition = planSampleCaptureFilterTransition(
       state.columnFilterRules,
       state.sampleCapturePreviousColumnFilterRules,
@@ -5246,6 +5441,7 @@ const _NetworkPlus = (function () {
     const tableWrap = $('#tableWrap');
     if (!tableWrap) return;
     const mode = getEmptyStateMode(state.rows.length, visibleRowCount);
+    updateSampleGuideAvailability(visibleRowCount);
     let emptyState = document.getElementById('empty-state-msg');
     if (mode === 'hidden') {
       if (emptyState) emptyState.style.display = 'none';
@@ -6756,6 +6952,7 @@ const _NetworkPlus = (function () {
     loadColumnPrefs();
     loadRetentionSetting();
     initializeDataSafetyDialog();
+    initializeSampleGuideDialog();
     setStatus('panel.js loaded');
 
     const pendingLiveRows = state.pendingLiveRows;
@@ -8330,6 +8527,7 @@ const _NetworkPlus = (function () {
     planSampleCaptureFilterTransition,
     formatSampleCaptureRemainingStatus,
     createSampleCaptureRequests,
+    deriveSampleGuideEvidence,
     debounce,
     highlightText,
     getRowFilterValue,

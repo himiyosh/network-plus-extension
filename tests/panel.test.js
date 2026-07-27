@@ -83,6 +83,26 @@ describe('guided local sample capture', () => {
     });
   });
 
+  test('derives the guide reveal from the deterministic sample request evidence', () => {
+    const evidence = np.deriveSampleGuideEvidence(np.createSampleCaptureRequests(baseTimestamp));
+
+    expect(evidence).toEqual({
+      method: 'POST',
+      path: '/v1/orders/preview',
+      status: 503,
+      totalDurationMs: 2450,
+      dominantPhase: 'wait',
+      dominantPhaseLabel: 'Wait (TTFB)',
+      dominantDurationMs: 2200,
+      retryHeaderName: 'Retry-After',
+      retryAfter: '30',
+      limitation: np.TIMING_EVIDENCE_LIMITATION,
+    });
+    expect(evidence.limitation).toMatch(/definitive root cause on the server/i);
+    expect(np.deriveSampleGuideEvidence([])).toBeNull();
+    expect(np.deriveSampleGuideEvidence(null)).toBeNull();
+  });
+
   test('contains no secret-like or customer-like sample values', () => {
     const serialized = JSON.stringify(np.createSampleCaptureRequests(baseTimestamp));
 
