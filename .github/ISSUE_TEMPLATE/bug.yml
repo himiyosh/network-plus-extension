@@ -1,0 +1,164 @@
+name: Bug report
+description: Report a reproducible Network+ problem without sharing sensitive traffic.
+title: '[Bug]: '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Public report safety
+
+        This issue will be public. Do not include or attach passwords, tokens, cookies, authorization values, customer data, raw or full HAR or SAZ files, real URLs, headers, bodies, logs containing sensitive traffic, or other confidential material. Prefer a deterministic `.test` sample reproduction and the smallest sanitized evidence needed.
+
+        GitHub issue bodies remain editable after creation. You remain responsible for reviewing the final public issue before submission and after any edit.
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: input
+    id: network-plus-version
+    attributes:
+      label: Network+ version
+      description: Enter only the version number shown by the installed extension.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: input
+    id: edge-version
+    attributes:
+      label: Stable Microsoft Edge version
+      description: Enter only the stable Edge version number.
+    validations:
+      required: true
+  - type: dropdown
+    id: os-family
+    attributes:
+      label: OS family
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other or not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: product-area
+    attributes:
+      label: Affected product area
+      options:
+        - Request capture and list
+        - Filtering or search
+        - Request or response details
+        - Timing or waterfall
+        - Compare requests
+        - HAR or SAZ import
+        - Sanitized copy or export
+        - Theme or preferences
+        - Keyboard navigation
+        - Accessibility
+        - Other Network+ area
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Deterministic reproduction steps
+      description: List concise steps using the built-in sample capture or reserved `.test` values whenever possible.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: State the observable result you expected without including traffic content.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual behavior
+      description: State only the observable difference; do not paste sensitive payloads or captured traffic.
+    validations:
+      required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      options:
+        - Every time
+        - Often
+        - Sometimes
+        - Once
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Regression status
+      options:
+        - Yes - worked in an earlier Network+ version
+        - No - never worked as expected
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: assistive-technology
+    attributes:
+      label: Assistive technology involved
+      description: Select the closest option. Leave the default if this is not relevant.
+      options:
+        - Not applicable
+        - Screen reader
+        - Keyboard only
+        - Zoom or high contrast
+        - Voice input
+        - Other accessibility setup
+      default: 0
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: assistive-technology-context
+    attributes:
+      label: Assistive technology context (optional)
+      description: Complete only when relevant. Describe the general tool and interaction, without account or customer information.
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: sanitized-evidence
+    attributes:
+      label: Sanitized minimal evidence (optional)
+      description: Describe only the smallest sanitized observation that adds information. Do not paste or attach files, images, traffic, or raw logs.
+  - type: checkboxes
+    id: public-safety-acknowledgement
+    attributes:
+      label: Required public-report acknowledgement
+      options:
+        - label: I removed passwords, tokens, cookies, and authorization values.
+          required: true
+        - label: I removed customer data, real URLs, headers, bodies, and logs containing sensitive traffic.
+          required: true
+        - label: I did not attach raw or full HAR or SAZ files, or any other confidential material.
+          required: true
+        - label: I understand this issue is public and remains editable, and I am responsible for reviewing the final public issue before and after submission.
+          required: true

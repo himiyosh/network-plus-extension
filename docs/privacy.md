@@ -44,7 +44,7 @@ Imported HAR or SAZ files are processed locally and become part of the same boun
 
 ## Support
 
-Questions and reports can be filed at https://github.com/himiyosh/network-plus-extension/issues. Do not attach raw traffic, credentials, customer data, full HAR files, or other sensitive material to a public issue.
+Questions and reports can be filed at https://github.com/himiyosh/network-plus-extension/issues/new/choose. Do not attach raw traffic, credentials, customer data, full HAR files, or other sensitive material to a public issue.
 
 ## Policy changes
 

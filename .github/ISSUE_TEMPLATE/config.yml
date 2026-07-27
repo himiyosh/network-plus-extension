@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Privacy notice
+    url: https://github.com/himiyosh/network-plus-extension/blob/main/docs/privacy.md
+    about: Review how Network+ handles traffic evidence before opening a public issue.
+  - name: Documentation and support guidance
+    url: https://github.com/himiyosh/network-plus-extension#readme
+    about: Read the setup, privacy, and public support guidance before filing a report.

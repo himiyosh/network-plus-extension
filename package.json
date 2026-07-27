@@ -7,8 +7,8 @@
   "scripts": {
     "test": "jest --coverage",
     "lint": "eslint . --max-warnings 0",
-    "format": "prettier --write package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/extension-package.test.js\" \"tests/repository-integrity.test.js\" \"tests/store-readiness.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
-    "format:check": "prettier --check package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/extension-package.test.js\" \"tests/repository-integrity.test.js\" \"tests/store-readiness.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
+    "format": "prettier --write package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/extension-package.test.js\" \"tests/repository-integrity.test.js\" \"tests/store-readiness.test.js\" \"tests/support-intake.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
+    "format:check": "prettier --check package.json eslint.config.mjs .prettierrc \"scripts/**/*.js\" \"tests/extension-package.test.js\" \"tests/repository-integrity.test.js\" \"tests/store-readiness.test.js\" \"tests/support-intake.test.js\" \"tests/text-integrity.test.js\" \".github/**/*.{yml,yaml}\"",
     "version:check": "node scripts/check-version-sync.js",
     "integrity:check": "node scripts/check-repository-integrity.js",
     "text:check": "node scripts/check-text-integrity.js",

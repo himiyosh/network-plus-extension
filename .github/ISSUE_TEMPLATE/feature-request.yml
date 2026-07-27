@@ -1,0 +1,110 @@
+name: Feature request
+description: Propose a focused Network+ improvement without sharing sensitive traffic.
+title: '[Feature]: '
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Public proposal safety and scope
+
+        This issue will be public. Do not include or attach passwords, tokens, cookies, authorization values, customer data, raw or full HAR or SAZ files, real URLs, headers, bodies, logs containing sensitive traffic, or other confidential material. Prefer deterministic `.test` examples and minimal sanitized evidence.
+
+        Keep the proposal tied to Network+'s local Microsoft Edge DevTools workflow. Mastery, readiness, certification, telemetry, monetization pressure, and unrelated product claims are out of scope unless separately evidenced and authorized. This form does not authorize those claims.
+
+        GitHub issue bodies remain editable after creation. You remain responsible for reviewing the final public issue before submission and after any edit.
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: user-outcome
+    attributes:
+      label: User outcome
+      description: Describe the observable task or decision this improvement should make safer, clearer, or more efficient.
+    validations:
+      required: true
+  - type: dropdown
+    id: affected-workflow
+    attributes:
+      label: Affected workflow
+      options:
+        - Capturing and reviewing requests
+        - Filtering or searching
+        - Inspecting details or timing
+        - Comparing requests
+        - Importing or exporting
+        - Keyboard or accessibility workflow
+        - Theme or preferences
+        - Other Network+ workflow
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: current-workaround
+    attributes:
+      label: Current workaround (optional)
+      description: Describe a safe, general workaround if one exists. Do not include evidence from real traffic.
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: smallest-behavior
+    attributes:
+      label: Smallest proposed behavior
+      description: Describe the narrowest product behavior that would deliver the outcome, not a broad implementation mandate.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: success-signal
+    attributes:
+      label: Measurable success signal
+      description: State an observable, locally testable result without proposing telemetry or unsupported adoption claims.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: mission-fit
+    attributes:
+      label: Mission fit
+      description: Explain how this supports truthful, local inspection of HTTP evidence in Microsoft Edge DevTools.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+  - type: textarea
+    id: implications
+    attributes:
+      label: Privacy, accessibility, and performance implications
+      description: State known impacts and mitigations for each area, or say that no impact is currently known.
+    validations:
+      required: true
+  - type: checkboxes
+    id: public-safety-acknowledgement
+    attributes:
+      label: Required public-proposal acknowledgement
+      options:
+        - label: I removed passwords, tokens, cookies, and authorization values.
+          required: true
+        - label: I removed customer data, real URLs, headers, bodies, and logs containing sensitive traffic.
+          required: true
+        - label: I did not attach raw or full HAR or SAZ files, or any other confidential material.
+          required: true
+        - label: I understand this issue is public and remains editable, and I am responsible for reviewing the final public issue before and after submission.
+          required: true
+        - label: I understand that mastery, readiness, certification, telemetry, monetization pressure, and unrelated product claims require separate evidence and authorization.
+          required: true

@@ -155,7 +155,7 @@ Network+ は clipboard copy と HAR download を外向きデータ面として�
 4. 「パッケージ化されていない拡張機能を読み込む」を選び、手順 2 の展開先フォルダを指定する
 5. DevTools を開くと「**Network+**」タブが追加される
 
-このリポジトリで確認できる公開情報には、検証済みの Microsoft Edge Add-ons 掲載 URL は含まれていません。上記はリリース ZIP を展開して Developer mode で読み込む手順であり、ストア公開済みという説明ではありません。データの扱いは[プライバシー通知](docs/privacy.md)、問い合わせは [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues)、将来の提出用フィールドと外部作業は [Edge Add-ons submission dossier](docs/edge-addons-submission.md) を参照してください。
+このリポジトリで確認できる公開情報には、検証済みの Microsoft Edge Add-ons 掲載 URL は含まれていません。上記はリリース ZIP を展開して Developer mode で読み込む手順であり、ストア公開済みという説明ではありません。データの扱いは[プライバシー通知](docs/privacy.md)、問い合わせは [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues/new/choose)、将来の提出用フィールドと外部作業は [Edge Add-ons submission dossier](docs/edge-addons-submission.md) を参照してください。
 
 ### ソースから開発する
 

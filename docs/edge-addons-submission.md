@@ -25,7 +25,7 @@ This dossier is a repository-local recommendation for a future Partner Center su
 
 **Website URL:** https://github.com/himiyosh/network-plus-extension
 
-**Support URL:** https://github.com/himiyosh/network-plus-extension/issues
+**Support URL:** https://github.com/himiyosh/network-plus-extension/issues/new/choose
 
 **Mature content:** `No`
 
@@ -130,5 +130,5 @@ Machine-readable provenance and expected dimensions are recorded in `docs/store-
 | [Publish a Microsoft Edge extension](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension) | Microsoft Learn page updated 2026-06-12; page metadata date 2026-05-05 | 2026-07-27 | Required listing fields, 250-10,000 character description, 300 x 300 recommended logo, allowed screenshot dimensions, privacy declarations, search-term limits, and certification notes |
 | [Developer policies for the Microsoft Edge Add-ons store](https://learn.microsoft.com/en-us/legal/microsoft-edge/extensions/developer-policies) | Microsoft Learn page updated 2026-07-24 | 2026-07-27 | Accurate representation, single purpose, testability, permission minimization, screenshot clarity, and personal-information disclosure |
 | [Public repository](https://github.com/himiyosh/network-plus-extension) | Public GitHub repository; description, homepage, and topics empty when queried | 2026-07-27 | Website route and repository evidence |
-| [Public support route](https://github.com/himiyosh/network-plus-extension/issues) | Existing GitHub Issues route | 2026-07-27 | Support contact route |
+| [Public support route](https://github.com/himiyosh/network-plus-extension/issues/new/choose) | Existing GitHub Issues chooser route | 2026-07-27 | Support contact route |
 | [Public v1.6.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) | Release published 2026-07-24 with one 87,775-byte ZIP asset | 2026-07-27 | Existing release-ZIP onboarding evidence only; not store-listing evidence |
