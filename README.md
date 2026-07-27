@@ -8,6 +8,8 @@
 
 Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡張機能です。標準の Network パネルの代替・補完として、強化されたフィルタリング、エクスポート、テーマ切替などの機能を提供します。
 
+**すぐに試す:** [v1.6.0 リリース ZIP](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) | **サポート:** [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues/new/choose)
+
 ## ✨ 機能一覧
 
 | 機能 | 説明 |
@@ -366,7 +368,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-coordinator-contract.js](scripts/check-coordinator-contract.js) | コーディネータートポロジー規約と agent `tools:` 制限リスト再導入の静的チェック |
 | [scripts/check-extension-package.js](scripts/check-extension-package.js) | 拡張機能の参照・権限・配布内容チェックとZIP作成 |
-| [scripts/check-store-readiness.js](scripts/check-store-readiness.js) | Edge Add-ons dossier/privacy、URL、manifest同期、合成 PNG 寸法・inventory の静的チェック |
+| [scripts/check-store-readiness.js](scripts/check-store-readiness.js) | package discovery metadata、Edge Add-ons dossier/privacy、URL、manifest同期、合成 PNG 寸法・inventory の静的チェック |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | manifest/package/package-lock/panel fallback バージョン同期チェックスクリプト |
 | [scripts/check-audit-policy.js](scripts/check-audit-policy.js) | 高優先度の監査を維持しつつ GHSA-mh99-v99m-4gvg 由来のみを一時許可する監査ポリシー |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
@@ -377,6 +379,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 ### Unreleased
 
+- 検証済みの description、homepage、support route、7 件の search vocabulary を `package.json` に記録し、`store:check` で manifest / Edge Add-ons dossier との drift を拒否。README 冒頭から release ZIP と support へ直接移動できる導線も追加
 - 完全なローカルサンプル中だけ、ステータスバーと `Sample guide` に `Exit · restore prior recording state` を追加。3 件の provenance / method / domain / path / status を検証して fail closed に終了し、開始前の記録状態とカラムフィルターを復元
 - `Keyboard Shortcuts` ダイアログに、captured traffic を読まず、allowlist 済みの version / Edge major / coarse OS / settings のみを直接操作時にコピーする任意の `Copy safe support summary` を追加
 - ローカルサンプル中だけ使える `Sample guide` を追加。4 つの調査プロンプトを先に示し、明示的な reveal 後だけ決定論的サンプル源から失敗リクエスト、支配的 Timing、再試行ヘッダー、観測上の制約を表示

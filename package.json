@@ -1,7 +1,7 @@
 {
   "name": "network-plus-extension",
   "version": "1.6.0",
-  "description": "Microsoft Edge DevTools network analysis with sanitized HAR, capture retention, integrated search, accessibility, and keyboard controls.",
+  "description": "Network analysis with sanitized HAR, retention limits, integrated search, accessible UI, and keyboard controls.",
   "private": true,
   "main": "devtools.js",
   "scripts": {
@@ -18,16 +18,24 @@
     "audit:strict": "node scripts/check-audit-policy.js",
     "contract:check": "node scripts/check-coordinator-contract.js"
   },
-  "keywords": [],
+  "keywords": [
+    "network debugging",
+    "developer tools",
+    "HTTP inspector",
+    "HAR export",
+    "request filtering",
+    "response timing",
+    "Edge DevTools"
+  ],
   "author": "himiyosh",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/himiyosh/network-plus-extension.git"
   },
-  "homepage": "https://github.com/himiyosh/network-plus-extension#readme",
+  "homepage": "https://github.com/himiyosh/network-plus-extension",
   "bugs": {
-    "url": "https://github.com/himiyosh/network-plus-extension/issues"
+    "url": "https://github.com/himiyosh/network-plus-extension/issues/new/choose"
   },
   "engines": {
     "node": "^22.0.0 || ^24.0.0"

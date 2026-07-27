@@ -3,6 +3,7 @@ const path = require('path');
 const { TextDecoder } = require('util');
 
 const DOSSIER_PATH = 'docs/edge-addons-submission.md';
+const PACKAGE_PATH = 'package.json';
 const PRIVACY_PATH = 'docs/privacy.md';
 const INVENTORY_PATH = 'docs/store-assets/inventory.json';
 const ASSET_DIRECTORY = 'docs/store-assets';
@@ -15,6 +16,7 @@ const MAX_SEARCH_TERM_CHARACTERS = 30;
 const EXPECTED_WEBSITE_URL = 'https://github.com/himiyosh/network-plus-extension';
 const EXPECTED_SUPPORT_URL = 'https://github.com/himiyosh/network-plus-extension/issues/new/choose';
 const EXPECTED_PRIVACY_URL = 'https://github.com/himiyosh/network-plus-extension/blob/main/docs/privacy.md';
+const EXPECTED_REPOSITORY_URL = 'git+https://github.com/himiyosh/network-plus-extension.git';
 const EXPECTED_CSP = "script-src 'self'; object-src 'self'";
 const EXPECTED_PERMISSION_JUSTIFICATION =
   'Stores the user-selected System, Dark, or Light theme in `chrome.storage.local` so the visual preference persists between DevTools sessions. This permission is not used to store captured URLs, headers, request bodies, response bodies, cookies, or request records.';
@@ -439,6 +441,27 @@ const validateManifest = (manifest, errors) => {
   }
 };
 
+const validateDiscoveryMetadata = (packageJson, manifest, errors) => {
+  if (packageJson.description !== manifest.description) {
+    errors.push('package description must match manifest description');
+  }
+  if (packageJson.homepage !== EXPECTED_WEBSITE_URL) {
+    errors.push(`package homepage must be ${EXPECTED_WEBSITE_URL}`);
+  }
+  if (packageJson.bugs?.url !== EXPECTED_SUPPORT_URL) {
+    errors.push(`package support URL must be ${EXPECTED_SUPPORT_URL}`);
+  }
+  if (packageJson.repository?.type !== 'git') {
+    errors.push('package repository type must be git');
+  }
+  if (packageJson.repository?.url !== EXPECTED_REPOSITORY_URL) {
+    errors.push(`package repository URL must be ${EXPECTED_REPOSITORY_URL}`);
+  }
+  if (JSON.stringify(packageJson.keywords) !== JSON.stringify(EXPECTED_SEARCH_TERMS)) {
+    errors.push(`package keywords must match the reviewed truthful set: ${EXPECTED_SEARCH_TERMS.join(', ')}`);
+  }
+};
+
 const readJson = (filePath, label, errors) => {
   try {
     return JSON.parse(readUtf8(filePath));
@@ -460,11 +483,13 @@ const readMarkdown = (filePath, label, errors) => {
 const validateStoreReadiness = (root) => {
   const errors = [];
   const manifest = readJson(path.join(root, 'manifest.json'), 'manifest.json', errors);
+  const packageJson = readJson(path.join(root, PACKAGE_PATH), PACKAGE_PATH, errors);
   const dossier = readMarkdown(path.join(root, DOSSIER_PATH), DOSSIER_PATH, errors);
   const privacy = readMarkdown(path.join(root, PRIVACY_PATH), PRIVACY_PATH, errors);
   const inventory = readJson(path.join(root, INVENTORY_PATH), INVENTORY_PATH, errors);
 
   validateManifest(manifest, errors);
+  validateDiscoveryMetadata(packageJson, manifest, errors);
   const summary = validateDossier(dossier, manifest, errors);
   validatePrivacy(privacy, errors);
   validateInventory(root, inventory, errors);
