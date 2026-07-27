@@ -39,6 +39,27 @@ describe('fmtTime', () => {
   });
 });
 
+describe('status announcement planning', () => {
+  test('deduplicates automatic summaries but forces repeated user retry feedback', () => {
+    const message = 'Response-body retry failed for request 42.';
+    expect(np.planStatusAnnouncement(message, message, false)).toEqual({
+      text: message,
+      clearFirst: false,
+      write: false,
+    });
+    expect(np.planStatusAnnouncement(message, message, true)).toEqual({
+      text: message,
+      clearFirst: true,
+      write: true,
+    });
+    expect(np.planStatusAnnouncement('Capturing...', message, false)).toEqual({
+      text: message,
+      clearFirst: false,
+      write: true,
+    });
+  });
+});
+
 describe('safe support summary', () => {
   const validInput = {
     version: '1.6.0',
@@ -659,6 +680,19 @@ describe('timing phase guidance', () => {
 });
 
 describe('response content helpers', () => {
+  const responseRowForPayloadTest = (id, getContent) => ({
+    id,
+    responseContent: null,
+    responseContentEncoding: '',
+    responseContentText: null,
+    responseContentState: 'not-loaded',
+    responseContentReason: '',
+    responseContentError: null,
+    _responseContentPromise: null,
+    _responsePayloadPromise: null,
+    _reqObj: { getContent },
+  });
+
   test('decodes base64 only for display/search use', () => {
     expect(np.decodeResponseContent('eyJvayI6dHJ1ZX0=', 'base64')).toBe('{"ok":true}');
     expect(np.decodeResponseContent('plain text', '')).toBe('plain text');
@@ -780,6 +814,554 @@ describe('response content helpers', () => {
     expect(row.responseContent).toBe('AAEC/w==');
     expect(row.responseContentEncoding).toBe('base64');
   });
+
+  test('normalizes thrown callback registration and runtime failures as rejected payloads', async () => {
+    const thrownRow = responseRowForPayloadTest(21, () => {
+      throw new Error('registration unavailable');
+    });
+    await expect(np.fetchResponsePayload(thrownRow, 25)).rejects.toThrow(
+      'Failed to retrieve response content for request 21: registration unavailable',
+    );
+    expect(thrownRow._responsePayloadPromise).toBeNull();
+
+    const runtimeRow = responseRowForPayloadTest(22, (callback) => {
+      chrome.runtime.lastError = { message: 'request content unavailable' };
+      callback('', '');
+      chrome.runtime.lastError = null;
+    });
+    await expect(np.fetchResponsePayload(runtimeRow, 25)).rejects.toThrow(
+      'Failed to retrieve response content for request 22: request content unavailable',
+    );
+    expect(runtimeRow._responsePayloadPromise).toBeNull();
+  });
+
+  test('rejects payload measurement failures without stranding the request timeout or promise', async () => {
+    const OriginalTextEncoder = global.TextEncoder;
+    let contentCallback;
+    global.TextEncoder = class BrokenTextEncoder {
+      encode() {
+        throw new Error('encoding unavailable');
+      }
+    };
+    try {
+      const row = responseRowForPayloadTest(23, (callback) => {
+        contentCallback = callback;
+      });
+      const pending = np.fetchResponsePayload(row, 25);
+      contentCallback('body', '');
+      await expect(pending).rejects.toThrow(
+        'Failed to process response content for request 23: encoding unavailable',
+      );
+      expect(row._responsePayloadPromise).toBeNull();
+    } finally {
+      global.TextEncoder = OriginalTextEncoder;
+    }
+  });
+});
+
+describe('automatic live response prefetch', () => {
+  const deferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+  };
+  const flushScheduler = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  const responseRow = (id, getContent) => ({
+    id,
+    responseContent: null,
+    responseContentEncoding: '',
+    responseContentText: null,
+    responseContentState: 'not-loaded',
+    responseContentReason: '',
+    responseContentError: null,
+    _responseContentPromise: null,
+    _responsePayloadPromise: null,
+    _reqObj: { getContent },
+  });
+
+  test('publishes a four-slot background budget and documents foreground overlap', () => {
+    expect(np.AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY).toBe(4);
+    expect(np.getAutomaticResponsePrefetchCapacity(4, 0)).toEqual({
+      availableBackgroundSlots: 0,
+      maximumTotalInFlight: 4,
+    });
+    expect(np.getAutomaticResponsePrefetchCapacity(4, 2)).toEqual({
+      availableBackgroundSlots: 0,
+      maximumTotalInFlight: 6,
+    });
+    expect(np.getAutomaticResponsePrefetchCapacity(2, 3)).toEqual({
+      availableBackgroundSlots: 2,
+      maximumTotalInFlight: 7,
+    });
+  });
+
+  test('drains a 5,000-row burst FIFO with exactly four background operations and bounded storage', async () => {
+    const rows = Array.from({ length: 5000 }, (_, index) => ({ id: index + 1 }));
+    const activeRows = new Set(rows);
+    const started = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const scheduler = np.createAutomaticResponsePrefetchScheduler({
+      isEligible: (row) => activeRows.has(row),
+      loadRow: (row) => {
+        started.push(row.id);
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        return Promise.resolve(row).finally(() => {
+          inFlight -= 1;
+        });
+      },
+    });
+
+    expect(scheduler.enqueue(rows[0])).toBe(true);
+    expect(scheduler.enqueue(rows[0])).toBe(false);
+    for (let index = 1; index < rows.length; index++) scheduler.enqueue(rows[index]);
+
+    expect(started).toEqual([1, 2, 3, 4]);
+    expect(scheduler.getSnapshot()).toEqual(
+      expect.objectContaining({
+        queued: 4996,
+        queueStorage: 4996,
+        backgroundInFlight: 4,
+      }),
+    );
+    await scheduler.whenIdle();
+
+    expect(maxInFlight).toBe(4);
+    expect(started).toEqual(rows.map((row) => row.id));
+    expect(scheduler.getSnapshot()).toEqual(
+      expect.objectContaining({
+        queued: 0,
+        queueStorage: 0,
+        backgroundInFlight: 0,
+      }),
+    );
+  });
+
+  test('skips queued rows that become inactive and suppresses stale settlement callbacks', async () => {
+    const rows = Array.from({ length: 6 }, (_, index) => ({ id: index + 1 }));
+    const activeRows = new Set(rows);
+    const pending = new Map();
+    const started = [];
+    const settled = [];
+    const scheduler = np.createAutomaticResponsePrefetchScheduler({
+      isEligible: (row) => activeRows.has(row),
+      loadRow: (row) => {
+        const operation = deferred();
+        pending.set(row, operation);
+        started.push(row.id);
+        return operation.promise;
+      },
+      onSettled: (row) => settled.push(row.id),
+    });
+    for (const row of rows) scheduler.enqueue(row);
+
+    activeRows.delete(rows[0]);
+    activeRows.delete(rows[4]);
+    pending.get(rows[0]).resolve(rows[0]);
+    await flushScheduler();
+
+    expect(started).toEqual([1, 2, 3, 4, 6]);
+    expect(settled).not.toContain(1);
+    expect(started).not.toContain(5);
+
+    scheduler.cancelRows(rows);
+    for (const operation of pending.values()) operation.resolve();
+    await scheduler.whenIdle();
+    expect(settled).not.toContain(5);
+  });
+
+  test('releases queued references across Clear, import, and sample replacement transitions', async () => {
+    const oldRows = Array.from({ length: 5000 }, (_, index) => ({ id: index + 1 }));
+    const replacementRows = [{ id: 5001 }, { id: 5002 }];
+    const activeRows = new Set(oldRows);
+    const pending = new Map();
+    const settled = [];
+    const scheduler = np.createAutomaticResponsePrefetchScheduler({
+      isEligible: (row) => activeRows.has(row),
+      loadRow: (row) => {
+        const operation = deferred();
+        pending.set(row, operation);
+        return operation.promise;
+      },
+      onSettled: (row) => settled.push(row.id),
+    });
+    for (const row of oldRows) scheduler.enqueue(row);
+
+    activeRows.clear();
+    scheduler.cancelRows(oldRows);
+    expect(scheduler.getSnapshot()).toEqual(
+      expect.objectContaining({
+        queued: 0,
+        queueStorage: 0,
+        backgroundInFlight: 4,
+      }),
+    );
+
+    for (const row of replacementRows) {
+      activeRows.add(row);
+      scheduler.enqueue(row);
+    }
+    for (const row of oldRows.slice(0, 4)) pending.get(row).resolve(row);
+    await flushScheduler();
+    expect(settled).toEqual([]);
+    expect(Array.from(pending.keys()).filter((row) => replacementRows.includes(row))).toHaveLength(2);
+
+    for (const row of replacementRows) pending.get(row).resolve(row);
+    await scheduler.whenIdle();
+    expect(settled).toEqual([5001, 5002]);
+  });
+
+  test('resumes canceled in-flight and queued work in original order after Undo', async () => {
+    const rows = Array.from({ length: 6 }, (_, index) => ({ id: index + 1 }));
+    const activeRows = new Set(rows);
+    const pending = new Map();
+    const started = [];
+    const settled = [];
+    const scheduler = np.createAutomaticResponsePrefetchScheduler({
+      isEligible: (row) => activeRows.has(row),
+      loadRow: (row) => {
+        const operation = deferred();
+        pending.set(row, operation);
+        started.push(row.id);
+        return operation.promise;
+      },
+      onSettled: (row) => settled.push(row.id),
+    });
+    for (const row of rows) scheduler.enqueue(row);
+    expect(started).toEqual([1, 2, 3, 4]);
+
+    activeRows.clear();
+    scheduler.cancelRows(rows);
+    for (const row of rows) activeRows.add(row);
+    scheduler.resumeRows(rows);
+    expect(scheduler.getSnapshot()).toEqual(
+      expect.objectContaining({
+        queued: 2,
+        backgroundInFlight: 4,
+      }),
+    );
+
+    for (const row of rows.slice(0, 4)) pending.get(row).resolve(row);
+    await flushScheduler();
+    expect(started).toEqual([1, 2, 3, 4, 5, 6]);
+    pending.get(rows[4]).resolve(rows[4]);
+    pending.get(rows[5]).resolve(rows[5]);
+    await scheduler.whenIdle();
+    expect(settled).toEqual(rows.map((row) => row.id));
+  });
+
+  test('handles retention pressure without starting any of the 100 evicted rows', async () => {
+    const rows = Array.from({ length: 5100 }, (_, index) => ({ id: index + 1 }));
+    const activeRows = new Set(rows.slice(0, 5000));
+    const pending = new Map();
+    const started = [];
+    const scheduler = np.createAutomaticResponsePrefetchScheduler({
+      isEligible: (row) => activeRows.has(row),
+      loadRow: (row) => {
+        const operation = deferred();
+        pending.set(row, operation);
+        started.push(row.id);
+        return operation.promise;
+      },
+    });
+    for (const row of rows.slice(0, 5000)) scheduler.enqueue(row);
+
+    const evictedRows = rows.slice(0, 100);
+    for (const row of evictedRows) activeRows.delete(row);
+    scheduler.cancelRows(evictedRows);
+    for (const row of rows.slice(5000)) {
+      activeRows.add(row);
+      scheduler.enqueue(row);
+    }
+    expect(scheduler.getSnapshot()).toEqual(
+      expect.objectContaining({
+        queued: 5000,
+        backgroundInFlight: 4,
+      }),
+    );
+
+    for (const row of rows.slice(0, 4)) pending.get(row).resolve(row);
+    await flushScheduler();
+    expect(started.slice(4)).toEqual([101, 102, 103, 104]);
+    expect(started.filter((id) => id <= 100)).toEqual([1, 2, 3, 4]);
+    expect(scheduler.getSnapshot().backgroundInFlight).toBe(4);
+
+    activeRows.clear();
+    scheduler.cancelRows(rows);
+    for (const operation of pending.values()) operation.resolve();
+    await scheduler.whenIdle();
+    expect(scheduler.getSnapshot().queueStorage).toBe(0);
+  });
+
+  test('recovers every slot after timeout and permits an explicit retry', async () => {
+    jest.useFakeTimers();
+    try {
+      const rows = Array.from({ length: 5 }, (_, index) =>
+        responseRow(index + 1, jest.fn()),
+      );
+      const activeRows = new Set(rows);
+      const scheduler = np.createAutomaticResponsePrefetchScheduler({
+        isEligible: (row) => activeRows.has(row),
+        loadRow: (row) => np.cacheResponseContent(row, 25),
+        shouldReportFailure: () => false,
+      });
+      for (const row of rows) scheduler.enqueue(row);
+
+      expect(rows.reduce((total, row) => total + row._reqObj.getContent.mock.calls.length, 0)).toBe(4);
+      await jest.advanceTimersByTimeAsync(25);
+      expect(rows.reduce((total, row) => total + row._reqObj.getContent.mock.calls.length, 0)).toBe(5);
+      expect(scheduler.getSnapshot().backgroundInFlight).toBe(1);
+      await jest.advanceTimersByTimeAsync(25);
+      await scheduler.whenIdle();
+      for (const row of rows) {
+        expect(row._responseContentPromise).toBeNull();
+        expect(row._responsePayloadPromise).toBeNull();
+      }
+
+      rows[0]._reqObj.getContent.mockImplementation((callback) => callback('retry succeeded', ''));
+      expect(scheduler.enqueue(rows[0])).toBe(true);
+      await scheduler.whenIdle();
+      expect(rows[0]._reqObj.getContent).toHaveBeenCalledTimes(2);
+      expect(rows[0].responseContent).toBe('retry succeeded');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('drains after synchronous throws and rejected loads without unhandled rejection', async () => {
+    const rows = Array.from({ length: 8 }, (_, index) => ({ id: index + 1 }));
+    const started = [];
+    const settled = [];
+    const scheduler = np.createAutomaticResponsePrefetchScheduler({
+      isEligible: () => true,
+      loadRow: (row) => {
+        started.push(row.id);
+        if (row.id === 1) throw new Error('registration failed');
+        if (row.id === 2) return Promise.reject(new Error('runtime failed'));
+        return Promise.resolve(row);
+      },
+      shouldReportFailure: () => false,
+      onSettled: (row, error) => settled.push([row.id, error ? error.message : 'ok']),
+    });
+    for (const row of rows) scheduler.enqueue(row);
+
+    await scheduler.whenIdle();
+    expect(started).toEqual(rows.map((row) => row.id));
+    expect(settled).toEqual([
+      [1, 'registration failed'],
+      [2, 'runtime failed'],
+      [3, 'ok'],
+      [4, 'ok'],
+      [5, 'ok'],
+      [6, 'ok'],
+      [7, 'ok'],
+      [8, 'ok'],
+    ]);
+    expect(scheduler.getSnapshot().backgroundInFlight).toBe(0);
+  });
+
+  test('lets foreground work overlap four background slots and reuses each queued row promise', async () => {
+    const rows = Array.from({ length: 6 }, (_, index) => {
+      let row;
+      const getContent = jest.fn((callback) => {
+        row.active = true;
+        row.callback = callback;
+      });
+      row = responseRow(index + 1, getContent);
+      return row;
+    });
+    const activeRows = new Set(rows);
+    let currentTotal = 0;
+    let maxTotal = 0;
+    for (const row of rows) {
+      const original = row._reqObj.getContent;
+      row._reqObj.getContent = jest.fn((callback) => {
+        currentTotal += 1;
+        maxTotal = Math.max(maxTotal, currentTotal);
+        original((content, encoding) => {
+          currentTotal -= 1;
+          callback(content, encoding);
+        });
+      });
+    }
+    const scheduler = np.createAutomaticResponsePrefetchScheduler({
+      isEligible: (row) => activeRows.has(row),
+      loadRow: (row) => np.cacheResponseContent(row),
+    });
+    for (const row of rows) scheduler.enqueue(row);
+
+    const foreground = rows.slice(4).map((row) => {
+      const promise = np.cacheResponseContent(row);
+      expect(scheduler.observeForeground(row, promise)).toBe(true);
+      expect(scheduler.enqueue(row)).toBe(false);
+      return promise;
+    });
+    expect(scheduler.getSnapshot()).toEqual(
+      expect.objectContaining({
+        queued: 0,
+        backgroundInFlight: 4,
+        foregroundObserved: 2,
+      }),
+    );
+    expect(maxTotal).toBe(6);
+
+    for (const row of rows) row.callback('body-' + row.id, '');
+    await Promise.all(foreground);
+    await scheduler.whenIdle();
+    expect(maxTotal).toBe(6);
+    for (const row of rows) expect(row._reqObj.getContent).toHaveBeenCalledTimes(1);
+  });
+
+  test('observes a queued foreground timeout without automatically calling getContent again', async () => {
+    jest.useFakeTimers();
+    try {
+      const callbacks = [];
+      const backgroundRows = Array.from({ length: 4 }, (_, index) =>
+        responseRow(index + 1, jest.fn((callback) => callbacks.push(callback))),
+      );
+      const foregroundGetContent = jest
+        .fn()
+        .mockImplementationOnce(() => {})
+        .mockImplementationOnce((callback) => callback('foreground retry', ''));
+      const foregroundRow = responseRow(5, foregroundGetContent);
+      const rows = backgroundRows.concat(foregroundRow);
+      const summary = jest.fn();
+      const scheduler = np.createAutomaticResponsePrefetchScheduler({
+        isEligible: () => true,
+        loadRow: (row) => np.cacheResponseContent(row, 100),
+        onFailureSummary: summary,
+      });
+      for (const row of rows) scheduler.enqueue(row);
+
+      const foreground = np.cacheResponseContent(foregroundRow, 25);
+      expect(scheduler.observeForeground(foregroundRow, foreground)).toBe(true);
+      await jest.advanceTimersByTimeAsync(25);
+      await expect(foreground).rejects.toThrow('Timed out retrieving response content');
+      expect(foregroundGetContent).toHaveBeenCalledTimes(1);
+      expect(scheduler.getSnapshot().queued).toBe(0);
+      expect(summary).not.toHaveBeenCalled();
+
+      await expect(np.cacheResponseContent(foregroundRow, 25)).resolves.toBe(foregroundRow);
+      expect(foregroundGetContent).toHaveBeenCalledTimes(2);
+
+      for (const callback of callbacks) callback('background response', '');
+      await scheduler.whenIdle();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('shares one underlying getContent call between HAR preparation and detail caching', async () => {
+    let callback;
+    const getContent = jest.fn((contentCallback) => {
+      callback = contentCallback;
+    });
+    const row = responseRow(12, getContent);
+
+    const harContent = np.resolveHarResponseContent(row);
+    const detailContent = np.cacheResponseContent(row);
+    expect(getContent).toHaveBeenCalledTimes(1);
+    callback('shared response', '');
+
+    await expect(harContent).resolves.toEqual(
+      expect.objectContaining({ text: 'shared response' }),
+    );
+    await expect(detailContent).resolves.toBe(row);
+    expect(getContent).toHaveBeenCalledTimes(1);
+    expect(row.responseContent).toBe('shared response');
+  });
+
+  test('coalesces burst failures into one sanitized count summary', async () => {
+    jest.useFakeTimers();
+    try {
+      const rows = Array.from({ length: 7 }, (_, index) => ({ id: index + 1 }));
+      const summaries = [];
+      const scheduler = np.createAutomaticResponsePrefetchScheduler({
+        isEligible: () => true,
+        loadRow: (row) =>
+          Promise.reject(new Error('secret response detail for request ' + row.id)),
+        failureAnnounceMs: 25,
+        onFailureSummary: (count) =>
+          summaries.push(np.formatAutomaticResponsePrefetchFailureSummary(count)),
+      });
+      for (const row of rows) scheduler.enqueue(row);
+      await scheduler.whenIdle();
+
+      expect(summaries).toEqual([]);
+      expect(scheduler.getSnapshot().pendingFailureCount).toBe(7);
+      await jest.advanceTimersByTimeAsync(25);
+      expect(summaries).toEqual([
+        '7 body prefetches failed. Selecting a request retries its body.',
+      ]);
+      expect(summaries[0]).not.toContain('secret response detail');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('drops removed and recovered rows from a pending failure summary', async () => {
+    jest.useFakeTimers();
+    try {
+      const rows = Array.from({ length: 3 }, (_, index) => ({ id: index + 1 }));
+      const activeRows = new Set(rows);
+      const summaries = [];
+      const scheduler = np.createAutomaticResponsePrefetchScheduler({
+        isEligible: (row) => activeRows.has(row),
+        loadRow: () => Promise.reject(new Error('background failure')),
+        failureAnnounceMs: 25,
+        onFailureSummary: (count) => summaries.push(count),
+      });
+      for (const row of rows) scheduler.enqueue(row);
+      await scheduler.whenIdle();
+      activeRows.delete(rows[0]);
+      scheduler.cancelRows([rows[0]]);
+      expect(scheduler.markRecovered(rows[1])).toBe(true);
+
+      await jest.advanceTimersByTimeAsync(25);
+      expect(summaries).toEqual([1]);
+      expect(scheduler.getSnapshot().pendingFailureCount).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('uses trailing debounce with a max wait for continuous failures', async () => {
+    jest.useFakeTimers();
+    try {
+      const summaries = [];
+      const scheduler = np.createAutomaticResponsePrefetchScheduler({
+        isEligible: () => true,
+        loadRow: () => Promise.reject(new Error('background failure')),
+        failureAnnounceMs: 20,
+        failureMaxWaitMs: 50,
+        getFailureContext: () => 'status-generation-4',
+        onFailureSummary: (count, context) => summaries.push([count, context]),
+      });
+
+      scheduler.enqueue({ id: 1 });
+      await flushScheduler();
+      await jest.advanceTimersByTimeAsync(15);
+      scheduler.enqueue({ id: 2 });
+      await flushScheduler();
+      await jest.advanceTimersByTimeAsync(15);
+      scheduler.enqueue({ id: 3 });
+      await flushScheduler();
+      await jest.advanceTimersByTimeAsync(15);
+      expect(summaries).toEqual([]);
+      await jest.advanceTimersByTimeAsync(5);
+      expect(summaries).toEqual([[3, 'status-generation-4']]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('capture retention helpers', () => {
@@ -787,6 +1369,7 @@ describe('capture retention helpers', () => {
 
   test('publishes the safe default and exact response budgets', () => {
     expect(np.DEFAULT_REQUEST_RETENTION_LIMIT).toBe(5000);
+    expect(np.AUTOMATIC_RESPONSE_PREFETCH_QUEUE_COMPACT_THRESHOLD).toBe(512);
     expect(np.MAX_RESPONSE_BODY_BYTES).toBe(1024 * 1024);
     expect(np.MAX_RESPONSE_CACHE_BYTES).toBe(32 * 1024 * 1024);
   });

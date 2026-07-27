@@ -35,6 +35,11 @@ const _NetworkPlus = (function () {
   const FILTER_DEBOUNCE_MS = 150;
   const DEEP_SEARCH_DEBOUNCE_MS = 250;
   const RESPONSE_CONTENT_TIMEOUT_MS = 10000;
+  // Foreground details and HAR work bypass these slots, so the total can be 4 plus distinct foreground operations.
+  const AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY = 4;
+  const AUTOMATIC_RESPONSE_PREFETCH_FAILURE_DEBOUNCE_MS = 750;
+  const AUTOMATIC_RESPONSE_PREFETCH_FAILURE_MAX_WAIT_MS = 5000;
+  const AUTOMATIC_RESPONSE_PREFETCH_QUEUE_COMPACT_THRESHOLD = 512;
   const DATA_SAFETY_POLICY_VERSION = 1;
   const REDACTION_MARKER = '[REDACTED]';
   const OMISSION_MARKER = '[OMITTED BY NETWORK+]';
@@ -319,9 +324,22 @@ const _NetworkPlus = (function () {
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
-  function setStatus(t) {
+  let statusGeneration = 0;
+  function setStatus(t, forceAnnouncement) {
+    statusGeneration += 1;
     const el = $('#statusText');
-    if (el) el.textContent = t;
+    if (!el) return;
+    const plan = planStatusAnnouncement(el.textContent, t, forceAnnouncement);
+    if (!plan.write) return;
+    if (plan.clearFirst) {
+      const generation = statusGeneration;
+      el.textContent = '';
+      queueMicrotask(() => {
+        if (statusGeneration === generation) el.textContent = plan.text;
+      });
+      return;
+    }
+    el.textContent = plan.text;
   }
 
   let requestCountAnnouncementTimer = null;
@@ -2436,6 +2454,50 @@ const _NetworkPlus = (function () {
     return !!row && !!retainedRows && retainedRows.has(row) && row._retentionDisposed !== true;
   }
 
+  function planStatusAnnouncement(currentText, nextText, forceAnnouncement) {
+    const text = nextText == null ? '' : String(nextText);
+    const unchanged = currentText === text;
+    return {
+      text,
+      clearFirst: unchanged && forceAnnouncement === true,
+      write: !unchanged || forceAnnouncement === true,
+    };
+  }
+
+  function isActiveRetainedRow(row, retainedRows, activeRows) {
+    return isRetainedRow(row, retainedRows) && !!activeRows && activeRows.has(row);
+  }
+
+  function getAutomaticResponsePrefetchCapacity(
+    backgroundInFlight,
+    foregroundInFlight,
+    concurrency = AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY,
+  ) {
+    const budget = Number.isInteger(concurrency) && concurrency > 0
+      ? concurrency
+      : AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY;
+    const background = Number.isInteger(backgroundInFlight) && backgroundInFlight > 0
+      ? Math.min(backgroundInFlight, budget)
+      : 0;
+    const foreground = Number.isInteger(foregroundInFlight) && foregroundInFlight > 0
+      ? foregroundInFlight
+      : 0;
+    return {
+      availableBackgroundSlots: budget - background,
+      maximumTotalInFlight: budget + foreground,
+    };
+  }
+
+  function formatAutomaticResponsePrefetchFailureSummary(failureCount) {
+    const count = Number.isInteger(failureCount) && failureCount > 0 ? failureCount : 0;
+    return (
+      count.toLocaleString() +
+      ' body ' +
+      (count === 1 ? 'prefetch failed' : 'prefetches failed') +
+      '. Selecting a request retries its body.'
+    );
+  }
+
   function planImportRetention(totalCount, requestLimit, unlimited) {
     const normalizedTotal = Number.isInteger(totalCount) && totalCount > 0 ? totalCount : 0;
     const retainedCount = unlimited ? normalizedTotal : Math.min(normalizedTotal, requestLimit);
@@ -3348,6 +3410,7 @@ const _NetworkPlus = (function () {
     columns: DEFAULT_COLUMNS.map((c) => ({ ...c })),
     rows: [],
     retainedRows: new Set(),
+    activeRows: new Set(),
     filteredRows: [], // [U5] cache for filtered rows
     pendingLiveRows: [],
     retention: {
@@ -3372,6 +3435,7 @@ const _NetworkPlus = (function () {
     comparisonInvokingRowId: null, // [U8] row id that opened the comparison (for focus restoration)
     highlightedRows: new Map(), // [U7] highlighted rows: row -> color class
     onResponseContentChanged: null,
+    automaticResponsePrefetchScheduler: null,
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
     sort: {
       colId: 'id',
@@ -3401,6 +3465,359 @@ const _NetworkPlus = (function () {
     },
   };
   let clearUndoTimer = null;
+
+  function createAutomaticResponsePrefetchScheduler(options) {
+    const config = options || {};
+    if (typeof config.isEligible !== 'function') {
+      throw new TypeError('Automatic response prefetch requires an eligibility check.');
+    }
+    if (typeof config.loadRow !== 'function') {
+      throw new TypeError('Automatic response prefetch requires a row loader.');
+    }
+
+    const concurrency = Number.isInteger(config.concurrency) && config.concurrency > 0
+      ? config.concurrency
+      : AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY;
+    const failureDebounceMs =
+      Number.isFinite(config.failureAnnounceMs) && config.failureAnnounceMs >= 0
+        ? config.failureAnnounceMs
+        : AUTOMATIC_RESPONSE_PREFETCH_FAILURE_DEBOUNCE_MS;
+    const failureMaxWaitMs =
+      Number.isFinite(config.failureMaxWaitMs) && config.failureMaxWaitMs >= failureDebounceMs
+        ? config.failureMaxWaitMs
+        : Math.max(AUTOMATIC_RESPONSE_PREFETCH_FAILURE_MAX_WAIT_MS, failureDebounceMs);
+    const isCached =
+      typeof config.isCached === 'function'
+        ? config.isCached
+        : (row) => typeof row.responseContent === 'string';
+    const getExistingPromise =
+      typeof config.getExistingPromise === 'function'
+        ? config.getExistingPromise
+        : (row) => row._responseContentPromise;
+    const shouldReportFailure =
+      typeof config.shouldReportFailure === 'function'
+        ? config.shouldReportFailure
+        : () => true;
+    const onSettled = typeof config.onSettled === 'function' ? config.onSettled : () => {};
+    const onFailureSummary =
+      typeof config.onFailureSummary === 'function' ? config.onFailureSummary : () => {};
+    const onInternalError =
+      typeof config.onInternalError === 'function' ? config.onInternalError : () => {};
+    const getFailureContext =
+      typeof config.getFailureContext === 'function' ? config.getFailureContext : () => undefined;
+
+    let queue = [];
+    let queueHead = 0;
+    let queuedTombstones = 0;
+    const queuedRows = new Map();
+    const backgroundRows = new Map();
+    const observedForegroundRows = new Map();
+    const idleWaiters = new Set();
+    let draining = false;
+    const pendingFailureRows = new Set();
+    let failureDebounceTimer = null;
+    let failureMaxWaitTimer = null;
+    let failureContext;
+
+    const reportInternalError = (error) => {
+      try {
+        onInternalError(error);
+      } catch (_reportingError) {
+        console.error('Network+ automatic response prefetch encountered an internal reporting error.');
+      }
+    };
+
+    const callSafely = (callback, ...args) => {
+      try {
+        return callback(...args);
+      } catch (error) {
+        reportInternalError(error);
+        return undefined;
+      }
+    };
+
+    const rowIsEligible = (row) => callSafely(config.isEligible, row) === true;
+    const rowIsCached = (row) => callSafely(isCached, row) === true;
+    const existingPromiseFor = (row) => callSafely(getExistingPromise, row);
+
+    const isIdle = () =>
+      queuedRows.size === 0 &&
+      backgroundRows.size === 0 &&
+      observedForegroundRows.size === 0;
+
+    const resolveIdleWaiters = () => {
+      if (!isIdle()) return;
+      for (const resolve of idleWaiters) resolve();
+      idleWaiters.clear();
+    };
+
+    const compactQueue = () => {
+      if (queuedRows.size === 0) {
+        queue = [];
+        queueHead = 0;
+        queuedTombstones = 0;
+        return;
+      }
+      const remainingStorage = queue.length - queueHead;
+      const shouldCompactConsumedPrefix =
+        queueHead >= AUTOMATIC_RESPONSE_PREFETCH_QUEUE_COMPACT_THRESHOLD &&
+        queueHead * 2 >= queue.length;
+      const shouldCompactTombstones =
+        remainingStorage >= AUTOMATIC_RESPONSE_PREFETCH_QUEUE_COMPACT_THRESHOLD &&
+        queuedTombstones * 2 >= remainingStorage;
+      if (!shouldCompactConsumedPrefix && !shouldCompactTombstones) return;
+      const compacted = [];
+      for (let index = queueHead; index < queue.length; index++) {
+        const entry = queue[index];
+        if (entry && entry.row) compacted.push(entry);
+      }
+      queue = compacted;
+      queueHead = 0;
+      queuedTombstones = 0;
+    };
+
+    const detachQueuedRow = (row) => {
+      const entry = queuedRows.get(row);
+      if (!entry) return false;
+      queuedRows.delete(row);
+      if (entry.row) {
+        entry.row = null;
+        queuedTombstones += 1;
+      }
+      return true;
+    };
+
+    const takeNextQueuedRow = () => {
+      while (queueHead < queue.length) {
+        const entry = queue[queueHead];
+        queue[queueHead] = null;
+        queueHead += 1;
+        if (!entry || !entry.row) continue;
+        const row = entry.row;
+        entry.row = null;
+        queuedRows.delete(row);
+        return row;
+      }
+      return null;
+    };
+
+    const clearFailureTimers = () => {
+      if (failureDebounceTimer) clearTimeout(failureDebounceTimer);
+      if (failureMaxWaitTimer) clearTimeout(failureMaxWaitTimer);
+      failureDebounceTimer = null;
+      failureMaxWaitTimer = null;
+    };
+
+    const resetFailureSummary = () => {
+      pendingFailureRows.clear();
+      failureContext = undefined;
+      clearFailureTimers();
+    };
+
+    const flushFailureSummary = () => {
+      clearFailureTimers();
+      const context = failureContext;
+      const liveFailures = Array.from(pendingFailureRows).filter(
+        (row) => rowIsEligible(row) && !rowIsCached(row),
+      );
+      pendingFailureRows.clear();
+      failureContext = undefined;
+      if (liveFailures.length > 0) {
+        callSafely(onFailureSummary, liveFailures.length, context);
+      }
+    };
+
+    const queueFailureSummary = (row, error) => {
+      if (callSafely(shouldReportFailure, row, error) !== true) return;
+      const startsWindow = pendingFailureRows.size === 0;
+      pendingFailureRows.add(row);
+      if (startsWindow) {
+        failureContext = callSafely(getFailureContext);
+        failureMaxWaitTimer = setTimeout(flushFailureSummary, failureMaxWaitMs);
+      }
+      if (failureDebounceTimer) clearTimeout(failureDebounceTimer);
+      failureDebounceTimer = setTimeout(flushFailureSummary, failureDebounceMs);
+    };
+
+    let drain;
+
+    const settleObservedForeground = (row, record, error, result) => {
+      if (observedForegroundRows.get(row) !== record) return;
+      observedForegroundRows.delete(row);
+      const eligible = rowIsEligible(row);
+      if (!record.canceled && eligible) {
+        callSafely(onSettled, row, error || null, 'foreground', result);
+      }
+      drain();
+      resolveIdleWaiters();
+    };
+
+    const observeForegroundPromise = (row, promise) => {
+      const record = { canceled: false };
+      observedForegroundRows.set(row, record);
+      Promise.resolve(promise)
+        .then(
+          (result) => settleObservedForeground(row, record, null, result),
+          (error) => settleObservedForeground(row, record, error, undefined),
+        )
+        .catch(reportInternalError);
+    };
+
+    const settleBackground = (row, record, error, result) => {
+      if (backgroundRows.get(row) !== record) return;
+      backgroundRows.delete(row);
+      const eligible = rowIsEligible(row);
+      if (!record.canceled && eligible) {
+        if (error) queueFailureSummary(row, error);
+        callSafely(onSettled, row, error || null, 'background', result);
+      }
+      drain();
+      resolveIdleWaiters();
+    };
+
+    const startBackground = (row) => {
+      const record = { canceled: false };
+      backgroundRows.set(row, record);
+      let pending;
+      try {
+        pending = config.loadRow(row);
+      } catch (error) {
+        settleBackground(row, record, error, undefined);
+        return;
+      }
+      Promise.resolve(pending)
+        .then(
+          (result) => settleBackground(row, record, null, result),
+          (error) => settleBackground(row, record, error, undefined),
+        )
+        .catch(reportInternalError);
+    };
+
+    drain = () => {
+      if (draining) return;
+      draining = true;
+      try {
+        while (backgroundRows.size < concurrency) {
+          const row = takeNextQueuedRow();
+          if (!row) break;
+          if (!rowIsEligible(row) || rowIsCached(row)) continue;
+          const existingPromise = existingPromiseFor(row);
+          if (existingPromise) {
+            observeForegroundPromise(row, existingPromise);
+            continue;
+          }
+          startBackground(row);
+        }
+      } finally {
+        draining = false;
+        compactQueue();
+        resolveIdleWaiters();
+      }
+    };
+
+    const enqueue = (row) => {
+      if (
+        !row ||
+        !rowIsEligible(row) ||
+        rowIsCached(row) ||
+        queuedRows.has(row) ||
+        backgroundRows.has(row) ||
+        observedForegroundRows.has(row)
+      ) {
+        return false;
+      }
+      const existingPromise = existingPromiseFor(row);
+      if (existingPromise) {
+        observeForegroundPromise(row, existingPromise);
+        return true;
+      }
+      const entry = { row };
+      queue.push(entry);
+      queuedRows.set(row, entry);
+      drain();
+      return true;
+    };
+
+    const observeForeground = (row, promise) => {
+      if (!row || !promise || backgroundRows.has(row) || observedForegroundRows.has(row)) {
+        return false;
+      }
+      if (!detachQueuedRow(row)) return false;
+      observeForegroundPromise(row, promise);
+      compactQueue();
+      drain();
+      return true;
+    };
+
+    const cancelRows = (rows) => {
+      for (const row of rows || []) {
+        detachQueuedRow(row);
+        pendingFailureRows.delete(row);
+        const backgroundRecord = backgroundRows.get(row);
+        if (backgroundRecord) backgroundRecord.canceled = true;
+        const foregroundRecord = observedForegroundRows.get(row);
+        if (foregroundRecord) foregroundRecord.canceled = true;
+      }
+      if (pendingFailureRows.size === 0) resetFailureSummary();
+      compactQueue();
+      drain();
+      resolveIdleWaiters();
+    };
+
+    const resumeRows = (rows) => {
+      for (const row of rows || []) {
+        const backgroundRecord = backgroundRows.get(row);
+        if (backgroundRecord) {
+          backgroundRecord.canceled = false;
+          continue;
+        }
+        const foregroundRecord = observedForegroundRows.get(row);
+        if (foregroundRecord) {
+          foregroundRecord.canceled = false;
+          continue;
+        }
+        enqueue(row);
+      }
+      drain();
+    };
+
+    const markRecovered = (row) => {
+      if (!pendingFailureRows.delete(row)) return false;
+      if (pendingFailureRows.size === 0) resetFailureSummary();
+      return true;
+    };
+
+    const whenIdle = () => {
+      if (isIdle()) return Promise.resolve();
+      return new Promise((resolve) => idleWaiters.add(resolve));
+    };
+
+    const getSnapshot = () => ({
+      queued: queuedRows.size,
+      queueStorage: Math.max(0, queue.length - queueHead),
+      backgroundInFlight: backgroundRows.size,
+      foregroundObserved: observedForegroundRows.size,
+      pendingFailureCount: pendingFailureRows.size,
+    });
+
+    return {
+      enqueue,
+      observeForeground,
+      cancelRows,
+      resumeRows,
+      markRecovered,
+      resetFailureSummary,
+      whenIdle,
+      getSnapshot,
+    };
+  }
+
+  function cancelAutomaticResponsePrefetchRows(rows, resetFailures) {
+    const scheduler = state.automaticResponsePrefetchScheduler;
+    if (!scheduler) return;
+    scheduler.cancelRows(rows);
+    if (resetFailures) scheduler.resetFailureSummary();
+  }
 
   function loadRetentionSetting() {
     let parsed = null;
@@ -3498,6 +3915,9 @@ const _NetworkPlus = (function () {
     row.responseContentState = 'cached';
     row.responseContentReason = '';
     row.responseContentError = null;
+    if (state.automaticResponsePrefetchScheduler) {
+      state.automaticResponsePrefetchScheduler.markRecovered(row);
+    }
     if (payload.bytes > 0) {
       state.retention.responseCacheRows.set(row, payload.bytes);
       state.retention.responseCacheBytes += payload.bytes;
@@ -3516,6 +3936,7 @@ const _NetworkPlus = (function () {
 
   function cleanupEvictedRowReferences(evictedRows, countRetention) {
     if (!evictedRows || evictedRows.length === 0) return;
+    cancelAutomaticResponsePrefetchRows(evictedRows, false);
     const evictedSet = new Set(evictedRows);
     const search = state.search;
     const previousMatches = search.matches;
@@ -3561,8 +3982,10 @@ const _NetworkPlus = (function () {
       state.highlightedRows.delete(row);
       releaseResponseContent(row, 'row-evicted', false);
       row._responseContentPromise = null;
+      row._responsePayloadPromise = null;
       row._retentionDisposed = true;
       state.retainedRows.delete(row);
+      state.activeRows.delete(row);
       row._reqObj = null;
       if (state.pendingRowFocusId === String(row.id)) state.pendingRowFocusId = null;
       if (state.selectedRow === row) {
@@ -3625,6 +4048,7 @@ const _NetworkPlus = (function () {
       row._managedRetention = true;
       row._retentionDisposed = false;
       state.retainedRows.add(row);
+      state.activeRows.add(row);
     }
     const undoSnapshot = state.clearUndoSnapshot;
     const retentionPlan = planClearUndoRetention(
@@ -3707,6 +4131,8 @@ const _NetworkPlus = (function () {
   }
 
   function detachStoredRowsForClearUndo() {
+    cancelAutomaticResponsePrefetchRows(state.rows, true);
+    for (const row of state.rows) state.activeRows.delete(row);
     state.rows = [];
     state.filteredRows = [];
     state.visibleBytes = 0;
@@ -4236,6 +4662,7 @@ const _NetworkPlus = (function () {
       responseContentState: embeddedResponseContent === null ? 'not-loaded' : 'pending-admission',
       responseContentReason: '',
       _responseContentPromise: null,
+      _responsePayloadPromise: null,
       responseContentError: null,
       _retentionDisposed: false,
     };
@@ -4247,11 +4674,12 @@ const _NetworkPlus = (function () {
   }
 
   function fetchResponsePayload(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
+    if (row._responsePayloadPromise) return row._responsePayloadPromise;
     const requestLabel = row.id == null ? 'unknown request' : 'request ' + row.id;
     if (!row._reqObj || typeof row._reqObj.getContent !== 'function') {
       return Promise.reject(new Error('Response content is unavailable for ' + requestLabel));
     }
-    return new Promise((resolve, reject) => {
+    const pending = new Promise((resolve, reject) => {
       let settled = false;
       const timeoutId = setTimeout(() => {
         if (settled) return;
@@ -4277,14 +4705,31 @@ const _NetworkPlus = (function () {
             fail('Failed to retrieve response content for ' + requestLabel + ': ' + runtimeError);
             return;
           }
+          let payload;
+          try {
+            payload = measureResponsePayload(content, encoding);
+          } catch (error) {
+            fail('Failed to process response content for ' + requestLabel + ': ' + error.message);
+            return;
+          }
           settled = true;
           clearTimeout(timeoutId);
-          resolve(measureResponsePayload(content, encoding));
+          resolve(payload);
         });
       } catch (error) {
         fail('Failed to retrieve response content for ' + requestLabel + ': ' + error.message);
       }
     });
+    row._responsePayloadPromise = pending;
+    pending.then(
+      () => {
+        if (row._responsePayloadPromise === pending) row._responsePayloadPromise = null;
+      },
+      () => {
+        if (row._responsePayloadPromise === pending) row._responsePayloadPromise = null;
+      },
+    );
+    return pending;
   }
 
   // [U1] Pre-fetch response content into the bounded shared cache.
@@ -4321,6 +4766,9 @@ const _NetworkPlus = (function () {
         row.responseContentState = 'cached';
         row.responseContentReason = '';
         row.responseContentError = null;
+        if (state.automaticResponsePrefetchScheduler) {
+          state.automaticResponsePrefetchScheduler.markRecovered(row);
+        }
         return row;
       })
       .catch((error) => {
@@ -4337,6 +4785,9 @@ const _NetworkPlus = (function () {
       });
 
     row._responseContentPromise = pending;
+    if (state.automaticResponsePrefetchScheduler) {
+      state.automaticResponsePrefetchScheduler.observeForeground(row, pending);
+    }
     pending.then(undefined, () => {
       if (row._responseContentPromise === pending) row._responseContentPromise = null;
     });
@@ -4346,7 +4797,11 @@ const _NetworkPlus = (function () {
   async function resolveHarResponseContent(row) {
     if (typeof row.responseContent === 'string') return buildHarResponseContent(row);
     try {
-      const payload = await fetchResponsePayload(row);
+      const pending = fetchResponsePayload(row);
+      if (state.automaticResponsePrefetchScheduler) {
+        state.automaticResponsePrefetchScheduler.observeForeground(row, pending);
+      }
+      const payload = await pending;
       return buildHarResponseContent(row, payload);
     } catch (error) {
       row.responseContentReason = row.responseContentReason || error.message;
@@ -5593,6 +6048,9 @@ const _NetworkPlus = (function () {
   }
 
   function activateSampleCapture() {
+    if (state.automaticResponsePrefetchScheduler) {
+      state.automaticResponsePrefetchScheduler.resetFailureSummary();
+    }
     disposeClearUndoSnapshot('sample');
     if (!enterSampleCaptureMode()) {
       renderBody();
@@ -6604,6 +7062,14 @@ const _NetworkPlus = (function () {
         if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
         const display = describeResponseContentState(row, error);
         setResponsePaneMessage('(response body ' + display.label + ': ' + display.reason + ')');
+        if (display.label === 'error') {
+          setStatus(
+            'Response-body retry failed for request ' +
+              row.id +
+              '. Open Response > Body for details.',
+            true,
+          );
+        }
       });
 
     // Response > Cookies
@@ -7267,6 +7733,10 @@ const _NetworkPlus = (function () {
         activeRowSet.has(row),
       );
       state.rows = restorePlan.rows.concat(activeRows);
+      for (const row of restorePlan.rows) state.activeRows.add(row);
+      if (state.automaticResponsePrefetchScheduler) {
+        state.automaticResponsePrefetchScheduler.resumeRows(restorePlan.rows);
+      }
       state.columnFilterRules = restorePlan.columnFilterRules;
       state.sort = restorePlan.sort;
       state.paused = restorePlan.paused;
@@ -8580,6 +9050,9 @@ const _NetworkPlus = (function () {
       };
 
       const commitStagedImport = (stagedImport) => {
+        if (state.automaticResponsePrefetchScheduler) {
+          state.automaticResponsePrefetchScheduler.resetFailureSummary();
+        }
         disposeClearUndoSnapshot('import');
         exitSampleCaptureMode();
         state.paused = true;
@@ -8636,7 +9109,12 @@ const _NetworkPlus = (function () {
     // Network subscription
     // Batch live rows into one frame. Eligibility is deliberately checked again at flush time.
     const scheduleResponseSearchRefresh = (row) => {
-      if (!isRetainedRow(row, state.retainedRows) || !hasActiveSearchKeywords(state.search.keywords)) return;
+      if (
+        !isActiveRetainedRow(row, state.retainedRows, state.activeRows) ||
+        !hasActiveSearchKeywords(state.search.keywords)
+      ) {
+        return;
+      }
       if (pendingResponseSearchFrame) return;
       pendingResponseSearchFrame = true;
       window.requestAnimationFrame(() => {
@@ -8648,10 +9126,60 @@ const _NetworkPlus = (function () {
     };
 
     state.onResponseContentChanged = (row) => {
+      if (!isActiveRetainedRow(row, state.retainedRows, state.activeRows)) return;
       scheduleResponseSearchRefresh(row);
       if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
       renderCachedResponseContent(row);
     };
+    state.automaticResponsePrefetchScheduler = createAutomaticResponsePrefetchScheduler({
+      concurrency: AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY,
+      isEligible: (row) => isActiveRetainedRow(row, state.retainedRows, state.activeRows),
+      isCached: (row) => typeof row.responseContent === 'string',
+      getExistingPromise: (row) => row._responseContentPromise,
+      loadRow: (row) => cacheResponseContent(row),
+      onSettled: (row, error, source, result) => {
+        if (
+          !error &&
+          source === 'foreground' &&
+          result &&
+          typeof result.content === 'string' &&
+          typeof result.text === 'string' &&
+          Number.isFinite(result.bytes)
+        ) {
+          queueMicrotask(() => {
+            if (
+              !isActiveRetainedRow(row, state.retainedRows, state.activeRows) ||
+              typeof row.responseContent === 'string'
+            ) {
+              return;
+            }
+            try {
+              admitResponsePayload(row, result);
+            } catch (admissionError) {
+              row.responseContentError = admissionError;
+            }
+            scheduleResponseSearchRefresh(row);
+          });
+          return;
+        }
+        scheduleResponseSearchRefresh(row);
+      },
+      shouldReportFailure: (row, error) =>
+        describeResponseContentState(row, error).label === 'error',
+      getFailureContext: () => statusGeneration,
+      onFailureSummary: (failureCount, failureStatusGeneration) => {
+        console.error(
+          'Network+ automatic response prefetch failed for ' +
+            failureCount.toLocaleString() +
+            ' requests.',
+        );
+        if (failureStatusGeneration === statusGeneration) {
+          setStatus(formatAutomaticResponsePrefetchFailureSummary(failureCount));
+        }
+      },
+      onInternalError: () =>
+        console.error('Network+ automatic response prefetch scheduler failed internally.'),
+    });
     const scheduleLiveRows = (scrollToBottom) => {
       if (scrollToBottom) pendingScrollToBottom = true;
       if (pendingLiveFrame) return;
@@ -8667,7 +9195,9 @@ const _NetworkPlus = (function () {
           state.search.keywords,
           state.renderedActiveFilterCount,
         );
-        const liveRows = queuedRows.filter((row) => isRetainedRow(row, state.retainedRows));
+        const liveRows = queuedRows.filter((row) =>
+          isActiveRetainedRow(row, state.retainedRows, state.activeRows),
+        );
         if (!fastPathEligible || !appendIncrementalRows(liveRows)) renderBody();
         if (shouldScrollToBottom && state.autoScroll) {
           tableWrap.scrollTop = tableWrap.scrollHeight;
@@ -8685,17 +9215,8 @@ const _NetworkPlus = (function () {
         );
         const row = buildRowFromRequest(request);
         addRowsWithRetention([row], 'live');
-        if (!isRetainedRow(row, state.retainedRows)) return;
-        cacheResponseContent(row)
-          .then(() => scheduleResponseSearchRefresh(row))
-          .catch((error) => {
-            scheduleResponseSearchRefresh(row);
-            const display = describeResponseContentState(row, error);
-            if (display.label === 'error') {
-              setStatus('Response content error: ' + display.reason);
-              console.error(error);
-            }
-          }); // [U1]
+        if (!isActiveRetainedRow(row, state.retainedRows, state.activeRows)) return;
+        state.automaticResponsePrefetchScheduler.enqueue(row);
         const wasAtBottom =
           state.autoScroll &&
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
@@ -8796,6 +9317,11 @@ const _NetworkPlus = (function () {
     appendRowsWithRetention,
     createRowEvictionPlan,
     isRetainedRow,
+    planStatusAnnouncement,
+    isActiveRetainedRow,
+    getAutomaticResponsePrefetchCapacity,
+    formatAutomaticResponsePrefetchFailureSummary,
+    createAutomaticResponsePrefetchScheduler,
     planImportRetention,
     createImportError,
     getImportFormat,
@@ -8824,6 +9350,8 @@ const _NetworkPlus = (function () {
     resolveHarResponseContent,
     DEFAULT_REQUEST_RETENTION_LIMIT,
     CLEAR_UNDO_TIMEOUT_MS,
+    AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY,
+    AUTOMATIC_RESPONSE_PREFETCH_QUEUE_COMPACT_THRESHOLD,
     MAX_RESPONSE_BODY_BYTES,
     MAX_RESPONSE_CACHE_BYTES,
     MAX_IMPORT_SOURCE_BYTES,

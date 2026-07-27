@@ -597,12 +597,13 @@ describe('recoverable Clear Undo static contracts', () => {
     );
 
     const liveStart = js.indexOf('chrome.devtools.network.onRequestFinished.addListener');
-    const liveEnd = js.indexOf('cacheResponseContent(row)', liveStart);
+    const liveEnd = js.indexOf('const wasAtBottom', liveStart);
     const liveBlock = js.slice(liveStart, liveEnd);
     expect(liveBlock.indexOf("disposeClearUndoSnapshot(\n          'live'")).toBeLessThan(
       liveBlock.indexOf('const row = buildRowFromRequest(request);'),
     );
     expect(liveBlock).toContain('keep sample and live traffic separate');
+    expect(liveBlock).toContain('state.automaticResponsePrefetchScheduler.enqueue(row);');
   });
 });
 
@@ -621,6 +622,7 @@ describe('capture retention static contracts', () => {
 
   test('persists named budgets and routes live and imported rows through one policy', () => {
     expect(js).toContain('const DEFAULT_REQUEST_RETENTION_LIMIT = 5000;');
+    expect(js).toContain('const AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY = 4;');
     expect(js).toContain('const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;');
     expect(js).toContain('const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;');
     expect(js).toContain("const RETENTION_KEY = 'networkPlus.retention.v1';");
@@ -633,6 +635,7 @@ describe('capture retention static contracts', () => {
 
   test('uses constant-time row liveness and bounded import construction', () => {
     expect(js).toContain('retainedRows: new Set()');
+    expect(js).toContain('activeRows: new Set()');
     expect(js).not.toContain('state.rows.includes(row)');
     expect(js).not.toContain('const importedRows = []');
     expect(js).toContain('const importPlan = planImportRetention(');
@@ -673,7 +676,59 @@ describe('capture retention static contracts', () => {
     const statusStart = js.indexOf('function updateRetentionStatus');
     const statusEnd = js.indexOf('function updateTableSummary', statusStart);
     expect(js.slice(statusStart, statusEnd)).not.toContain('queueRetentionAnnouncement');
-    expect(js).toContain("if (display.label === 'error')");
+    expect(js).toContain('const AUTOMATIC_RESPONSE_PREFETCH_FAILURE_DEBOUNCE_MS = 750;');
+    expect(js).toContain('const AUTOMATIC_RESPONSE_PREFETCH_FAILURE_MAX_WAIT_MS = 5000;');
+    expect(js).toContain('formatAutomaticResponsePrefetchFailureSummary(failureCount)');
+  });
+
+  test('bounds only automatic prefetch while foreground work shares or bypasses the queue', () => {
+    const schedulerStart = js.indexOf('function createAutomaticResponsePrefetchScheduler');
+    const schedulerEnd = js.indexOf('function cancelAutomaticResponsePrefetchRows', schedulerStart);
+    const schedulerBlock = js.slice(schedulerStart, schedulerEnd);
+    expect(schedulerBlock).toContain('const queuedRows = new Map();');
+    expect(schedulerBlock).toContain('const backgroundRows = new Map();');
+    expect(schedulerBlock).toContain('const observedForegroundRows = new Map();');
+    expect(schedulerBlock).toContain('const pendingFailureRows = new Set();');
+    expect(schedulerBlock).toContain('while (backgroundRows.size < concurrency)');
+    expect(schedulerBlock).toContain('observeForegroundPromise(row, existingPromise);');
+    expect(schedulerBlock).toContain('entry.row = null;');
+    expect(schedulerBlock).toContain('.catch(reportInternalError)');
+    expect(schedulerBlock).toContain('const resumeRows = (rows) => {');
+    expect(schedulerBlock).toContain('const markRecovered = (row) => {');
+
+    const cleanupStart = js.indexOf('function cleanupEvictedRowReferences');
+    const cleanupEnd = js.indexOf('function removeRowsFromState', cleanupStart);
+    expect(js.slice(cleanupStart, cleanupEnd)).toContain(
+      'cancelAutomaticResponsePrefetchRows(evictedRows, false);',
+    );
+    const detachStart = js.indexOf('function detachStoredRowsForClearUndo');
+    const detachEnd = js.indexOf('function updateClearUndoAction', detachStart);
+    expect(js.slice(detachStart, detachEnd)).toContain(
+      'cancelAutomaticResponsePrefetchRows(state.rows, true);',
+    );
+    const restoreStart = js.indexOf('const restoreClearUndoSnapshot = (snapshot) => {');
+    const restoreEnd = js.indexOf('// [U4] Clear', restoreStart);
+    expect(js.slice(restoreStart, restoreEnd)).toContain(
+      'state.automaticResponsePrefetchScheduler.resumeRows(restorePlan.rows);',
+    );
+
+    const detailsStart = js.indexOf('function selectRow');
+    const detailsEnd = js.indexOf('// Section 14: Export', detailsStart);
+    const detailsBlock = js.slice(detailsStart, detailsEnd);
+    expect(detailsBlock).toContain('cacheResponseContent(row)');
+    expect(detailsBlock).toContain('Response-body retry failed for request ');
+    expect(detailsBlock).toContain('. Open Response > Body for details.');
+    expect(detailsBlock).toContain("'. Open Response > Body for details.',\n            true,");
+    expect(js).toContain('const pending = fetchResponsePayload(row);');
+    expect(js).toContain('let statusGeneration = 0;');
+    expect(js).toContain('if (failureStatusGeneration === statusGeneration)');
+    const statusStart = js.indexOf('function setStatus');
+    const statusEnd = js.indexOf('let requestCountAnnouncementTimer', statusStart);
+    const statusBlock = js.slice(statusStart, statusEnd);
+    expect(statusBlock.indexOf('statusGeneration += 1;')).toBeLessThan(
+      statusBlock.indexOf('planStatusAnnouncement('),
+    );
+    expect(statusBlock).toContain('if (statusGeneration === generation) el.textContent = plan.text;');
   });
 
   test('uses one retention presentation for the visible and accessible button labels', () => {
@@ -742,7 +797,8 @@ describe('release trust static contracts', () => {
     expect(scheduleBlock).toContain('hasActiveSearchKeywords(state.search.keywords)');
     expect(scheduleBlock).toContain('renderBody();');
     expect(scheduleBlock).toContain('updateSearchUI();');
-    expect(js).toContain('.then(() => scheduleResponseSearchRefresh(row))');
+    expect(scheduleBlock).toContain('onSettled: (row, error, source, result) => {');
+    expect(scheduleBlock).toContain('scheduleResponseSearchRefresh(row);');
 
     const refreshStart = js.indexOf('function refreshSearchMatches');
     const refreshEnd = js.indexOf('function updateEmptyState', refreshStart);
@@ -762,7 +818,9 @@ describe('scale trust static contracts', () => {
     expect(appendBlock).toContain('document.createDocumentFragment()');
     expect(appendBlock).not.toContain('tbody.textContent =');
     expect(appendBlock).toContain('getIncrementalAppendBatch(liveRows, renderedRowIds)');
-    expect(js).toContain('queuedRows.filter((row) => isRetainedRow(row, state.retainedRows))');
+    expect(js).toContain(
+      'queuedRows.filter((row) =>\n          isActiveRetainedRow(row, state.retainedRows, state.activeRows),',
+    );
 
     expect(js).toContain('renderedRow.replaceWith(replacement);');
     const selectionBlock = js.slice(js.indexOf('function selectRow'), js.indexOf('const titleParts', js.indexOf('function selectRow')));
