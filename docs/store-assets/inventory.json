@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "reviewedOn": "2026-07-27",
+  "assets": [
+    {
+      "file": "logo-300.png",
+      "kind": "logo",
+      "width": 300,
+      "height": 300,
+      "source": "icons/icon128.png",
+      "syntheticOnly": true,
+      "containsSensitiveData": false,
+      "state": "Network+ extension mark; no traffic data"
+    },
+    {
+      "file": "screenshot-request-detail-1280x800.png",
+      "kind": "screenshot",
+      "width": 1280,
+      "height": 800,
+      "source": "panel.js:createSampleCaptureRequests",
+      "syntheticOnly": true,
+      "containsSensitiveData": false,
+      "domains": [
+        "api.network-plus.test",
+        "checkout.network-plus.test",
+        "static.network-plus.test"
+      ],
+      "state": "Synthetic request grid with the 503 request selected and response headers visible"
+    },
+    {
+      "file": "screenshot-timing-guidance-1280x800.png",
+      "kind": "screenshot",
+      "width": 1280,
+      "height": 800,
+      "source": "panel.js:createSampleCaptureRequests",
+      "syntheticOnly": true,
+      "containsSensitiveData": false,
+      "domains": [
+        "api.network-plus.test",
+        "checkout.network-plus.test",
+        "static.network-plus.test"
+      ],
+      "state": "Synthetic 503 response Timing view with 2,450 ms total and 2,200 ms Wait (TTFB)"
+    },
+    {
+      "file": "screenshot-sample-guide-1280x800.png",
+      "kind": "screenshot",
+      "width": 1280,
+      "height": 800,
+      "source": "panel.js:createSampleCaptureRequests",
+      "syntheticOnly": true,
+      "containsSensitiveData": false,
+      "domains": [
+        "api.network-plus.test",
+        "checkout.network-plus.test",
+        "static.network-plus.test"
+      ],
+      "state": "Prompt-first local Sample evidence guide before Reveal evidence"
+    },
+    {
+      "file": "screenshot-sanitized-export-1280x800.png",
+      "kind": "screenshot",
+      "width": 1280,
+      "height": 800,
+      "source": "panel.js:createSampleCaptureRequests",
+      "syntheticOnly": true,
+      "containsSensitiveData": false,
+      "domains": [
+        "api.network-plus.test",
+        "checkout.network-plus.test",
+        "static.network-plus.test"
+      ],
+      "state": "User-initiated export dialog with Export sanitized HAR as the safe default"
+    }
+  ]
+}

@@ -61,14 +61,19 @@ network-plus-extension/
   docs/
     DESIGN.md                ... UI トークン、コンポーネント、テーマ運用ルール
     PRODUCT.md               ... 製品戦略、対象ユーザー、設計原則、アクセシビリティ基準
+    edge-addons-submission.md ... en-US Edge Add-ons 提出 dossier と certification notes
+    privacy.md               ... 通信情報のローカル処理と出力境界に関する公開通知
+    store-assets/            ... 300x300 ロゴ、1280x800 合成サンプル画像、inventory
     unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
   scripts/
     check-extension-package.js ... 配布ファイルの整合性検証と ZIP 作成
+    check-store-readiness.js ... Edge Add-ons 提出資料と合成アセットの回帰チェック
     check-version-sync.js    ... 5箇所のリリースバージョン同期チェック
     check-repository-integrity.js ... package-lock.json の provenance チェック
     check-text-integrity.js  ... 変更差分の whitespace / encoding チェック
   tests/                     ... Jest ユニットテスト
     extension-package.test.js ... 配布 ZIP / manifest / HTML の回帰テスト
+    store-readiness.test.js ... Edge Add-ons dossier/privacy/PNG の回帰テスト
     setup.js                 ... テスト用ブラウザ API モック
     panel.test.js            ... 純粋関数のユニットテスト
     ui-contract.test.js      ... テーマ、コントラスト、レスポンシブ、ARIA の静的契約テスト
@@ -142,30 +147,27 @@ Network+ は clipboard copy と HAR download を外向きデータ面として�
 
 ## 🚀 セットアップ
 
-### 1. リポジトリの取得
+### リリース ZIP から試す
+
+1. [v1.6.0 リリース](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0)から `network-plus-extension-1.6.0.zip` をダウンロードする
+2. ZIP を新しいフォルダへ展開する。`edge://extensions/` の「パッケージ化されていない拡張機能を読み込む」では ZIP 自体ではなく、展開後の `manifest.json` があるフォルダを選択する
+3. Microsoft Edge で `edge://extensions/` を開き、「デベロッパーモード」を有効にする
+4. 「パッケージ化されていない拡張機能を読み込む」を選び、手順 2 の展開先フォルダを指定する
+5. DevTools を開くと「**Network+**」タブが追加される
+
+このリポジトリで確認できる公開情報には、検証済みの Microsoft Edge Add-ons 掲載 URL は含まれていません。上記はリリース ZIP を展開して Developer mode で読み込む手順であり、ストア公開済みという説明ではありません。データの扱いは[プライバシー通知](docs/privacy.md)、問い合わせは [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues)、将来の提出用フィールドと外部作業は [Edge Add-ons submission dossier](docs/edge-addons-submission.md) を参照してください。
+
+### ソースから開発する
+
+前提条件は Microsoft Edge 最新安定版と Node.js 22 または 24 LTS です。
 
 ```bash
 git clone https://github.com/himiyosh/network-plus-extension.git
 cd network-plus-extension
-```
-
-### 2. 前提条件
-
-- **Microsoft Edge** (最新安定版, Chromium ベース)
-- **Node.js 22 または 24 LTS** (テスト・Lint・品質チェック実行用)
-
-### 3. 依存関係のインストール
-
-```bash
 npm ci
 ```
 
-### 4. Edge へのインストール
-
-1. Microsoft Edge で `edge://extensions/` を開く
-2. 「デベロッパーモード」を有効にする
-3. 「パッケージ化されていない拡張機能を読み込む」をクリックし、このフォルダを選択
-4. DevTools を開くと「**Network+**」タブが追加される
+Microsoft Edge で `edge://extensions/` を開き、「デベロッパーモード」を有効にして「パッケージ化されていない拡張機能を読み込む」から clone したリポジトリルートを選択します。
 
 ## 📖 使い方
 
@@ -210,6 +212,7 @@ npm run version:check   # 5箇所のリリース version 同期チェック
 npm run integrity:check # package-lock.json の provenance チェック
 npm run extension:check # manifest、権限、参照、CSP、配布 allowlist の検証
 npm run extension:package # dist/ に検証済みのリリース ZIP を作成
+npm run store:check     # Edge Add-ons 提出資料、privacy、合成 PNG の整合性チェック
 npm run text:check -- --base <base-sha> --head <head-sha> # 変更差分の whitespace / encoding チェック
 npm run format:check    # CI 対象ファイルの Prettier チェック
 npm run format          # CI 対象ファイルの Prettier フォーマット
@@ -217,7 +220,7 @@ npm run format          # CI 対象ファイルの Prettier フォーマット
 
 本拡張機能はビルドレス構成です。ソースを直接 Edge に読み込むため、コンパイルやバンドルを行うビルドコマンドはありません。`extension:package` は実行コードを変換せず、明示したランタイム10ファイルだけを `dist/` の ZIP へ格納します。
 
-`.github/workflows/quality-gates.yml` は Node.js 22 / 24 の matrix で `npm ci` を使用し、Jest、ESLint、release version sync、Prettier、lockfile provenance、変更差分の text integrity、拡張機能パッケージ整合性を検証します。
+`.github/workflows/quality-gates.yml` は Node.js 22 / 24 の matrix で `npm ci` を使用し、Jest、ESLint、release version sync、Prettier、lockfile provenance、変更差分の text integrity、拡張機能パッケージ整合性、Edge Add-ons 提出キット整合性を検証します。
 
 ## 🤖 Copilot カスタマイズ
 
@@ -232,6 +235,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | **純粋関数** | Jest ユニットテスト | [tests/panel.test.js](tests/panel.test.js) |
 | **リポジトリ整合性** | Jest ユニットテスト + CI | [tests/repository-integrity.test.js](tests/repository-integrity.test.js) |
 | **拡張機能パッケージ整合性** | Jest ユニットテスト + CI | [tests/extension-package.test.js](tests/extension-package.test.js) |
+| **Edge Add-ons 提出キット整合性** | Jest ユニットテスト + CI | [tests/store-readiness.test.js](tests/store-readiness.test.js) |
 | **変更差分整合性** | Jest ユニットテスト + CI | [tests/text-integrity.test.js](tests/text-integrity.test.js) |
 | **コーディネーター契約** | Jest 静的契約テスト + CI | [tests/coordinator-contract.test.js](tests/coordinator-contract.test.js) |
 | **DOM 操作** | 手動テスト (Edge DevTools で拡張機能をロードして確認) | - |
@@ -325,6 +329,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 - HAR はローカルの Blob / Object URL と一時的な `<a download>` で保存し、`chrome.downloads` API と `downloads` 権限は使用しない
 - manifestのtop-level keyは現在使用する8項目だけを許可し、host/background/content scriptなど未使用のprivileged surfaceは存在自体を拒否する。将来追加する場合はvalidator、テスト、本セキュリティ説明を同時更新する
 - `npm run extension:check` は権限の完全一致と実使用、runtime pathのsymlink/root境界、HTML/CSS resourceのlocality、inline script禁止、CSP、配布allowlistを検証する
+- Network+ がアクセス・ローカル処理する通信情報、永続化する UI 設定、Clear/Undo、sanitized/full output の境界は[プライバシー通知](docs/privacy.md)に記載する
 
 ## ⚠️ 注意事項 / 制約
 
@@ -346,9 +351,13 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | [docs/coordinator-topology.md](docs/coordinator-topology.md) | コーディネーターセッショントポロジー、クリーンアップゲート、Host-Tool Fallback |
 | [docs/DESIGN.md](docs/DESIGN.md) | UI トークン、コンポーネント、テーマ運用ルール |
 | [docs/PRODUCT.md](docs/PRODUCT.md) | 対象ユーザー、製品目的、設計原則、WCAG 2.2 AA 基準 |
+| [docs/edge-addons-submission.md](docs/edge-addons-submission.md) | en-US Edge Add-ons 提出フィールド、privacy 宣言、certification notes、外部作業境界 |
+| [docs/privacy.md](docs/privacy.md) | 通信情報のローカル処理、保存、Clear/Undo、clipboard/HAR 出力に関する公開通知 |
+| [docs/store-assets/](docs/store-assets/) | 300x300 ロゴ、1280x800 合成サンプル画像、機械可読 inventory |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-coordinator-contract.js](scripts/check-coordinator-contract.js) | コーディネータートポロジー規約と agent `tools:` 制限リスト再導入の静的チェック |
 | [scripts/check-extension-package.js](scripts/check-extension-package.js) | 拡張機能の参照・権限・配布内容チェックとZIP作成 |
+| [scripts/check-store-readiness.js](scripts/check-store-readiness.js) | Edge Add-ons dossier/privacy、URL、manifest同期、合成 PNG 寸法・inventory の静的チェック |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | manifest/package/package-lock/panel fallback バージョン同期チェックスクリプト |
 | [scripts/check-audit-policy.js](scripts/check-audit-policy.js) | 高優先度の監査を維持しつつ GHSA-mh99-v99m-4gvg 由来のみを一時許可する監査ポリシー |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |

@@ -65,6 +65,9 @@ jobs:
       - name: Build extension package
         run: npm run extension:package
 
+      - name: Check Edge Add-ons submission kit
+        run: npm run store:check
+
       - name: Check repository integrity
         run: npm run integrity:check
 
