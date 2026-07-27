@@ -59,6 +59,17 @@ const _NetworkPlus = (function () {
   const SAZ_SOURCE_CHUNK_BYTES = 16 * 1024;
   const SAZ_ENTRY_PATH_PATTERN = /^raw\/(\d+)_([csm])\.(txt|xml)$/;
   const SAMPLE_CAPTURE_BASE_TIMESTAMP = Date.parse('2026-01-15T12:00:00.000Z');
+  const SAMPLE_EVIDENCE_SIGNATURE = Object.freeze({
+    source: 'sample',
+    method: 'POST',
+    domain: 'checkout.network-plus.test',
+    path: '/v1/orders/preview',
+    status: 503,
+  });
+  const SAMPLE_EVIDENCE_DESTINATIONS = Object.freeze({
+    timing: Object.freeze({ tabId: 'res-timing', tabLabel: 'Timing' }),
+    headers: Object.freeze({ tabId: 'res-headers', tabLabel: 'Headers' }),
+  });
   const JSON_TREE_MAX_CHILDREN = 100;
   const JSON_TREE_MAX_DEPTH = 20;
   const JSON_TREE_PREVIEW_KEYS = 3;
@@ -1005,6 +1016,62 @@ const _NetworkPlus = (function () {
       retryHeaderName: retryHeader ? String(retryHeader.name || '') : '',
       retryAfter: retryHeader ? String(retryHeader.value == null ? '' : retryHeader.value) : '',
       limitation: TIMING_EVIDENCE_LIMITATION,
+    };
+  }
+
+  function isSampleEvidenceTargetRow(row) {
+    if (!row || row._captureSource !== SAMPLE_EVIDENCE_SIGNATURE.source) return false;
+    const url = extractUrlParts(row.url);
+    return (
+      String(row.method || '').toUpperCase() === SAMPLE_EVIDENCE_SIGNATURE.method &&
+      Number(row.status) === SAMPLE_EVIDENCE_SIGNATURE.status &&
+      url.domain === SAMPLE_EVIDENCE_SIGNATURE.domain &&
+      url.path === SAMPLE_EVIDENCE_SIGNATURE.path
+    );
+  }
+
+  function planSampleEvidenceNavigation(options) {
+    const context = options || {};
+    const destination = SAMPLE_EVIDENCE_DESTINATIONS[context.destination];
+    const unavailable = (reason) => ({
+      available: false,
+      reason,
+      targetRow: null,
+      tabId: destination ? destination.tabId : null,
+      tabLabel: destination ? destination.tabLabel : '',
+      blockingFilterIds: [],
+    });
+    if (!destination) return unavailable('unsupported-destination');
+    if (context.sampleCaptureActive !== true) return unavailable('sample-inactive');
+
+    const rows = Array.isArray(context.rows) ? context.rows : [];
+    const targetRows = rows.filter(isSampleEvidenceTargetRow);
+    if (targetRows.length === 0) return unavailable('target-unavailable');
+    if (targetRows.length > 1) return unavailable('target-ambiguous');
+    const targetRow = targetRows[0];
+
+    const columns = Array.isArray(context.columns) ? context.columns : [];
+    const filterRules =
+      context.columnFilterRules && typeof context.columnFilterRules === 'object'
+        ? context.columnFilterRules
+        : {};
+    const blockingFilterIds = [];
+    for (const column of columns) {
+      const colId = column && column.id;
+      const rule = colId ? filterRules[colId] : null;
+      if (!rule) continue;
+      const value = getRowFilterValue(targetRow, colId);
+      const isNumeric = NUMERIC_COLUMNS.includes(colId);
+      if (!evaluateFilterRule(value, rule, isNumeric)) blockingFilterIds.push(colId);
+    }
+
+    return {
+      available: true,
+      reason: '',
+      targetRow,
+      tabId: destination.tabId,
+      tabLabel: destination.tabLabel,
+      blockingFilterIds,
     };
   }
 
@@ -3435,6 +3502,7 @@ const _NetworkPlus = (function () {
     comparisonInvokingRowId: null, // [U8] row id that opened the comparison (for focus restoration)
     highlightedRows: new Map(), // [U7] highlighted rows: row -> color class
     onResponseContentChanged: null,
+    syncSearchUI: null,
     automaticResponsePrefetchScheduler: null,
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
     sort: {
@@ -4044,9 +4112,11 @@ const _NetworkPlus = (function () {
 
   function addRowsWithRetention(rows, source) {
     const incomingRows = rows || [];
+    const captureSource = ['sample', 'import', 'live'].includes(source) ? source : 'live';
     for (const row of incomingRows) {
       row._managedRetention = true;
       row._retentionDisposed = false;
+      row._captureSource = captureSource;
       state.retainedRows.add(row);
       state.activeRows.add(row);
     }
@@ -5545,6 +5615,61 @@ const _NetworkPlus = (function () {
     return container;
   }
 
+  function getInspectorTabButton(barId, tabId) {
+    const bar = $('#' + barId);
+    if (!bar) return null;
+    return $all('.tab-btn', bar).find((button) => button.dataset.tab === tabId) || null;
+  }
+
+  function activateInspectorTab(barId, tabId, moveFocus) {
+    const bar = $('#' + barId);
+    const activeButton = getInspectorTabButton(barId, tabId);
+    if (!bar || !activeButton) return null;
+    const buttons = $all('.tab-btn', bar);
+    const contentArea = bar.nextElementSibling;
+    buttons.forEach((candidate) => {
+      const isActive = candidate === activeButton;
+      candidate.classList.toggle('active', isActive);
+      candidate.setAttribute('aria-selected', String(isActive));
+      candidate.tabIndex = isActive ? 0 : -1;
+    });
+    if (contentArea) {
+      contentArea.querySelectorAll('.tab-pane').forEach((pane) => {
+        const isActive = pane.id === tabId;
+        pane.classList.toggle('active', isActive);
+        pane.hidden = !isActive;
+      });
+    }
+    if (moveFocus) {
+      activeButton.focus();
+      activeButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+    return activeButton;
+  }
+
+  function initializeInspectorTabBar(barId) {
+    const bar = $('#' + barId);
+    if (!bar) return;
+    bar.addEventListener('click', (event) => {
+      const button = event.target.closest('.tab-btn');
+      if (button) activateInspectorTab(barId, button.dataset.tab, false);
+    });
+    bar.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      const buttons = $all('.tab-btn', bar);
+      const current = event.target.closest('.tab-btn');
+      const nextIndex = getNextTabIndex(buttons.indexOf(current), buttons.length, event.key);
+      if (nextIndex < 0) return;
+      event.preventDefault();
+      activateInspectorTab(barId, buttons[nextIndex].dataset.tab, true);
+    });
+
+    const activeButton =
+      $all('.tab-btn', bar).find((button) => button.classList.contains('active')) ||
+      $('.tab-btn', bar);
+    if (activeButton) activateInspectorTab(barId, activeButton.dataset.tab, false);
+  }
+
   let sampleGuideDialogTrigger = null;
 
   function resetSampleGuideDialog() {
@@ -5567,6 +5692,95 @@ const _NetworkPlus = (function () {
     detail.textContent = value;
     list.appendChild(term);
     list.appendChild(detail);
+  }
+
+  function announceSampleEvidenceNavigation(statusElement, message) {
+    if (statusElement) statusElement.textContent = message;
+    setStatus(message, true);
+  }
+
+  function syncSearchUIAfterRender() {
+    if (typeof state.syncSearchUI === 'function') state.syncSearchUI();
+  }
+
+  function navigateToSampleEvidence(destination, evidence, statusElement) {
+    const retainedActiveRows = state.rows.filter((row) =>
+      isActiveRetainedRow(row, state.retainedRows, state.activeRows),
+    );
+    const plan = planSampleEvidenceNavigation({
+      sampleCaptureActive: state.sampleCaptureActive,
+      rows: retainedActiveRows,
+      destination,
+      columns: state.columns,
+      columnFilterRules: state.columnFilterRules,
+    });
+    const unavailableMessage =
+      'Sample evidence is unavailable. Reload the local sample capture and reveal the evidence again.';
+    if (!plan.available || !getInspectorTabButton('res-tab-bar', plan.tabId)) {
+      announceSampleEvidenceNavigation(statusElement, unavailableMessage);
+      return false;
+    }
+
+    if (plan.blockingFilterIds.length > 0) {
+      const previousFilterRules = serializeFilterState(state.columnFilterRules);
+      const defaults = DEFAULT_COLUMN_FILTER_RULES();
+      for (const colId of plan.blockingFilterIds) {
+        state.columnFilterRules[colId] = defaults[colId];
+      }
+      renderBody();
+      if (
+        !state.filteredRows.includes(plan.targetRow) ||
+        !isActiveRetainedRow(plan.targetRow, state.retainedRows, state.activeRows)
+      ) {
+        state.columnFilterRules = deserializeFilterState(previousFilterRules);
+        renderBody();
+        syncSearchUIAfterRender();
+        announceSampleEvidenceNavigation(statusElement, unavailableMessage);
+        return false;
+      }
+      syncSearchUIAfterRender();
+    }
+
+    closeSampleGuideDialog(false);
+    selectRow(plan.targetRow, null, true);
+    scrollToSelectedRow();
+    activateInspectorTab('res-tab-bar', plan.tabId, true);
+
+    const evidenceMessage =
+      destination === 'timing'
+        ? 'Dominant phase: ' +
+          evidence.dominantPhaseLabel +
+          ', ' +
+          evidence.dominantDurationMs.toLocaleString('en-US') +
+          ' ms.'
+        : evidence.retryHeaderName + ' is ' + evidence.retryAfter + ' seconds.';
+    const filterMessage =
+      plan.blockingFilterIds.length > 0
+        ? ' Cleared ' +
+          plan.blockingFilterIds.length +
+          ' sample-only column ' +
+          (plan.blockingFilterIds.length === 1 ? 'filter' : 'filters') +
+          ' that hid the request; pre-sample filters return when sample mode exits.'
+        : '';
+    setStatus(
+      'Opened Response ' +
+        plan.tabLabel +
+        ' for the failed local sample request. ' +
+        evidenceMessage +
+        filterMessage,
+      true,
+    );
+    return true;
+  }
+
+  function createSampleGuideEvidenceAction(label, destination, evidence, statusElement) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', () =>
+      navigateToSampleEvidence(destination, evidence, statusElement),
+    );
+    return button;
   }
 
   function renderSampleGuideEvidence() {
@@ -5615,6 +5829,32 @@ const _NetworkPlus = (function () {
     );
     appendSampleGuideEvidenceItem(list, 'Browser evidence limit', evidence.limitation);
     container.appendChild(list);
+
+    const navigationActions = document.createElement('div');
+    navigationActions.className = 'sample-guide-evidence-actions';
+    const navigationStatus = document.createElement('p');
+    navigationStatus.className = 'sample-guide-navigation-status';
+    navigationStatus.setAttribute('role', 'status');
+    navigationStatus.setAttribute('aria-live', 'polite');
+    navigationStatus.setAttribute('aria-atomic', 'true');
+    navigationActions.appendChild(
+      createSampleGuideEvidenceAction(
+        'Inspect Timing evidence',
+        'timing',
+        evidence,
+        navigationStatus,
+      ),
+    );
+    navigationActions.appendChild(
+      createSampleGuideEvidenceAction(
+        'Inspect Retry-After header',
+        'headers',
+        evidence,
+        navigationStatus,
+      ),
+    );
+    container.appendChild(navigationActions);
+    container.appendChild(navigationStatus);
     container.hidden = false;
     return heading;
   }
@@ -6374,6 +6614,16 @@ const _NetworkPlus = (function () {
     }
     updateTableSummary(rows.length, visibleBytes);
     restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);
+  }
+
+  function scrollToSelectedRow() {
+    if (!state.selectedRow) return;
+    const tableWrap = $('#tableWrap');
+    if (!tableWrap) return;
+    const selectedTr = tableWrap.querySelector(
+      'tr[data-row-id="' + state.selectedRow.id + '"]',
+    );
+    if (selectedTr) selectedTr.scrollIntoView({ block: 'nearest' });
   }
 
   function render() {
@@ -8161,48 +8411,8 @@ const _NetworkPlus = (function () {
     });
 
     // Tab switching for inspector panels
-    const initTabBar = (barId) => {
-      const bar = $('#' + barId);
-      if (!bar) return;
-      const buttons = $all('.tab-btn', bar);
-      const contentArea = bar.nextElementSibling;
-
-      const activateTab = (btn, moveFocus) => {
-        const tabId = btn.dataset.tab;
-        buttons.forEach((candidate) => {
-          const isActive = candidate === btn;
-          candidate.classList.toggle('active', isActive);
-          candidate.setAttribute('aria-selected', String(isActive));
-          candidate.tabIndex = isActive ? 0 : -1;
-        });
-        if (contentArea) {
-          contentArea.querySelectorAll('.tab-pane').forEach((pane) => {
-            const isActive = pane.id === tabId;
-            pane.classList.toggle('active', isActive);
-            pane.hidden = !isActive;
-          });
-        }
-        if (moveFocus) btn.focus();
-      };
-
-      bar.addEventListener('click', (e) => {
-        const btn = e.target.closest('.tab-btn');
-        if (btn) activateTab(btn, false);
-      });
-      bar.addEventListener('keydown', (e) => {
-        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
-        const current = e.target.closest('.tab-btn');
-        const nextIndex = getNextTabIndex(buttons.indexOf(current), buttons.length, e.key);
-        if (nextIndex < 0) return;
-        e.preventDefault();
-        activateTab(buttons[nextIndex], true);
-      });
-
-      const activeButton = buttons.find((btn) => btn.classList.contains('active')) || buttons[0];
-      if (activeButton) activateTab(activeButton, false);
-    };
-    initTabBar('req-tab-bar');
-    initTabBar('res-tab-bar');
+    initializeInspectorTabBar('req-tab-bar');
+    initializeInspectorTabBar('res-tab-bar');
 
     render();
 
@@ -8247,12 +8457,6 @@ const _NetworkPlus = (function () {
       }
       previousTableScrollTop = currentScrollTop;
     });
-
-    function scrollToSelectedRow() {
-      if (!state.selectedRow) return;
-      const selectedTr = tableWrap.querySelector('tr[data-row-id="' + state.selectedRow.id + '"]');
-      if (selectedTr) selectedTr.scrollIntoView({ block: 'nearest' });
-    }
 
     const contextMenu = document.createElement('div');
     contextMenu.id = 'rowContextMenu';
@@ -8918,6 +9122,7 @@ const _NetworkPlus = (function () {
       // Update per-keyword counts in search rows
       renderSearchRows();
     }
+    state.syncSearchUI = updateSearchUI;
 
     function scrollToSearchMatch(matchRow) {
       if (!matchRow) return;
@@ -9282,6 +9487,7 @@ const _NetworkPlus = (function () {
     formatSampleCaptureRemainingStatus,
     createSampleCaptureRequests,
     deriveSampleGuideEvidence,
+    planSampleEvidenceNavigation,
     debounce,
     highlightText,
     getRowFilterValue,

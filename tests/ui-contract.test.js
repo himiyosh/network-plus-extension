@@ -374,6 +374,9 @@ describe('sample evidence guide static contracts', () => {
   const dialogStart = html.indexOf('<dialog id="sampleGuideDialog"');
   const dialogEnd = html.indexOf('</dialog>', dialogStart);
   const dialogBlock = html.slice(dialogStart, dialogEnd);
+  const tabHelperStart = js.indexOf('function getInspectorTabButton');
+  const tabHelperEnd = js.indexOf('let sampleGuideDialogTrigger', tabHelperStart);
+  const tabHelperBlock = js.slice(tabHelperStart, tabHelperEnd);
   const guideUiStart = js.indexOf('function resetSampleGuideDialog');
   const guideUiEnd = js.indexOf('function toggleSort', guideUiStart);
   const guideUiBlock = js.slice(guideUiStart, guideUiEnd);
@@ -392,6 +395,8 @@ describe('sample evidence guide static contracts', () => {
     expect(dialogBlock).not.toMatch(
       /\bPOST\b|\/v1\/orders\/preview|\b503\b|2,?200|Retry-After|root cause/i,
     );
+    expect(dialogBlock).not.toMatch(/Inspect Timing evidence|Inspect Retry-After header/);
+    expect(dialogBlock.match(/<button/g)).toHaveLength(2);
     expect(html.match(/>Sample guide<\/button>/g)).toHaveLength(1);
   });
 
@@ -405,6 +410,12 @@ describe('sample evidence guide static contracts', () => {
     expect(guideUiBlock).toContain("'Dominant Timing phase'");
     expect(guideUiBlock).toContain("'Retry hint'");
     expect(guideUiBlock).toContain("'Browser evidence limit'");
+    expect(guideUiBlock).toContain("navigationActions.className = 'sample-guide-evidence-actions';");
+    expect(guideUiBlock).toContain("document.createElement('button')");
+    expect(guideUiBlock).toContain("button.textContent = label;");
+    expect(guideUiBlock).toContain("'Inspect Timing evidence'");
+    expect(guideUiBlock).toContain("'Inspect Retry-After header'");
+    expect(guideUiBlock).toContain("navigationStatus.setAttribute('role', 'status');");
     expect(guideUiBlock).not.toContain('innerHTML');
     expect(guideUiBlock).not.toMatch(
       /fetch\s*\(|XMLHttpRequest|sendBeacon|chrome\.storage|localStorage|analytics|telemetry/,
@@ -447,6 +458,7 @@ describe('sample evidence guide static contracts', () => {
     const restoreEnd = js.indexOf('// [U4] Clear', restoreStart);
     expect(js.slice(restoreStart, restoreEnd)).toContain('updateRecordState(false);');
     expect(js).not.toContain('sampleGuideRevealed');
+    expect(js).not.toContain('sampleGuideNavigationAttempt');
   });
 
   test('restores focus for close and Escape without targeting a hidden trigger on exit', () => {
@@ -463,6 +475,71 @@ describe('sample evidence guide static contracts', () => {
     expect(guideUiBlock).toContain(
       "closeButton.addEventListener('click', () => closeSampleGuideDialog(true));",
     );
+    expect(guideUiBlock).toContain('closeSampleGuideDialog(false);');
+    expect(guideUiBlock).toContain('selectRow(plan.targetRow, null, true);');
+    expect(guideUiBlock).toContain('scrollToSelectedRow();');
+    expect(guideUiBlock).toContain("activateInspectorTab('res-tab-bar', plan.tabId, true);");
+    expect(js.indexOf('function scrollToSelectedRow')).toBeLessThan(js.indexOf('function init()'));
+  });
+
+  test('keeps unavailable evidence inert and clears only blocking sample-local column filters', () => {
+    const navigationStart = guideUiBlock.indexOf('function navigateToSampleEvidence');
+    const unavailableGuard = guideUiBlock.indexOf('if (!plan.available', navigationStart);
+    const filterReset = guideUiBlock.indexOf('previousFilterRules = serializeFilterState', navigationStart);
+    expect(unavailableGuard).toBeGreaterThan(navigationStart);
+    expect(filterReset).toBeGreaterThan(unavailableGuard);
+    expect(guideUiBlock).toContain(
+      'isActiveRetainedRow(row, state.retainedRows, state.activeRows)',
+    );
+    expect(js).toContain(
+      "const captureSource = ['sample', 'import', 'live'].includes(source) ? source : 'live';",
+    );
+    expect(js).toContain('row._captureSource = captureSource;');
+    expect(guideUiBlock).toContain('for (const colId of plan.blockingFilterIds)');
+    expect(guideUiBlock).toContain('state.columnFilterRules[colId] = defaults[colId];');
+    expect(guideUiBlock).toContain(
+      'state.columnFilterRules = deserializeFilterState(previousFilterRules);',
+    );
+    expect(guideUiBlock).toContain('sample-only column ');
+    expect(guideUiBlock).toContain('pre-sample filters return when sample mode exits');
+    expect(guideUiBlock).toContain('announceSampleEvidenceNavigation(statusElement, unavailableMessage);');
+  });
+
+  test('synchronizes search counts and navigation controls after filter reset and rollback', () => {
+    const navigationStart = guideUiBlock.indexOf('function navigateToSampleEvidence');
+    const navigationEnd = guideUiBlock.indexOf(
+      'function createSampleGuideEvidenceAction',
+      navigationStart,
+    );
+    const navigationBlock = guideUiBlock.slice(navigationStart, navigationEnd);
+    expect(js).toContain('syncSearchUI: null,');
+    expect(guideUiBlock).toContain(
+      "if (typeof state.syncSearchUI === 'function') state.syncSearchUI();",
+    );
+    expect(navigationBlock.match(/syncSearchUIAfterRender\(\);/g)).toHaveLength(2);
+    expect(navigationBlock).toMatch(
+      /state\.columnFilterRules = deserializeFilterState\(previousFilterRules\);\s+renderBody\(\);\s+syncSearchUIAfterRender\(\);/,
+    );
+    expect(js).toContain('state.syncSearchUI = updateSearchUI;');
+    expect(js).toContain("countSpan.textContent = '0';");
+    expect(js).toContain('countSpan.textContent = (kwCurIdx + 1) + \'/\' + kwMatchCount;');
+    expect(js).toContain('prevBtn.disabled = kwMatchCount === 0;');
+    expect(js).toContain('nextBtn.disabled = kwMatchCount === 0;');
+  });
+
+  test('announces concise evidence destinations and preserves accessible tab keyboard behavior', () => {
+    expect(guideUiBlock).toContain("'Opened Response '");
+    expect(guideUiBlock).toContain("'Dominant phase: '");
+    expect(guideUiBlock).toContain("evidence.retryHeaderName + ' is '");
+    expect(guideUiBlock).toContain('setStatus(message, true);');
+    expect(tabHelperBlock).toContain("candidate.setAttribute('aria-selected', String(isActive));");
+    expect(tabHelperBlock).toContain('candidate.tabIndex = isActive ? 0 : -1;');
+    expect(tabHelperBlock).toContain('pane.hidden = !isActive;');
+    expect(tabHelperBlock).toContain('activeButton.focus();');
+    expect(tabHelperBlock).toContain("['ArrowLeft', 'ArrowRight', 'Home', 'End']");
+    expect(tabHelperBlock).toContain('getNextTabIndex(');
+    expect(js).toContain("initializeInspectorTabBar('req-tab-bar');");
+    expect(js).toContain("initializeInspectorTabBar('res-tab-bar');");
   });
 
   test('keeps prompt, reveal, and close controls narrow-safe and at least 24px', () => {
@@ -478,6 +555,13 @@ describe('sample evidence guide static contracts', () => {
     expect(css).toContain('overflow-wrap:anywhere');
     expect(css).toContain('.sample-guide-actions{flex-wrap:wrap}');
     expect(css).toContain('.sample-guide-actions button{flex:1 1 auto}');
+    expect(css).toMatch(
+      /\.sample-guide-evidence-actions\{[^}]*display:flex[^}]*flex-wrap:wrap[^}]*min-width:0/,
+    );
+    expect(css).toMatch(
+      /\.sample-guide-evidence-actions button\{[^}]*flex:1 1 180px[^}]*min-width:0[^}]*white-space:nowrap/,
+    );
+    expect(css).toContain('.sample-guide-navigation-status{min-height:16px');
     const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
     expect(reducedMotion).toContain('.sample-guide-btn');
     expect(reducedMotion).toContain('transition:none');

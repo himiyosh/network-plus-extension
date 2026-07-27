@@ -218,6 +218,12 @@ describe('safe support summary', () => {
 
 describe('guided local sample capture', () => {
   const baseTimestamp = Date.parse('2026-01-15T12:00:00.000Z');
+  const createNavigationRows = () =>
+    np.createSampleCaptureRequests(baseTimestamp).map((request, index) => {
+      const row = np.buildRowFromRequest(request, [91, 7, 42][index]);
+      row._captureSource = 'sample';
+      return row;
+    });
 
   test('generates exactly three deterministic HAR-shaped requests from an injected timestamp', () => {
     const first = np.createSampleCaptureRequests(baseTimestamp);
@@ -278,6 +284,120 @@ describe('guided local sample capture', () => {
     expect(evidence.limitation).toMatch(/definitive root cause on the server/i);
     expect(np.deriveSampleGuideEvidence([])).toBeNull();
     expect(np.deriveSampleGuideEvidence(null)).toBeNull();
+  });
+
+  test('plans Timing and Headers destinations from the bounded sample signature rather than row order or ID', () => {
+    const rows = createNavigationRows().reverse();
+    const timingPlan = np.planSampleEvidenceNavigation({
+      sampleCaptureActive: true,
+      rows,
+      destination: 'timing',
+    });
+    const headersPlan = np.planSampleEvidenceNavigation({
+      sampleCaptureActive: true,
+      rows,
+      destination: 'headers',
+    });
+
+    expect(timingPlan).toEqual({
+      available: true,
+      reason: '',
+      targetRow: expect.objectContaining({
+        id: 7,
+        method: 'POST',
+        domain: 'checkout.network-plus.test',
+        path: '/v1/orders/preview',
+        status: 503,
+      }),
+      tabId: 'res-timing',
+      tabLabel: 'Timing',
+      blockingFilterIds: [],
+    });
+    expect(headersPlan.targetRow).toBe(timingPlan.targetRow);
+    expect(headersPlan.tabId).toBe('res-headers');
+    expect(headersPlan.tabLabel).toBe('Headers');
+  });
+
+  test('reports only the sample-local column filters that hide the retained target', () => {
+    const rows = createNavigationRows();
+    const rules = np.deserializeFilterState({
+      domain: { mode: 'multiText', conditions: [{ op: 'contains', value: 'api.network-plus.test' }] },
+      method: { mode: 'methodSet', include: { GET: true, POST: false } },
+      status: { op: 'lt', value: '500' },
+      url: { mode: 'urlAdvanced', includeAny: 'network-plus.test', includeAll: '', excludeAny: '' },
+    });
+    const snapshot = JSON.stringify(rules);
+    const plan = np.planSampleEvidenceNavigation({
+      sampleCaptureActive: true,
+      rows,
+      destination: 'timing',
+      columns: [{ id: 'domain' }, { id: 'method' }, { id: 'status' }, { id: 'url' }],
+      columnFilterRules: rules,
+    });
+
+    expect(plan.available).toBe(true);
+    expect(plan.blockingFilterIds).toEqual(['domain', 'method', 'status']);
+    expect(JSON.stringify(rules)).toBe(snapshot);
+  });
+
+  test('fails closed for missing, ambiguous, inactive, real, imported, or non-reserved targets', () => {
+    const rows = createNavigationRows();
+    const failedRow = rows.find((row) => row.status === 503);
+    const withoutFailure = rows.filter((row) => row !== failedRow);
+
+    expect(np.planSampleEvidenceNavigation({
+      sampleCaptureActive: false,
+      rows,
+      destination: 'timing',
+    })).toEqual(expect.objectContaining({
+      available: false,
+      reason: 'sample-inactive',
+      targetRow: null,
+    }));
+    expect(np.planSampleEvidenceNavigation({
+      sampleCaptureActive: true,
+      rows: withoutFailure,
+      destination: 'headers',
+    })).toEqual(expect.objectContaining({
+      available: false,
+      reason: 'target-unavailable',
+      tabId: 'res-headers',
+    }));
+
+    for (const captureSource of ['live', 'import']) {
+      const isolatedRows = createNavigationRows();
+      isolatedRows.find((row) => row.status === 503)._captureSource = captureSource;
+      expect(np.planSampleEvidenceNavigation({
+        sampleCaptureActive: true,
+        rows: isolatedRows,
+        destination: 'timing',
+      }).reason).toBe('target-unavailable');
+    }
+
+    const nonReservedRows = createNavigationRows();
+    nonReservedRows.find((row) => row.status === 503).url =
+      'https://checkout.example.com/v1/orders/preview';
+    expect(np.planSampleEvidenceNavigation({
+      sampleCaptureActive: true,
+      rows: nonReservedRows,
+      destination: 'timing',
+    }).reason).toBe('target-unavailable');
+
+    const duplicate = { ...failedRow, id: 999 };
+    expect(np.planSampleEvidenceNavigation({
+      sampleCaptureActive: true,
+      rows: rows.concat(duplicate),
+      destination: 'timing',
+    }).reason).toBe('target-ambiguous');
+    expect(np.planSampleEvidenceNavigation({
+      sampleCaptureActive: true,
+      rows,
+      destination: 'preview',
+    })).toEqual(expect.objectContaining({
+      available: false,
+      reason: 'unsupported-destination',
+      tabId: null,
+    }));
   });
 
   test('contains no secret-like or customer-like sample values', () => {
