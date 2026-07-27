@@ -173,6 +173,19 @@ describe('accessible workbench static contracts', () => {
     expect(js).not.toMatch(/#[0-9a-f]{3,8}/i);
   });
 
+  test('keeps every visible deep-search target at least 24px without forcing narrow overflow', () => {
+    expect(css).toMatch(/\.search-keyword-row\{[^}]*min-width:0/);
+    expect(css).toMatch(/\.search-color-btn\{[^}]*width:24px[^}]*height:24px/);
+    expect(css).toMatch(/\.search-keyword-input\{[^}]*min-width:0[^}]*min-height:24px/);
+    expect(css).toMatch(/\.search-kw-nav\{[^}]*min-width:24px[^}]*min-height:24px/);
+    expect(css).toMatch(/\.search-remove-btn\{[^}]*min-width:24px[^}]*min-height:24px/);
+    expect(css).toMatch(/\.search-add-btn\{[^}]*min-height:24px[^}]*white-space:nowrap/);
+    expect(css).toMatch(/\.search-scope-btn\{[^}]*min-height:24px[^}]*white-space:nowrap/);
+    expect(css).toMatch(/\.search-color-swatch\{[^}]*width:24px[^}]*height:24px/);
+    expect(css).toMatch(/\.search-scope-popup input\{[^}]*width:24px[^}]*height:24px/);
+    expect(css).toMatch(/\.topbar button\{[^}]*min-height:32px[^}]*white-space:nowrap/);
+  });
+
   test('stacks the workbench and rotates the main separator at 700px', () => {
     const narrowStart = css.indexOf('@media (max-width:700px)');
     const narrow = css.slice(narrowStart, css.indexOf('@media (prefers-reduced-motion:reduce)', narrowStart));

@@ -121,27 +121,27 @@ html[data-theme="light"]{
 /* === Search Panel (collapsible below topbar) === */
 .search-panel{padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface);z-index:3;flex:0 0 auto}
 .search-panel-rows{display:flex;flex-direction:column;gap:4px}
-.search-keyword-row{display:flex;align-items:center;gap:6px}
-.search-color-btn{width:20px;height:20px;border-radius:50%;border:2px solid var(--control-border);cursor:pointer;flex-shrink:0;transition:transform 0.1s,box-shadow 0.1s}
+.search-keyword-row{display:flex;align-items:center;gap:6px;min-width:0}
+.search-color-btn{width:24px;height:24px;border-radius:50%;border:2px solid var(--control-border);cursor:pointer;flex-shrink:0;transition:transform 0.1s,box-shadow 0.1s}
 .search-color-btn:hover{transform:scale(1.15);box-shadow:0 0 0 2px var(--accent)}
-.search-keyword-input{flex:1;padding:4px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:12px;transition:border-color 0.2s}
+.search-keyword-input{flex:1;min-width:0;min-height:24px;padding:4px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:12px;transition:border-color 0.2s}
 .search-keyword-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
 .search-kw-count{font-size:11px;color:var(--text-muted);min-width:36px;text-align:center;white-space:nowrap;flex-shrink:0;font-variant-numeric:tabular-nums}
-.search-kw-nav{padding:1px 5px;border:1px solid var(--control-border);border-radius:4px;background:var(--bg);color:var(--fg);cursor:pointer;font-size:9px;line-height:1;transition:background-color 0.15s,border-color 0.15s,color 0.15s;flex-shrink:0;min-width:20px;text-align:center}
+.search-kw-nav{min-width:24px;min-height:24px;padding:1px 5px;border:1px solid var(--control-border);border-radius:4px;background:var(--bg);color:var(--fg);cursor:pointer;font-size:9px;line-height:1;transition:background-color 0.15s,border-color 0.15s,color 0.15s;flex-shrink:0;text-align:center}
 .search-kw-nav:hover{background:var(--accent-dim);border-color:var(--accent);color:var(--text-accent)}
 .search-kw-nav:disabled{opacity:0.4;cursor:not-allowed}
-.search-remove-btn{background:none;border:1px solid var(--control-border);color:var(--text-muted);border-radius:4px;cursor:pointer;padding:2px 6px;font-size:13px;line-height:1;transition:border-color 0.15s,color 0.15s;flex-shrink:0}
+.search-remove-btn{min-width:24px;min-height:24px;background:none;border:1px solid var(--control-border);color:var(--text-muted);border-radius:4px;cursor:pointer;padding:2px 6px;font-size:13px;line-height:1;transition:border-color 0.15s,color 0.15s;flex-shrink:0}
 .search-remove-btn:hover{color:var(--status-5xx-text);border-color:var(--status-5xx-text)}
 .search-panel-footer{display:flex;align-items:center;gap:6px;margin-top:4px}
-.search-add-btn{background:var(--accent-dim);border:1px solid var(--accent);color:var(--text-accent);border-radius:6px;cursor:pointer;padding:3px 10px;font-size:11px;font-weight:500;transition:background-color 0.15s,color 0.15s}
+.search-add-btn{min-height:24px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--text-accent);border-radius:6px;cursor:pointer;padding:3px 10px;font-size:11px;font-weight:500;transition:background-color 0.15s,color 0.15s;white-space:nowrap}
 .search-add-btn:hover{background:var(--accent-fill);color:var(--on-accent)}
 .search-panel-spacer{flex:1}
-.search-scope-btn{background:var(--bg);border:1px solid var(--control-border);color:var(--text-muted);border-radius:6px;cursor:pointer;padding:3px 10px;font-size:11px;transition:border-color 0.15s,color 0.15s}
+.search-scope-btn{min-height:24px;background:var(--bg);border:1px solid var(--control-border);color:var(--text-muted);border-radius:6px;cursor:pointer;padding:3px 10px;font-size:11px;transition:border-color 0.15s,color 0.15s;white-space:nowrap}
 .search-scope-btn:hover{border-color:var(--accent);color:var(--text-accent)}
 /* Color picker popup for search keyword */
 .search-color-popup{display:none;position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-md);padding:6px;z-index:25;gap:4px}
 .search-color-popup.show{display:flex}
-.search-color-swatch{width:22px;height:22px;border-radius:50%;border:2px solid var(--control-border);cursor:pointer;transition:transform 0.1s,box-shadow 0.1s}
+.search-color-swatch{width:24px;height:24px;border-radius:50%;border:2px solid var(--control-border);cursor:pointer;transition:transform 0.1s,box-shadow 0.1s}
 .search-color-swatch:hover{transform:scale(1.2);box-shadow:0 0 0 2px var(--accent)}
 .search-color-swatch.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 /* Per-keyword text highlights */
