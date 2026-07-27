@@ -268,6 +268,17 @@ describe('capture retention static contracts', () => {
     expect(js).toContain("if (display.label === 'error')");
   });
 
+  test('uses one retention presentation for the visible and accessible button labels', () => {
+    const statusStart = js.indexOf('function updateRetentionStatus');
+    const statusEnd = js.indexOf('function updateTableSummary', statusStart);
+    const statusSource = js.slice(statusStart, statusEnd);
+    expect(statusSource).toContain(
+      'const presentation = getRetentionPresentation(retention.requestLimit, retention.unlimited);',
+    );
+    expect(statusSource).toContain('button.textContent = presentation.buttonLabel;');
+    expect(statusSource).toContain("button.setAttribute('aria-label', presentation.accessibleName);");
+  });
+
   test('marks unavailable HAR content and incomplete body search explicitly', () => {
     expect(js).toContain('content._networkPlus = {');
     expect(js).toContain('Redacted and omitted bodies are explicitly marked and are not complete source content.');

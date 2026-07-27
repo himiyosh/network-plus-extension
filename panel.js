@@ -1827,6 +1827,21 @@ const _NetworkPlus = (function () {
     return { setting: { unlimited: false, requestLimit }, warning: '' };
   }
 
+  function getRetentionPresentation(requestLimit, unlimited) {
+    const formattedLimit = requestLimit.toLocaleString();
+    const buttonLabel = unlimited ? 'Retention: Unlimited' : 'Retention: ' + formattedLimit;
+    const policyLabel = unlimited
+      ? 'Unlimited requests (warning: memory can grow without bound)'
+      : formattedLimit + ' requests';
+    return {
+      buttonLabel,
+      policyLabel,
+      accessibleName: unlimited
+        ? buttonLabel + '. Open retention settings. Warning: memory can grow without bound'
+        : buttonLabel + ' requests. Open retention settings',
+    };
+  }
+
   function appendRowsWithRetention(currentRows, incomingRows, requestLimit, unlimited) {
     const combinedRows = (currentRows || []).concat(incomingRows || []);
     if (unlimited || combinedRows.length <= requestLimit) {
@@ -4608,11 +4623,9 @@ const _NetworkPlus = (function () {
 
   function updateRetentionStatus() {
     const retention = state.retention;
-    const policyLabel = retention.unlimited
-      ? 'Unlimited requests (warning: memory can grow without bound)'
-      : retention.requestLimit.toLocaleString() + ' requests';
+    const presentation = getRetentionPresentation(retention.requestLimit, retention.unlimited);
     const statusParts = [
-      'Retention: ' + policyLabel,
+      'Retention: ' + presentation.policyLabel,
       'body cache ' + fmtBytes(retention.responseCacheBytes) + ' / ' + fmtBytes(MAX_RESPONSE_CACHE_BYTES),
       'evicted requests ' + retention.evictedRequests,
       'bodies omitted ' + retention.omittedBodies,
@@ -4627,10 +4640,8 @@ const _NetworkPlus = (function () {
     }
     const button = $('#retentionBtn');
     if (button) {
-      button.textContent = retention.unlimited
-        ? 'Retention: Unlimited'
-        : 'Retention: ' + retention.requestLimit.toLocaleString();
-      button.setAttribute('aria-label', 'Request retention settings. Current policy: ' + policyLabel);
+      button.textContent = presentation.buttonLabel;
+      button.setAttribute('aria-label', presentation.accessibleName);
     }
   }
 
@@ -7508,6 +7519,7 @@ const _NetworkPlus = (function () {
     isIncrementalAppendEligible,
     getIncrementalAppendBatch,
     normalizeRetentionSetting,
+    getRetentionPresentation,
     appendRowsWithRetention,
     createRowEvictionPlan,
     isRetainedRow,

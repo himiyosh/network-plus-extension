@@ -364,6 +364,32 @@ describe('capture retention helpers', () => {
     expect(invalid.warning).toContain('restored');
   });
 
+  test.each([
+    {
+      mode: 'bounded',
+      requestLimit: 5000,
+      unlimited: false,
+      expectedLabel: 'Retention: 5,000',
+      expectedAccessibleName: 'Retention: 5,000 requests. Open retention settings',
+    },
+    {
+      mode: 'unlimited',
+      requestLimit: 5000,
+      unlimited: true,
+      expectedLabel: 'Retention: Unlimited',
+      expectedAccessibleName:
+        'Retention: Unlimited. Open retention settings. Warning: memory can grow without bound',
+    },
+  ])(
+    'keeps the $mode button label in its accessible name',
+    ({ requestLimit, unlimited, expectedLabel, expectedAccessibleName }) => {
+      const presentation = np.getRetentionPresentation(requestLimit, unlimited);
+      expect(presentation.buttonLabel).toBe(expectedLabel);
+      expect(presentation.accessibleName).toBe(expectedAccessibleName);
+      expect(presentation.accessibleName.startsWith(presentation.buttonLabel)).toBe(true);
+    },
+  );
+
   test('evicts only the oldest overflow and honors the exact boundary', () => {
     const current = rows(3);
     const incoming = [{ id: 4 }, { id: 5 }];
