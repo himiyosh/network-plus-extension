@@ -350,7 +350,7 @@ describe('guided sample capture static contracts', () => {
 
   test('keeps sample trust visible and transfers focus when the empty action disappears', () => {
     expect(html).toMatch(/id="sampleCaptureStatus"[^>]*class="sample-capture-status"[^>]*hidden/);
-    expect(js).toContain("status.textContent = active ? 'Local sample · live paused · Clear to exit' : '';");
+    expect(js).toContain("status.textContent = active ? 'Local sample · live paused' : '';");
     expect(js).toContain('Local synthetic requests are loaded. No network traffic was sent.');
     expect(css).toMatch(
       /\.sample-capture-status\{[^}]*border:1px solid var\(--accent\)[^}]*background:var\(--accent-dim\)[^}]*color:var\(--text-accent\)[^}]*white-space:nowrap/,
@@ -396,7 +396,11 @@ describe('sample evidence guide static contracts', () => {
       /\bPOST\b|\/v1\/orders\/preview|\b503\b|2,?200|Retry-After|root cause/i,
     );
     expect(dialogBlock).not.toMatch(/Inspect Timing evidence|Inspect Retry-After header/);
-    expect(dialogBlock.match(/<button/g)).toHaveLength(2);
+    expect(dialogBlock).toContain('Exit · restore prior recording state');
+    expect(dialogBlock).toContain(
+      'restores the recording state and column filters from before the sample',
+    );
+    expect(dialogBlock.match(/<button/g)).toHaveLength(3);
     expect(html.match(/>Sample guide<\/button>/g)).toHaveLength(1);
   });
 
@@ -459,6 +463,50 @@ describe('sample evidence guide static contracts', () => {
     expect(js.slice(restoreStart, restoreEnd)).toContain('updateRecordState(false);');
     expect(js).not.toContain('sampleGuideRevealed');
     expect(js).not.toContain('sampleGuideNavigationAttempt');
+  });
+
+  test('offers one shared fail-closed sample exit from status and guide surfaces', () => {
+    expect(html).toMatch(
+      /id="sampleExitBtn"[^>]*class="sample-exit-btn"[^>]*hidden disabled>Exit · restore prior recording state<\/button>/,
+    );
+    expect(dialogBlock).toMatch(
+      /id="sampleGuideExitBtn"[^>]*class="sample-guide-exit-btn"[^>]*aria-describedby="sampleGuideExitHelp"[^>]*hidden disabled>Exit · restore prior recording state<\/button>/,
+    );
+    const exitPlanStart = js.indexOf('function planSampleCaptureExit');
+    const exitPlanEnd = js.indexOf('function createSampleCaptureRequests', exitPlanStart);
+    const exitPlanBlock = js.slice(exitPlanStart, exitPlanEnd);
+    expect(exitPlanBlock).toContain("context.sampleCaptureActive !== true");
+    expect(exitPlanBlock).toContain('rows.length !== SAMPLE_CAPTURE_SIGNATURES.length');
+    expect(exitPlanBlock).toContain("row._captureSource !== 'sample'");
+    expect(exitPlanBlock).toContain("unavailable('sample-signature-mismatch')");
+    expect(exitPlanBlock).not.toMatch(/fetch\s*\(|chrome\.storage|localStorage|innerHTML/);
+
+    const exitUiStart = js.indexOf('function getSampleCaptureExitPlan');
+    const exitUiEnd = js.indexOf('function toggleSort', exitUiStart);
+    const exitUiBlock = js.slice(exitUiStart, exitUiEnd);
+    const guardIndex = exitUiBlock.indexOf('if (!plan.available)');
+    const removalIndex = exitUiBlock.indexOf('removeRowsFromState(plan.rows, false);');
+    expect(exitUiBlock).toContain(
+      'isActiveRetainedRow(row, state.retainedRows, state.activeRows)',
+    );
+    expect(guardIndex).toBeGreaterThan(-1);
+    expect(removalIndex).toBeGreaterThan(guardIndex);
+    expect(exitUiBlock).toContain('render();');
+    expect(exitUiBlock).toContain('syncSearchUIAfterRender();');
+    expect(exitUiBlock).toContain('clearDetailsPanel();');
+    expect(exitUiBlock).toContain(
+      "document.querySelector('.empty-state-action') || $('#clearBtn')",
+    );
+    expect(exitUiBlock).toContain('Previous recording state and column filters restored.');
+    expect(exitUiBlock).toContain("state.paused ? 'Recording remains paused.' : 'Live recording is active.'");
+    expect(exitUiBlock).toContain(
+      "statusButton.addEventListener('click', exitLocalSampleCapture);",
+    );
+    expect(exitUiBlock).toContain(
+      "guideButton.addEventListener('click', exitLocalSampleCapture);",
+    );
+    expect(exitUiBlock).not.toContain('createClearUndoSnapshot');
+    expect(exitUiBlock).not.toContain('armClearUndoSnapshot');
   });
 
   test('restores focus for close and Escape without targeting a hidden trigger on exit', () => {
@@ -544,7 +592,7 @@ describe('sample evidence guide static contracts', () => {
 
   test('keeps prompt, reveal, and close controls narrow-safe and at least 24px', () => {
     expect(css).toMatch(
-      /\.sample-guide-btn\{[^}]*min-height:24px[^}]*white-space:nowrap/,
+      /\.sample-guide-btn,\.sample-exit-btn\{[^}]*min-height:24px[^}]*white-space:nowrap/,
     );
     expect(css).toMatch(
       /#sampleGuideDialog\{[^}]*width:min\(480px,calc\(100vw - 16px\)\)[^}]*max-height:min\(calc\(100vh - 16px\),calc\(100dvh - 16px\)\)[^}]*overflow:auto/,
@@ -555,6 +603,7 @@ describe('sample evidence guide static contracts', () => {
     expect(css).toContain('overflow-wrap:anywhere');
     expect(css).toContain('.sample-guide-actions{flex-wrap:wrap}');
     expect(css).toContain('.sample-guide-actions button{flex:1 1 auto}');
+    expect(css).toContain('.sample-guide-form .sample-guide-exit-btn{white-space:nowrap}');
     expect(css).toMatch(
       /\.sample-guide-evidence-actions\{[^}]*display:flex[^}]*flex-wrap:wrap[^}]*min-width:0/,
     );
@@ -564,6 +613,7 @@ describe('sample evidence guide static contracts', () => {
     expect(css).toContain('.sample-guide-navigation-status{min-height:16px');
     const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
     expect(reducedMotion).toContain('.sample-guide-btn');
+    expect(reducedMotion).toContain('.sample-exit-btn');
     expect(reducedMotion).toContain('transition:none');
   });
 });
