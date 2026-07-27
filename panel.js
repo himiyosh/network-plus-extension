@@ -74,6 +74,37 @@ const _NetworkPlus = (function () {
   const DATE_SORT_FIELDS = { clientStart: 'clientStartEpoch', serverDone: 'serverDoneEpoch' };
   const INVALID_REQUEST_EPOCH = Number.MAX_SAFE_INTEGER;
   const TIMING_PHASES = ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'];
+  const TIMING_PHASE_GUIDANCE = Object.freeze({
+   blocked: Object.freeze({
+     label: 'Blocked',
+     description: 'Time queued by the browser before the request could begin, such as waiting for a usable connection.',
+   }),
+   dns: Object.freeze({
+     label: 'DNS',
+     description: 'Time reported for resolving the request host name before connecting.',
+   }),
+   connect: Object.freeze({
+     label: 'Connect',
+     description: 'Time reported to establish the connection. When TLS is separately reported, Network+ removes it here so the phases are not counted twice.',
+   }),
+   ssl: Object.freeze({
+     label: 'TLS (SSL)',
+     description: 'Time reported for TLS (SSL) negotiation. It is shown separately from Connect.',
+   }),
+   send: Object.freeze({
+     label: 'Send',
+     description: 'Time reported to send the HTTP request bytes.',
+   }),
+   wait: Object.freeze({
+     label: 'Wait (TTFB)',
+     description: 'Time waiting for the response to start after sending the request (commonly called TTFB).',
+   }),
+   receive: Object.freeze({
+     label: 'Receive',
+     description: 'Time reported to receive the response after its first byte.',
+   }),
+  });
+  const TIMING_EVIDENCE_LIMITATION = 'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause.';
   const TEST_EXTENSION_VERSION_FALLBACK = '1.6.0';
   const OBJECT_URL_REVOKE_DELAY_MS = 1000;
   const SENSITIVE_KEY_NAMES = new Set([
@@ -1817,6 +1848,10 @@ const _NetworkPlus = (function () {
     const segmentTotal = segments.reduce((sum, segment) => sum + segment.duration, 0);
     const total = Number.isFinite(totalDuration) && totalDuration >= 0 ? totalDuration : segmentTotal;
     return { total, segments };
+  }
+
+  function getTimingPhaseGuidance(phase) {
+   return typeof phase === 'string' ? TIMING_PHASE_GUIDANCE[phase] || null : null;
   }
 
   function decodeResponseContent(content, encoding) {
@@ -3871,6 +3906,30 @@ const _NetworkPlus = (function () {
       grid.appendChild(valEl);
     }
     return grid;
+  }
+
+  function createTimingPhaseGuide() {
+   const guide = document.createElement('details');
+   guide.className = 'timing-guidance';
+   const summary = document.createElement('summary');
+   summary.className = 'timing-guidance-summary';
+   summary.textContent = 'What do the timing phases mean?';
+   guide.appendChild(summary);
+
+   const list = document.createElement('dl');
+   list.className = 'timing-guidance-list';
+   for (const phase of TIMING_PHASES) {
+     const guidance = getTimingPhaseGuidance(phase);
+     if (!guidance) continue;
+     const term = document.createElement('dt');
+     term.textContent = guidance.label;
+     const description = document.createElement('dd');
+     description.textContent = guidance.description;
+     list.appendChild(term);
+     list.appendChild(description);
+   }
+   guide.appendChild(list);
+   return guide;
   }
 
   // createHeaderSection removed — replaced by tabbed inspector layout
@@ -5977,6 +6036,11 @@ const _NetworkPlus = (function () {
       }
       resTimingPane.appendChild(legend);
     }
+   const evidenceNote = document.createElement('p');
+   evidenceNote.className = 'timing-evidence-note';
+   evidenceNote.textContent = TIMING_EVIDENCE_LIMITATION;
+   resTimingPane.appendChild(evidenceNote);
+   resTimingPane.appendChild(createTimingPhaseGuide());
   }
 
   // ============================================================
@@ -7881,6 +7945,8 @@ const _NetworkPlus = (function () {
     getRequestEpoch,
     compareRequestTimes,
     calculateTimingSegments,
+    getTimingPhaseGuidance,
+    TIMING_EVIDENCE_LIMITATION,
     decodeResponseContent,
     buildHarResponseContent,
     cacheResponseContent,

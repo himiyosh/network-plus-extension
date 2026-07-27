@@ -843,6 +843,25 @@ describe('waterfall and stats topology', () => {
   });
 });
 
+describe('timing guidance static contracts', () => {
+  test('keeps phase definitions and the evidence limit visible and keyboard-accessible', () => {
+    expect(js).toContain('function createTimingPhaseGuide()');
+    expect(js).toContain("const guide = document.createElement('details');");
+    expect(js).toContain("summary.textContent = 'What do the timing phases mean?'");
+    expect(js).toContain('TIMING_EVIDENCE_LIMITATION');
+    expect(js).toContain('resTimingPane.appendChild(createTimingPhaseGuide());');
+    expect(js).toContain('document.createElement(\'dl\')');
+    expect(css).toContain('.timing-evidence-note');
+    expect(css).toContain('.timing-guidance-summary:focus-visible');
+  });
+
+  test('stacks the phase definitions at narrow widths without adding new color tokens', () => {
+    expect(css).toContain('@media (max-width:420px)');
+    expect(css).toContain('.timing-guidance-list{grid-template-columns:minmax(0,1fr)}');
+    expect(css).toContain('background:var(--surface)');
+  });
+});
+
 describe('visual-state dark-mode parity', () => {
   const visualStateTokens = [
     'hl-primary-pct',

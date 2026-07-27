@@ -20,7 +20,7 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 🔍 統合キーワード検索 | 複数キーワードをそれぞれ独立した入力欄で設定可能。URL/Domain/Path、リクエスト/レスポンスの Body・Headers を横断検索。各キーワードごとに 6 色のハイライトカラーを選択でき、マッチ行はキーワード色と `Match K1` バッジで対応を表示。キーワードごとの ▲▼ ナビゲーション・マッチ数表示に対応。遅延取得されたレスポンス Body もフレーム単位でまとめて検索結果へ反映し、現在の移動位置を可能な限り維持。検索できない Body がある場合は件数を明示。`Ctrl+F` で検索パネルを開閉。検索スコープ (URL/Body/Headers) は ⚙️ Scope ボタンで切替可能 |
 | 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能。ステータスバーとボタンに有効なカラムフィルタ数を表示 |
 | ↕️ カラムソート | ヘッダーのクリックまたは `Enter` / `Space` でソート切替 (昇順 → 降順 → ソート解除)。`Alt+←` / `Alt+→` でカラムを並べ替え、順序を永続化。時刻カラムは取得時のリクエスト epoch で正確に比較 |
-| 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示。選択中レスポンスは上限付き共有 Body キャッシュから描画し、遅延完了した別リクエストによる表示上書きを防止。Body が省略・退避・取得不能の場合は理由を明示し、取得元が残る退避 Body は選択時に安全に再取得。Timing は SSL と Connect を重複させずに可視化 |
+| 🗂️ リクエスト詳細 | アコーディオン形式で Overview, Headers, Request, Response, Timing を表示。選択中レスポンスは上限付き共有 Body キャッシュから描画し、遅延完了した別リクエストによる表示上書きを防止。Body が省略・退避・取得不能の場合は理由を明示し、取得元が残る退避 Body は選択時に安全に再取得。Timing は SSL と Connect を重複させずに可視化し、フェーズ定義とブラウザー観測値の制約をその場で確認可能 |
 | 🔀 2リクエスト差分比較 | `Ctrl`/`Cmd` クリックでちょうど 2 行を複数選択し、右クリックメニューの「Compare 2 selected requests」で比較ビューを表示。URL/クエリパラメータ、Method/Status/Protocol、リクエスト/レスポンスヘッダー、レスポンス Body をセクション別に並べて比較し、一致・変更・片側のみの行を色で区別。Body は保持上限内のキャッシュ済みデータのみ表示し、省略・退避・未取得の状態を明示。比較ビューのすべてのレンダリングは XSS 安全な DOM API を使用。✕ ボタンまたは別の行をクリックすると通常の詳細ビューに戻る |
 | 📤 安全な HAR エクスポート | 通常操作では `network-plus-sanitized.har` を出力し、機密値を置換して解析不能・不透明・base64・multipart・制限超過 Body を明示的に省略。`_networkPlus` に方針、件数、Body の不完全性を記録。`network-plus-full.har` は Authorization、Cookie、query、Body の警告を確認したその 1 回だけ出力 |
 | 🎨 テーマ切替 | System / Dark / Light の3モードを循環切替。小さいステータス・補助テキストは WCAG 2.2 AA、操作境界と主要セパレーターは 3:1 以上のコントラストを全テーマで維持し、設定は `chrome.storage.local` (Edge 互換 API) に永続化 |
@@ -179,6 +179,26 @@ npm ci
 9. **保持設定**: `Retention` ボタンで保持件数を変更。`Keep unlimited requests` は警告表示後にのみ保存でき、Body キャッシュの 1 MiB / 32 MiB 上限は無制限モードでも維持される
 10. **キーボード操作**: 上下キーで行選択、`Context Menu` / `Shift+F10` で行メニュー、各境界の矢印キーでサイズ調整。Filter / Columns / Scope / Color は開いた後に内容へフォーカスし、`Escape` で閉じてトリガーへ戻る
 
+### Timing フェーズの見方
+
+Response の `Timing` タブには、数値・バー・凡例と同じ場所に `What do the timing phases mean?` のネイティブ開閉ガイドがあります。`Enter` / `Space` でも開閉でき、色やホバーだけに依存せず次の意味を確認できます。
+
+- **Blocked**: ブラウザー内でリクエスト開始を待った時間（利用可能な接続待ちなど）
+- **DNS**: 接続前のホスト名解決に報告された時間
+- **Connect**: 接続確立に報告された時間。TLS が別途報告される場合は重複表示を避けるため TLS 分を除外
+- **TLS (SSL)**: TLS/SSL ネゴシエーションに報告された時間
+- **Send**: HTTP リクエストの送信に報告された時間
+- **Wait (TTFB)**: 送信後、レスポンス開始まで待機した時間（一般に TTFB と呼ばれる）
+- **Receive**: 最初のレスポンスバイト以降を受信した時間
+
+**観測上の制約**: これらはブラウザーがリクエスト単位で報告した時間です。パケット損失、ケーブルや RF の障害、または決定的な根本原因を証明するものではありません。
+
+定義の参照先:
+
+- [HAR 1.2 Specification — timings](http://www.softwareishard.com/blog/har-12-spec/)
+- [W3C Resource Timing Level 2](https://www.w3.org/TR/resource-timing-2/)
+- [Chrome DevTools Network overview](https://developer.chrome.com/docs/devtools/network/overview/)
+
 ## 🛠️ 開発
 
 ```bash
@@ -257,6 +277,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 - [ ] 通常クリック、上下キー、Ctrl/Cmd トグルで DOM 順序・フォーカス・詳細・選択件数/サイズが維持される
 - [ ] 最下部にいる場合だけ自動スクロールし、上へ手動スクロールした後は新規通信でも位置が移動しない
 - [ ] Clear、HAR/SAZ Import、Columns 変更、Keep/Delete Selected の直後も件数・転送量・行 ID が一致する
+- [ ] Response の `Timing` タブでフェーズガイドを `Enter` / `Space` で開閉でき、Blocked/DNS/Connect（TLS 重複除外）/TLS/Send/Wait (TTFB)/Receive と観測上の制約が 320 / 375 / 414 / 768px 幅で読める
 
 ## 🧾 バージョニングルール
 
@@ -305,6 +326,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 - **DevTools パネルは ES Modules 非対応** --- IIFE 単一ファイル構成を採用しているため、`import`/`export` は使用不可
 - **ビルドレス設計** --- バンドラ不使用。`extension:package` は変換や依存解決を行わず、監査済みランタイムファイルだけをZIP化する
 - **ローカル専用** --- ネットワーク通信や外部 API とのデータ送受信は行わない
+- **Timing は診断の手掛かり** --- 表示値は HAR / ブラウザーの観測値であり、パケット損失、ケーブルや RF の障害、または決定的な根本原因を証明しない
 
 ## 📚 関連ドキュメント
 
@@ -331,6 +353,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 ### Unreleased
 
+- Timing フェーズの点検可能なガイドと、ブラウザー観測値がパケット損失・ケーブル/RF 障害・決定的な根本原因を証明しない制約を Response の `Timing` タブと README に追加
 - フィルタープリセット: `Presets` ボタンからカラムフィルター設定を名前付きで最大 20 件保存・復元・削除。キャプチャしたリクエスト情報は保存せず、localStorage のみ使用
 - キーボードショートカット一覧: `?` キーまたはツールバーの `⌨️ ?` ボタンで一覧をダイアログ表示。Esc / Close でフォーカス復帰
 - `serializeFilterState` / `deserializeFilterState` / `normalizePresetName` を純粋関数として、`loadFilterPresets` / `saveFilterPresets` をテスト可能なストレージ関数としてエクスポートし、Jest テストを追加

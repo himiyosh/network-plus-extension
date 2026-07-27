@@ -221,6 +221,13 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .timing-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:10px;color:var(--text-muted);margin-top:6px}
 .timing-legend-item{display:flex;align-items:center;gap:4px}
 .timing-legend-dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+.timing-evidence-note{margin:8px 0 0;padding:6px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--fg);font-size:11px;line-height:1.4}
+.timing-guidance{margin-top:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface)}
+.timing-guidance-summary{cursor:pointer;padding:6px 8px;color:var(--fg);font-size:11px;font-weight:700;line-height:1.4}
+.timing-guidance-summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:6px}
+.timing-guidance-list{display:grid;grid-template-columns:minmax(84px,auto) minmax(0,1fr);gap:4px 8px;margin:0;padding:0 8px 8px;font-size:11px;line-height:1.4}
+.timing-guidance-list dt{font-weight:700;color:var(--fg)}
+.timing-guidance-list dd{min-width:0;margin:0;color:var(--text-muted)}
 
 /* === Table Grid === */
 .grid{border-collapse:separate;border-spacing:0;table-layout:fixed}
@@ -322,7 +329,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .data-safety-warning label{font-size:11px;font-weight:700}
 .data-safety-warning select{width:100%}
 .data-safety-actions{display:flex;justify-content:flex-end;gap:8px}
-@media (max-width:420px){.data-safety-choices{grid-template-columns:1fr}.data-safety-actions{flex-wrap:wrap}.data-safety-actions button{flex:1 1 auto}}
+@media (max-width:420px){.data-safety-choices{grid-template-columns:1fr}.data-safety-actions{flex-wrap:wrap}.data-safety-actions button{flex:1 1 auto}.timing-guidance-list{grid-template-columns:minmax(0,1fr)}}
 
 /* === Filter Presets === */
 .preset-menu{min-width:min(260px,calc(100vw - 16px));padding:8px}

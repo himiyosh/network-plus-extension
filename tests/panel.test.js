@@ -455,6 +455,33 @@ describe('calculateTimingSegments', () => {
   });
 });
 
+describe('timing phase guidance', () => {
+  test('defines each displayed phase without changing the timing calculation contract', () => {
+    const expectedLabels = {
+      blocked: 'Blocked',
+      dns: 'DNS',
+      connect: 'Connect',
+      ssl: 'TLS (SSL)',
+      send: 'Send',
+      wait: 'Wait (TTFB)',
+      receive: 'Receive',
+    };
+    for (const [phase, label] of Object.entries(expectedLabels)) {
+      expect(np.getTimingPhaseGuidance(phase)).toEqual(
+        expect.objectContaining({ label, description: expect.any(String) }),
+      );
+    }
+    expect(np.getTimingPhaseGuidance('connect').description).toContain('not counted twice');
+    expect(np.getTimingPhaseGuidance('wait').description).toContain('TTFB');
+  });
+
+  test('handles unknown phases and states the browser-evidence limitation', () => {
+    expect(np.getTimingPhaseGuidance('unknown')).toBeNull();
+    expect(np.getTimingPhaseGuidance(null)).toBeNull();
+    expect(np.TIMING_EVIDENCE_LIMITATION).toMatch(/packet loss.*cabling or RF faults.*definitive root cause/i);
+  });
+});
+
 describe('response content helpers', () => {
   test('decodes base64 only for display/search use', () => {
     expect(np.decodeResponseContent('eyJvayI6dHJ1ZX0=', 'base64')).toBe('{"ok":true}');
