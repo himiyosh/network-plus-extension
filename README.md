@@ -142,6 +142,7 @@ Network+ は clipboard copy と HAR download を外向きデータ面として�
 - invalid JSON/form、opaque/binary、multipart、base64、上限超過 Body は内容を推測せず `[OMITTED BY NETWORK+]` または HAR の `_networkPlus.status = "omitted"` で明示します。
 - Sanitizer が処理できない場合は fail closed とし、元データへ fallback しません。clipboard/download の失敗は内容を console、status、error text に含めず通知します。
 - cURL、fetch、PowerShell は置換・省略後も quote/escaping を適用し、command syntax を維持します。
+- `Keyboard Shortcuts` ダイアログの `Copy safe support summary` は、直接選択したときだけ、パッケージ版 Network+ version、Edge major、粗い OS family、theme、retention policy/limit、recording/sample state、color-scheme/reduced-motion preference の allowlist をクリップボードへ書き込みます。captured traffic、captured/visible request count、URL、header、body、検索・フィルター値、storage 内容、full user agent は読み取らず、出力しません。公開 Issue へ貼る前に必ず内容を review してください。
 
 この方針は外向き copy/download の誤共有を減らすもので、DevTools 内の Request/Response 表示、ローカルキャプチャ、メモリ内データを秘匿・消去する機能ではありません。ローカル inspection では取得済みの完全値が表示される場合があります。
 
@@ -181,6 +182,7 @@ Microsoft Edge で `edge://extensions/` を開き、「デベロッパーモー�
 8. **テーマ切替**: Theme ボタンで System/Dark/Light を循環切替
 9. **保持設定**: `Retention` ボタンで保持件数を変更。`Keep unlimited requests` は警告表示後にのみ保存でき、Body キャッシュの 1 MiB / 32 MiB 上限は無制限モードでも維持される
 10. **キーボード操作**: 上下キーで行選択、`Context Menu` / `Shift+F10` で行メニュー、各境界の矢印キーでサイズ調整。Filter / Columns / Scope / Color は開いた後に内容へフォーカスし、`Escape` で閉じてトリガーへ戻る
+11. **安全なサポート情報**: Network+ を開ける場合は `Keyboard Shortcuts` の `Copy safe support summary` で allowlist 済みの環境概要を任意でコピーできます。captured traffic は含まれませんが、公開 Issue に貼る前の review は必須です。拡張機能を開けない場合は使用不要で、bug form の version / Edge 欄を手入力できます。
 
 ### Timing フェーズの見方
 
@@ -368,6 +370,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 ### Unreleased
 
+- `Keyboard Shortcuts` ダイアログに、captured traffic を読まず、allowlist 済みの version / Edge major / coarse OS / settings のみを直接操作時にコピーする任意の `Copy safe support summary` を追加
 - ローカルサンプル中だけ使える `Sample guide` を追加。4 つの調査プロンプトを先に示し、明示的な reveal 後だけ決定論的サンプル源から失敗リクエスト、支配的 Timing、再試行ヘッダー、観測上の制約を表示
 - Timing フェーズの点検可能なガイドと、ブラウザー観測値がパケット損失・ケーブル/RF 障害・決定的な根本原因を証明しない制約を Response の `Timing` タブと README に追加
 - フィルタープリセット: `Presets` ボタンからカラムフィルター設定を名前付きで最大 20 件保存・復元・削除。キャプチャしたリクエスト情報は保存せず、localStorage のみ使用

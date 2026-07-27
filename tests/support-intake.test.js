@@ -74,6 +74,7 @@ describe('safe public support intake', () => {
       'network-plus-version',
       'edge-version',
       'os-family',
+      'safe-support-summary',
       'product-area',
       'reproduction',
       'expected-behavior',
@@ -105,6 +106,36 @@ describe('safe public support intake', () => {
     expect(requestedFieldLabels).not.toMatch(
       /\b(?:email|contact details?|customer identifiers?|tenant|account id|real domains?|real urls?|raw logs?|file uploads?)\b/i,
     );
+  });
+
+  test('keeps the safe support summary optional, warning-adjacent, and synchronized with guidance', () => {
+    const elements = parseBodyElements(bugForm);
+    const summaryIndex = elements.findIndex((element) => element.block.includes('id: safe-support-summary'));
+    const summary = elements[summaryIndex];
+    const precedingWarning = elements[summaryIndex - 1];
+    const readme = read('README.md');
+    const privacy = read('docs/privacy.md');
+
+    expect(summary?.type).toBe('textarea');
+    expect(summary?.block).toContain('label: Safe support summary (optional)');
+    expect(summary?.block).toContain('Paste only the reviewed output from Copy safe support summary.');
+    expect(summary?.block).not.toContain('required: true');
+    expect(precedingWarning?.type).toBe('markdown');
+    expect(precedingWarning?.block).toContain(safetyWarning);
+    expect(precedingWarning?.block).toContain('Copy safe support summary');
+    expect(precedingWarning?.block).toContain('Leave this field blank if the extension cannot be opened.');
+    for (const source of [bugForm, readme, privacy]) {
+      expect(source).toContain('Copy safe support summary');
+      expect(source).toMatch(/review/i);
+    }
+  });
+
+  test('keeps manual version and Edge fields required when the extension cannot be opened', () => {
+    const elements = parseBodyElements(bugForm);
+    for (const id of ['network-plus-version', 'edge-version']) {
+      const field = elements.find((element) => element.block.includes(`id: ${id}`));
+      expect(field?.block).toContain('required: true');
+    }
   });
 
   test.each([

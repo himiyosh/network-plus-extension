@@ -1339,6 +1339,61 @@ describe('shortcut help static contracts', () => {
     expect(js).toContain("shortcutDialog.showModal();");
   });
 
+  test('safe support summary is an explicitly activated, accessible dialog action', () => {
+    expect(html).toMatch(
+      /id="copySafeSupportSummaryBtn"[^>]*type="button"[^>]*class="shortcut-primary-action"[^>]*aria-describedby="shortcutSupportSummaryHelp"[^>]*>Copy safe support summary</,
+    );
+    expect(html).toContain('id="shortcutSupportSummaryTitle"');
+    expect(html).toContain('Captured traffic is excluded. Review the summary before posting.');
+    expect(html).toMatch(
+      /id="shortcutSupportSummaryStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/,
+    );
+
+    const handlerStart = js.indexOf("safeSupportSummaryBtn.addEventListener('click'");
+    const handlerEnd = js.indexOf("$('#shortcutCloseBtn')", handlerStart);
+    const handler = js.slice(handlerStart, handlerEnd);
+    expect(handlerStart).toBeGreaterThan(-1);
+    expect(handler).toContain('buildSafeSupportSummary({');
+    expect(handler).toContain("writeClipboardPayload(summary, 'Copied safe support summary').then");
+    expect(handler).toContain("supportStatus.textContent = copied");
+    expect(handler).toContain("'Clipboard copy failed. No data was copied.'");
+    expect(handler).not.toContain('shortcutDialog.close');
+    expect(handler).not.toContain('.focus()');
+    expect(handler).not.toMatch(/state\.(?:rows|filteredRows|selectedRow|selectedRows|search|columnFilterRules)/);
+    expect(handler).not.toMatch(/localStorage|chrome\.storage|fetch\(|XMLHttpRequest|sendBeacon/);
+  });
+
+  test('support summary has no state or row dependency and is not collected when the dialog opens', () => {
+    const builderStart = js.indexOf('function buildSafeSupportSummary(input)');
+    const builderEnd = js.indexOf('function createObjectUrlRevoker', builderStart);
+    const builder = js.slice(builderStart, builderEnd);
+    const initStart = js.indexOf('function init()');
+    const handlerStart = js.indexOf("safeSupportSummaryBtn.addEventListener('click'");
+    const initBeforeHandler = js.slice(initStart, handlerStart);
+
+    expect(builderStart).toBeGreaterThan(-1);
+    expect(builder).not.toMatch(/\bstate\.|\brows?\b|navigator|document|localStorage|chrome\.storage/);
+    expect(initBeforeHandler).not.toContain('buildSafeSupportSummary({');
+    expect((js.match(/buildSafeSupportSummary\(\{/g) || [])).toHaveLength(1);
+    expect((js.match(/navigator\.userAgentData/g) || [])).toHaveLength(1);
+    expect((js.match(/navigator\.userAgent\b/g) || [])).toHaveLength(1);
+    expect((js.match(/window\.matchMedia/g) || [])).toHaveLength(2);
+  });
+
+  test('support summary reuses shared success, live-region, and failure feedback', () => {
+    const clipboardStart = js.indexOf('function writeClipboardPayload');
+    const clipboardEnd = js.indexOf('let pendingFullOutboundAction', clipboardStart);
+    const clipboardSource = js.slice(clipboardStart, clipboardEnd);
+    expect(clipboardSource).toContain('showCopyFeedback(message);');
+    expect(clipboardSource).toContain('queueDataSafetyAnnouncement(message);');
+    expect(clipboardSource).toContain("setStatus('Clipboard copy failed. No data was copied.');");
+    expect(clipboardSource).toContain('return true;');
+    expect(clipboardSource).toContain('return false;');
+    expect(html).toMatch(
+      /id="dataSafetyStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/,
+    );
+  });
+
   test('shortcut dialog CSS uses theme tokens for shortcut-form and kbd elements', () => {
     expect(css).toContain('#shortcutDialog{');
     expect(css).toContain('#shortcutDialog::backdrop{');
@@ -1346,6 +1401,10 @@ describe('shortcut help static contracts', () => {
     expect(css).toContain('kbd{');
     // Must use CSS custom properties, not hard-coded colours
     expect(css).toMatch(/kbd\{[^}]*var\(--/);
+    expect(css).toMatch(/\.shortcut-support-summary\{[^}]*var\(--control-border\)[^}]*var\(--content-bg\)/);
+    expect(css).toMatch(
+      /\.shortcut-form \.shortcut-primary-action\{[^}]*var\(--accent\)[^}]*var\(--accent-dim\)[^}]*var\(--text-accent\)/,
+    );
   });
 
   test('shortcut dialog first-column cells do not have forced nowrap', () => {
@@ -1359,6 +1418,33 @@ describe('shortcut help static contracts', () => {
     const dialogRule = css.match(/#shortcutDialog\{([^}]*)\}/);
     expect(dialogRule).not.toBeNull();
     expect(dialogRule[1]).toContain('dvh');
+  });
+
+  test('shortcut dialog actions keep objective pointer targets and bounded narrow-width geometry', () => {
+    const buttonRule = css.match(/\.shortcut-form button\{([^}]*)\}/);
+    const supportButtonRule = css.match(/\.shortcut-support-summary button\{([^}]*)\}/);
+    expect(buttonRule).not.toBeNull();
+    expect(buttonRule[1]).toContain('min-height:28px');
+    expect(supportButtonRule).not.toBeNull();
+    expect(supportButtonRule[1]).toContain('max-width:100%');
+    expect(supportButtonRule[1]).toContain('white-space:nowrap');
+    expect(css).toContain(
+      '@media (max-width:280px){\n  .shortcut-support-summary button{white-space:normal;text-align:center}\n}',
+    );
+  });
+
+  test('shortcut dialog starts on Close and keeps copy focus while reporting inside the modal', () => {
+    const openBlock = js.slice(js.indexOf('const openShortcutDialog'), js.indexOf('if (shortcutDialog) {'));
+    const handlerStart = js.indexOf("safeSupportSummaryBtn.addEventListener('click'");
+    const handlerEnd = js.indexOf("$('#shortcutCloseBtn')", handlerStart);
+    const handler = js.slice(handlerStart, handlerEnd);
+
+    expect(openBlock).toContain("const supportStatus = $('#shortcutSupportSummaryStatus');");
+    expect(openBlock).toContain("if (supportStatus) supportStatus.textContent = '';");
+    expect(openBlock).toContain("if (shortcutDialog.open && closeButton) closeButton.focus();");
+    expect(handler).toContain("const supportStatus = $('#shortcutSupportSummaryStatus');");
+    expect(handler).not.toContain('safeSupportSummaryBtn.focus');
+    expect(handler).not.toContain('shortcutDialog.close');
   });
 });
 

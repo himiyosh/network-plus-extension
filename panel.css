@@ -371,9 +371,15 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .shortcut-table td:first-child{color:var(--text-muted)}
 .shortcut-table td:last-child{color:var(--fg)}
 kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid var(--control-border);border-radius:4px;font-family:monospace;font-size:10px;line-height:1.6;color:var(--fg);box-shadow:0 1px 0 var(--border)}
+.shortcut-support-summary{display:grid;gap:6px;min-width:0;padding:10px;border:1px solid var(--control-border);border-radius:8px;background:var(--content-bg)}
+.shortcut-support-summary h3{margin:0;font-size:12px;font-style:normal}
+.shortcut-support-summary p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+.shortcut-support-summary button{justify-self:start;max-width:100%;white-space:nowrap}
+.shortcut-support-summary .shortcut-support-summary-status{min-height:16px;color:var(--fg)}
 .shortcut-actions{display:flex;justify-content:flex-end}
 .shortcut-form button{min-height:28px;padding:4px 14px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;cursor:pointer}
 .shortcut-form button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
+.shortcut-form .shortcut-primary-action{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
 
 /* === Sample Evidence Guide === */
 #sampleGuideDialog{position:fixed;inset:0;margin:auto;width:min(480px,calc(100vw - 16px));max-height:min(calc(100vh - 16px),calc(100dvh - 16px));overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
@@ -530,6 +536,9 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .sample-guide-evidence-list{grid-template-columns:minmax(0,1fr)}
   .sample-guide-actions{flex-wrap:wrap}
   .sample-guide-actions button{flex:1 1 auto}
+}
+@media (max-width:280px){
+  .shortcut-support-summary button{white-space:normal;text-align:center}
 }
 
 /* === Reduced motion === */

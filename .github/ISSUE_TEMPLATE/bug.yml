@@ -45,6 +45,17 @@ body:
         - Other or not sure
     validations:
       required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Public issue - sanitized text only.** Enter only deterministic `.test` examples or minimal sanitized text. Do not paste or attach real traffic or files.
+
+        **Optional allowlisted summary only.** If Network+ opens, use `Keyboard Shortcuts` > `Copy safe support summary`, then review the text before posting. Leave this field blank if the extension cannot be opened.
+  - type: textarea
+    id: safe-support-summary
+    attributes:
+      label: Safe support summary (optional)
+      description: Paste only the reviewed output from Copy safe support summary. It should contain the packaged Network+ version, Edge major, coarse OS family, and allowlisted settings, never captured traffic.
   - type: dropdown
     id: product-area
     attributes:

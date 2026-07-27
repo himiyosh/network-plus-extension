@@ -39,6 +39,162 @@ describe('fmtTime', () => {
   });
 });
 
+describe('safe support summary', () => {
+  const validInput = {
+    version: '1.6.0',
+    edgeMajor: '131',
+    osFamily: 'macOS',
+    theme: 'system',
+    retentionPolicy: 'limited',
+    retentionLimit: 5000,
+    recording: 'recording',
+    localSample: 'inactive',
+    colorScheme: 'dark',
+    reducedMotion: 'no-preference',
+  };
+
+  test('emits the exact allowlisted values in a stable order', () => {
+    expect(np.buildSafeSupportSummary(validInput)).toBe(
+      [
+        'Network+ safe support summary',
+        'Network+ version: 1.6.0',
+        'Browser: Microsoft Edge 131',
+        'OS family: macOS',
+        'Theme: system',
+        'Retention: limited (5,000 requests)',
+        'Recording: recording',
+        'Local sample: inactive',
+        'Preferred color scheme: dark',
+        'Reduced motion preference: no-preference',
+        '',
+        'This summary intentionally excludes captured traffic. Review it before posting to a public issue.',
+      ].join('\n'),
+    );
+  });
+
+  test('prefers reduced user-agent data and falls back to only Edg major and coarse OS', () => {
+    const userAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Edg/131.0.2903.86';
+    expect(
+      np.parseEdgeMajor(
+        { brands: [{ brand: 'Microsoft Edge', version: '132.0.1.4' }], platform: 'macOS' },
+        userAgent,
+      ),
+    ).toBe('132');
+    expect(np.parseOsFamily({ platform: 'macOS' }, userAgent)).toBe('macOS');
+    expect(np.parseEdgeMajor(null, userAgent)).toBe('131');
+    expect(np.parseOsFamily(null, userAgent)).toBe('Windows');
+    expect(np.parseOsFamily(null, 'Mozilla/5.0 (X11; Linux x86_64)')).toBe('Linux');
+    expect(np.parseOsFamily(null, 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)')).toBe('Other/unknown');
+  });
+
+  test('normalizes unavailable media preferences without inspecting global browser state', () => {
+    const preferences = np.readSupportMediaPreferences((query) => ({
+      matches:
+        query === '(prefers-color-scheme: light)' ||
+        query === '(prefers-reduced-motion: reduce)',
+    }));
+    expect(preferences).toEqual({ colorScheme: 'light', reducedMotion: 'reduce' });
+    expect(np.readSupportMediaPreferences(null)).toEqual({
+      colorScheme: 'unknown',
+      reducedMotion: 'unknown',
+    });
+  });
+
+  test('bounds malformed values and never echoes representative sensitive input', () => {
+    const sensitiveValues = [
+      'https://customer.example/private?token=secret-value',
+      'Authorization: Bearer support-secret',
+      '{"password":"body-secret"}',
+      'search=customer-name',
+      'networkPlus.filterPresets.v1=/tenant/private',
+      'Mozilla/5.0 device-42 Edg/131.0.2903.86',
+      '/Users/customer/private.har',
+    ];
+    const summary = np.buildSafeSupportSummary({
+      version: sensitiveValues[0],
+      edgeMajor: sensitiveValues[5],
+      osFamily: sensitiveValues[1],
+      theme: sensitiveValues[2],
+      retentionPolicy: sensitiveValues[3],
+      retentionLimit: sensitiveValues[4],
+      recording: sensitiveValues[6],
+      localSample: sensitiveValues[0],
+      colorScheme: sensitiveValues[1],
+      reducedMotion: sensitiveValues[2],
+      state: { rows: sensitiveValues },
+      rows: sensitiveValues,
+      userAgent: sensitiveValues[5],
+      storage: sensitiveValues[4],
+    });
+
+    for (const sensitiveValue of sensitiveValues) {
+      expect(summary).not.toContain(sensitiveValue);
+    }
+    expect(summary).toContain('Network+ version: unknown');
+    expect(summary).toContain('Browser: Microsoft Edge unknown');
+    expect(summary).toContain('OS family: Other/unknown');
+    expect(summary).toContain('Theme: unknown');
+    expect(summary).toContain('Retention: unknown');
+    expect(summary).toContain('Recording: unknown');
+    expect(summary).toContain('Local sample: unknown');
+    expect(summary).toContain('Preferred color scheme: unknown');
+    expect(summary).toContain('Reduced motion preference: unknown');
+    expect(summary).not.toMatch(
+      /(?:URL|Domain|Path|Query|Header|Cookie|Body|Status|Method|Timing|Size|Search|Filter|Preset|Selection|Storage|Error|Log|User-Agent|Platform|Account|Customer|Tenant|Device|Credential|File path):/i,
+    );
+  });
+
+  test('never returns full browser versions or raw environment strings from parsers', () => {
+    const injectedUa =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) customer=contoso.example Edg/131.0.2903.86 Authorization=secret';
+    const edgeMajor = np.parseEdgeMajor(null, injectedUa);
+    const osFamily = np.parseOsFamily(null, injectedUa);
+    const summary = np.buildSafeSupportSummary({ ...validInput, edgeMajor, osFamily });
+
+    expect(edgeMajor).toBe('131');
+    expect(osFamily).toBe('macOS');
+    expect(summary).not.toContain('131.0.2903.86');
+    expect(summary).not.toContain('contoso.example');
+    expect(summary).not.toContain('Authorization=secret');
+  });
+
+  test('fails malformed environment getters closed without echoing or throwing', () => {
+    const hostileInput = {};
+    for (const key of Object.keys(validInput)) {
+      Object.defineProperty(hostileInput, key, {
+        get() {
+          throw new Error(`do-not-echo-${key}`);
+        },
+      });
+    }
+    const hostileBrand = {};
+    Object.defineProperty(hostileBrand, 'brand', {
+      get() {
+        throw new Error('do-not-echo-brand');
+      },
+    });
+
+    expect(np.parseEdgeMajor({ brands: [hostileBrand] }, '')).toBe('unknown');
+    expect(np.buildSafeSupportSummary(hostileInput)).toBe(
+      [
+        'Network+ safe support summary',
+        'Network+ version: unknown',
+        'Browser: Microsoft Edge unknown',
+        'OS family: Other/unknown',
+        'Theme: unknown',
+        'Retention: unknown',
+        'Recording: unknown',
+        'Local sample: unknown',
+        'Preferred color scheme: unknown',
+        'Reduced motion preference: unknown',
+        '',
+        'This summary intentionally excludes captured traffic. Review it before posting to a public issue.',
+      ].join('\n'),
+    );
+  });
+});
+
 describe('guided local sample capture', () => {
   const baseTimestamp = Date.parse('2026-01-15T12:00:00.000Z');
 

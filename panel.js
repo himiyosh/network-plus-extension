@@ -107,6 +107,18 @@ const _NetworkPlus = (function () {
   });
   const TIMING_EVIDENCE_LIMITATION = 'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause on the server.';
   const TEST_EXTENSION_VERSION_FALLBACK = '1.6.0';
+  const SAFE_SUPPORT_UNKNOWN = 'unknown';
+  const SAFE_SUPPORT_OTHER_OS = 'Other/unknown';
+  const SAFE_SUPPORT_REVIEW_NOTICE = 'This summary intentionally excludes captured traffic. Review it before posting to a public issue.';
+  const MAX_SAFE_SUPPORT_VERSION_COMPONENT = 65535;
+  const MAX_SAFE_SUPPORT_EDGE_MAJOR = 999;
+  const MAX_SAFE_SUPPORT_USER_AGENT_LENGTH = 512;
+  const MAX_SAFE_SUPPORT_BRANDS = 16;
+  const SAFE_SUPPORT_OS_FAMILIES = Object.freeze(['Windows', 'macOS', 'Linux', SAFE_SUPPORT_OTHER_OS]);
+  const SAFE_SUPPORT_RECORDING_STATES = Object.freeze(['recording', 'paused']);
+  const SAFE_SUPPORT_SAMPLE_STATES = Object.freeze(['active', 'inactive']);
+  const SAFE_SUPPORT_COLOR_SCHEMES = Object.freeze(['light', 'dark']);
+  const SAFE_SUPPORT_MOTION_PREFERENCES = Object.freeze(['reduce', 'no-preference']);
   const OBJECT_URL_REVOKE_DELAY_MS = 1000;
   const SENSITIVE_KEY_NAMES = new Set([
     'authorization',
@@ -366,9 +378,11 @@ const _NetworkPlus = (function () {
       .then(() => {
         showCopyFeedback(message);
         queueDataSafetyAnnouncement(message);
+        return true;
       })
       .catch((_error) => {
         setStatus('Clipboard copy failed. No data was copied.');
+        return false;
       });
   }
 
@@ -1046,6 +1060,175 @@ const _NetworkPlus = (function () {
       // Node tests use the fallback below; extension pages report unknown if the runtime API fails.
     }
     return typeof module !== 'undefined' && module.exports ? TEST_EXTENSION_VERSION_FALLBACK : 'unknown';
+  }
+
+  function normalizeSafeSupportVersion(value) {
+    if (typeof value !== 'string') return SAFE_SUPPORT_UNKNOWN;
+    const match = value.trim().match(/^\d{1,5}(?:\.\d{1,5}){0,3}$/);
+    if (!match) return SAFE_SUPPORT_UNKNOWN;
+    const components = match[0].split('.').map(Number);
+    if (components.some((component) => component > MAX_SAFE_SUPPORT_VERSION_COMPONENT)) {
+      return SAFE_SUPPORT_UNKNOWN;
+    }
+    return components.join('.');
+  }
+
+  function normalizeSafeSupportEdgeMajor(value) {
+    const text = typeof value === 'number' ? String(value) : value;
+    if (typeof text !== 'string' || !/^\d{1,3}$/.test(text)) return SAFE_SUPPORT_UNKNOWN;
+    const major = Number(text);
+    if (!Number.isInteger(major) || major < 1 || major > MAX_SAFE_SUPPORT_EDGE_MAJOR) {
+      return SAFE_SUPPORT_UNKNOWN;
+    }
+    return String(major);
+  }
+
+  function parseEdgeMajor(userAgentData, userAgent) {
+    let brands = [];
+    if (userAgentData && typeof userAgentData === 'object') {
+      try {
+        if (Array.isArray(userAgentData.brands)) {
+          brands = userAgentData.brands.slice(0, MAX_SAFE_SUPPORT_BRANDS);
+        }
+      } catch (_error) {
+        brands = [];
+      }
+    }
+    for (const entry of brands) {
+      try {
+        if (!entry || entry.brand !== 'Microsoft Edge') continue;
+        const version = entry.version;
+        const versionMatch =
+          typeof version === 'string'
+            ? version.match(/^([1-9]\d{0,2})(?:\.\d{1,5}){0,3}$/)
+            : null;
+        const major = normalizeSafeSupportEdgeMajor(versionMatch ? versionMatch[1] : version);
+        if (major !== SAFE_SUPPORT_UNKNOWN) return major;
+      } catch (_error) {
+        // Ignore malformed brand records and continue to the bounded UA fallback.
+      }
+    }
+
+    const boundedUserAgent =
+      typeof userAgent === 'string' ? userAgent.slice(0, MAX_SAFE_SUPPORT_USER_AGENT_LENGTH) : '';
+    const fallback = boundedUserAgent.match(/\bEdg\/([1-9]\d{0,2})(?:\.|\s|$)/);
+    return fallback ? normalizeSafeSupportEdgeMajor(fallback[1]) : SAFE_SUPPORT_UNKNOWN;
+  }
+
+  function parseOsFamily(userAgentData, userAgent) {
+    let platform = '';
+    if (userAgentData && typeof userAgentData === 'object') {
+      try {
+        platform = typeof userAgentData.platform === 'string' ? userAgentData.platform : '';
+      } catch (_error) {
+        platform = '';
+      }
+    }
+    const normalizedPlatform = platform.trim().toLowerCase();
+    if (normalizedPlatform === 'windows') return 'Windows';
+    if (normalizedPlatform === 'macos') return 'macOS';
+    if (normalizedPlatform === 'linux') return 'Linux';
+    if (normalizedPlatform) return SAFE_SUPPORT_OTHER_OS;
+
+    const boundedUserAgent =
+      typeof userAgent === 'string' ? userAgent.slice(0, MAX_SAFE_SUPPORT_USER_AGENT_LENGTH) : '';
+    if (/(?:Android|CrOS|iPhone|iPad|iPod)/i.test(boundedUserAgent)) return SAFE_SUPPORT_OTHER_OS;
+    if (/Windows NT/i.test(boundedUserAgent)) return 'Windows';
+    if (/(?:Macintosh|Mac OS X)/i.test(boundedUserAgent)) return 'macOS';
+    if (/(?:X11;\s*)?Linux/i.test(boundedUserAgent)) return 'Linux';
+    return SAFE_SUPPORT_OTHER_OS;
+  }
+
+  function readSupportMediaPreferences(matchMediaApi) {
+    const readMatch = (query) => {
+      if (typeof matchMediaApi !== 'function') return null;
+      try {
+        const result = matchMediaApi(query);
+        return result && typeof result.matches === 'boolean' ? result.matches : null;
+      } catch (_error) {
+        return null;
+      }
+    };
+    const prefersDark = readMatch('(prefers-color-scheme: dark)');
+    const prefersLight = readMatch('(prefers-color-scheme: light)');
+    const reducesMotion = readMatch('(prefers-reduced-motion: reduce)');
+    const keepsMotion = readMatch('(prefers-reduced-motion: no-preference)');
+    return {
+      colorScheme: prefersDark === true ? 'dark' : prefersLight === true ? 'light' : SAFE_SUPPORT_UNKNOWN,
+      reducedMotion:
+        reducesMotion === true
+          ? 'reduce'
+          : keepsMotion === true
+            ? 'no-preference'
+            : SAFE_SUPPORT_UNKNOWN,
+    };
+  }
+
+  function readSafeSupportPrimitive(source, key) {
+    try {
+      const value = source[key];
+      return ['string', 'number', 'boolean'].includes(typeof value) ? value : undefined;
+    } catch (_error) {
+      return undefined;
+    }
+  }
+
+  function buildSafeSupportSummary(input) {
+    const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+    const rawVersion = readSafeSupportPrimitive(source, 'version');
+    const rawEdgeMajor = readSafeSupportPrimitive(source, 'edgeMajor');
+    const rawOsFamily = readSafeSupportPrimitive(source, 'osFamily');
+    const rawTheme = readSafeSupportPrimitive(source, 'theme');
+    const rawRetentionPolicy = readSafeSupportPrimitive(source, 'retentionPolicy');
+    const rawRetentionLimit = readSafeSupportPrimitive(source, 'retentionLimit');
+    const rawRecording = readSafeSupportPrimitive(source, 'recording');
+    const rawLocalSample = readSafeSupportPrimitive(source, 'localSample');
+    const rawColorScheme = readSafeSupportPrimitive(source, 'colorScheme');
+    const rawReducedMotion = readSafeSupportPrimitive(source, 'reducedMotion');
+    const version = normalizeSafeSupportVersion(rawVersion);
+    const edgeMajor = normalizeSafeSupportEdgeMajor(rawEdgeMajor);
+    const osFamily = SAFE_SUPPORT_OS_FAMILIES.includes(rawOsFamily)
+      ? rawOsFamily
+      : SAFE_SUPPORT_OTHER_OS;
+    const theme = THEMES.includes(rawTheme) ? rawTheme : SAFE_SUPPORT_UNKNOWN;
+    const recording = SAFE_SUPPORT_RECORDING_STATES.includes(rawRecording)
+      ? rawRecording
+      : SAFE_SUPPORT_UNKNOWN;
+    const localSample = SAFE_SUPPORT_SAMPLE_STATES.includes(rawLocalSample)
+      ? rawLocalSample
+      : SAFE_SUPPORT_UNKNOWN;
+    const colorScheme = SAFE_SUPPORT_COLOR_SCHEMES.includes(rawColorScheme)
+      ? rawColorScheme
+      : SAFE_SUPPORT_UNKNOWN;
+    const reducedMotion = SAFE_SUPPORT_MOTION_PREFERENCES.includes(rawReducedMotion)
+      ? rawReducedMotion
+      : SAFE_SUPPORT_UNKNOWN;
+    let retention = SAFE_SUPPORT_UNKNOWN;
+    if (rawRetentionPolicy === 'unlimited') {
+      retention = 'unlimited';
+    } else if (
+      rawRetentionPolicy === 'limited' &&
+      Number.isInteger(rawRetentionLimit) &&
+      rawRetentionLimit >= MIN_REQUEST_RETENTION_LIMIT &&
+      rawRetentionLimit <= MAX_REQUEST_RETENTION_LIMIT
+    ) {
+      retention = 'limited (' + String(rawRetentionLimit).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' requests)';
+    }
+
+    return [
+      'Network+ safe support summary',
+      'Network+ version: ' + version,
+      'Browser: Microsoft Edge ' + edgeMajor,
+      'OS family: ' + osFamily,
+      'Theme: ' + theme,
+      'Retention: ' + retention,
+      'Recording: ' + recording,
+      'Local sample: ' + localSample,
+      'Preferred color scheme: ' + colorScheme,
+      'Reduced motion preference: ' + reducedMotion,
+      '',
+      SAFE_SUPPORT_REVIEW_NOTICE,
+    ].join('\n');
   }
 
   function createObjectUrlRevoker(objectUrl, options) {
@@ -7430,8 +7613,14 @@ const _NetworkPlus = (function () {
       // Don't open if another modal <dialog> is active (e.g. retention, data-safety)
       const otherModal = Array.from(document.querySelectorAll('dialog[open]')).some((d) => d !== shortcutDialog);
       if (otherModal) return;
+      const supportStatus = $('#shortcutSupportSummaryStatus');
+      if (supportStatus) supportStatus.textContent = '';
       shortcutDialog._networkPlusTrigger = trigger || null;
       shortcutDialog.showModal();
+      setTimeout(() => {
+        const closeButton = $('#shortcutCloseBtn');
+        if (shortcutDialog.open && closeButton) closeButton.focus();
+      }, 0);
     };
     if (shortcutDialog) {
       shortcutDialog.addEventListener('cancel', (e) => { e.preventDefault(); shortcutDialog.close(); });
@@ -7442,6 +7631,50 @@ const _NetworkPlus = (function () {
       shortcutDialog.addEventListener('click', (event) => {
         if (event.target === shortcutDialog) shortcutDialog.close();
       });
+      const safeSupportSummaryBtn = $('#copySafeSupportSummaryBtn');
+      if (safeSupportSummaryBtn) {
+        safeSupportSummaryBtn.addEventListener('click', () => {
+          const supportStatus = $('#shortcutSupportSummaryStatus');
+          if (supportStatus) supportStatus.textContent = '';
+          let userAgentData = null;
+          let userAgent = '';
+          try {
+            if (typeof navigator !== 'undefined') {
+              userAgentData = navigator.userAgentData || null;
+              const rawUserAgent = navigator.userAgent;
+              userAgent = typeof rawUserAgent === 'string' ? rawUserAgent : '';
+            }
+          } catch (_error) {
+            userAgentData = null;
+            userAgent = '';
+          }
+          const mediaPreferences = readSupportMediaPreferences(
+            typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+              ? window.matchMedia.bind(window)
+              : null,
+          );
+          const forcedTheme = document.documentElement.getAttribute('data-theme');
+          const summary = buildSafeSupportSummary({
+            version: normalizeSafeSupportVersion(getExtensionVersion()),
+            edgeMajor: parseEdgeMajor(userAgentData, userAgent),
+            osFamily: parseOsFamily(userAgentData, userAgent),
+            theme: forcedTheme === 'dark' || forcedTheme === 'light' ? forcedTheme : 'system',
+            retentionPolicy: state.retention.unlimited === true ? 'unlimited' : 'limited',
+            retentionLimit: state.retention.requestLimit,
+            recording: state.paused === true ? 'paused' : 'recording',
+            localSample: state.sampleCaptureActive === true ? 'active' : 'inactive',
+            colorScheme: mediaPreferences.colorScheme,
+            reducedMotion: mediaPreferences.reducedMotion,
+          });
+          writeClipboardPayload(summary, 'Copied safe support summary').then((copied) => {
+            if (supportStatus) {
+              supportStatus.textContent = copied
+                ? 'Copied safe support summary. Review it before posting.'
+                : 'Clipboard copy failed. No data was copied.';
+            }
+          });
+        });
+      }
       $('#shortcutCloseBtn').addEventListener('click', () => shortcutDialog.close());
     }
     if (shortcutBtn) {
@@ -8604,6 +8837,11 @@ const _NetworkPlus = (function () {
     MAX_SANITIZED_BODY_DEPTH,
     MAX_SANITIZED_BODY_NODES,
     getExtensionVersion,
+    normalizeSafeSupportVersion,
+    parseEdgeMajor,
+    parseOsFamily,
+    readSupportMediaPreferences,
+    buildSafeSupportSummary,
     createObjectUrlRevoker,
     triggerObjectUrlDownload,
     createSanitizationSummary,

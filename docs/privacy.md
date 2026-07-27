@@ -40,11 +40,13 @@ Network+ writes to the clipboard or creates a HAR download only after a user sel
 
 Full output can include URLs, headers, cookies, request bodies, response bodies, and authentication or personal information. It is available only after a warning and one-time confirmation for that action. Network+ does not save a preference to use full output automatically.
 
+The Keyboard Shortcuts dialog also provides `Copy safe support summary`. Network+ builds this summary only after that button is selected and copies only the packaged Network+ version, Microsoft Edge major version, coarse OS family, normalized theme and retention settings, recording and local-sample state, and color-scheme and reduced-motion preferences. It does not inspect or include captured traffic, captured or visible request counts, URLs, headers, cookies, bodies, search or filter values, storage contents, logs, the full user agent, identifiers, credentials, or file paths. The summary states that it excludes captured traffic and must be reviewed before posting.
+
 Imported HAR or SAZ files are processed locally and become part of the same bounded in-memory working set. Network+ does not upload imported files.
 
 ## Support
 
-Questions and reports can be filed at https://github.com/himiyosh/network-plus-extension/issues/new/choose. Do not attach raw traffic, credentials, customer data, full HAR files, or other sensitive material to a public issue.
+Questions and reports can be filed at https://github.com/himiyosh/network-plus-extension/issues/new/choose. When the panel can be opened, the reviewed output from `Copy safe support summary` is recommended but optional. The required version and Edge fields can still be completed manually when the extension cannot be opened. Do not attach raw traffic, credentials, customer data, full HAR files, or other sensitive material to a public issue.
 
 ## Policy changes
 
