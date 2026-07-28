@@ -12,6 +12,7 @@ const BROWSER_REQUIRED_IN_CI_MESSAGE =
   'Real-browser regression tests require an executable Chrome or Edge in CI. ' +
   'Set EDGE_BIN or CHROME_BIN to an executable browser path.';
 const TRANSIENT_PROFILE_CLEANUP_ERRORS = new Set(['ENOTEMPTY', 'EBUSY']);
+const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1280, 1366, 1367, 1500];
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -804,7 +805,7 @@ browserTest(
       );
 
       const viewportMeasurements = [];
-      for (const width of [375, 500, 800, 1280]) {
+      for (const width of TOOLBAR_VIEWPORT_WIDTHS) {
         await cdp.send('Emulation.setDeviceMetricsOverride', {
           width,
           height: 800,
@@ -831,6 +832,7 @@ browserTest(
                 };
               });
               const brand = document.querySelector('.brand');
+              const brandStyle = getComputedStyle(brand);
               return {
                 width: innerWidth,
                 documentOverflow:
@@ -839,7 +841,9 @@ browserTest(
                 toolbarOverflowX: getComputedStyle(toolbar).overflowX,
                 actions,
                 brandWidth: brand.getBoundingClientRect().width,
-                brandDisplay: getComputedStyle(brand).display,
+                brandDisplay: brandStyle.display,
+                brandPaddingLeft: brandStyle.paddingLeft,
+                brandPaddingRight: brandStyle.paddingRight,
                 brandSubtitleDisplay: getComputedStyle(
                   document.querySelector('.brand-sub'),
                 ).display,
@@ -849,20 +853,54 @@ browserTest(
         );
       }
 
+      const expectedActionOrder = [
+        'pauseBtn',
+        'searchToggleBtn',
+        'clearBtn',
+        'importBtn',
+        'exportHarBtn',
+        'autoScrollBtn',
+        'filterBtn',
+        'presetsBtn',
+        'columnsBtn',
+        'retentionBtn',
+        'themeBtn',
+        'shortcutBtn',
+      ];
       for (const measurement of viewportMeasurements) {
         expect(measurement.documentOverflow).toBe(0);
         expect(measurement.toolbarOverflowX).toBe('auto');
         expect(measurement.actions).toHaveLength(12);
+        expect(measurement.actions.map((action) => action.id)).toEqual(expectedActionOrder);
       }
       expect(viewportMeasurements.slice(0, 3).every((measurement) => measurement.toolbarOverflow > 0)).toBe(
         true,
       );
-      const desktopMeasurement = viewportMeasurements[3];
+      const measurementsByWidth = new Map(
+        viewportMeasurements.map((measurement) => [measurement.width, measurement]),
+      );
+      const desktopMeasurement = measurementsByWidth.get(1280);
       expect(desktopMeasurement.toolbarOverflow).toBe(0);
       expect(desktopMeasurement.actions.every((action) => action.fullyVisible)).toBe(true);
       expect(desktopMeasurement.brandDisplay).not.toBe('none');
       expect(desktopMeasurement.brandSubtitleDisplay).toBe('none');
       expect(desktopMeasurement.brandWidth).toBeLessThan(150);
+      expect(desktopMeasurement.brandPaddingLeft).toBe('8px');
+      expect(desktopMeasurement.brandPaddingRight).toBe('8px');
+
+      const compactBoundaryMeasurement = measurementsByWidth.get(1366);
+      expect(compactBoundaryMeasurement.brandSubtitleDisplay).toBe('none');
+      expect(compactBoundaryMeasurement.brandPaddingLeft).toBe('8px');
+      expect(compactBoundaryMeasurement.brandPaddingRight).toBe('8px');
+
+      const wideBoundaryMeasurement = measurementsByWidth.get(1367);
+      const wideMeasurement = measurementsByWidth.get(1500);
+      for (const measurement of [wideBoundaryMeasurement, wideMeasurement]) {
+        expect(measurement.brandSubtitleDisplay).not.toBe('none');
+        expect(measurement.brandPaddingLeft).toBe('14px');
+        expect(measurement.brandPaddingRight).toBe('14px');
+        expect(measurement.brandWidth).toBeGreaterThan(compactBoundaryMeasurement.brandWidth);
+      }
 
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 375,

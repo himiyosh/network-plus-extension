@@ -35,6 +35,17 @@ test('fails explicitly in CI when no browser executable is discoverable', () => 
   );
 });
 
+test('locks toolbar branding coverage to both exact sides of the content breakpoint', () => {
+  const viewportDeclaration = browserSuiteSource.match(
+    /const TOOLBAR_VIEWPORT_WIDTHS = \[([^\]]+)\];/,
+  );
+
+  expect(viewportDeclaration).not.toBeNull();
+  expect(viewportDeclaration[1].match(/\d+/g).map(Number)).toEqual([
+    375, 500, 800, 1280, 1366, 1367, 1500,
+  ]);
+});
+
 test('retains the local-only skip when no browser executable is discoverable', () => {
   expect(evaluateBrowserSuiteRegistration({})).toEqual([
     {
