@@ -3482,15 +3482,22 @@ const _NetworkPlus = (function () {
     return STATUS_CLASS_KEYS.includes(statusClass) ? statusClass : 'other';
   }
 
-  function formatStatusClassSummary(statusClassCounts) {
+  function getStatusClassIndicators(statusClassCounts) {
     const counts =
       statusClassCounts && typeof statusClassCounts === 'object' ? statusClassCounts : {};
+    return STATUS_CLASS_KEYS.map((statusClass) => {
+      const sourceCount = counts[statusClass];
+      const count = Number.isInteger(sourceCount) && sourceCount >= 0 ? sourceCount : 0;
+      return { statusClass, count, text: statusClass + ' ' + count };
+    });
+  }
+
+  function formatStatusClassSummary(statusClassCounts) {
     return (
       'status ' +
-      STATUS_CLASS_KEYS.map((statusClass) => {
-        const count = counts[statusClass];
-        return statusClass + ' ' + (Number.isInteger(count) && count >= 0 ? count : 0);
-      }).join(' · ')
+      getStatusClassIndicators(statusClassCounts)
+        .map((indicator) => indicator.text)
+        .join(' · ')
     );
   }
 
@@ -5048,6 +5055,52 @@ const _NetworkPlus = (function () {
       grid.appendChild(valEl);
     }
     return grid;
+  }
+
+  function renderStatsSummary(statsElement, stats) {
+    const indicators = getStatusClassIndicators(stats.statusClassCounts);
+    const statusText = formatStatusClassSummary(stats.statusClassCounts);
+    const durationText =
+      'avg ' +
+      fmtTime(stats.avgDuration) +
+      ' · min ' +
+      fmtTime(stats.minDuration) +
+      ' · max ' +
+      fmtTime(stats.maxDuration);
+    statsElement.textContent = '';
+
+    const accessibleSummary = document.createElement('span');
+    accessibleSummary.className = 'sr-only';
+    accessibleSummary.textContent = statusText + ' | ' + durationText;
+    statsElement.appendChild(accessibleSummary);
+
+    const visualSummary = document.createElement('span');
+    visualSummary.className = 'status-summary-visual';
+    visualSummary.setAttribute('aria-hidden', 'true');
+
+    const statusLabel = document.createElement('span');
+    statusLabel.className = 'status-summary-label';
+    statusLabel.textContent = 'Status';
+    visualSummary.appendChild(statusLabel);
+
+    const chips = document.createElement('span');
+    chips.className = 'status-summary-chips';
+    for (const indicator of indicators) {
+      const chip = document.createElement('span');
+      chip.className =
+        'status-summary-chip status-summary-chip--' +
+        indicator.statusClass +
+        (indicator.count === 0 ? ' status-summary-chip--empty' : '');
+      chip.textContent = indicator.text;
+      chips.appendChild(chip);
+    }
+    visualSummary.appendChild(chips);
+
+    const duration = document.createElement('span');
+    duration.className = 'status-summary-duration';
+    duration.textContent = '| ' + durationText;
+    visualSummary.appendChild(duration);
+    statsElement.appendChild(visualSummary);
   }
 
   function createTimingPhaseGuide() {
@@ -6699,11 +6752,7 @@ const _NetworkPlus = (function () {
     if (statsEl) {
       if (state.filteredRows.length > 0) {
         const stats = computeStats(state.filteredRows);
-        statsEl.textContent =
-          formatStatusClassSummary(stats.statusClassCounts) +
-          ' | avg ' + fmtTime(stats.avgDuration) +
-          ' · min ' + fmtTime(stats.minDuration) +
-          ' · max ' + fmtTime(stats.maxDuration);
+        renderStatsSummary(statsEl, stats);
       } else {
         statsEl.textContent = '';
       }
@@ -9858,6 +9907,7 @@ const _NetworkPlus = (function () {
     retainRowsByIdentity,
     createTableRow,
     classifyStatusClass,
+    getStatusClassIndicators,
     formatStatusClassSummary,
     computeStats,
     computeWaterfallBar,

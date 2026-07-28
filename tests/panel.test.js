@@ -3581,6 +3581,16 @@ describe('status class statistics', () => {
     },
   );
 
+  test('builds ordered semantic indicator descriptors without trusting malformed counts', () => {
+    expect(np.getStatusClassIndicators({ '2xx': 4, '3xx': -1, '4xx': 2.5, '5xx': 1, other: 3 })).toEqual([
+      { statusClass: '2xx', count: 4, text: '2xx 4' },
+      { statusClass: '3xx', count: 0, text: '3xx 0' },
+      { statusClass: '4xx', count: 0, text: '4xx 0' },
+      { statusClass: '5xx', count: 1, text: '5xx 1' },
+      { statusClass: 'other', count: 3, text: 'other 3' },
+    ]);
+  });
+
   test.each([
     [599, ['status-5xx']],
     [600, []],
