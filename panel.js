@@ -4666,6 +4666,13 @@ const _NetworkPlus = (function () {
     });
   }
 
+  function clearColumnFilters() {
+    state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
+    renderBody();
+    syncSearchUIAfterRender();
+    setStatus('Column filters cleared');
+  }
+
   function loadFilterPresets() {
     // Returns { presets: Array, error: string|null }.
     // error is non-null when stored data is present but unreadable (corruption/oversize).
@@ -6489,6 +6496,15 @@ const _NetworkPlus = (function () {
       emptyState.appendChild(icon);
       emptyState.appendChild(title);
       emptyState.appendChild(description);
+      if (mode === 'filtered') {
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'empty-state-action';
+        action.textContent = 'Clear column filters';
+        action.setAttribute('aria-describedby', description.id);
+        action.addEventListener('click', clearColumnFilters);
+        emptyState.appendChild(action);
+      }
       if (mode === 'capture') {
         const action = document.createElement('button');
         action.type = 'button';
@@ -6500,10 +6516,6 @@ const _NetworkPlus = (function () {
       }
     }
     emptyState.style.display = 'flex';
-    if (mode !== 'capture') {
-      const action = emptyState.querySelector('.empty-state-action');
-      if (action) action.remove();
-    }
   }
 
   function updateRetentionStatus() {
@@ -8435,12 +8447,8 @@ const _NetworkPlus = (function () {
             setStatus('Saved preset: ' + safeName);
           },
           () => {
-            state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
-            filterRows();
-            renderBody();
-            updateTableSummary(state.filteredRows.length);
+            clearColumnFilters();
             closeAccessiblePopup(presetsMenu, true);
-            setStatus('Column filters cleared');
           },
         ),
       );

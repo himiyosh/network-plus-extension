@@ -215,6 +215,8 @@ describe('guided sample capture static contracts', () => {
   test('renders one local-only action only for a truly empty capture', () => {
     expect(js).toContain('const mode = getEmptyStateMode(state.rows.length, visibleRowCount);');
     expect(js).toContain("if (mode === 'filtered')");
+    expect(js).toContain("action.textContent = 'Clear column filters';");
+    expect(js).toContain("action.addEventListener('click', clearColumnFilters);");
     expect(js).toContain("action.textContent = 'Explore sample capture';");
     expect(js).not.toContain("action.setAttribute('aria-label'");
     expect(js).toContain("action.setAttribute('aria-describedby', description.id);");
@@ -228,6 +230,32 @@ describe('guided sample capture static contracts', () => {
     );
     expect(emptyStateBlock).not.toContain('innerHTML');
     expect(emptyStateBlock).toContain("if (mode === 'capture')");
+  });
+
+  test('recovers filtered requests through the shared reset path without clearing search keywords', () => {
+    const clearFiltersBlock = js.slice(
+      js.indexOf('function clearColumnFilters'),
+      js.indexOf('function loadFilterPresets'),
+    );
+    expect(clearFiltersBlock).toContain('state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();');
+    expect(clearFiltersBlock).toContain('renderBody();');
+    expect(clearFiltersBlock).toContain('syncSearchUIAfterRender();');
+    expect(clearFiltersBlock).toContain("setStatus('Column filters cleared');");
+    expect(clearFiltersBlock).not.toMatch(/state\.search|keywords/);
+
+    const renderBodyBlock = js.slice(
+      js.indexOf('function renderBody'),
+      js.indexOf('function scrollToSelectedRow'),
+    );
+    expect(renderBodyBlock).toContain('const restoreEmptyStateFocus = isFocusInsideEmptyState();');
+    expect(renderBodyBlock).toContain('restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);');
+
+    const presetResetBlock = js.slice(
+      js.indexOf('const renderPresetsMenu = () => {'),
+      js.indexOf('if (presetsBtn)'),
+    );
+    expect(presetResetBlock).toContain('clearColumnFilters();');
+    expect(presetResetBlock).not.toContain('state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();');
   });
 
   test('exposes one native heading per rendered empty state without changing its layout', () => {
