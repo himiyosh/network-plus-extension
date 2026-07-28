@@ -41,7 +41,17 @@ const writeManifest = (root, manifest) => {
   fs.writeFileSync(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 };
 
+const mockFsResultForPath = (method, targetPath, replacement) => {
+  const original = fs[method];
+  const resolvedTarget = path.resolve(targetPath);
+  return jest.spyOn(fs, method).mockImplementation((candidate, ...args) => {
+    if (path.resolve(candidate) === resolvedTarget) return replacement(candidate, ...args);
+    return Reflect.apply(original, fs, [candidate, ...args]);
+  });
+};
+
 afterEach(() => {
+  jest.restoreAllMocks();
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -345,41 +355,22 @@ describe('extension source integrity', () => {
 
   test('rejects runtime symlinks and parent-directory root escapes', () => {
     const root = createFixture();
-    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-outside-'));
-    temporaryDirectories.push(outsideRoot);
-    const outsideFile = path.join(outsideRoot, 'outside.css');
-    fs.writeFileSync(outsideFile, 'external content');
-    fs.rmSync(path.join(root, 'panel.css'));
-
-    try {
-      fs.symlinkSync(outsideFile, path.join(root, 'panel.css'));
-    } catch (error) {
-      if (['EPERM', 'EACCES', 'ENOSYS'].includes(error.code)) {
-        console.warn(`Symlink regression skipped because this environment returned ${error.code}`);
-        expect(['EPERM', 'EACCES', 'ENOSYS']).toContain(error.code);
-        return;
-      }
-      throw error;
-    }
+    const panelCssPath = path.join(root, 'panel.css');
+    const symbolicLinkStat = Object.create(fs.lstatSync(panelCssPath));
+    symbolicLinkStat.isSymbolicLink = () => true;
+    const lstatMock = mockFsResultForPath('lstatSync', panelCssPath, () => symbolicLinkStat);
 
     expect(validateExtension(root)).toContain('runtime file must not be a symbolic link: panel.css');
     expect(() => createArchive(root)).toThrow('runtime file must not be a symbolic link: panel.css');
+    lstatMock.mockRestore();
 
     const parentLinkRoot = createFixture();
     const outsideVendor = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-vendor-'));
     temporaryDirectories.push(outsideVendor);
-    fs.copyFileSync(path.join(repositoryRoot, 'vendor/fflate.js'), path.join(outsideVendor, 'fflate.js'));
-    fs.rmSync(path.join(parentLinkRoot, 'vendor'), { recursive: true });
-    try {
-      fs.symlinkSync(outsideVendor, path.join(parentLinkRoot, 'vendor'), 'dir');
-    } catch (error) {
-      if (['EPERM', 'EACCES', 'ENOSYS'].includes(error.code)) {
-        console.warn(`Parent symlink regression skipped because this environment returned ${error.code}`);
-        expect(['EPERM', 'EACCES', 'ENOSYS']).toContain(error.code);
-        return;
-      }
-      throw error;
-    }
+    const outsideVendorFile = path.join(outsideVendor, 'fflate.js');
+    fs.copyFileSync(path.join(repositoryRoot, 'vendor/fflate.js'), outsideVendorFile);
+    const vendorFile = path.join(parentLinkRoot, 'vendor/fflate.js');
+    mockFsResultForPath('realpathSync', vendorFile, () => outsideVendorFile);
 
     expect(validateExtension(parentLinkRoot)).toContain(
       'runtime file resolves outside extension root: vendor/fflate.js',
