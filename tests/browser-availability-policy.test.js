@@ -38,8 +38,20 @@ test('fails explicitly in CI when no browser executable is discoverable', () => 
 test('retains the local-only skip when no browser executable is discoverable', () => {
   expect(evaluateBrowserSuiteRegistration({})).toEqual([
     {
+      skipped: false,
+      title: 'profile cleanup warns after bounded retries exhaust a transient ENOTEMPTY error',
+    },
+    {
+      skipped: false,
+      title: 'profile cleanup rethrows non-transient removal errors',
+    },
+    {
       skipped: true,
       title: 'live summary update preserves focused status chip identity and the pending click gesture',
+    },
+    {
+      skipped: true,
+      title: 'details close control reclaims the workbench and row selection reopens it',
     },
   ]);
 });

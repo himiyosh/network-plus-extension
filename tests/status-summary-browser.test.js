@@ -11,6 +11,7 @@ const TEST_TIMEOUT_MS = 45000;
 const BROWSER_REQUIRED_IN_CI_MESSAGE =
   'Real-browser regression tests require an executable Chrome or Edge in CI. ' +
   'Set EDGE_BIN or CHROME_BIN to an executable browser path.';
+const TRANSIENT_PROFILE_CLEANUP_ERRORS = new Set(['ENOTEMPTY', 'EBUSY']);
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -215,6 +216,66 @@ async function stopBrowser(browserProcess) {
   await killed;
 }
 
+function removeProfileDirectory(profileDirectory) {
+  try {
+    fs.rmSync(profileDirectory, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
+  } catch (error) {
+    if (!error || !TRANSIENT_PROFILE_CLEANUP_ERRORS.has(error.code)) throw error;
+    console.warn(
+      'Browser profile cleanup exhausted retries for ' +
+        profileDirectory +
+        ' (' +
+        error.code +
+        ').',
+    );
+  }
+}
+
+test('profile cleanup warns after bounded retries exhaust a transient ENOTEMPTY error', () => {
+  const profileDirectory = '/tmp/network-plus-cleanup-test';
+  const cleanupError = Object.assign(new Error('Directory not empty'), { code: 'ENOTEMPTY' });
+  const removeSpy = jest.spyOn(fs, 'rmSync').mockImplementationOnce(() => {
+    throw cleanupError;
+  });
+  const warningSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+  try {
+    expect(() => removeProfileDirectory(profileDirectory)).not.toThrow();
+    expect(removeSpy).toHaveBeenCalledWith(profileDirectory, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
+    expect(warningSpy).toHaveBeenCalledWith(
+      'Browser profile cleanup exhausted retries for ' +
+        profileDirectory +
+        ' (ENOTEMPTY).',
+    );
+  } finally {
+    removeSpy.mockRestore();
+    warningSpy.mockRestore();
+  }
+});
+
+test('profile cleanup rethrows non-transient removal errors', () => {
+  const cleanupError = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
+  const removeSpy = jest.spyOn(fs, 'rmSync').mockImplementationOnce(() => {
+    throw cleanupError;
+  });
+
+  try {
+    expect(() => removeProfileDirectory('/tmp/network-plus-cleanup-test')).toThrow(cleanupError);
+  } finally {
+    removeSpy.mockRestore();
+  }
+});
+
 browserTest(
   'live summary update preserves focused status chip identity and the pending click gesture',
   async () => {
@@ -333,7 +394,310 @@ browserTest(
     } finally {
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);
-      fs.rmSync(profileDirectory, { recursive: true, force: true });
+      removeProfileDirectory(profileDirectory);
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'details close control reclaims the workbench and row selection reopens it',
+  async () => {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-details-dom-'));
+    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+    const browserProcess = spawn(
+      browserExecutable,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        '--allow-file-access-from-files',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-sandbox',
+        panelUrl,
+      ],
+      { stdio: 'ignore' },
+    );
+
+    let cdp;
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      const panelTarget = await findPanelTarget(browserWebSocketUrl);
+      cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
+      await cdp.send('Runtime.enable');
+      await cdp.send('Page.bringToFront');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+
+      const initial = await evaluate(
+        cdp,
+        `(async () => {
+          if (document.readyState === 'loading') {
+            await new Promise((resolve) => window.addEventListener('DOMContentLoaded', resolve, { once: true }));
+          }
+          const sampleButton = Array.from(document.querySelectorAll('button')).find(
+            (button) => button.textContent.trim() === 'Explore sample capture',
+          );
+          if (!sampleButton) throw new Error('Sample capture action was not found.');
+          sampleButton.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const closeButton = document.querySelector('#detailsCloseBtn');
+          if (!closeButton) throw new Error('Details close control was not found.');
+          const tbody = document.querySelector('#tbody');
+          const selectedRow = tbody.querySelector('tr.selected');
+          const spacer = document.createElement('tr');
+          spacer.id = 'details-close-scroll-spacer';
+          spacer.setAttribute('aria-hidden', 'true');
+          const spacerCell = document.createElement('td');
+          spacerCell.colSpan = 20;
+          spacerCell.style.height = '1200px';
+          spacer.appendChild(spacerCell);
+          tbody.insertBefore(spacer, tbody.firstChild);
+          document.querySelector('#tableWrap').scrollTop = 0;
+          closeButton.focus();
+          const tableRect = document.querySelector('#tableWrap').getBoundingClientRect();
+          const selectedRect = selectedRow.getBoundingClientRect();
+          return {
+            closeLabel: closeButton.getAttribute('aria-label'),
+            selectedRowId: selectedRow?.dataset.rowId || null,
+            selectedRowInitiallyVisible:
+              selectedRect.bottom > tableRect.top && selectedRect.top < tableRect.bottom,
+          };
+        })()`,
+        true,
+      );
+      expect(initial.closeLabel).toBe('Close request details');
+      expect(initial.selectedRowId).not.toBeNull();
+      expect(initial.selectedRowInitiallyVisible).toBe(false);
+      const initialAccessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      expect(
+        initialAccessibilityTree.nodes.some(
+          (node) => node.role?.value === 'button' && node.name?.value === 'Close request details',
+        ),
+      ).toBe(true);
+
+      await cdp.send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: ' ',
+        code: 'Space',
+        text: ' ',
+        unmodifiedText: ' ',
+        windowsVirtualKeyCode: 32,
+        nativeVirtualKeyCode: 32,
+      });
+      await cdp.send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: ' ',
+        code: 'Space',
+        windowsVirtualKeyCode: 32,
+        nativeVirtualKeyCode: 32,
+      });
+      await evaluate(
+        cdp,
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+        true,
+      );
+
+      const wideCollapsed = await evaluate(
+        cdp,
+        `(() => {
+          const content = document.querySelector('#content').getBoundingClientRect();
+          const table = document.querySelector('#tableWrap').getBoundingClientRect();
+          const focusedRow = document.activeElement?.closest?.('tr[data-row-id]');
+          const focusedRect = focusedRow?.getBoundingClientRect();
+          return {
+            detailsHidden: document.querySelector('#details').hidden,
+            resizerHidden: document.querySelector('#resizer').hidden,
+            collapsedClass: document.querySelector('#content').classList.contains('details-collapsed'),
+            focusedRowId: focusedRow?.dataset.rowId || null,
+            focusedRowVisible:
+              !!focusedRect && focusedRect.bottom > table.top && focusedRect.top < table.bottom,
+            contentWidth: Math.round(content.width),
+            tableWidth: Math.round(table.width),
+          };
+        })()`,
+      );
+      expect(wideCollapsed).toEqual({
+        detailsHidden: true,
+        resizerHidden: true,
+        collapsedClass: true,
+        focusedRowId: initial.selectedRowId,
+        focusedRowVisible: true,
+        contentWidth: 1280,
+        tableWidth: 1280,
+      });
+      const collapsedAccessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      expect(
+        collapsedAccessibilityTree.nodes.some(
+          (node) => node.name?.value === 'Close request details',
+        ),
+      ).toBe(false);
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#details-close-scroll-spacer')?.remove();
+        })()`,
+      );
+
+      const secondRowPoint = await evaluate(
+        cdp,
+        `(() => {
+          const row = document.querySelectorAll('#tbody tr[data-row-id]')[1];
+          if (!row) throw new Error('Second sample request was not found.');
+          const rect = row.getBoundingClientRect();
+          return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        })()`,
+      );
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: secondRowPoint.x,
+        y: secondRowPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: secondRowPoint.x,
+        y: secondRowPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await evaluate(
+        cdp,
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+        true,
+      );
+
+      const wideReopened = await evaluate(
+        cdp,
+        `(() => ({
+          detailsHidden: document.querySelector('#details').hidden,
+          resizerHidden: document.querySelector('#resizer').hidden,
+          selectedRowId: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+          detailsTitle: document.querySelector('#detailsTitle')?.textContent || '',
+        }))()`,
+      );
+      expect(wideReopened.detailsHidden).toBe(false);
+      expect(wideReopened.resizerHidden).toBe(false);
+      expect(wideReopened.selectedRowId).not.toBe(initial.selectedRowId);
+      expect(wideReopened.detailsTitle).toMatch(/^503 POST /);
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 375,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        cdp,
+        `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
+        true,
+      );
+      await evaluate(
+        cdp,
+        `(() => {
+          const closeButton = document.querySelector('#detailsCloseBtn');
+          closeButton.focus();
+        })()`,
+      );
+      await cdp.send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: ' ',
+        code: 'Space',
+        text: ' ',
+        unmodifiedText: ' ',
+        windowsVirtualKeyCode: 32,
+        nativeVirtualKeyCode: 32,
+      });
+      await cdp.send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: ' ',
+        code: 'Space',
+        windowsVirtualKeyCode: 32,
+        nativeVirtualKeyCode: 32,
+      });
+      await evaluate(
+        cdp,
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+        true,
+      );
+
+      const narrowCollapsed = await evaluate(
+        cdp,
+        `(() => {
+          const content = document.querySelector('#content').getBoundingClientRect();
+          const table = document.querySelector('#tableWrap').getBoundingClientRect();
+          return {
+            detailsHidden: document.querySelector('#details').hidden,
+            resizerHidden: document.querySelector('#resizer').hidden,
+            documentOverflowX:
+              document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            focusedRowId: document.activeElement?.closest?.('tr[data-row-id]')?.dataset.rowId || null,
+            contentHeight: Math.round(content.height),
+            tableHeight: Math.round(table.height),
+          };
+        })()`,
+      );
+      expect(narrowCollapsed.detailsHidden).toBe(true);
+      expect(narrowCollapsed.resizerHidden).toBe(true);
+      expect(narrowCollapsed.documentOverflowX).toBe(0);
+      expect(narrowCollapsed.focusedRowId).toBe(wideReopened.selectedRowId);
+      expect(narrowCollapsed.tableHeight).toBe(narrowCollapsed.contentHeight);
+
+      const thirdRowPoint = await evaluate(
+        cdp,
+        `(() => {
+          const row = document.querySelectorAll('#tbody tr[data-row-id]')[2];
+          if (!row) throw new Error('Third sample request was not found.');
+          const rect = row.getBoundingClientRect();
+          return { x: Math.max(8, rect.left + 8), y: rect.top + rect.height / 2 };
+        })()`,
+      );
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: thirdRowPoint.x,
+        y: thirdRowPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: thirdRowPoint.x,
+        y: thirdRowPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await evaluate(
+        cdp,
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+        true,
+      );
+
+      const narrowReopened = await evaluate(
+        cdp,
+        `(() => ({
+          detailsHidden: document.querySelector('#details').hidden,
+          resizerHidden: document.querySelector('#resizer').hidden,
+          detailsTitle: document.querySelector('#detailsTitle')?.textContent || '',
+          selectedRowId: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+        }))()`,
+      );
+      expect(narrowReopened.detailsHidden).toBe(false);
+      expect(narrowReopened.resizerHidden).toBe(false);
+      expect(narrowReopened.detailsTitle).toMatch(/^304 GET /);
+      expect(narrowReopened.selectedRowId).not.toBe(wideReopened.selectedRowId);
+    } finally {
+      if (cdp) await cdp.close();
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
     }
   },
   TEST_TIMEOUT_MS,

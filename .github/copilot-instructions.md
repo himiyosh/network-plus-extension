@@ -253,6 +253,7 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - [ ] 右クリックポップアップまたは `Filters` ボタンでカラム別フィルタを編集できる (`Time`: ローカル時間の time picker 範囲指定, `Method`: 複数選択, `Domain` / `Path`: 条件追加 + `notcontains`, `URL`: include/exclude 複合条件, その他: 演算子付きフィルタ)
 - [ ] ヘッダークリックでソートが切り替わる (昇順/降順/解除)
 - [ ] 行クリックで詳細パネルが Fiddler 風タブ表示される (Request: Headers/Body/Query/Cookies/Raw, Response: Headers/Body/Preview/Cookies/Timing/Raw)
+- [ ] 詳細ヘッダーの ✕ ボタンで詳細と境界が閉じて一覧が使用可能領域を回復し、行を選択すると詳細が再表示される
 - [ ] 上下キーで行を選択できる
 - [ ] HAR エクスポートで正しいファイルがダウンロードされる
 - [ ] Theme ボタンで System/Dark/Light が切り替わる

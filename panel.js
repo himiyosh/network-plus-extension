@@ -7008,6 +7008,32 @@ const _NetworkPlus = (function () {
   // Section 13: Detail Panel — Fiddler-style tabbed inspector
   // ============================================================
 
+  function setDetailsPanelCollapsed(collapsed) {
+    const content = $('#content');
+    const resizer = $('#resizer');
+    const details = $('#details');
+    if (content) content.classList.toggle('details-collapsed', collapsed);
+    if (resizer) resizer.hidden = collapsed;
+    if (details) details.hidden = collapsed;
+  }
+
+  function showDetailsPanel() {
+    setDetailsPanelCollapsed(false);
+  }
+
+  function closeDetailsPanel() {
+    setDetailsPanelCollapsed(true);
+    const tbody = $('#tbody');
+    const selectedRow = state.selectedRow
+      ? tbody && tbody.querySelector('tr[data-row-id="' + state.selectedRow.id + '"]')
+      : null;
+    const rowFocusTarget = selectedRow || (tbody && tbody.querySelector('tr[tabindex="0"]'));
+    const focusTarget = rowFocusTarget || $('#filterBtn');
+    if (focusTarget) focusTarget.focus({ preventScroll: true });
+    if (rowFocusTarget) rowFocusTarget.scrollIntoView({ block: 'nearest' });
+    setStatus('Request details closed. Select a request to reopen.');
+  }
+
   function clearDetailsPanel() {
     $('#detailsTitle').textContent = 'Select a request...';
     $all('.tab-pane', $('#details')).forEach((pane) => {
@@ -7560,6 +7586,7 @@ const _NetworkPlus = (function () {
     }
     if (!replaceRenderedRowStates(affectedRows)) renderBody();
     if (!row) return;
+    showDetailsPanel();
 
     const titleParts = [];
     if (row.status) titleParts.push(String(row.status));
@@ -8066,6 +8093,7 @@ const _NetworkPlus = (function () {
   }
 
   function showComparisonPanel() {
+    showDetailsPanel();
     const panel = $('#comparePanel');
     const inspectorPanels = $('.inspector-panels');
     if (panel) { panel.hidden = false; panel.removeAttribute('aria-hidden'); }
@@ -8326,6 +8354,8 @@ const _NetworkPlus = (function () {
 
     const clearButton = $('#clearBtn');
     const undoClearButton = $('#undoClearBtn');
+    const detailsCloseButton = $('#detailsCloseBtn');
+    if (detailsCloseButton) detailsCloseButton.addEventListener('click', closeDetailsPanel);
 
     const restoreSearchNavigation = (restorePlan) => {
       state.search.currentIndex = restorePlan.searchCurrentRow
