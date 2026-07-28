@@ -255,6 +255,47 @@ describe('guided sample capture static contracts', () => {
     );
   });
 
+  test('skips empty grid controls and restores them for filtered, sample, and live rows', () => {
+    const syncBlock = js.slice(
+      js.indexOf('function syncGridControlTabStops'),
+      js.indexOf('function renderHeader'),
+    );
+    const renderHeaderBlock = js.slice(
+      js.indexOf('function renderHeader'),
+      js.indexOf('function refreshSearchMatches'),
+    );
+    const emptyStateBlock = js.slice(
+      js.indexOf('function updateEmptyState'),
+      js.indexOf('function updateRetentionStatus'),
+    );
+    const sampleActivationBlock = js.slice(
+      js.indexOf('function activateSampleCapture'),
+      js.indexOf('function updateEmptyState'),
+    );
+    const incrementalBlock = js.slice(
+      js.indexOf('function appendIncrementalRows'),
+      js.indexOf('function replaceRenderedRowStates'),
+    );
+
+    expect(syncBlock).toContain(
+      'const tabIndex = getGridControlTabIndex(totalRowCount, visibleRowCount);',
+    );
+    expect(syncBlock).toContain("$all('th[data-col-id], .col-resizer', thead)");
+    expect(syncBlock).toContain('control.tabIndex = tabIndex;');
+    expect(syncBlock).not.toMatch(/setAttribute|removeAttribute|disabled|hidden/);
+    expect(renderHeaderBlock).toContain('th.tabIndex = gridControlTabIndex;');
+    expect(renderHeaderBlock).toContain('columnResizer.tabIndex = gridControlTabIndex;');
+    expect(renderHeaderBlock).toContain("th.setAttribute('aria-sort', sortState);");
+    expect(renderHeaderBlock).toContain(
+      "columnResizer.setAttribute('aria-valuenow', String(c.width));",
+    );
+    expect(emptyStateBlock).toContain(
+      'syncGridControlTabStops(state.rows.length, visibleRowCount);',
+    );
+    expect(sampleActivationBlock).toContain('renderBody();');
+    expect(incrementalBlock).toContain('updateEmptyState(state.filteredRows.length);');
+  });
+
   test('recovers filtered requests through the shared reset path without clearing search keywords', () => {
     const clearFiltersBlock = js.slice(
       js.indexOf('function clearColumnFilters'),

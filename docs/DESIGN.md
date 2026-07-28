@@ -237,6 +237,7 @@ changes remain unmistakable.
 - **Header:** Sticky, opaque, uppercase label row with tabular alignment.
 - **Rows:** Compact `5px 8px` cells, ellipsis for long values, semantic status and method text.
 - **Selection:** Background, focus, and ARIA state work together; color is never the only cue.
+- **Empty capture focus:** When no requests have been captured, headers and column resizers leave sequential Tab order so the local sample action is reached directly; filtered-empty and populated grids keep their normal keyboard controls.
 
 ### Transient Surfaces
 
