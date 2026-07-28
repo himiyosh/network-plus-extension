@@ -831,6 +831,10 @@ const _NetworkPlus = (function () {
     return 'hidden';
   }
 
+  function getGridControlTabIndex(totalRowCount, visibleRowCount) {
+    return getEmptyStateMode(totalRowCount, visibleRowCount) === 'capture' ? -1 : 0;
+  }
+
   function planSampleCaptureTransition(currentState, action) {
     const current = currentState || {};
     const active = current.active === true;
@@ -6068,6 +6072,15 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 12: Rendering
   // ============================================================
+  function syncGridControlTabStops(totalRowCount, visibleRowCount) {
+    const tabIndex = getGridControlTabIndex(totalRowCount, visibleRowCount);
+    const thead = $('#thead');
+    if (!thead) return;
+    for (const control of $all('th[data-col-id], .col-resizer', thead)) {
+      control.tabIndex = tabIndex;
+    }
+  }
+
   function renderHeader() {
     const thead = $('#thead');
     const activeHeader = document.activeElement && document.activeElement.closest
@@ -6076,6 +6089,10 @@ const _NetworkPlus = (function () {
     const focusColId = state.pendingHeaderFocusId || (activeHeader ? activeHeader.dataset.colId : null);
     state.pendingHeaderFocusId = null;
     thead.textContent = '';
+    const gridControlTabIndex = getGridControlTabIndex(
+      state.rows.length,
+      state.filteredRows.length,
+    );
 
     const visibleCols = state.columns.filter((c) => c.visible);
     const updateGridWidth = () => {
@@ -6097,7 +6114,7 @@ const _NetworkPlus = (function () {
       th.dataset.colId = c.id;
       th.draggable = true;
       th.scope = 'col';
-      th.tabIndex = 0;
+      th.tabIndex = gridControlTabIndex;
       th.setAttribute('role', 'columnheader');
       th.setAttribute('aria-label', c.label);
       const isVisualOnly = isVisualOnlyColumn(c.id);
@@ -6202,7 +6219,7 @@ const _NetworkPlus = (function () {
 
       const columnResizer = document.createElement('div');
       columnResizer.className = 'col-resizer';
-      columnResizer.tabIndex = 0;
+      columnResizer.tabIndex = gridControlTabIndex;
       columnResizer.draggable = false;
       columnResizer.setAttribute('role', 'separator');
       columnResizer.setAttribute('aria-orientation', 'vertical');
@@ -6458,6 +6475,7 @@ const _NetworkPlus = (function () {
     const tableWrap = $('#tableWrap');
     if (!tableWrap) return;
     const mode = getEmptyStateMode(state.rows.length, visibleRowCount);
+    syncGridControlTabStops(state.rows.length, visibleRowCount);
     const content = $('#content');
     if (content) content.classList.toggle('capture-empty', mode === 'capture');
     updateSampleGuideAvailability(visibleRowCount);
@@ -9626,6 +9644,7 @@ const _NetworkPlus = (function () {
     guessMimeType,
     toHarHeaders,
     getEmptyStateMode,
+    getGridControlTabIndex,
     planSampleCaptureTransition,
     planSampleCaptureExit,
     planSampleCaptureFilterTransition,

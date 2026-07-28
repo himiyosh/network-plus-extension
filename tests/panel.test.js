@@ -454,6 +454,13 @@ describe('guided local sample capture', () => {
     expect(np.getEmptyStateMode(3, 2)).toBe('hidden');
   });
 
+  test('removes grid controls from the tab order only for capture-empty state', () => {
+    expect(np.getGridControlTabIndex(0, 0)).toBe(-1);
+    expect(np.getGridControlTabIndex(0, 3)).toBe(-1);
+    expect(np.getGridControlTabIndex(3, 0)).toBe(0);
+    expect(np.getGridControlTabIndex(3, 2)).toBe(0);
+  });
+
   test('plans guarded entry and restores either prior recording state on exit', () => {
     expect(np.planSampleCaptureTransition({
       active: false,
