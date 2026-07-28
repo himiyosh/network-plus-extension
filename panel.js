@@ -6448,7 +6448,7 @@ const _NetworkPlus = (function () {
       const icon = document.createElement('div');
       icon.className = 'icon';
       icon.setAttribute('aria-hidden', 'true');
-      const title = document.createElement('div');
+      const title = document.createElement('h2');
       title.className = 'empty-state-title';
       const description = document.createElement('div');
       description.id = 'empty-state-description';
