@@ -13,7 +13,12 @@ const {
   validateExtension,
   writeExtensionPackage,
 } = require('../scripts/check-extension-package');
-const { getReleaseDownloadUrl, getReleaseTagUrl, validateReleaseVersions } = require('../scripts/check-version-sync');
+const {
+  getGitHubReleaseBaseUrl,
+  getReleaseDownloadUrl,
+  getReleaseTagUrl,
+  validateReleaseVersions,
+} = require('../scripts/check-version-sync');
 
 const repositoryRoot = path.join(__dirname, '..');
 const temporaryDirectories = [];
@@ -45,13 +50,22 @@ afterEach(() => {
 describe('release version integrity', () => {
   const QUICK_TRY_PREFIX = '**すぐに試す:**';
   const RELEASE_SETUP_HEADING = '### リリース ZIP から試す';
+  const DEFAULT_REPOSITORY = {
+    type: 'git',
+    url: 'git+https://github.com/himiyosh/network-plus-extension.git',
+  };
   const createReadmeSource = (
     version,
-    { setupPrelude = [], boundaryHeading = '### ソースから開発する', trailingLines = [] } = {},
+    {
+      repository = DEFAULT_REPOSITORY,
+      setupPrelude = [],
+      boundaryHeading = '### ソースから開発する',
+      trailingLines = [],
+    } = {},
   ) => {
     const archiveName = getReleaseArchiveName(version);
-    const downloadUrl = getReleaseDownloadUrl(version);
-    const tagUrl = getReleaseTagUrl(version);
+    const downloadUrl = getReleaseDownloadUrl(repository, version);
+    const tagUrl = getReleaseTagUrl(repository, version);
     return [
       `**すぐに試す:** [v${version} リリース ZIP を直接ダウンロード](${downloadUrl}) | **リリース情報:** [v${version}](${tagUrl})`,
       RELEASE_SETUP_HEADING,
@@ -61,19 +75,109 @@ describe('release version integrity', () => {
       ...trailingLines,
     ].join('\n');
   };
-  const createVersionInput = (version = '1.6.0', readmeVersion = version, readmeOptions) => ({
-    packageJson: { version },
-    lockfile: {
-      version,
-      packages: { '': { version } },
-    },
-    manifest: { version },
-    panelSource: `const TEST_EXTENSION_VERSION_FALLBACK = '${version}';`,
-    readmeSource: createReadmeSource(readmeVersion, readmeOptions),
+  const createVersionInput = (version = '1.6.0', readmeVersion = version, readmeOptions = {}) => {
+    const repository = readmeOptions.repository ?? DEFAULT_REPOSITORY;
+    const readmeRepository = readmeOptions.readmeRepository ?? repository;
+    return {
+      packageJson: { version, repository },
+      lockfile: {
+        version,
+        packages: { '': { version } },
+      },
+      manifest: { version },
+      panelSource: `const TEST_EXTENSION_VERSION_FALLBACK = '${version}';`,
+      readmeSource: createReadmeSource(readmeVersion, { ...readmeOptions, repository: readmeRepository }),
+    };
+  };
+
+  test('normalizes GitHub repository metadata into a canonical release base URL', () => {
+    expect(getGitHubReleaseBaseUrl(DEFAULT_REPOSITORY)).toBe(
+      'https://github.com/himiyosh/network-plus-extension/releases',
+    );
+    expect(getGitHubReleaseBaseUrl('https://github.com/example/network-plus-extension.git')).toBe(
+      'https://github.com/example/network-plus-extension/releases',
+    );
+  });
+
+  test.each([
+    ['missing metadata', undefined, 'package.json repository must be a URL string or a git repository object'],
+    [
+      'non-git object metadata',
+      { type: 'svn', url: 'https://github.com/example/network-plus-extension.git' },
+      'package.json repository.type must be "git"',
+    ],
+    [
+      'non-GitHub host',
+      'https://gitlab.com/example/network-plus-extension.git',
+      'package.json repository URL must use github.com',
+    ],
+    [
+      'missing owner or repository',
+      'https://github.com/network-plus-extension.git',
+      'package.json repository URL must identify exactly one GitHub owner and repository',
+    ],
+    [
+      'query parameters',
+      'https://github.com/example/network-plus-extension.git?ref=main',
+      'package.json repository URL must not include query parameters or fragments',
+    ],
+    [
+      'fragments',
+      'https://github.com/example/network-plus-extension.git#readme',
+      'package.json repository URL must not include query parameters or fragments',
+    ],
+    [
+      'credentials',
+      'https://user:token@github.com/example/network-plus-extension.git',
+      'package.json repository URL must not include credentials',
+    ],
+    [
+      'ambiguous extra path segments',
+      'https://github.com/example/network-plus-extension/tree/main',
+      'package.json repository URL must identify exactly one GitHub owner and repository',
+    ],
+  ])('rejects %s', (_, repository, expectedError) => {
+    expect(() => getGitHubReleaseBaseUrl(repository)).toThrow(expectedError);
   });
 
   test('accepts synchronized release versions and README download routes', () => {
     expect(validateReleaseVersions(createVersionInput())).toEqual([]);
+  });
+
+  test('derives release routes from fork repository metadata and rejects stale original routes', () => {
+    const repository = {
+      type: 'git',
+      url: 'git+https://github.com/example/network-plus-extension.git',
+    };
+    expect(validateReleaseVersions(createVersionInput('1.6.0', '1.6.0', { repository }))).toEqual([]);
+
+    const staleInput = createVersionInput('1.6.0', '1.6.0', {
+      repository,
+      readmeRepository: DEFAULT_REPOSITORY,
+    });
+    expect(validateReleaseVersions(staleInput)).toEqual(
+      expect.arrayContaining([
+        `README.md primary release ZIP CTA must link directly to ${getReleaseDownloadUrl(repository, '1.6.0')}`,
+        `README.md quick-start release context must link to ${getReleaseTagUrl(repository, '1.6.0')}`,
+        `README.md release ZIP setup must link directly to ${getReleaseDownloadUrl(repository, '1.6.0')}`,
+        `README.md release ZIP setup context must link to ${getReleaseTagUrl(repository, '1.6.0')}`,
+      ]),
+    );
+  });
+
+  test('fails closed when package repository metadata is missing or unsupported', () => {
+    const missing = createVersionInput();
+    delete missing.packageJson.repository;
+    expect(validateReleaseVersions(missing)).toEqual([
+      'package.json repository must be a URL string or a git repository object',
+    ]);
+
+    const unsupported = createVersionInput();
+    unsupported.packageJson.repository = {
+      type: 'git',
+      url: 'https://gitlab.com/example/network-plus-extension.git',
+    };
+    expect(validateReleaseVersions(unsupported)).toEqual(['package.json repository URL must use github.com']);
   });
 
   test('bounds the release ZIP setup at the next h2 while allowing deeper headings', () => {
@@ -129,14 +233,15 @@ describe('release version integrity', () => {
   test('rejects README routes left stale after a synchronized version change', () => {
     const version = '1.7.0';
     const input = createVersionInput(version, '1.6.0');
+    const repository = input.packageJson.repository;
 
     expect(validateReleaseVersions(input)).toEqual(
       expect.arrayContaining([
-        `README.md primary release ZIP CTA must link directly to ${getReleaseDownloadUrl(version)}`,
-        `README.md quick-start release context must link to ${getReleaseTagUrl(version)}`,
-        `README.md release ZIP setup must link directly to ${getReleaseDownloadUrl(version)}`,
+        `README.md primary release ZIP CTA must link directly to ${getReleaseDownloadUrl(repository, version)}`,
+        `README.md quick-start release context must link to ${getReleaseTagUrl(repository, version)}`,
+        `README.md release ZIP setup must link directly to ${getReleaseDownloadUrl(repository, version)}`,
         `README.md release ZIP setup must name ${getReleaseArchiveName(version)}`,
-        `README.md release ZIP setup context must link to ${getReleaseTagUrl(version)}`,
+        `README.md release ZIP setup context must link to ${getReleaseTagUrl(repository, version)}`,
       ]),
     );
   });
