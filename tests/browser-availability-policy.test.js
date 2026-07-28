@@ -1,0 +1,45 @@
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const browserSuitePath = path.join(__dirname, 'status-summary-browser.test.js');
+const browserSuiteSource = fs.readFileSync(browserSuitePath, 'utf8');
+
+const evaluateBrowserSuiteRegistration = (environment) => {
+  const registrations = [];
+  const testApi = (title) => registrations.push({ skipped: false, title });
+  testApi.skip = (title) => registrations.push({ skipped: true, title });
+
+  const mockedFs = Object.create(fs);
+  mockedFs.accessSync = () => {
+    throw new Error('No executable browser is available.');
+  };
+
+  vm.runInNewContext(
+    browserSuiteSource,
+    {
+      __dirname: path.dirname(browserSuitePath),
+      process: { env: environment },
+      require: (request) => (request === 'fs' ? mockedFs : require(request)),
+      test: testApi,
+    },
+    { filename: browserSuitePath },
+  );
+
+  return registrations;
+};
+
+test('fails explicitly in CI when no browser executable is discoverable', () => {
+  expect(() => evaluateBrowserSuiteRegistration({ CI: 'true' })).toThrow(
+    'Real-browser regression tests require an executable Chrome or Edge in CI.',
+  );
+});
+
+test('retains the local-only skip when no browser executable is discoverable', () => {
+  expect(evaluateBrowserSuiteRegistration({})).toEqual([
+    {
+      skipped: true,
+      title: 'live summary update preserves focused status chip identity and the pending click gesture',
+    },
+  ]);
+});

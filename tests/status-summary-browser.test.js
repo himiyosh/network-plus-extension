@@ -8,6 +8,9 @@ const repositoryRoot = path.resolve(__dirname, '..');
 const BROWSER_START_TIMEOUT_MS = 15000;
 const CDP_COMMAND_TIMEOUT_MS = 10000;
 const TEST_TIMEOUT_MS = 45000;
+const BROWSER_REQUIRED_IN_CI_MESSAGE =
+  'Real-browser regression tests require an executable Chrome or Edge in CI. ' +
+  'Set EDGE_BIN or CHROME_BIN to an executable browser path.';
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -43,6 +46,11 @@ function findBrowserExecutable() {
 }
 
 const browserExecutable = findBrowserExecutable();
+const runningInCi =
+  process.env.GITHUB_ACTIONS === 'true' || Boolean(process.env.CI && process.env.CI.toLowerCase() !== 'false');
+if (!browserExecutable && runningInCi) {
+  throw new Error(BROWSER_REQUIRED_IN_CI_MESSAGE);
+}
 const browserTest = browserExecutable ? test : test.skip;
 
 async function waitForDevTools(browserProcess, profileDirectory) {
