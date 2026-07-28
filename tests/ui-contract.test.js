@@ -230,6 +230,19 @@ describe('guided sample capture static contracts', () => {
     expect(emptyStateBlock).toContain("if (mode === 'capture')");
   });
 
+  test('exposes one native heading per rendered empty state without changing its layout', () => {
+    const emptyStateBlock = js.slice(
+      js.indexOf('function updateEmptyState'),
+      js.indexOf('function updateRetentionStatus'),
+    );
+    expect(emptyStateBlock.match(/document\.createElement\('h2'\)/g) || []).toHaveLength(1);
+    expect(emptyStateBlock.match(/emptyState\.appendChild\(title\);/g) || []).toHaveLength(1);
+    expect(emptyStateBlock).not.toContain("setAttribute('role', 'heading')");
+    expect(css).toMatch(
+      /\.empty-state-title\{[^}]*margin:0[^}]*color:var\(--fg\)[^}]*font:inherit[^}]*font-weight:700/,
+    );
+  });
+
   test('keeps the action responsive, keyboard visible, and on existing theme tokens', () => {
     expect(css).toMatch(
       /\.empty-state-action\{[^}]*min-height:32px[^}]*max-width:100%[^}]*background:var\(--accent-dim\)[^}]*color:var\(--text-accent\)[^}]*white-space:nowrap/,

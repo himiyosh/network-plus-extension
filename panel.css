@@ -470,7 +470,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 /* === Empty State === */
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;padding:24px 16px;color:var(--text-muted);font-size:14px;line-height:1.5;text-align:center;gap:8px}
 .empty-state .icon{font-size:32px;opacity:0.5}
-.empty-state-title{color:var(--fg);font-weight:700}
+.empty-state-title{margin:0;color:var(--fg);font:inherit;font-weight:700}
 .empty-state-description{max-width:380px;font-size:12px;overflow-wrap:anywhere}
 .empty-state-action{min-height:32px;max-width:100%;margin-top:4px;padding:5px 12px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-dim);color:var(--text-accent);font:inherit;font-weight:600;line-height:1.5;white-space:nowrap;cursor:pointer;transition:background-color 0.15s,border-color 0.15s,color 0.15s}
 .empty-state-action:hover{background:var(--accent-fill);color:var(--on-accent)}
