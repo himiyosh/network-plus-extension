@@ -3566,6 +3566,18 @@ describe('status class statistics', () => {
     },
   );
 
+  test.each([
+    [599, ['status-5xx']],
+    [600, []],
+  ])('renders status %p with row status classes %p', (status, expectedClasses) => {
+    const renderedRow = np.createTableRow({ id: status, status }, jest.fn(), false);
+    const statusClasses = renderedRow.classList.add.mock.calls
+      .flat()
+      .filter((className) => /^status-\dxx$/.test(className));
+
+    expect(statusClasses).toEqual(expectedClasses);
+  });
+
   test('formats a compact textual summary in status-class order', () => {
     expect(
       np.formatStatusClassSummary({ '2xx': 4, '3xx': 3, '4xx': 2, '5xx': 1, other: 5 }),

@@ -9856,6 +9856,7 @@ const _NetworkPlus = (function () {
     sanitizeHar,
     buildHarLogFromRows,
     retainRowsByIdentity,
+    createTableRow,
     classifyStatusClass,
     formatStatusClassSummary,
     computeStats,
