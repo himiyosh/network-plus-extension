@@ -7,12 +7,13 @@ const {
   RUNTIME_FILES,
   checkExtensionPackage,
   createArchive,
+  getReleaseArchiveName,
   validateArchiveAllowlist,
   validateArchiveEntries,
   validateExtension,
   writeExtensionPackage,
 } = require('../scripts/check-extension-package');
-const { validateReleaseVersions } = require('../scripts/check-version-sync');
+const { getReleaseDownloadUrl, getReleaseTagUrl, validateReleaseVersions } = require('../scripts/check-version-sync');
 
 const repositoryRoot = path.join(__dirname, '..');
 const temporaryDirectories = [];
@@ -42,17 +43,30 @@ afterEach(() => {
 });
 
 describe('release version integrity', () => {
-  const createVersionInput = () => ({
-    packageJson: { version: '1.6.0' },
+  const RELEASE_SETUP_HEADING = '### リリース ZIP から試す';
+  const createReadmeSource = (version) => {
+    const archiveName = getReleaseArchiveName(version);
+    const downloadUrl = getReleaseDownloadUrl(version);
+    const tagUrl = getReleaseTagUrl(version);
+    return [
+      `**すぐに試す:** [v${version} リリース ZIP を直接ダウンロード](${downloadUrl}) | **リリース情報:** [v${version}](${tagUrl})`,
+      RELEASE_SETUP_HEADING,
+      `1. [${archiveName}](${downloadUrl}) を直接ダウンロードする。変更内容は [v${version} リリース情報](${tagUrl}) で確認できる`,
+      '### ソースから開発する',
+    ].join('\n');
+  };
+  const createVersionInput = (version = '1.6.0', readmeVersion = version) => ({
+    packageJson: { version },
     lockfile: {
-      version: '1.6.0',
-      packages: { '': { version: '1.6.0' } },
+      version,
+      packages: { '': { version } },
     },
-    manifest: { version: '1.6.0' },
-    panelSource: "const TEST_EXTENSION_VERSION_FALLBACK = '1.6.0';",
+    manifest: { version },
+    panelSource: `const TEST_EXTENSION_VERSION_FALLBACK = '${version}';`,
+    readmeSource: createReadmeSource(readmeVersion),
   });
 
-  test('accepts all five synchronized release version locations', () => {
+  test('accepts synchronized release versions and README download routes', () => {
     expect(validateReleaseVersions(createVersionInput())).toEqual([]);
   });
 
@@ -76,6 +90,21 @@ describe('release version integrity', () => {
     duplicated.panelSource += duplicated.panelSource;
     expect(validateReleaseVersions(duplicated)).toEqual(
       expect.arrayContaining(['panel.js must define TEST_EXTENSION_VERSION_FALLBACK exactly once']),
+    );
+  });
+
+  test('rejects README routes left stale after a synchronized version change', () => {
+    const version = '1.7.0';
+    const input = createVersionInput(version, '1.6.0');
+
+    expect(validateReleaseVersions(input)).toEqual(
+      expect.arrayContaining([
+        `README.md primary release ZIP CTA must link directly to ${getReleaseDownloadUrl(version)}`,
+        `README.md quick-start release context must link to ${getReleaseTagUrl(version)}`,
+        `README.md release ZIP setup must link directly to ${getReleaseDownloadUrl(version)}`,
+        `README.md release ZIP setup must name ${getReleaseArchiveName(version)}`,
+        `README.md release ZIP setup context must link to ${getReleaseTagUrl(version)}`,
+      ]),
     );
   });
 });

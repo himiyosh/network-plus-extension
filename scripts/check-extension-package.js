@@ -58,6 +58,8 @@ const PERMISSION_USAGE = Object.freeze({
   storage: /\bchrome\.storage\./,
 });
 
+const getReleaseArchiveName = (version) => `network-plus-extension-${version}.zip`;
+
 const normalizeEntries = (entries) => Array.from(entries).sort();
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -379,7 +381,7 @@ const writeExtensionPackage = (root) => {
   if (errors.length > 0) throw new Error(errors.join('\n'));
   const version = JSON.parse(readUtf8(path.join(root, 'manifest.json'))).version;
   const outputDirectory = path.join(root, 'dist');
-  const outputPath = path.join(outputDirectory, `network-plus-extension-${version}.zip`);
+  const outputPath = path.join(outputDirectory, getReleaseArchiveName(version));
   fs.mkdirSync(outputDirectory, { recursive: true });
   fs.writeFileSync(outputPath, archive);
   return { outputPath, size: archive.length };
@@ -415,6 +417,7 @@ module.exports = {
   checkArchive,
   checkExtensionPackage,
   createArchive,
+  getReleaseArchiveName,
   inspectHtml,
   validateArchiveAllowlist,
   validateArchiveEntries,
