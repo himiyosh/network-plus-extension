@@ -3609,6 +3609,79 @@ describe('status class statistics', () => {
     ).toBe('status 2xx 4 · 3xx 3 · 4xx 2 · 5xx 1 · other 5');
   });
 
+  test('finds the first matching status-class row in the supplied visible order', () => {
+    const visibleSortedRows = [
+      { id: 'latest-2xx', status: 204 },
+      { id: 'first-5xx', status: 503 },
+      { id: 'second-5xx', status: 500 },
+      { id: 'other-status' },
+    ];
+
+    expect(np.findFirstStatusClassRow(visibleSortedRows, '5xx')).toBe(visibleSortedRows[1]);
+    expect(np.findFirstStatusClassRow(visibleSortedRows, 'other')).toBe(visibleSortedRows[3]);
+    expect(np.findFirstStatusClassRow(visibleSortedRows, '1xx')).toBeNull();
+    expect(np.findFirstStatusClassRow([null, undefined], 'other')).toBeNull();
+    expect(visibleSortedRows.map((row) => row.id)).toEqual([
+      'latest-2xx',
+      'first-5xx',
+      'second-5xx',
+      'other-status',
+    ]);
+  });
+
+  test('renders non-empty status classes as accessible inspection buttons', () => {
+    const statsElement = { textContent: '', appendChild: jest.fn() };
+    const onInspect = jest.fn();
+    document.createElement.mockClear();
+
+    np.renderStatsSummary(
+      statsElement,
+      {
+        statusClassCounts: { '2xx': 2, '3xx': 0, '4xx': 0, '5xx': 1, other: 0 },
+        avgDuration: 25,
+        minDuration: 10,
+        maxDuration: 40,
+      },
+      onInspect,
+    );
+
+    const createdElements = document.createElement.mock.calls.map((call, index) => ({
+      tagName: call[0],
+      element: document.createElement.mock.results[index].value,
+    }));
+    const fiveHundreds = createdElements.find(({ element }) =>
+      element.className.includes('status-summary-chip--5xx'),
+    );
+    const redirects = createdElements.find(({ element }) =>
+      element.className.includes('status-summary-chip--3xx'),
+    );
+    const accessibleSummary = createdElements.find(
+      ({ element }) => element.className === 'sr-only status-summary-accessible',
+    ).element;
+
+    expect(fiveHundreds.tagName).toBe('button');
+    expect(fiveHundreds.element.type).toBe('button');
+    expect(fiveHundreds.element.title).toBe(
+      'Inspect first visible 5xx request (1 matching)',
+    );
+    expect(fiveHundreds.element.setAttribute).toHaveBeenCalledWith(
+      'aria-label',
+      'Inspect first visible 5xx request (1 matching)',
+    );
+    const clickHandler = fiveHundreds.element.addEventListener.mock.calls.find(
+      ([eventName]) => eventName === 'click',
+    )[1];
+    clickHandler();
+    expect(onInspect).toHaveBeenCalledWith('5xx');
+
+    expect(redirects.tagName).toBe('span');
+    expect(redirects.element.className).toContain('status-summary-chip--empty');
+    expect(redirects.element.setAttribute).toHaveBeenCalledWith('aria-hidden', 'true');
+    expect(accessibleSummary.textContent).toBe(
+      'status 2xx 2 · 3xx 0 · 4xx 0 · 5xx 1 · other 0 | avg 25 ms · min 10 ms · max 40 ms',
+    );
+  });
+
   test('counts every row exactly once, including malformed and missing statuses', () => {
     const rows = [
       { status: 200 },

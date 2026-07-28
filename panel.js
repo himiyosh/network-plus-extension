@@ -3501,6 +3501,15 @@ const _NetworkPlus = (function () {
     );
   }
 
+  function findFirstStatusClassRow(rows, statusClass) {
+    if (!Array.isArray(rows) || !STATUS_CLASS_KEYS.includes(statusClass)) return null;
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') continue;
+      if (classifyStatusClass(row.status) === statusClass) return row;
+    }
+    return null;
+  }
+
   /**
    * Compute aggregate statistics for a set of rows.
    * Pure function — no DOM/state dependency.
@@ -5041,6 +5050,9 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 9: Safe DOM Rendering [S1][S2][S3] — NO innerHTML with user data
   // ============================================================
+  const statsSummaryStructures = new WeakMap();
+  const statusSummaryInspectHandlers = new WeakMap();
+
   function createKvGrid(items) {
     const grid = document.createElement('div');
     grid.className = 'kv';
@@ -5057,7 +5069,106 @@ const _NetworkPlus = (function () {
     return grid;
   }
 
-  function renderStatsSummary(statsElement, stats) {
+  function createStatsSummaryStructure(statsElement) {
+    statsElement.textContent = '';
+
+    const accessibleSummary = document.createElement('span');
+    accessibleSummary.className = 'sr-only status-summary-accessible';
+    statsElement.appendChild(accessibleSummary);
+
+    const visualSummary = document.createElement('span');
+    visualSummary.className = 'status-summary-visual';
+
+    const statusLabel = document.createElement('span');
+    statusLabel.className = 'status-summary-label';
+    statusLabel.textContent = 'Status';
+    statusLabel.setAttribute('aria-hidden', 'true');
+    visualSummary.appendChild(statusLabel);
+
+    const chips = document.createElement('span');
+    chips.className = 'status-summary-chips';
+    visualSummary.appendChild(chips);
+
+    const duration = document.createElement('span');
+    duration.className = 'status-summary-duration';
+    duration.setAttribute('aria-hidden', 'true');
+    visualSummary.appendChild(duration);
+    statsElement.appendChild(visualSummary);
+
+    const structure = {
+      accessibleSummary,
+      chips,
+      duration,
+      chipElements: new Map(),
+    };
+    statsSummaryStructures.set(statsElement, structure);
+    return structure;
+  }
+
+  function getOrCreateStatsSummaryStructure(statsElement) {
+    return statsSummaryStructures.get(statsElement) || createStatsSummaryStructure(statsElement);
+  }
+
+  function clearStatsSummary(statsElement) {
+    statsElement.textContent = '';
+    statsSummaryStructures.delete(statsElement);
+  }
+
+  function createStatusSummaryChip(statusClass, canInspect) {
+    const chip = document.createElement(canInspect ? 'button' : 'span');
+    chip.dataset.statusClass = statusClass;
+    if (canInspect) {
+      chip.type = 'button';
+      chip.addEventListener('click', () => {
+        const handler = statusSummaryInspectHandlers.get(chip);
+        if (typeof handler === 'function') handler(statusClass);
+      });
+    }
+    return chip;
+  }
+
+  function updateStatusSummaryChip(structure, indicator, onInspectStatusClass) {
+    const canInspect = indicator.count > 0 && typeof onInspectStatusClass === 'function';
+    const expectedTagName = canInspect ? 'BUTTON' : 'SPAN';
+    let chip = structure.chipElements.get(indicator.statusClass);
+    if (!chip || chip.tagName !== expectedTagName) {
+      const replacement = createStatusSummaryChip(indicator.statusClass, canInspect);
+      if (chip) {
+        chip.replaceWith(replacement);
+      } else {
+        structure.chips.appendChild(replacement);
+      }
+      structure.chipElements.set(indicator.statusClass, replacement);
+      chip = replacement;
+    }
+
+    chip.className =
+      'status-summary-chip status-summary-chip--' +
+      indicator.statusClass +
+      (canInspect ? ' status-summary-chip--action' : ' status-summary-chip--empty');
+    chip.textContent = indicator.text;
+    if (canInspect) {
+      const statusClassLabel =
+        indicator.statusClass === 'other' ? 'other-status' : indicator.statusClass;
+      const inspectLabel =
+        'Inspect first visible ' +
+        statusClassLabel +
+        ' request (' +
+        indicator.count +
+        ' matching)';
+      chip.setAttribute('aria-label', inspectLabel);
+      chip.removeAttribute('aria-hidden');
+      chip.title = inspectLabel;
+      statusSummaryInspectHandlers.set(chip, onInspectStatusClass);
+    } else {
+      chip.setAttribute('aria-hidden', 'true');
+      chip.removeAttribute('aria-label');
+      chip.removeAttribute('title');
+      statusSummaryInspectHandlers.delete(chip);
+    }
+  }
+
+  function renderStatsSummary(statsElement, stats, onInspectStatusClass) {
     const indicators = getStatusClassIndicators(stats.statusClassCounts);
     const statusText = formatStatusClassSummary(stats.statusClassCounts);
     const durationText =
@@ -5067,40 +5178,12 @@ const _NetworkPlus = (function () {
       fmtTime(stats.minDuration) +
       ' · max ' +
       fmtTime(stats.maxDuration);
-    statsElement.textContent = '';
-
-    const accessibleSummary = document.createElement('span');
-    accessibleSummary.className = 'sr-only';
-    accessibleSummary.textContent = statusText + ' | ' + durationText;
-    statsElement.appendChild(accessibleSummary);
-
-    const visualSummary = document.createElement('span');
-    visualSummary.className = 'status-summary-visual';
-    visualSummary.setAttribute('aria-hidden', 'true');
-
-    const statusLabel = document.createElement('span');
-    statusLabel.className = 'status-summary-label';
-    statusLabel.textContent = 'Status';
-    visualSummary.appendChild(statusLabel);
-
-    const chips = document.createElement('span');
-    chips.className = 'status-summary-chips';
+    const structure = getOrCreateStatsSummaryStructure(statsElement);
+    structure.accessibleSummary.textContent = statusText + ' | ' + durationText;
     for (const indicator of indicators) {
-      const chip = document.createElement('span');
-      chip.className =
-        'status-summary-chip status-summary-chip--' +
-        indicator.statusClass +
-        (indicator.count === 0 ? ' status-summary-chip--empty' : '');
-      chip.textContent = indicator.text;
-      chips.appendChild(chip);
+      updateStatusSummaryChip(structure, indicator, onInspectStatusClass);
     }
-    visualSummary.appendChild(chips);
-
-    const duration = document.createElement('span');
-    duration.className = 'status-summary-duration';
-    duration.textContent = '| ' + durationText;
-    visualSummary.appendChild(duration);
-    statsElement.appendChild(visualSummary);
+    structure.duration.textContent = '| ' + durationText;
   }
 
   function createTimingPhaseGuide() {
@@ -6752,9 +6835,9 @@ const _NetworkPlus = (function () {
     if (statsEl) {
       if (state.filteredRows.length > 0) {
         const stats = computeStats(state.filteredRows);
-        renderStatsSummary(statsEl, stats);
+        renderStatsSummary(statsEl, stats, inspectFirstStatusClassRequest);
       } else {
-        statsEl.textContent = '';
+        clearStatsSummary(statsEl);
       }
     }
   }
@@ -6907,6 +6990,13 @@ const _NetworkPlus = (function () {
       'tr[data-row-id="' + state.selectedRow.id + '"]',
     );
     if (selectedTr) selectedTr.scrollIntoView({ block: 'nearest' });
+  }
+
+  function inspectFirstStatusClassRequest(statusClass) {
+    const targetRow = findFirstStatusClassRow(getSortedRows(state.filteredRows), statusClass);
+    if (!targetRow) return;
+    selectRow(targetRow, null, true);
+    scrollToSelectedRow();
   }
 
   function render() {
@@ -9909,6 +9999,9 @@ const _NetworkPlus = (function () {
     classifyStatusClass,
     getStatusClassIndicators,
     formatStatusClassSummary,
+    findFirstStatusClassRow,
+    renderStatsSummary,
+    updateTableSummary,
     computeStats,
     computeWaterfallBar,
     computeWaterfallRange,

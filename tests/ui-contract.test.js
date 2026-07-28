@@ -1373,6 +1373,8 @@ describe('waterfall and stats topology', () => {
     expect(typeof np.classifyStatusClass).toBe('function');
     expect(typeof np.getStatusClassIndicators).toBe('function');
     expect(typeof np.formatStatusClassSummary).toBe('function');
+    expect(typeof np.findFirstStatusClassRow).toBe('function');
+    expect(typeof np.renderStatsSummary).toBe('function');
     expect(typeof np.computeStats).toBe('function');
     expect(typeof np.computeWaterfallBar).toBe('function');
     expect(typeof np.computeWaterfallRange).toBe('function');
@@ -1441,24 +1443,50 @@ describe('waterfall and stats topology', () => {
     const summaryFn = js.slice(summaryFnStart, summaryFnEnd);
     expect(summaryFn).toContain("'#statsSummary'");
     expect(summaryFn).toContain('computeStats(');
-    expect(summaryFn).toContain('renderStatsSummary(statsEl, stats)');
-    expect(summaryFn).toContain('statsEl.textContent');
+    expect(summaryFn).toContain(
+      'renderStatsSummary(statsEl, stats, inspectFirstStatusClassRequest)',
+    );
+    expect(summaryFn).toContain('clearStatsSummary(statsEl)');
     expect(summaryFn).not.toContain('innerHTML');
   });
 
-  test('renders semantic status chips with a complete accessible text alternative', () => {
+  test('renders semantic status triage controls with a complete accessible text alternative', () => {
     const rendererStart = js.indexOf('function renderStatsSummary(');
     const rendererEnd = js.indexOf('\n  function ', rendererStart + 1);
     const renderer = js.slice(rendererStart, rendererEnd);
     expect(renderer).toContain('getStatusClassIndicators(stats.statusClassCounts)');
     expect(renderer).toContain('formatStatusClassSummary(stats.statusClassCounts)');
-    expect(renderer).toContain("accessibleSummary.className = 'sr-only'");
-    expect(renderer).toContain("accessibleSummary.textContent = statusText + ' | ' + durationText");
-    expect(renderer).toContain("visualSummary.setAttribute('aria-hidden', 'true')");
-    expect(renderer).toContain("'status-summary-chip status-summary-chip--'");
-    expect(renderer).toContain("indicator.count === 0 ? ' status-summary-chip--empty' : ''");
-    expect(renderer).toContain("duration.textContent = '| ' + durationText");
+    expect(renderer).toContain('getOrCreateStatsSummaryStructure(statsElement)');
+    expect(renderer).toContain(
+      "structure.accessibleSummary.textContent = statusText + ' | ' + durationText",
+    );
+    expect(renderer).toContain(
+      'updateStatusSummaryChip(structure, indicator, onInspectStatusClass)',
+    );
+    expect(renderer).toContain("structure.duration.textContent = '| ' + durationText");
+    expect(renderer).not.toContain("statsElement.textContent = ''");
     expect(renderer).not.toContain('innerHTML');
+  });
+
+  test('reuses keyed status chip nodes across non-empty summary updates', () => {
+    const updaterStart = js.indexOf('function updateStatusSummaryChip(');
+    const updaterEnd = js.indexOf('\n  function ', updaterStart + 1);
+    const updater = js.slice(updaterStart, updaterEnd);
+    expect(updater).toContain('structure.chipElements.get(indicator.statusClass)');
+    expect(updater).toContain("const expectedTagName = canInspect ? 'BUTTON' : 'SPAN'");
+    expect(updater).toContain('structure.chipElements.set(indicator.statusClass, replacement)');
+    expect(updater).not.toContain('innerHTML');
+  });
+
+  test('status triage selects and focuses the first matching visible sorted request', () => {
+    const triageStart = js.indexOf('function inspectFirstStatusClassRequest(');
+    const triageEnd = js.indexOf('\n  function ', triageStart + 1);
+    const triage = js.slice(triageStart, triageEnd);
+    expect(triage).toContain('getSortedRows(state.filteredRows)');
+    expect(triage).toContain('findFirstStatusClassRow(');
+    expect(triage).toContain('selectRow(targetRow, null, true)');
+    expect(triage).toContain('scrollToSelectedRow()');
+    expect(triage).not.toMatch(/filterRows|columnFilterRules|renderBody/);
   });
 
   test('waterfall CSS classes are defined: wf-track, wf-fill, wf-seg, waterfall-cell', () => {
@@ -1480,6 +1508,13 @@ describe('waterfall and stats topology', () => {
     );
     expect(css).toContain(
       '.status-summary-chip--empty{border-color:var(--control-border);color:var(--text-muted);font-weight:600}',
+    );
+    expect(css).toContain('.status-summary-chip--action{min-height:24px;cursor:pointer');
+    expect(css).toContain(
+      '.status-summary-chip--action:active{border-color:var(--accent);background:var(--accent-fill);color:var(--on-accent)}',
+    );
+    expect(css).toContain(
+      '.status-summary-chip--action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}',
     );
   });
 });

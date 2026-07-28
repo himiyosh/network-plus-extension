@@ -300,12 +300,16 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .status-summary-visual{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px 4px;max-width:100%}
 .status-summary-label{font-weight:600}
 .status-summary-chips{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px}
-.status-summary-chip{display:inline-flex;align-items:center;padding:0 3px;border:1px solid currentColor;border-radius:3px;background:var(--content-bg);font-weight:700;line-height:1.35;white-space:nowrap}
+.status-summary-chip{display:inline-flex;align-items:center;margin:0;padding:0 3px;border:1px solid currentColor;border-radius:3px;background:var(--content-bg);font:inherit;font-weight:700;line-height:1.35;white-space:nowrap}
 .status-summary-chip--2xx{color:var(--status-2xx-text)}
 .status-summary-chip--3xx{color:var(--status-3xx-text)}
 .status-summary-chip--4xx{color:var(--status-4xx-text)}
 .status-summary-chip--5xx{color:var(--status-5xx-text)}
 .status-summary-chip--other{border-color:var(--control-border);color:var(--text-muted)}
+.status-summary-chip--action{min-height:24px;cursor:pointer}
+.status-summary-chip--action:hover{border-color:var(--accent);background:var(--accent-dim)}
+.status-summary-chip--action:active{border-color:var(--accent);background:var(--accent-fill);color:var(--on-accent)}
+.status-summary-chip--action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .status-summary-chip--empty{border-color:var(--control-border);color:var(--text-muted);font-weight:600}
 .status-summary-duration{min-width:0;overflow-wrap:anywhere}
 #totalSize{margin-right:12px;font-weight:600;color:var(--text-accent)}
