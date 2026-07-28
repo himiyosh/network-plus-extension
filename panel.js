@@ -1106,6 +1106,7 @@ const _NetworkPlus = (function () {
     const blockingFilterIds = [];
     for (const column of columns) {
       const colId = column && column.id;
+      if (isVisualOnlyColumn(colId)) continue;
       const rule = colId ? filterRules[colId] : null;
       if (!rule) continue;
       const value = getRowFilterValue(targetRow, colId);
@@ -2279,7 +2280,13 @@ const _NetworkPlus = (function () {
 
   function countActiveColumnFilters(rules) {
     if (!rules) return 0;
-    return Object.values(rules).filter((rule) => isRuleActive(rule)).length;
+    return Object.entries(rules).filter(
+      ([colId, rule]) => !isVisualOnlyColumn(colId) && isRuleActive(rule),
+    ).length;
+  }
+
+  function isVisualOnlyColumn(colId) {
+    return colId === 'waterfall';
   }
 
   function hasActiveSearchKeywords(searchKeywords) {
@@ -4648,6 +4655,7 @@ const _NetworkPlus = (function () {
       // Per-column advanced filters
       for (const col of state.columns) {
         const colId = col.id;
+        if (isVisualOnlyColumn(colId)) continue;
         const rule = state.columnFilterRules[colId];
         if (!rule) continue;
         const rowValue = getRowFilterValue(r, colId);
@@ -5548,6 +5556,7 @@ const _NetworkPlus = (function () {
 
     const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
     for (const col of state.columns) {
+      if (isVisualOnlyColumn(col.id)) continue;
       const row = document.createElement('div');
       row.className = 'filter-popup-row';
       if (focusColId && focusColId === col.id) row.classList.add('focus-target');
@@ -5571,7 +5580,7 @@ const _NetworkPlus = (function () {
     root.className = 'filter-popup-body';
 
     const col = state.columns.find((c) => c.id === colId);
-    if (!col) return root;
+    if (!col || isVisualOnlyColumn(colId)) return root;
 
     const header = document.createElement('div');
     header.className = 'filter-popup-header';
@@ -6035,6 +6044,7 @@ const _NetworkPlus = (function () {
   }
 
   function toggleSort(colId) {
+    if (isVisualOnlyColumn(colId)) return;
     if (state.sort.colId !== colId) {
       state.sort.colId = colId;
       state.sort.direction = 'asc';
@@ -6077,31 +6087,41 @@ const _NetworkPlus = (function () {
       c.width = clampColumnWidth(c.width);
       const th = document.createElement('th');
       th.style.width = c.width + 'px';
-      th.className = 'sortable-header';
       th.dataset.colId = c.id;
       th.draggable = true;
       th.scope = 'col';
       th.tabIndex = 0;
       th.setAttribute('role', 'columnheader');
       th.setAttribute('aria-label', c.label);
-      th.setAttribute('aria-haspopup', 'dialog');
-      th.setAttribute('aria-controls', 'columnFilterPopup');
-      th.setAttribute('aria-expanded', 'false');
-      th.setAttribute('aria-keyshortcuts', 'Enter Space Alt+ArrowLeft Alt+ArrowRight Shift+F10');
-      const sortState = getAriaSortValue(state.sort, c.id);
-      th.setAttribute('aria-sort', sortState);
-      th.title = c.label + ': Enter or Space to sort; Alt+Left/Right Arrow to reorder; context menu to filter';
+      const isVisualOnly = isVisualOnlyColumn(c.id);
+      if (isVisualOnly) {
+        th.className = 'waterfall-header';
+        th.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
+        th.title = c.label + ': visual timing column; Alt+Left/Right Arrow to reorder';
+      } else {
+        th.className = 'sortable-header';
+        th.setAttribute('aria-haspopup', 'dialog');
+        th.setAttribute('aria-controls', 'columnFilterPopup');
+        th.setAttribute('aria-expanded', 'false');
+        th.setAttribute('aria-keyshortcuts', 'Enter Space Alt+ArrowLeft Alt+ArrowRight Shift+F10');
+        const sortState = getAriaSortValue(state.sort, c.id);
+        th.setAttribute('aria-sort', sortState);
+        th.title = c.label + ': Enter or Space to sort; Alt+Left/Right Arrow to reorder; context menu to filter';
+      }
 
       const label = document.createElement('span');
       label.className = 'column-header-label';
       label.textContent = c.label;
       th.appendChild(label);
-      if (sortState !== 'none') {
-        const indicator = document.createElement('span');
-        indicator.className = 'sort-indicator';
-        indicator.setAttribute('aria-hidden', 'true');
-        indicator.textContent = sortState === 'ascending' ? ' ▲' : ' ▼';
-        th.appendChild(indicator);
+      if (!isVisualOnly) {
+        const sortState = getAriaSortValue(state.sort, c.id);
+        if (sortState !== 'none') {
+          const indicator = document.createElement('span');
+          indicator.className = 'sort-indicator';
+          indicator.setAttribute('aria-hidden', 'true');
+          indicator.textContent = sortState === 'ascending' ? ' ▲' : ' ▼';
+          th.appendChild(indicator);
+        }
       }
 
       const sortColumn = () => {
@@ -6113,10 +6133,12 @@ const _NetworkPlus = (function () {
         setStatus(c.label + ' sort ' + nextState);
         render();
       };
-      th.addEventListener('click', (event) => {
-        if (event.target && event.target.classList && event.target.classList.contains('col-resizer')) return;
-        sortColumn();
-      });
+      if (!isVisualOnly) {
+        th.addEventListener('click', (event) => {
+          if (event.target && event.target.classList && event.target.classList.contains('col-resizer')) return;
+          sortColumn();
+        });
+      }
       th.addEventListener('keydown', (event) => {
         if (event.target && event.target.classList && event.target.classList.contains('col-resizer')) return;
         if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
@@ -6130,7 +6152,7 @@ const _NetworkPlus = (function () {
           }
           return;
         }
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (!isVisualOnly && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault();
           event.stopPropagation();
           sortColumn();
@@ -8324,6 +8346,10 @@ const _NetworkPlus = (function () {
       event.preventDefault();
       const th = event.target.closest('th');
       const focusColId = th ? th.dataset.colId : null;
+      if (isVisualOnlyColumn(focusColId)) {
+        setStatus('Waterfall is a visual timing column and cannot be filtered.');
+        return;
+      }
       openFilterPopup(event.clientX, event.clientY, focusColId, th);
     });
 
@@ -9616,6 +9642,7 @@ const _NetworkPlus = (function () {
     settleResponseContentForHar,
     isRuleActive,
     countActiveColumnFilters,
+    isVisualOnlyColumn,
     hasActiveSearchKeywords,
     preserveMatchingRowIndex,
     planKeywordSearchNavigation,

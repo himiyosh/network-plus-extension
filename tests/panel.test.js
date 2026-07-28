@@ -2136,6 +2136,12 @@ describe('capture retention helpers', () => {
 });
 
 describe('active column filter helpers', () => {
+  test('identifies Waterfall as a visual-only column', () => {
+    expect(np.isVisualOnlyColumn('waterfall')).toBe(true);
+    expect(np.isVisualOnlyColumn('duration')).toBe(false);
+    expect(np.isVisualOnlyColumn(null)).toBe(false);
+  });
+
   test('does not count inactive and default rules', () => {
     const allMethods = np.DEFAULT_METHOD_FILTERS();
     expect(np.isRuleActive({ op: 'contains', value: '   ' })).toBe(false);
@@ -2162,6 +2168,7 @@ describe('active column filter helpers', () => {
       url: { mode: 'urlAdvanced', includeAny: '', includeAll: '', excludeAny: '' },
       size: { op: 'empty', value: '' },
       path: { op: 'contains', value: '' },
+      waterfall: { op: 'notempty', value: '' },
     };
     expect(np.countActiveColumnFilters(rules)).toBe(4);
     expect(np.countActiveColumnFilters(null)).toBe(0);
