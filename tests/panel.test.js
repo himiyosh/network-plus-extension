@@ -2809,6 +2809,29 @@ describe('calculateMainSplit', () => {
 
 
 describe('keyboard trust helpers', () => {
+  test.each([
+    ['Windows Ctrl+L', { key: 'l', ctrlKey: true }, 'Win32'],
+    ['Linux Ctrl+L', { key: 'L', ctrlKey: true }, 'Linux x86_64'],
+    ['macOS Cmd+K', { key: 'k', metaKey: true }, 'macOS'],
+    ['legacy macOS Cmd+K', { key: 'K', metaKey: true }, 'MacIntel'],
+  ])('recognizes the platform clear shortcut on %s', (_label, event, platform) => {
+    expect(np.isClearNetworkLogShortcut(event, platform)).toBe(true);
+  });
+
+  test.each([
+    ['Ctrl+L on macOS', { key: 'l', ctrlKey: true }, 'MacIntel'],
+    ['Cmd+K on Windows', { key: 'k', metaKey: true }, 'Win32'],
+    ['Ctrl+F', { key: 'f', ctrlKey: true }, 'Win32'],
+    ['Cmd+F', { key: 'f', metaKey: true }, 'MacIntel'],
+    ['extra Shift modifier', { key: 'l', ctrlKey: true, shiftKey: true }, 'Win32'],
+    ['extra Alt modifier', { key: 'k', metaKey: true, altKey: true }, 'MacIntel'],
+    ['both primary modifiers', { key: 'l', ctrlKey: true, metaKey: true }, 'Win32'],
+    ['repeated keydown', { key: 'l', ctrlKey: true, repeat: true }, 'Win32'],
+    ['composing keydown', { key: 'k', metaKey: true, isComposing: true }, 'MacIntel'],
+  ])('rejects %s as a clear shortcut', (_label, event, platform) => {
+    expect(np.isClearNetworkLogShortcut(event, platform)).toBe(false);
+  });
+
   test('exposes valid aria-sort values', () => {
     expect(np.getAriaSortValue({ colId: 'status', direction: 'asc' }, 'status')).toBe('ascending');
     expect(np.getAriaSortValue({ colId: 'status', direction: 'desc' }, 'status')).toBe('descending');

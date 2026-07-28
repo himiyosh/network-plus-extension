@@ -1644,6 +1644,40 @@ describe('shortcut help static contracts', () => {
     expect(html).toContain('Sort by column');
   });
 
+  test('clear control and help expose the platform-specific request-log shortcuts', () => {
+    expect(html).toMatch(
+      /id="clearBtn"[^>]*aria-label="Clear all requests"[^>]*aria-keyshortcuts="Control\+L Meta\+K"/,
+    );
+    expect(html).toMatch(
+      /<kbd>Ctrl<\/kbd>\+<kbd>L<\/kbd> \(Windows\/Linux\) \/ <kbd>⌘<\/kbd>\+<kbd>K<\/kbd> \(macOS\)<\/td><td>Clear all requests<\/td>/,
+    );
+  });
+
+  test('clear shortcut delegates to the existing button flow only when the workbench is safe', () => {
+    const blockingHelper = js.slice(
+      js.indexOf('function isEditableShortcutTarget'),
+      js.indexOf('// Section 3: Pure Utility Functions'),
+    );
+    const shortcutHandlerStart = js.indexOf('const keyboardPlatform = getKeyboardPlatform();');
+    const shortcutHandlerEnd = js.indexOf("undoClearButton.addEventListener('click'", shortcutHandlerStart);
+    const shortcutHandler = js.slice(shortcutHandlerStart, shortcutHandlerEnd);
+
+    expect(blockingHelper).toContain("tagName === 'INPUT'");
+    expect(blockingHelper).toContain("tagName === 'TEXTAREA'");
+    expect(blockingHelper).toContain("tagName === 'SELECT'");
+    expect(blockingHelper).toContain('element.isContentEditable');
+    expect(blockingHelper).toContain("document.querySelector('dialog[open]')");
+    expect(blockingHelper).toContain('TRANSIENT_POPUP_SELECTOR');
+    expect(blockingHelper).toContain("classList.contains('show')");
+    expect(shortcutHandlerStart).toBeGreaterThan(-1);
+    expect(shortcutHandler).toContain(
+      'if (!isClearNetworkLogShortcut(event, keyboardPlatform) || isClearShortcutBlocked()) return;',
+    );
+    expect(shortcutHandler).toContain('clearButton.click();');
+    expect(shortcutHandler).not.toMatch(/\bstate\./);
+    expect(js).toContain("if ((e.ctrlKey || e.metaKey) && e.key === 'f')");
+  });
+
   test('shortcut table includes orientation-aware divider arrows for both layouts', () => {
     // Horizontal layout uses ← / →; vertical (≤700 px) uses ↑ / ↓ for the panel divider
     expect(html).toMatch(/panel divider.*horizontal/i);
@@ -1706,14 +1740,16 @@ describe('shortcut help static contracts', () => {
     const builder = js.slice(builderStart, builderEnd);
     const initStart = js.indexOf('function init()');
     const handlerStart = js.indexOf("safeSupportSummaryBtn.addEventListener('click'");
+    const handlerEnd = js.indexOf("$('#shortcutCloseBtn')", handlerStart);
+    const handler = js.slice(handlerStart, handlerEnd);
     const initBeforeHandler = js.slice(initStart, handlerStart);
 
     expect(builderStart).toBeGreaterThan(-1);
     expect(builder).not.toMatch(/\bstate\.|\brows?\b|navigator|document|localStorage|chrome\.storage/);
     expect(initBeforeHandler).not.toContain('buildSafeSupportSummary({');
     expect((js.match(/buildSafeSupportSummary\(\{/g) || [])).toHaveLength(1);
-    expect((js.match(/navigator\.userAgentData/g) || [])).toHaveLength(1);
-    expect((js.match(/navigator\.userAgent\b/g) || [])).toHaveLength(1);
+    expect((handler.match(/navigator\.userAgentData/g) || [])).toHaveLength(1);
+    expect((handler.match(/navigator\.userAgent\b/g) || [])).toHaveLength(1);
     expect((js.match(/window\.matchMedia/g) || [])).toHaveLength(2);
   });
 

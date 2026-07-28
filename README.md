@@ -31,7 +31,7 @@ Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡�
 | 📋 安全なクリップボードコピー | Summary、URL、request/response Body、Raw request/response、cURL、fetch、PowerShell は `Copy sanitized` が既定。完全コピーは同じ警告ダイアログで操作ごとに確認し、確認前に clipboard へ書き込まない |
 | 🔗 Initiator リンク | スクリプト起因のリクエストをクリックすると DevTools でソースファイルを表示 |
 | 🪟 パネルリサイズ | テーブルと詳細パネルの境界をドラッグまたは矢印キーで調整可能。幅 700px 以下では上下配置へ切り替わり、上下キーで高さを調整。Request/Response 境界も上下キーに対応 |
-| ⌨️ キーボードナビゲーション | フォーカス行を上下キーで選択して自動スクロール。`Context Menu` または `Shift+F10` で行アクションを開き、メニュー内は上下キー / Home / End / Escape で操作。詳細タブは左右キー / Home / End で移動可能 |
+| ⌨️ キーボードナビゲーション | フォーカス行を上下キーで選択して自動スクロール。`Ctrl+L` (Windows/Linux) または `Cmd+K` (macOS) で既存の Clear 操作を実行。`Context Menu` または `Shift+F10` で行アクションを開き、メニュー内は上下キー / Home / End / Escape で操作。詳細タブは左右キー / Home / End で移動可能 |
 | ♿ アクセシブル表示 | 色だけに依存しない検索一致バッジ、読み上げ対応の状態・件数・コピー通知、`prefers-reduced-motion` による装飾モーション抑制 |
 | 📊 リクエスト統計 | ステータスバーにフィルター済み行の平均/最小/最大レスポンスタイムを表示。フィルター変更に連動してリアルタイム更新 |
 | 🌊 Waterfall カラム | 各リクエストの開始オフセットとタイミングフェーズ (blocked/dns/connect/ssl/send/wait/receive) を行内バーで可視化。`Columns` メニューで表示切替可能 (既定では非表示)。表示順と幅は変更できるが、視覚専用列のためソート・フィルター対象外 |
