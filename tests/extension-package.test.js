@@ -190,6 +190,15 @@ describe('release version integrity', () => {
     expect(validateReleaseVersions(input)).toEqual([]);
   });
 
+  test('bounds the release ZIP setup at the next h3 before trailing numbered steps', () => {
+    const input = createVersionInput('1.6.0', '1.6.0', {
+      boundaryHeading: '### ソースから開発する',
+      trailingLines: ['1. npm ci を実行する。'],
+    });
+
+    expect(validateReleaseVersions(input)).toEqual([]);
+  });
+
   test('rejects missing or duplicated README release route landmarks', () => {
     const missing = createVersionInput();
     missing.readmeSource = missing.readmeSource
