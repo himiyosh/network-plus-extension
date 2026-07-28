@@ -232,6 +232,29 @@ describe('guided sample capture static contracts', () => {
     expect(emptyStateBlock).toContain("if (mode === 'capture')");
   });
 
+  test('reclaims the narrow inspector only for a genuine capture-empty state', () => {
+    const emptyStateBlock = js.slice(
+      js.indexOf('function updateEmptyState'),
+      js.indexOf('function updateRetentionStatus'),
+    );
+    expect(emptyStateBlock).toContain(
+      "content.classList.toggle('capture-empty', mode === 'capture');",
+    );
+    expect(emptyStateBlock).not.toMatch(
+      /classList\.toggle\('capture-empty',\s*(?:visibleRowCount|mode !== 'hidden')/,
+    );
+
+    const narrowStart = css.indexOf('@media (max-width:700px)');
+    const narrow = css.slice(narrowStart, css.indexOf('@media (max-width:420px)', narrowStart));
+    expect(css.slice(0, narrowStart)).not.toContain('.content.capture-empty');
+    expect(narrow).toContain(
+      '.content.capture-empty .tableWrap{flex:1 1 100%;min-height:0}',
+    );
+    expect(narrow).toContain(
+      '.content.capture-empty .resizer,.content.capture-empty .details{display:none}',
+    );
+  });
+
   test('recovers filtered requests through the shared reset path without clearing search keywords', () => {
     const clearFiltersBlock = js.slice(
       js.indexOf('function clearColumnFilters'),
