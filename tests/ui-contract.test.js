@@ -461,7 +461,17 @@ describe('guided sample capture static contracts', () => {
       /\.sample-capture-status\{[^}]*border:1px solid var\(--accent\)[^}]*background:var\(--accent-dim\)[^}]*color:var\(--text-accent\)[^}]*white-space:nowrap/,
     );
     expect(css).toContain('.sample-capture-status[hidden]{display:none}');
-    expect(css).toMatch(/\.statusbar\{[^}]*overflow-x:auto[^}]*white-space:nowrap/);
+    expect(css).toMatch(
+      /\.statusbar\{[^}]*flex-wrap:wrap[^}]*overflow-x:visible[^}]*white-space:normal/,
+    );
+    expect(css).not.toMatch(/\.statusbar\{[^}]*overflow-x:auto/);
+    expect(css).toMatch(
+      /\.statusbar > span:not\(\.sr-only\)\{[^}]*min-width:0[^}]*max-width:100%[^}]*overflow-wrap:anywhere/,
+    );
+    expect(css).toMatch(
+      /#retentionStatus\{[^}]*white-space:normal[^}]*\}\s*#statsSummary\{[^}]*white-space:normal/,
+    );
+    expect(css).toMatch(/#counter\{[^}]*white-space:normal/);
     expect(js).toContain('const restoreEmptyStateFocus = isFocusInsideEmptyState();');
     expect(js).toContain('restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);');
     expect(js).toContain("const target = (tbody && tbody.querySelector('tr[tabindex=\"0\"]')) || $('#filterBtn');");
