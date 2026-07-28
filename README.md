@@ -8,7 +8,7 @@
 
 Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡張機能です。標準の Network パネルの代替・補完として、強化されたフィルタリング、エクスポート、テーマ切替などの機能を提供します。
 
-**すぐに試す:** [v1.6.0 リリース ZIP](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) | **サポート:** [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues/new/choose)
+**すぐに試す:** [v1.6.0 リリース ZIP を直接ダウンロード](https://github.com/himiyosh/network-plus-extension/releases/download/v1.6.0/network-plus-extension-1.6.0.zip) | **リリース情報:** [v1.6.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) | **サポート:** [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues/new/choose)
 
 ## ✨ 機能一覧
 
@@ -70,7 +70,7 @@ network-plus-extension/
   scripts/
     check-extension-package.js ... 配布ファイルの整合性検証と ZIP 作成
     check-store-readiness.js ... Edge Add-ons 提出資料と合成アセットの回帰チェック
-    check-version-sync.js    ... 5箇所のリリースバージョン同期チェック
+    check-version-sync.js    ... 5箇所のリリースバージョンと README のリリース ZIP 導線の同期チェック
     check-repository-integrity.js ... package-lock.json の provenance チェック
     check-text-integrity.js  ... 変更差分の whitespace / encoding チェック
   tests/                     ... Jest ユニットテスト
@@ -152,7 +152,7 @@ Network+ は clipboard copy と HAR download を外向きデータ面として�
 
 ### リリース ZIP から試す
 
-1. [v1.6.0 リリース](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0)から `network-plus-extension-1.6.0.zip` をダウンロードする
+1. [network-plus-extension-1.6.0.zip](https://github.com/himiyosh/network-plus-extension/releases/download/v1.6.0/network-plus-extension-1.6.0.zip) を直接ダウンロードする。変更内容は [v1.6.0 リリース情報](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) で確認できる
 2. ZIP を新しいフォルダへ展開する。`edge://extensions/` の「パッケージ化されていない拡張機能を読み込む」では ZIP 自体ではなく、展開後の `manifest.json` があるフォルダを選択する
 3. Microsoft Edge で `edge://extensions/` を開き、「デベロッパーモード」を有効にする
 4. 「パッケージ化されていない拡張機能を読み込む」を選び、手順 2 の展開先フォルダを指定する
@@ -212,7 +212,7 @@ Response の `Timing` タブには、数値・バー・凡例と同じ場所に 
 npm ci                  # lockfile に基づく依存関係インストール
 npm test                # Jest テスト実行 (カバレッジ付き)
 npm run lint            # 全 first-party JavaScript の ESLint 実行
-npm run version:check   # 5箇所のリリース version 同期チェック
+npm run version:check   # 5箇所のリリース version と README のリリース ZIP 導線の同期チェック
 npm run integrity:check # package-lock.json の provenance チェック
 npm run extension:check # manifest、権限、参照、CSP、配布 allowlist の検証
 npm run extension:package # dist/ に検証済みのリリース ZIP を作成
@@ -320,7 +320,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 バージョン更新時チェックリスト:
 - [manifest.json](manifest.json)、[package.json](package.json)、[package-lock.json](package-lock.json) の `version` を同時更新
-- `npm run version:check` を実行して5箇所の同期を確認
+- `npm run version:check` を実行して5箇所のバージョンと README のリリース ZIP 導線の同期を確認
 - 機能追加・仕様変更時は README の該当セクションも同一コミットで更新
 
 ## 🧰 技術スタック
