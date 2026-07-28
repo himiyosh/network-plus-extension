@@ -7,6 +7,7 @@ const README_PATH = 'README.md';
 const RELEASE_BASE_URL = 'https://github.com/himiyosh/network-plus-extension/releases';
 const QUICK_TRY_PREFIX = '**すぐに試す:**';
 const RELEASE_SETUP_HEADING = '### リリース ZIP から試す';
+const RELEASE_SETUP_BOUNDARY_PATTERN = /^#{2,3}(?:[ \t]+|$)/;
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
@@ -49,7 +50,7 @@ const findReadmeReleaseLines = (readmeSource, errors) => {
   }
 
   const setupStart = setupHeadingIndexes[0] + 1;
-  const nextHeadingOffset = lines.slice(setupStart).findIndex((line) => line.startsWith('### '));
+  const nextHeadingOffset = lines.slice(setupStart).findIndex((line) => RELEASE_SETUP_BOUNDARY_PATTERN.test(line));
   const setupEnd = nextHeadingOffset < 0 ? lines.length : setupStart + nextHeadingOffset;
   const setupSteps = lines.slice(setupStart, setupEnd).filter((line) => line.startsWith('1. '));
   if (setupSteps.length !== 1) {

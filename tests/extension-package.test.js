@@ -43,19 +43,25 @@ afterEach(() => {
 });
 
 describe('release version integrity', () => {
+  const QUICK_TRY_PREFIX = '**すぐに試す:**';
   const RELEASE_SETUP_HEADING = '### リリース ZIP から試す';
-  const createReadmeSource = (version) => {
+  const createReadmeSource = (
+    version,
+    { setupPrelude = [], boundaryHeading = '### ソースから開発する', trailingLines = [] } = {},
+  ) => {
     const archiveName = getReleaseArchiveName(version);
     const downloadUrl = getReleaseDownloadUrl(version);
     const tagUrl = getReleaseTagUrl(version);
     return [
       `**すぐに試す:** [v${version} リリース ZIP を直接ダウンロード](${downloadUrl}) | **リリース情報:** [v${version}](${tagUrl})`,
       RELEASE_SETUP_HEADING,
+      ...setupPrelude,
       `1. [${archiveName}](${downloadUrl}) を直接ダウンロードする。変更内容は [v${version} リリース情報](${tagUrl}) で確認できる`,
-      '### ソースから開発する',
+      boundaryHeading,
+      ...trailingLines,
     ].join('\n');
   };
-  const createVersionInput = (version = '1.6.0', readmeVersion = version) => ({
+  const createVersionInput = (version = '1.6.0', readmeVersion = version, readmeOptions) => ({
     packageJson: { version },
     lockfile: {
       version,
@@ -63,11 +69,38 @@ describe('release version integrity', () => {
     },
     manifest: { version },
     panelSource: `const TEST_EXTENSION_VERSION_FALLBACK = '${version}';`,
-    readmeSource: createReadmeSource(readmeVersion),
+    readmeSource: createReadmeSource(readmeVersion, readmeOptions),
   });
 
   test('accepts synchronized release versions and README download routes', () => {
     expect(validateReleaseVersions(createVersionInput())).toEqual([]);
+  });
+
+  test('bounds the release ZIP setup at the next h2 while allowing deeper headings', () => {
+    const input = createVersionInput('1.6.0', '1.6.0', {
+      setupPrelude: ['#### ダウンロードの補足'],
+      boundaryHeading: '## 開発者向け',
+      trailingLines: ['1. この手順はリリース ZIP セクションの外側にある。'],
+    });
+
+    expect(validateReleaseVersions(input)).toEqual([]);
+  });
+
+  test('rejects missing or duplicated README release route landmarks', () => {
+    const missing = createVersionInput();
+    missing.readmeSource = missing.readmeSource
+      .split('\n')
+      .filter((line) => !line.startsWith(QUICK_TRY_PREFIX))
+      .join('\n');
+    expect(validateReleaseVersions(missing)).toEqual(
+      expect.arrayContaining([`README.md must contain exactly one ${QUICK_TRY_PREFIX} line`]),
+    );
+
+    const duplicated = createVersionInput();
+    duplicated.readmeSource = `${duplicated.readmeSource}\n${RELEASE_SETUP_HEADING}`;
+    expect(validateReleaseVersions(duplicated)).toEqual(
+      expect.arrayContaining([`README.md must contain exactly one ${RELEASE_SETUP_HEADING} section`]),
+    );
   });
 
   test('rejects panel fallback drift', () => {
