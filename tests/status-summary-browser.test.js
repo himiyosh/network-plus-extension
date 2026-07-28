@@ -13,6 +13,7 @@ const BROWSER_REQUIRED_IN_CI_MESSAGE =
   'Set EDGE_BIN or CHROME_BIN to an executable browser path.';
 const TRANSIENT_PROFILE_CLEANUP_ERRORS = new Set(['ENOTEMPTY', 'EBUSY']);
 const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1280, 1366, 1367, 1500];
+const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -902,20 +903,6 @@ browserTest(
         expect(measurement.brandWidth).toBeGreaterThan(compactBoundaryMeasurement.brandWidth);
       }
 
-      await cdp.send('Emulation.setDeviceMetricsOverride', {
-        width: 375,
-        height: 800,
-        deviceScaleFactor: 1,
-        mobile: false,
-      });
-      await evaluate(
-        cdp,
-        `(() => {
-          document.body.tabIndex = -1;
-          document.body.focus();
-          document.querySelector('.topbar').scrollLeft = 0;
-        })()`,
-      );
       const expectedTabOrder = [
         'searchToggleBtn',
         'clearBtn',
@@ -929,36 +916,227 @@ browserTest(
         'themeBtn',
         'shortcutBtn',
       ];
-      const tabTrace = [];
-      for (const expectedId of expectedTabOrder) {
-        await pressKey(cdp, 'Tab', 'Tab', 9);
-        const traceEntry = await evaluate(
+      const focusMeasurements = [];
+      for (const width of TOOLBAR_FOCUS_VIEWPORT_WIDTHS) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await evaluate(
           cdp,
-          `(() => {
+          `(async () => {
+            document.body.tabIndex = -1;
+            document.body.focus();
+            document.querySelector('.topbar').scrollLeft = 0;
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          })()`,
+          true,
+        );
+        const tabTrace = [];
+        for (const expectedId of expectedTabOrder) {
+          await pressKey(cdp, 'Tab', 'Tab', 9);
+          const traceEntry = await evaluate(
+            cdp,
+            `new Promise((resolve) => requestAnimationFrame(() => {
               const active = document.activeElement;
+              const toolbar = document.querySelector('.topbar');
+              const toolbarRect = toolbar.getBoundingClientRect();
+              const visibleLeft = toolbarRect.left + toolbar.clientLeft;
+              const visibleRight = visibleLeft + toolbar.clientWidth;
+              const activeRect = active.getBoundingClientRect();
               const style = getComputedStyle(active);
-              return {
+              const outlineAllowance = Number.parseFloat(style.outlineWidth) || 0;
+              resolve({
                 id: active.id,
-                inToolbar: document.querySelector('.topbar').contains(active),
+                inToolbar: toolbar.contains(active),
                 focusVisible: active.matches(':focus-visible'),
                 outlineStyle: style.outlineStyle,
                 outlineWidth: style.outlineWidth,
-              };
-            })()`,
-        );
-        expect(traceEntry.id).toBe(expectedId);
-        tabTrace.push(traceEntry);
+                documentScrollLeft: document.scrollingElement.scrollLeft,
+                documentScrollTop: document.scrollingElement.scrollTop,
+                documentOverflow:
+                  document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                fullyVisibleWithOutline:
+                  activeRect.left - outlineAllowance >= visibleLeft &&
+                  activeRect.right + outlineAllowance <= visibleRight,
+                visibleWidth: Math.round(
+                  Math.max(
+                    0,
+                    Math.min(activeRect.right, visibleRight) -
+                      Math.max(activeRect.left, visibleLeft),
+                  ),
+                ),
+                actionWidth: Math.round(activeRect.width),
+                clippedSide:
+                  activeRect.left - outlineAllowance < visibleLeft ? 'left' : 'right',
+              });
+            }))`,
+            true,
+          );
+          expect(traceEntry.id).toBe(expectedId);
+          tabTrace.push(traceEntry);
+        }
+        focusMeasurements.push({ width, tabTrace });
       }
-      expect(tabTrace.map((entry) => entry.id)).toEqual(expectedTabOrder);
+      for (const measurement of focusMeasurements) {
+        expect(measurement.tabTrace.map((entry) => entry.id)).toEqual(expectedTabOrder);
+        expect(
+          measurement.tabTrace.every(
+            (entry) =>
+              entry.inToolbar &&
+              entry.focusVisible &&
+              entry.outlineStyle === 'solid' &&
+              entry.outlineWidth === '2px' &&
+              entry.documentScrollLeft === 0 &&
+              entry.documentScrollTop === 0 &&
+              entry.documentOverflow === 0,
+          ),
+        ).toBe(true);
+      }
+      const clippedFocusMeasurements = focusMeasurements.flatMap((measurement) =>
+        measurement.tabTrace
+          .filter((entry) => !entry.fullyVisibleWithOutline)
+          .map((entry) => ({
+            width: measurement.width,
+            id: entry.id,
+            visibleWidth: entry.visibleWidth,
+            actionWidth: entry.actionWidth,
+            clippedSide: entry.clippedSide,
+          })),
+      );
+      expect(clippedFocusMeasurements).toEqual([]);
+
+      const pointerCases = [
+        { width: 500, actionId: 'exportHarBtn' },
+        { width: 800, actionId: 'presetsBtn' },
+      ];
+      const pointerMeasurements = [];
+      for (const pointerCase of pointerCases) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width: pointerCase.width,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        const point = await evaluate(
+          cdp,
+          `(async () => {
+            document.body.focus();
+            const toolbar = document.querySelector('.topbar');
+            toolbar.scrollLeft = 0;
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const action = document.querySelector('#${pointerCase.actionId}');
+            const toolbarRect = toolbar.getBoundingClientRect();
+            const visibleLeft = toolbarRect.left + toolbar.clientLeft;
+            const visibleRight = visibleLeft + toolbar.clientWidth;
+            const actionRect = action.getBoundingClientRect();
+            const controller = new AbortController();
+            window.__toolbarPointerProbeController?.abort();
+            window.__toolbarPointerProbeController = controller;
+            window.__toolbarPointerProbe = { actionDeliveries: 0, clickTargets: [] };
+            document.addEventListener(
+              'click',
+              (event) => {
+                const target = event.target;
+                window.__toolbarPointerProbe.clickTargets.push(
+                  target.id || target.className || target.tagName.toLowerCase(),
+                );
+              },
+              { capture: true, signal: controller.signal },
+            );
+            action.addEventListener(
+              'click',
+              () => {
+                window.__toolbarPointerProbe.actionDeliveries += 1;
+              },
+              { signal: controller.signal },
+            );
+            return {
+              x: Math.min(actionRect.right - 4, visibleRight - 4),
+              y: actionRect.top + actionRect.height / 2,
+              visibleWidth: Math.round(
+                Math.max(
+                  0,
+                  Math.min(actionRect.right, visibleRight) -
+                    Math.max(actionRect.left, visibleLeft),
+                ),
+              ),
+              actionWidth: Math.round(actionRect.width),
+            };
+          })()`,
+          true,
+        );
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+        await delay(80);
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: point.x,
+          y: point.y,
+          button: 'left',
+          clickCount: 1,
+        });
+        pointerMeasurements.push(
+          await evaluate(
+            cdp,
+            `(async () => {
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const measurement = {
+                width: ${pointerCase.width},
+                actionId: '${pointerCase.actionId}',
+                visibleWidth: ${point.visibleWidth},
+                actionWidth: ${point.actionWidth},
+                clickTargets: window.__toolbarPointerProbe.clickTargets,
+                actionDeliveries: window.__toolbarPointerProbe.actionDeliveries,
+                toolbarScrollLeft: document.querySelector('.topbar').scrollLeft,
+              };
+              window.__toolbarPointerProbeController.abort();
+              if (document.querySelector('#dataSafetyDialog').open) {
+                document.querySelector('#dataSafetyDialog').close();
+              }
+              return measurement;
+            })()`,
+            true,
+          ),
+        );
+      }
       expect(
-        tabTrace.every(
-          (entry) =>
-            entry.inToolbar &&
-            entry.focusVisible &&
-            entry.outlineStyle === 'solid' &&
-            entry.outlineWidth === '2px',
+        pointerMeasurements.every(
+          (measurement) =>
+            measurement.visibleWidth > 0 && measurement.visibleWidth < measurement.actionWidth,
         ),
       ).toBe(true);
+      expect(
+        pointerMeasurements.map((measurement) => ({
+          width: measurement.width,
+          actionId: measurement.actionId,
+          clickTargets: measurement.clickTargets,
+          actionDeliveries: measurement.actionDeliveries,
+          toolbarScrollLeft: measurement.toolbarScrollLeft,
+        })),
+      ).toEqual([
+        {
+          width: 500,
+          actionId: 'exportHarBtn',
+          clickTargets: ['exportHarBtn'],
+          actionDeliveries: 1,
+          toolbarScrollLeft: 0,
+        },
+        {
+          width: 800,
+          actionId: 'presetsBtn',
+          clickTargets: ['presetsBtn'],
+          actionDeliveries: 1,
+          toolbarScrollLeft: 0,
+        },
+      ]);
     } finally {
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);

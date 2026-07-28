@@ -8254,6 +8254,17 @@ const _NetworkPlus = (function () {
     initializeSampleCaptureExitActions();
     setStatus('panel.js loaded');
 
+    const toolbar = $('.topbar');
+    toolbar.addEventListener('focusin', (event) => {
+      const action = event.target.closest('button');
+      if (!action || !toolbar.contains(action)) return;
+      window.requestAnimationFrame(() => {
+        if (document.activeElement !== action) return;
+        if (!action.matches(':focus-visible')) return;
+        action.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+    });
+
     const pendingLiveRows = state.pendingLiveRows;
     let pendingLiveFrame = false;
     let pendingScrollToBottom = false;
