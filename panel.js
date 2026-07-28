@@ -631,6 +631,39 @@ const _NetworkPlus = (function () {
     });
   }
 
+  function getKeyboardPlatform() {
+    const userAgentData =
+      typeof navigator === 'undefined' ? null : navigator.userAgentData;
+    if (
+      userAgentData &&
+      typeof userAgentData.platform === 'string' &&
+      userAgentData.platform
+    ) {
+      return userAgentData.platform;
+    }
+    return typeof navigator !== 'undefined' && typeof navigator.platform === 'string'
+      ? navigator.platform
+      : '';
+  }
+
+  function isEditableShortcutTarget(element) {
+    const tagName =
+      element && typeof element.tagName === 'string' ? element.tagName.toUpperCase() : '';
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return true;
+    if (element && element.isContentEditable) return true;
+    return !!(
+      element &&
+      typeof element.closest === 'function' &&
+      element.closest('[contenteditable]:not([contenteditable="false"])')
+    );
+  }
+
+  function isClearShortcutBlocked() {
+    if (isEditableShortcutTarget(document.activeElement)) return true;
+    if (document.querySelector('dialog[open]')) return true;
+    return $all(TRANSIENT_POPUP_SELECTOR).some((popup) => popup.classList.contains('show'));
+  }
+
   // ============================================================
   // Section 3: Pure Utility Functions (testable)
   // ============================================================
@@ -739,6 +772,17 @@ const _NetworkPlus = (function () {
     if (sort.direction === 'asc') return 'ascending';
     if (sort.direction === 'desc') return 'descending';
     return 'none';
+  }
+
+  function isClearNetworkLogShortcut(event, platform) {
+    if (!event || typeof event.key !== 'string') return false;
+    if (event.repeat === true || event.isComposing === true) return false;
+    if (event.altKey === true || event.shiftKey === true) return false;
+    const key = event.key.toLowerCase();
+    const isMac = typeof platform === 'string' && platform.toLowerCase().includes('mac');
+    return isMac
+      ? key === 'k' && event.metaKey === true && event.ctrlKey !== true
+      : key === 'l' && event.ctrlKey === true && event.metaKey !== true;
   }
 
   function fmtBytes(bytes) {
@@ -8261,6 +8305,17 @@ const _NetworkPlus = (function () {
             : 'Cleared',
       );
     });
+    const keyboardPlatform = getKeyboardPlatform();
+    document.addEventListener(
+      'keydown',
+      (event) => {
+        if (!isClearNetworkLogShortcut(event, keyboardPlatform) || isClearShortcutBlocked()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        clearButton.click();
+      },
+      true,
+    );
     undoClearButton.addEventListener('click', () => {
       const consumed = consumeClearUndoSnapshot('undo');
       if (!consumed || consumed.disposition !== 'restore') {
@@ -9638,6 +9693,7 @@ const _NetworkPlus = (function () {
     getAdjacentVisibleColumnId,
     getNextMenuItemIndex,
     getAriaSortValue,
+    isClearNetworkLogShortcut,
     extractUrlParts,
     formatInitiator,
     parseQueryString,
