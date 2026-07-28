@@ -278,8 +278,9 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .kv .val{color:var(--fg);overflow-wrap:break-word;min-width:0;padding:3px 0}
 
 /* === Status Bar === */
-.statusbar{display:flex;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid var(--border);background:var(--surface);font-size:11px;color:var(--text-muted);flex:0 0 auto;overflow-x:auto;scrollbar-width:thin;white-space:nowrap}
+.statusbar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:5px 10px;border-top:1px solid var(--border);background:var(--surface);font-size:11px;color:var(--text-muted);flex:0 0 auto;overflow-x:visible;white-space:normal}
 .statusbar .spacer{flex:1}
+.statusbar > span:not(.sr-only){min-width:0;max-width:100%;overflow-wrap:anywhere}
 .sample-capture-status{padding:2px 6px;border:1px solid var(--accent);border-radius:4px;background:var(--accent-dim);color:var(--text-accent);font-weight:700;white-space:nowrap}
 .sample-capture-status[hidden]{display:none}
 .sample-guide-btn,.sample-exit-btn{min-height:24px;padding:2px 8px;border:1px solid var(--control-border);border-radius:4px;background:var(--bg);color:var(--fg);font:inherit;font-weight:700;line-height:1.4;cursor:pointer;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s,color 0.15s}
@@ -294,11 +295,11 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .undo-clear-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .undo-clear-btn:disabled{opacity:.5;cursor:not-allowed}
 .undo-clear-btn[hidden]{display:none}
-#retentionStatus{white-space:nowrap;font-variant-numeric:tabular-nums}
-#statsSummary{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--text-muted)}
+#retentionStatus{white-space:normal;font-variant-numeric:tabular-nums}
+#statsSummary{white-space:normal;font-variant-numeric:tabular-nums;color:var(--text-muted)}
 #totalSize{margin-right:12px;font-weight:600;color:var(--text-accent)}
 #selectedSize{margin-right:12px;font-weight:600;color:var(--status-3xx-text)}
-#counter{white-space:nowrap;font-variant-numeric:tabular-nums}
+#counter{white-space:normal;font-variant-numeric:tabular-nums}
 
 /* === Retention Settings === */
 #retentionDialog{position:fixed;inset:0;margin:auto;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
