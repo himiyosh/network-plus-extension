@@ -114,6 +114,10 @@ html[data-theme="light"]{
 .topbar.paused{border-top:2px solid var(--border)}
 .topbar.recording{border-top:2px solid var(--status-5xx-text)}
 .topbar.recording #pauseBtn{color:var(--status-5xx-text)}
+@media (max-width:1366px){
+  .brand{padding:3px 8px}
+  .brand-sub{display:none}
+}
 
 /* === Unified Search Area === */
 .search-count{font-size:11px;color:var(--text-muted);white-space:nowrap;min-width:50px}

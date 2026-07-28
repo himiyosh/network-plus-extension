@@ -181,6 +181,23 @@ async function evaluate(cdp, expression, awaitPromise = false) {
   return response.result.value;
 }
 
+async function pressKey(cdp, key, code, windowsVirtualKeyCode) {
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key,
+    code,
+    windowsVirtualKeyCode,
+    nativeVirtualKeyCode: windowsVirtualKeyCode,
+  });
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key,
+    code,
+    windowsVirtualKeyCode,
+    nativeVirtualKeyCode: windowsVirtualKeyCode,
+  });
+}
+
 async function expectFullAccessibilityTreeWithoutControl(cdp, accessibleName) {
   const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
   expect(accessibilityTree.nodes.length).toBeGreaterThan(0);
@@ -725,6 +742,185 @@ browserTest(
       expect(narrowReopened.resizerHidden).toBe(false);
       expect(narrowReopened.detailsTitle).toMatch(/^304 GET /);
       expect(narrowReopened.selectedRowId).not.toBe(wideReopened.selectedRowId);
+    } finally {
+      if (cdp) await cdp.close();
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'constrained toolbar prioritizes actions while preserving local overflow access',
+  async () => {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-toolbar-dom-'));
+    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+    const browserProcess = spawn(
+      browserExecutable,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        '--allow-file-access-from-files',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-sandbox',
+        panelUrl,
+      ],
+      { stdio: 'ignore' },
+    );
+
+    let cdp;
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      const panelTarget = await findPanelTarget(browserWebSocketUrl);
+      cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
+      await cdp.send('Runtime.enable');
+      await cdp.send('Page.bringToFront');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        cdp,
+        `(async () => {
+          if (document.readyState === 'loading') {
+            await new Promise((resolve) => window.addEventListener('DOMContentLoaded', resolve, { once: true }));
+          }
+          const sampleButton = Array.from(document.querySelectorAll('button')).find(
+            (button) => button.textContent.trim() === 'Explore sample capture',
+          );
+          if (!sampleButton) throw new Error('Sample capture action was not found.');
+          sampleButton.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        })()`,
+        true,
+      );
+
+      const viewportMeasurements = [];
+      for (const width of [375, 500, 800, 1280]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await evaluate(
+          cdp,
+          'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+          true,
+        );
+        viewportMeasurements.push(
+          await evaluate(
+            cdp,
+            `(() => {
+              const toolbar = document.querySelector('.topbar');
+              toolbar.scrollLeft = 0;
+              const toolbarRect = toolbar.getBoundingClientRect();
+              const actions = Array.from(toolbar.querySelectorAll('button')).map((button) => {
+                const rect = button.getBoundingClientRect();
+                return {
+                  id: button.id,
+                  fullyVisible: rect.left >= toolbarRect.left && rect.right <= toolbarRect.right,
+                };
+              });
+              const brand = document.querySelector('.brand');
+              return {
+                width: innerWidth,
+                documentOverflow:
+                  document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                toolbarOverflow: toolbar.scrollWidth - toolbar.clientWidth,
+                toolbarOverflowX: getComputedStyle(toolbar).overflowX,
+                actions,
+                brandWidth: brand.getBoundingClientRect().width,
+                brandDisplay: getComputedStyle(brand).display,
+                brandSubtitleDisplay: getComputedStyle(
+                  document.querySelector('.brand-sub'),
+                ).display,
+              };
+            })()`,
+          ),
+        );
+      }
+
+      for (const measurement of viewportMeasurements) {
+        expect(measurement.documentOverflow).toBe(0);
+        expect(measurement.toolbarOverflowX).toBe('auto');
+        expect(measurement.actions).toHaveLength(12);
+      }
+      expect(viewportMeasurements.slice(0, 3).every((measurement) => measurement.toolbarOverflow > 0)).toBe(
+        true,
+      );
+      const desktopMeasurement = viewportMeasurements[3];
+      expect(desktopMeasurement.toolbarOverflow).toBe(0);
+      expect(desktopMeasurement.actions.every((action) => action.fullyVisible)).toBe(true);
+      expect(desktopMeasurement.brandDisplay).not.toBe('none');
+      expect(desktopMeasurement.brandSubtitleDisplay).toBe('none');
+      expect(desktopMeasurement.brandWidth).toBeLessThan(150);
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 375,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        cdp,
+        `(() => {
+          document.body.tabIndex = -1;
+          document.body.focus();
+          document.querySelector('.topbar').scrollLeft = 0;
+        })()`,
+      );
+      const expectedTabOrder = [
+        'searchToggleBtn',
+        'clearBtn',
+        'importBtn',
+        'exportHarBtn',
+        'autoScrollBtn',
+        'filterBtn',
+        'presetsBtn',
+        'columnsBtn',
+        'retentionBtn',
+        'themeBtn',
+        'shortcutBtn',
+      ];
+      const tabTrace = [];
+      for (const expectedId of expectedTabOrder) {
+        await pressKey(cdp, 'Tab', 'Tab', 9);
+        const traceEntry = await evaluate(
+          cdp,
+          `(() => {
+              const active = document.activeElement;
+              const style = getComputedStyle(active);
+              return {
+                id: active.id,
+                inToolbar: document.querySelector('.topbar').contains(active),
+                focusVisible: active.matches(':focus-visible'),
+                outlineStyle: style.outlineStyle,
+                outlineWidth: style.outlineWidth,
+              };
+            })()`,
+        );
+        expect(traceEntry.id).toBe(expectedId);
+        tabTrace.push(traceEntry);
+      }
+      expect(tabTrace.map((entry) => entry.id)).toEqual(expectedTabOrder);
+      expect(
+        tabTrace.every(
+          (entry) =>
+            entry.inToolbar &&
+            entry.focusVisible &&
+            entry.outlineStyle === 'solid' &&
+            entry.outlineWidth === '2px',
+        ),
+      ).toBe(true);
     } finally {
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);

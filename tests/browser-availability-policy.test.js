@@ -57,5 +57,9 @@ test('retains the local-only skip when no browser executable is discoverable', (
       skipped: true,
       title: 'details close control reclaims the workbench and row selection reopens it',
     },
+    {
+      skipped: true,
+      title: 'constrained toolbar prioritizes actions while preserving local overflow access',
+    },
   ]);
 });
