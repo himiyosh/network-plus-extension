@@ -4,16 +4,79 @@ const { getReleaseArchiveName } = require('./check-extension-package');
 
 const FALLBACK_PATTERN = /\bconst\s+TEST_EXTENSION_VERSION_FALLBACK\s*=\s*['"]([^'"]+)['"]\s*;/g;
 const README_PATH = 'README.md';
-const RELEASE_BASE_URL = 'https://github.com/himiyosh/network-plus-extension/releases';
 const QUICK_TRY_PREFIX = '**すぐに試す:**';
 const RELEASE_SETUP_HEADING = '### リリース ZIP から試す';
 const RELEASE_SETUP_BOUNDARY_PATTERN = /^#{2,3}(?:[ \t]+|$)/;
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
-const getReleaseDownloadUrl = (version) => `${RELEASE_BASE_URL}/download/v${version}/${getReleaseArchiveName(version)}`;
+const getGitHubReleaseBaseUrl = (repository) => {
+  let repositoryUrl;
 
-const getReleaseTagUrl = (version) => `${RELEASE_BASE_URL}/tag/v${version}`;
+  if (typeof repository === 'string') {
+    repositoryUrl = repository;
+  } else if (repository && typeof repository === 'object' && !Array.isArray(repository)) {
+    if (repository.type !== 'git') {
+      throw new Error('package.json repository.type must be "git"');
+    }
+    repositoryUrl = repository.url;
+  } else {
+    throw new Error('package.json repository must be a URL string or a git repository object');
+  }
+
+  if (typeof repositoryUrl !== 'string' || repositoryUrl.length === 0) {
+    throw new Error('package.json repository URL must be a non-empty string');
+  }
+  if (repositoryUrl !== repositoryUrl.trim() || /[\s\\]/.test(repositoryUrl)) {
+    throw new Error('package.json repository URL must not contain whitespace or backslashes');
+  }
+
+  const httpsUrl = repositoryUrl.replace(/^git\+(?=https:\/\/)/i, '');
+  if (!/^https:\/\//i.test(httpsUrl)) {
+    throw new Error('package.json repository URL must use HTTPS or git+HTTPS');
+  }
+  if (/[?#]/.test(httpsUrl)) {
+    throw new Error('package.json repository URL must not include query parameters or fragments');
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(httpsUrl);
+  } catch {
+    throw new Error('package.json repository URL must be a valid URL');
+  }
+
+  const authorityStart = httpsUrl.indexOf('//') + 2;
+  const pathStart = httpsUrl.indexOf('/', authorityStart);
+  const authority = pathStart < 0 ? httpsUrl.slice(authorityStart) : httpsUrl.slice(authorityStart, pathStart);
+  if (authority.includes('@') || parsedUrl.username || parsedUrl.password) {
+    throw new Error('package.json repository URL must not include credentials');
+  }
+  if (parsedUrl.protocol !== 'https:' || authority.toLowerCase() !== 'github.com') {
+    throw new Error('package.json repository URL must use github.com');
+  }
+
+  const pathParts = parsedUrl.pathname.split('/');
+  if (pathParts.length !== 3 || pathParts[0] !== '') {
+    throw new Error('package.json repository URL must identify exactly one GitHub owner and repository');
+  }
+
+  const owner = pathParts[1];
+  const repositoryPath = pathParts[2];
+  const repositoryName = repositoryPath.endsWith('.git') ? repositoryPath.slice(0, -4) : repositoryPath;
+  const validOwner = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(owner);
+  const validRepository = /^[A-Za-z0-9._-]+$/.test(repositoryName) && !['.', '..'].includes(repositoryName);
+  if (!validOwner || !validRepository) {
+    throw new Error('package.json repository URL must contain valid GitHub owner and repository names');
+  }
+
+  return `https://github.com/${owner}/${repositoryName}/releases`;
+};
+
+const getReleaseDownloadUrl = (repository, version) =>
+  `${getGitHubReleaseBaseUrl(repository)}/download/v${version}/${getReleaseArchiveName(version)}`;
+
+const getReleaseTagUrl = (repository, version) => `${getGitHubReleaseBaseUrl(repository)}/tag/v${version}`;
 
 const extractPanelFallbackVersion = (panelSource) => {
   const matches = Array.from(panelSource.matchAll(FALLBACK_PATTERN));
@@ -63,12 +126,20 @@ const findReadmeReleaseLines = (readmeSource, errors) => {
   };
 };
 
-const validateReadmeReleaseReferences = (readmeSource, version) => {
+const validateReadmeReleaseReferences = (readmeSource, version, repository) => {
   const errors = [];
   const archiveName = getReleaseArchiveName(version);
-  const downloadUrl = getReleaseDownloadUrl(version);
-  const tagUrl = getReleaseTagUrl(version);
   const { quickTryLine, setupStep } = findReadmeReleaseLines(readmeSource, errors);
+  let downloadUrl;
+  let tagUrl;
+
+  try {
+    downloadUrl = getReleaseDownloadUrl(repository, version);
+    tagUrl = getReleaseTagUrl(repository, version);
+  } catch (error) {
+    errors.push(error.message);
+    return errors;
+  }
 
   if (quickTryLine) {
     const quickTryLinks = extractMarkdownLinks(quickTryLine);
@@ -131,7 +202,7 @@ const validateReleaseVersions = ({ packageJson, lockfile, manifest, panelSource,
     );
   }
 
-  errors.push(...validateReadmeReleaseReferences(readmeSource, packageJson.version));
+  errors.push(...validateReadmeReleaseReferences(readmeSource, packageJson.version, packageJson.repository));
 
   return errors;
 };
@@ -160,6 +231,7 @@ if (require.main === module) main();
 
 module.exports = {
   extractPanelFallbackVersion,
+  getGitHubReleaseBaseUrl,
   getReleaseDownloadUrl,
   getReleaseTagUrl,
   validateReadmeReleaseReferences,
