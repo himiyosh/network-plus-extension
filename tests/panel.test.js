@@ -3545,15 +3545,83 @@ describe('outbound sensitive-data policy', () => {
   });
 });
 
+describe('status class statistics', () => {
+  test.each([
+    [200, '2xx'],
+    [299, '2xx'],
+    [300, '3xx'],
+    [399, '3xx'],
+    [400, '4xx'],
+    [499, '4xx'],
+    [500, '5xx'],
+    [599, '5xx'],
+  ])('classifies %p as %s', (status, expected) => {
+    expect(np.classifyStatusClass(status)).toBe(expected);
+  });
+
+  test.each([undefined, null, '200', 200.5, 199, 600, NaN, Infinity, {}, []])(
+    'classifies malformed or unsupported status %p as other',
+    (status) => {
+      expect(np.classifyStatusClass(status)).toBe('other');
+    },
+  );
+
+  test('formats a compact textual summary in status-class order', () => {
+    expect(
+      np.formatStatusClassSummary({ '2xx': 4, '3xx': 3, '4xx': 2, '5xx': 1, other: 5 }),
+    ).toBe('status 2xx 4 · 3xx 3 · 4xx 2 · 5xx 1 · other 5');
+  });
+
+  test('counts every row exactly once, including malformed and missing statuses', () => {
+    const rows = [
+      { status: 200 },
+      { status: 299 },
+      { status: 300 },
+      { status: 399 },
+      { status: 400 },
+      { status: 499 },
+      { status: 500 },
+      { status: 599 },
+      { status: 199 },
+      { status: 600 },
+      { status: '200' },
+      { status: 200.5 },
+      {},
+      null,
+    ];
+    const stats = np.computeStats(rows);
+    expect(stats.statusClassCounts).toEqual({
+      '2xx': 2,
+      '3xx': 2,
+      '4xx': 2,
+      '5xx': 2,
+      other: 6,
+    });
+    expect(Object.values(stats.statusClassCounts).reduce((sum, count) => sum + count, 0)).toBe(
+      stats.count,
+    );
+  });
+});
+
 describe('computeStats', () => {
+  const zeroStats = {
+    count: 0,
+    totalDuration: 0,
+    avgDuration: 0,
+    minDuration: 0,
+    maxDuration: 0,
+    totalSize: 0,
+    statusClassCounts: { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0, other: 0 },
+  };
+
   test('returns zero stats for empty array', () => {
     const stats = np.computeStats([]);
-    expect(stats).toEqual({ count: 0, totalDuration: 0, avgDuration: 0, minDuration: 0, maxDuration: 0, totalSize: 0 });
+    expect(stats).toEqual(zeroStats);
   });
 
   test('returns zero stats for null/undefined input', () => {
-    expect(np.computeStats(null)).toEqual({ count: 0, totalDuration: 0, avgDuration: 0, minDuration: 0, maxDuration: 0, totalSize: 0 });
-    expect(np.computeStats(undefined)).toEqual({ count: 0, totalDuration: 0, avgDuration: 0, minDuration: 0, maxDuration: 0, totalSize: 0 });
+    expect(np.computeStats(null)).toEqual(zeroStats);
+    expect(np.computeStats(undefined)).toEqual(zeroStats);
   });
 
   test('computes correct stats for a single row', () => {
