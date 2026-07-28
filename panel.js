@@ -6458,6 +6458,8 @@ const _NetworkPlus = (function () {
     const tableWrap = $('#tableWrap');
     if (!tableWrap) return;
     const mode = getEmptyStateMode(state.rows.length, visibleRowCount);
+    const content = $('#content');
+    if (content) content.classList.toggle('capture-empty', mode === 'capture');
     updateSampleGuideAvailability(visibleRowCount);
     let emptyState = document.getElementById('empty-state-msg');
     if (mode === 'hidden') {

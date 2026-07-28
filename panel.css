@@ -537,6 +537,8 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .tableWrap{flex:1 1 50%;min-height:120px}
   .resizer{flex:0 0 4px;width:100%;height:4px;cursor:row-resize}
   .details{flex:1 1 50%;min-width:0;min-height:160px;border-left:0;border-top:1px solid var(--separator)}
+  .content.capture-empty .tableWrap{flex:1 1 100%;min-height:0}
+  .content.capture-empty .resizer,.content.capture-empty .details{display:none}
 }
 @media (max-width:420px){
   .sample-guide-evidence-list{grid-template-columns:minmax(0,1fr)}
