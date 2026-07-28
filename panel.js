@@ -106,6 +106,7 @@ const _NetworkPlus = (function () {
   const MAX_PRESET_TOTAL_BYTES = 64 * 1024; // 64 KiB — filter-config only, no traffic data
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+  const STATUS_CLASS_KEYS = Object.freeze(['2xx', '3xx', '4xx', '5xx', 'other']);
   const NUMERIC_COLUMNS = ['id', 'status', 'duration', 'size'];
   const DATE_COLUMNS = ['clientStart', 'serverDone'];
   const DATE_SORT_FIELDS = { clientStart: 'clientStartEpoch', serverDone: 'serverDoneEpoch' };
@@ -3475,28 +3476,57 @@ const _NetworkPlus = (function () {
     return { text: full, stateLabel: 'available' };
   }
 
+  function classifyStatusClass(status) {
+    if (!Number.isInteger(status)) return 'other';
+    const statusClass = `${Math.floor(status / 100)}xx`;
+    return STATUS_CLASS_KEYS.includes(statusClass) ? statusClass : 'other';
+  }
+
+  function formatStatusClassSummary(statusClassCounts) {
+    const counts =
+      statusClassCounts && typeof statusClassCounts === 'object' ? statusClassCounts : {};
+    return (
+      'status ' +
+      STATUS_CLASS_KEYS.map((statusClass) => {
+        const count = counts[statusClass];
+        return statusClass + ' ' + (Number.isInteger(count) && count >= 0 ? count : 0);
+      }).join(' · ')
+    );
+  }
+
   /**
    * Compute aggregate statistics for a set of rows.
    * Pure function — no DOM/state dependency.
    * @param {Array} rows - Array of row objects (from buildRowFromRequest)
-   * @returns {{ count: number, totalDuration: number, avgDuration: number, minDuration: number, maxDuration: number, totalSize: number }}
+   * @returns {{ count: number, totalDuration: number, avgDuration: number, minDuration: number, maxDuration: number, totalSize: number, statusClassCounts: Record<string, number> }}
    */
   function computeStats(rows) {
     const validRows = Array.isArray(rows) ? rows : [];
     const count = validRows.length;
+    const statusClassCounts = { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0, other: 0 };
     if (count === 0) {
-      return { count: 0, totalDuration: 0, avgDuration: 0, minDuration: 0, maxDuration: 0, totalSize: 0 };
+      return {
+        count: 0,
+        totalDuration: 0,
+        avgDuration: 0,
+        minDuration: 0,
+        maxDuration: 0,
+        totalSize: 0,
+        statusClassCounts,
+      };
     }
     let totalDuration = 0;
     let minDuration = Infinity;
     let maxDuration = -Infinity;
     let totalSize = 0;
     for (const row of validRows) {
-      const dur = Number.isFinite(row.duration) ? row.duration : 0;
+      const sourceRow = row && typeof row === 'object' ? row : {};
+      const dur = Number.isFinite(sourceRow.duration) ? sourceRow.duration : 0;
       totalDuration += dur;
       if (dur < minDuration) minDuration = dur;
       if (dur > maxDuration) maxDuration = dur;
-      totalSize += Number.isFinite(row.size) ? row.size : 0;
+      totalSize += Number.isFinite(sourceRow.size) ? sourceRow.size : 0;
+      statusClassCounts[classifyStatusClass(sourceRow.status)] += 1;
     }
     return {
       count,
@@ -3505,6 +3535,7 @@ const _NetworkPlus = (function () {
       minDuration: minDuration === Infinity ? 0 : minDuration,
       maxDuration: maxDuration === -Infinity ? 0 : maxDuration,
       totalSize,
+      statusClassCounts,
     };
   }
 
@@ -5103,11 +5134,8 @@ const _NetworkPlus = (function () {
       if (HTTP_METHODS.indexOf(method) > -1) tr.classList.add('method-' + method);
     }
     // Status code row class
-    const st = row.status;
-    if (st >= 200 && st < 300) tr.classList.add('status-2xx');
-    else if (st >= 300 && st < 400) tr.classList.add('status-3xx');
-    else if (st >= 400 && st < 500) tr.classList.add('status-4xx');
-    else if (st >= 500) tr.classList.add('status-5xx');
+    const statusClass = classifyStatusClass(row.status);
+    if (statusClass !== 'other') tr.classList.add('status-' + statusClass);
 
     const visibleCols = state.columns.filter((c) => c.visible);
     for (const c of visibleCols) {
@@ -6672,7 +6700,8 @@ const _NetworkPlus = (function () {
       if (state.filteredRows.length > 0) {
         const stats = computeStats(state.filteredRows);
         statsEl.textContent =
-          'avg ' + fmtTime(stats.avgDuration) +
+          formatStatusClassSummary(stats.statusClassCounts) +
+          ' | avg ' + fmtTime(stats.avgDuration) +
           ' · min ' + fmtTime(stats.minDuration) +
           ' · max ' + fmtTime(stats.maxDuration);
       } else {
@@ -9827,6 +9856,8 @@ const _NetworkPlus = (function () {
     sanitizeHar,
     buildHarLogFromRows,
     retainRowsByIdentity,
+    classifyStatusClass,
+    formatStatusClassSummary,
     computeStats,
     computeWaterfallBar,
     computeWaterfallRange,

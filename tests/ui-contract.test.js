@@ -1349,8 +1349,10 @@ describe('waterfall and stats topology', () => {
     expect(css).toContain('.title-row th.waterfall-header:focus-visible');
   });
 
-  test('computeStats and computeWaterfallBar and computeWaterfallRange are exported', () => {
+  test('statistics and waterfall helpers are exported', () => {
     const np = require('../panel.js');
+    expect(typeof np.classifyStatusClass).toBe('function');
+    expect(typeof np.formatStatusClassSummary).toBe('function');
     expect(typeof np.computeStats).toBe('function');
     expect(typeof np.computeWaterfallBar).toBe('function');
     expect(typeof np.computeWaterfallRange).toBe('function');
@@ -1419,6 +1421,9 @@ describe('waterfall and stats topology', () => {
     const summaryFn = js.slice(summaryFnStart, summaryFnEnd);
     expect(summaryFn).toContain("'#statsSummary'");
     expect(summaryFn).toContain('computeStats(');
+    expect(summaryFn).toContain('formatStatusClassSummary(stats.statusClassCounts)');
+    expect(summaryFn).toContain('statsEl.textContent');
+    expect(summaryFn).not.toContain('innerHTML');
   });
 
   test('waterfall CSS classes are defined: wf-track, wf-fill, wf-seg, waterfall-cell', () => {
