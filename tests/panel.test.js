@@ -3545,6 +3545,20 @@ describe('outbound sensitive-data policy', () => {
   });
 });
 
+describe('method row classes', () => {
+  test.each([
+    ['GET', ['method-GET']],
+    ['BREW', []],
+  ])('renders method %s with row method classes %p', (method, expectedClasses) => {
+    const renderedRow = np.createTableRow({ id: method, method }, jest.fn(), false);
+    const methodClasses = renderedRow.classList.add.mock.calls
+      .flat()
+      .filter((className) => className.startsWith('method-'));
+
+    expect(methodClasses).toEqual(expectedClasses);
+  });
+});
+
 describe('status class statistics', () => {
   test.each([
     [200, '2xx'],
