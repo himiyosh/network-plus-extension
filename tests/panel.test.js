@@ -3406,6 +3406,8 @@ describe('outbound sensitive-data policy', () => {
       fullName: np.REDACTION_MARKER,
       passwordConfirmation: np.REDACTION_MARKER,
     });
+    expect(sanitized.items).toHaveLength(5);
+    expect(Object.keys(sanitized.flow).sort()).toEqual(['nonce', 'session', 'sid', 'state']);
     expect(sanitized.items.every((item) => Object.values(item)[0] === np.REDACTION_MARKER)).toBe(true);
     expect(Object.values(sanitized.flow).every((value) => value === np.REDACTION_MARKER)).toBe(true);
     expect(sanitized.visible).toBe('kept');
