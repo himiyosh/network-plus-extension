@@ -3548,6 +3548,7 @@ describe('outbound sensitive-data policy', () => {
 describe('method row classes', () => {
   test.each([
     ['GET', ['method-GET']],
+    ['get', ['method-GET']],
     ['BREW', []],
   ])('renders method %s with row method classes %p', (method, expectedClasses) => {
     const renderedRow = np.createTableRow({ id: method, method }, jest.fn(), false);
