@@ -471,6 +471,15 @@ describe('guided sample capture static contracts', () => {
     expect(css).toMatch(
       /#retentionStatus\{[^}]*white-space:normal[^}]*\}\s*#statsSummary\{[^}]*white-space:normal/,
     );
+    expect(css).toMatch(
+      /\.status-summary-visual\{[^}]*display:inline-flex[^}]*flex-wrap:wrap[^}]*max-width:100%/,
+    );
+    expect(css).toMatch(
+      /\.status-summary-chips\{[^}]*display:inline-flex[^}]*flex-wrap:wrap/,
+    );
+    expect(css).toMatch(
+      /\.status-summary-duration\{[^}]*min-width:0[^}]*overflow-wrap:anywhere/,
+    );
     expect(css).toMatch(/#counter\{[^}]*white-space:normal/);
     expect(js).toContain('const restoreEmptyStateFocus = isFocusInsideEmptyState();');
     expect(js).toContain('restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);');
@@ -1362,6 +1371,7 @@ describe('waterfall and stats topology', () => {
   test('statistics and waterfall helpers are exported', () => {
     const np = require('../panel.js');
     expect(typeof np.classifyStatusClass).toBe('function');
+    expect(typeof np.getStatusClassIndicators).toBe('function');
     expect(typeof np.formatStatusClassSummary).toBe('function');
     expect(typeof np.computeStats).toBe('function');
     expect(typeof np.computeWaterfallBar).toBe('function');
@@ -1425,15 +1435,30 @@ describe('waterfall and stats topology', () => {
     expect(fnBody).toContain('return false');
   });
 
-  test('updateTableSummary updates statsSummary element', () => {
+  test('updateTableSummary delegates semantic statsSummary rendering', () => {
     const summaryFnStart = js.indexOf('function updateTableSummary(');
     const summaryFnEnd = js.indexOf('\n  function ', summaryFnStart + 1);
     const summaryFn = js.slice(summaryFnStart, summaryFnEnd);
     expect(summaryFn).toContain("'#statsSummary'");
     expect(summaryFn).toContain('computeStats(');
-    expect(summaryFn).toContain('formatStatusClassSummary(stats.statusClassCounts)');
+    expect(summaryFn).toContain('renderStatsSummary(statsEl, stats)');
     expect(summaryFn).toContain('statsEl.textContent');
     expect(summaryFn).not.toContain('innerHTML');
+  });
+
+  test('renders semantic status chips with a complete accessible text alternative', () => {
+    const rendererStart = js.indexOf('function renderStatsSummary(');
+    const rendererEnd = js.indexOf('\n  function ', rendererStart + 1);
+    const renderer = js.slice(rendererStart, rendererEnd);
+    expect(renderer).toContain('getStatusClassIndicators(stats.statusClassCounts)');
+    expect(renderer).toContain('formatStatusClassSummary(stats.statusClassCounts)');
+    expect(renderer).toContain("accessibleSummary.className = 'sr-only'");
+    expect(renderer).toContain("accessibleSummary.textContent = statusText + ' | ' + durationText");
+    expect(renderer).toContain("visualSummary.setAttribute('aria-hidden', 'true')");
+    expect(renderer).toContain("'status-summary-chip status-summary-chip--'");
+    expect(renderer).toContain("indicator.count === 0 ? ' status-summary-chip--empty' : ''");
+    expect(renderer).toContain("duration.textContent = '| ' + durationText");
+    expect(renderer).not.toContain('innerHTML');
   });
 
   test('waterfall CSS classes are defined: wf-track, wf-fill, wf-seg, waterfall-cell', () => {
@@ -1445,6 +1470,17 @@ describe('waterfall and stats topology', () => {
 
   test('statsSummary CSS is defined in the status bar section', () => {
     expect(css).toContain('#statsSummary');
+    for (const statusClass of ['2xx', '3xx', '4xx', '5xx']) {
+      expect(css).toContain(
+        `.status-summary-chip--${statusClass}{color:var(--status-${statusClass}-text)}`,
+      );
+    }
+    expect(css).toContain(
+      '.status-summary-chip--other{border-color:var(--control-border);color:var(--text-muted)}',
+    );
+    expect(css).toContain(
+      '.status-summary-chip--empty{border-color:var(--control-border);color:var(--text-muted);font-weight:600}',
+    );
   });
 });
 
