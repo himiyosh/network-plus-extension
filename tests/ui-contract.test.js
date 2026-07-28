@@ -1217,6 +1217,46 @@ describe('waterfall and stats topology', () => {
     expect(waterfallEntry).toContain("visible: false");
   });
 
+  test('Waterfall remains reorderable and resizable without no-op sort or filter controls', () => {
+    const renderHeaderStart = js.indexOf('function renderHeader()');
+    const renderHeaderEnd = js.indexOf('\n  function ', renderHeaderStart + 1);
+    const renderHeaderFn = js.slice(renderHeaderStart, renderHeaderEnd);
+    expect(renderHeaderFn).toContain("const isVisualOnly = isVisualOnlyColumn(c.id);");
+    expect(renderHeaderFn).toContain("th.className = 'waterfall-header';");
+    expect(renderHeaderFn).toContain("th.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');");
+    expect(renderHeaderFn).toContain("if (!isVisualOnly && (event.key === 'Enter'");
+    const visualHeaderStart = renderHeaderFn.indexOf('if (isVisualOnly)');
+    const visualHeaderEnd = renderHeaderFn.indexOf('} else {', visualHeaderStart);
+    const visualHeaderBranch = renderHeaderFn.slice(visualHeaderStart, visualHeaderEnd);
+    expect(visualHeaderBranch).not.toContain('aria-sort');
+    expect(visualHeaderBranch).not.toContain('aria-haspopup');
+
+    const filterPopupStart = js.indexOf('function createFilterPopupContent(');
+    const filterPopupEnd = js.indexOf('\n  function ', filterPopupStart + 1);
+    const filterPopupFn = js.slice(filterPopupStart, filterPopupEnd);
+    expect(filterPopupFn).toContain('if (isVisualOnlyColumn(col.id)) continue;');
+
+    const filterRowsStart = js.indexOf('function filterRows()');
+    const filterRowsEnd = js.indexOf('\n  function ', filterRowsStart + 1);
+    const filterRowsFn = js.slice(filterRowsStart, filterRowsEnd);
+    expect(filterRowsFn).toContain('if (isVisualOnlyColumn(colId)) continue;');
+
+    const headerContextStart = js.indexOf("$('#thead').addEventListener('contextmenu'");
+    const headerContextEnd = js.indexOf('\n\n    const columnsBtn', headerContextStart);
+    const headerContextBlock = js.slice(headerContextStart, headerContextEnd);
+    const visualOnlyGuard = headerContextBlock.indexOf('if (isVisualOnlyColumn(focusColId))');
+    const guardReturn = headerContextBlock.indexOf('return;', visualOnlyGuard);
+    const openFilter = headerContextBlock.indexOf(
+      'openFilterPopup(event.clientX, event.clientY, focusColId, th);',
+    );
+    expect(visualOnlyGuard).toBeGreaterThan(-1);
+    expect(guardReturn).toBeGreaterThan(visualOnlyGuard);
+    expect(openFilter).toBeGreaterThan(guardReturn);
+
+    expect(css).toContain('.title-row th.waterfall-header{cursor:default');
+    expect(css).toContain('.title-row th.waterfall-header:focus-visible');
+  });
+
   test('computeStats and computeWaterfallBar and computeWaterfallRange are exported', () => {
     const np = require('../panel.js');
     expect(typeof np.computeStats).toBe('function');
