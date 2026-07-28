@@ -5,6 +5,11 @@ const root = path.join(__dirname, '..');
 const css = fs.readFileSync(path.join(root, 'panel.css'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'panel.html'), 'utf8');
 const js = fs.readFileSync(path.join(root, 'panel.js'), 'utf8');
+const testSources = fs
+  .readdirSync(__dirname)
+  .filter((name) => name.endsWith('.test.js'))
+  .map((name) => fs.readFileSync(path.join(__dirname, name), 'utf8'))
+  .join('\n');
 
 const getBlock = (pattern) => {
   const match = css.match(pattern);
@@ -208,6 +213,25 @@ describe('accessible workbench static contracts', () => {
     expect(html).toMatch(/id="resizer"[^>]*role="separator"[^>]*aria-orientation="vertical"[^>]*aria-valuenow="50"/);
     expect(html).not.toMatch(/id="pauseBtn"[^>]*aria-pressed/);
     expect(js).not.toContain("pauseBtn.setAttribute('aria-pressed'");
+  });
+});
+
+describe('details collapse static contracts', () => {
+  test('does not preserve a behavior-free collapse class contract', () => {
+    const className = ['details', 'collapsed'].join('-');
+    const countOccurrences = (source) => source.split(className).length - 1;
+
+    expect({
+      implementation: countOccurrences(js),
+      markup: countOccurrences(html),
+      styles: countOccurrences(css),
+      tests: countOccurrences(testSources),
+    }).toEqual({
+      implementation: 0,
+      markup: 0,
+      styles: 0,
+      tests: 0,
+    });
   });
 });
 

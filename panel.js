@@ -7009,10 +7009,8 @@ const _NetworkPlus = (function () {
   // ============================================================
 
   function setDetailsPanelCollapsed(collapsed) {
-    const content = $('#content');
     const resizer = $('#resizer');
     const details = $('#details');
-    if (content) content.classList.toggle('details-collapsed', collapsed);
     if (resizer) resizer.hidden = collapsed;
     if (details) details.hidden = collapsed;
   }

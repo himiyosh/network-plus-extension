@@ -181,6 +181,14 @@ async function evaluate(cdp, expression, awaitPromise = false) {
   return response.result.value;
 }
 
+async function expectFullAccessibilityTreeWithoutControl(cdp, accessibleName) {
+  const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+  expect(accessibilityTree.nodes.length).toBeGreaterThan(0);
+  expect(
+    accessibilityTree.nodes.some((node) => node.name?.value === accessibleName),
+  ).toBe(false);
+}
+
 async function stopBrowser(browserProcess) {
   const hasExited = () =>
     !browserProcess || browserProcess.exitCode !== null || browserProcess.signalCode !== null;
@@ -274,6 +282,28 @@ test('profile cleanup rethrows non-transient removal errors', () => {
   } finally {
     removeSpy.mockRestore();
   }
+});
+
+test('collapsed accessibility check rejects an empty second AX tree', async () => {
+  const cdp = {
+    send: jest
+      .fn()
+      .mockResolvedValueOnce({
+        nodes: [{ name: { value: 'Close request details' }, role: { value: 'button' } }],
+      })
+      .mockResolvedValueOnce({ nodes: [] }),
+  };
+
+  const initialAccessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+  expect(
+    initialAccessibilityTree.nodes.some(
+      (node) => node.role?.value === 'button' && node.name?.value === 'Close request details',
+    ),
+  ).toBe(true);
+  await expect(
+    expectFullAccessibilityTreeWithoutControl(cdp, 'Close request details'),
+  ).rejects.toThrow();
+  expect(cdp.send).toHaveBeenNthCalledWith(2, 'Accessibility.getFullAXTree');
 });
 
 browserTest(
@@ -515,8 +545,9 @@ browserTest(
           const focusedRect = focusedRow?.getBoundingClientRect();
           return {
             detailsHidden: document.querySelector('#details').hidden,
+            detailsDisplay: getComputedStyle(document.querySelector('#details')).display,
             resizerHidden: document.querySelector('#resizer').hidden,
-            collapsedClass: document.querySelector('#content').classList.contains('details-collapsed'),
+            resizerDisplay: getComputedStyle(document.querySelector('#resizer')).display,
             focusedRowId: focusedRow?.dataset.rowId || null,
             focusedRowVisible:
               !!focusedRect && focusedRect.bottom > table.top && focusedRect.top < table.bottom,
@@ -527,19 +558,15 @@ browserTest(
       );
       expect(wideCollapsed).toEqual({
         detailsHidden: true,
+        detailsDisplay: 'none',
         resizerHidden: true,
-        collapsedClass: true,
+        resizerDisplay: 'none',
         focusedRowId: initial.selectedRowId,
         focusedRowVisible: true,
         contentWidth: 1280,
         tableWidth: 1280,
       });
-      const collapsedAccessibilityTree = await cdp.send('Accessibility.getFullAXTree');
-      expect(
-        collapsedAccessibilityTree.nodes.some(
-          (node) => node.name?.value === 'Close request details',
-        ),
-      ).toBe(false);
+      await expectFullAccessibilityTreeWithoutControl(cdp, 'Close request details');
       await evaluate(
         cdp,
         `(() => {
@@ -637,7 +664,9 @@ browserTest(
           const table = document.querySelector('#tableWrap').getBoundingClientRect();
           return {
             detailsHidden: document.querySelector('#details').hidden,
+            detailsDisplay: getComputedStyle(document.querySelector('#details')).display,
             resizerHidden: document.querySelector('#resizer').hidden,
+            resizerDisplay: getComputedStyle(document.querySelector('#resizer')).display,
             documentOverflowX:
               document.documentElement.scrollWidth - document.documentElement.clientWidth,
             focusedRowId: document.activeElement?.closest?.('tr[data-row-id]')?.dataset.rowId || null,
@@ -647,7 +676,9 @@ browserTest(
         })()`,
       );
       expect(narrowCollapsed.detailsHidden).toBe(true);
+      expect(narrowCollapsed.detailsDisplay).toBe('none');
       expect(narrowCollapsed.resizerHidden).toBe(true);
+      expect(narrowCollapsed.resizerDisplay).toBe('none');
       expect(narrowCollapsed.documentOverflowX).toBe(0);
       expect(narrowCollapsed.focusedRowId).toBe(wideReopened.selectedRowId);
       expect(narrowCollapsed.tableHeight).toBe(narrowCollapsed.contentHeight);

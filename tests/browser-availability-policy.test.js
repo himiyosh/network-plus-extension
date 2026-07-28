@@ -46,6 +46,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
       title: 'profile cleanup rethrows non-transient removal errors',
     },
     {
+      skipped: false,
+      title: 'collapsed accessibility check rejects an empty second AX tree',
+    },
+    {
       skipped: true,
       title: 'live summary update preserves focused status chip identity and the pending click gesture',
     },
