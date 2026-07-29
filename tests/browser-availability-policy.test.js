@@ -7,6 +7,8 @@ const browserSuiteSource = fs.readFileSync(browserSuitePath, 'utf8');
 const TOOLBAR_FOCUS_JOURNEY_TITLE =
   'constrained toolbar prioritizes actions while preserving local overflow access';
 const REVERSE_TOOLBAR_FOCUS_CONTRACT = 'reverse-direction toolbar focus containment';
+const SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT =
+  'synchronous toolbar keyboard focus-scroll timing';
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -127,6 +129,49 @@ const assertToolbarReverseFocusContract = (source) => {
   );
   if (missingRequirement) {
     throw new Error(`${REVERSE_TOOLBAR_FOCUS_CONTRACT}: missing ${missingRequirement.name}.`);
+  }
+};
+
+const assertSynchronousToolbarFocusScrollContract = (source) => {
+  const journey = evaluateBrowserSuite(source, {}).find(
+    ({ title, callback }) =>
+      title === TOOLBAR_FOCUS_JOURNEY_TITLE && typeof callback === 'function',
+  );
+  if (!journey) {
+    throw new Error(
+      `${SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT}: "${TOOLBAR_FOCUS_JOURNEY_TITLE}" is not registered.`,
+    );
+  }
+
+  const callbackSource = Function.prototype.toString.call(journey.callback);
+  const requirements = [
+    {
+      name: 'capture-phase event identity',
+      pattern:
+        /probe\.currentEventId = \+\+probe\.nextEventId;\s*},\s*\{ capture: true, signal: controller\.signal \},\s*\);\s*Element\.prototype\.scrollIntoView/,
+    },
+    {
+      name: 'in-event scrollIntoView observation',
+      pattern:
+        /Element\.prototype\.scrollIntoView = function \(options\) \{[\s\S]*?eventId: probe\.currentEventId,/,
+    },
+    {
+      name: 'exact focus timing trace',
+      pattern:
+        /TOOLBAR_FOCUS_VIEWPORT_WIDTHS\.flatMap\(\(width\) =>[\s\S]*?\[\.\.\.expectedTabOrder, \.\.\.reverseTabOrder\]/,
+    },
+    {
+      name: 'production timing assertion',
+      pattern: /assertSynchronousToolbarFocusScroll\(focusScrollTimingTrace\);/,
+    },
+  ];
+  const missingRequirement = requirements.find(
+    ({ pattern }) => !pattern.test(callbackSource),
+  );
+  if (missingRequirement) {
+    throw new Error(
+      `${SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT}: missing ${missingRequirement.name}.`,
+    );
   }
 };
 
@@ -253,6 +298,10 @@ test('locks the toolbar journey to real reverse Shift+Tab and a named one-sided 
   expect(() => assertToolbarReverseFocusContract(browserSuiteSource)).not.toThrow();
 });
 
+test('locks the toolbar journey to an in-event synchronous focus-scroll timing probe', () => {
+  expect(() => assertSynchronousToolbarFocusScrollContract(browserSuiteSource)).not.toThrow();
+});
+
 test.each([
   [
     'Shift+Tab removal',
@@ -276,6 +325,32 @@ test.each([
   expect(mutatedSource).not.toBe(browserSuiteSource);
   expect(() => assertToolbarReverseFocusContract(mutatedSource)).toThrow(
     REVERSE_TOOLBAR_FOCUS_CONTRACT,
+  );
+});
+
+test.each([
+  [
+    'capture-phase event identity removal',
+    (source) =>
+      source.replace(
+        /(probe\.currentEventId = \+\+probe\.nextEventId;\s*},\s*)\{ capture: true, signal: controller\.signal \}/,
+        '$1{ signal: controller.signal }',
+      ),
+  ],
+  [
+    'production timing assertion removal',
+    (source) =>
+      source.replace(
+        'assertSynchronousToolbarFocusScroll(focusScrollTimingTrace);',
+        'void focusScrollTimingTrace;',
+      ),
+  ],
+])('%s fails with the synchronous focus-scroll diagnostic', (_mutationName, mutateSource) => {
+  const mutatedSource = mutateSource(browserSuiteSource);
+
+  expect(mutatedSource).not.toBe(browserSuiteSource);
+  expect(() => assertSynchronousToolbarFocusScrollContract(mutatedSource)).toThrow(
+    SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT,
   );
 });
 
