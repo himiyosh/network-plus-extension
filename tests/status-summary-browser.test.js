@@ -12,9 +12,9 @@ const BROWSER_REQUIRED_IN_CI_MESSAGE =
   'Real-browser regression tests require an executable Chrome or Edge in CI. ' +
   'Set EDGE_BIN or CHROME_BIN to an executable browser path.';
 const TRANSIENT_PROFILE_CLEANUP_ERRORS = new Set(['ENOTEMPTY', 'EBUSY']);
-const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1280, 1366, 1367, 1500];
-const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
-const GRID_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
+const TOOLBAR_VIEWPORT_WIDTHS = [1280];
+const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [1280];
+const GRID_FOCUS_VIEWPORT_WIDTHS = [1280];
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -793,7 +793,7 @@ browserTest(
       );
 
       const viewportMeasurements = [];
-      for (const width of TOOLBAR_VIEWPORT_WIDTHS) {
+      for (const width of [375, 500, 800, 1280, 1366, 1367, 1500]) {
         await cdp.send('Emulation.setDeviceMetricsOverride', {
           width,
           height: 800,
@@ -900,7 +900,7 @@ browserTest(
         'shortcutBtn',
       ];
       const focusMeasurements = [];
-      for (const width of TOOLBAR_FOCUS_VIEWPORT_WIDTHS) {
+      for (const width of [375, 500, 800, 1280]) {
         await cdp.send('Emulation.setDeviceMetricsOverride', {
           width,
           height: 800,
@@ -1295,7 +1295,7 @@ browserTest(
           true,
         );
       const focusMeasurements = [];
-      for (const width of GRID_FOCUS_VIEWPORT_WIDTHS) {
+      for (const width of [375, 500, 800, 1280]) {
         await cdp.send('Emulation.setDeviceMetricsOverride', {
           width,
           height: 800,
