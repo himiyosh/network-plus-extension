@@ -16,6 +16,8 @@ const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1280, 1366, 1367, 1500];
 const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const GRID_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const REVERSE_TOOLBAR_FOCUS_CONTRACT = 'reverse-direction toolbar focus containment';
+const SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT =
+  'synchronous toolbar keyboard focus-scroll timing';
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -217,6 +219,21 @@ function assertToolbarFocusContainment(trace, contractName) {
       '/' +
       violation.actionWidth +
       'px visible).',
+  );
+}
+
+function assertSynchronousToolbarFocusScroll(trace) {
+  const violation = trace.find((entry) => entry.scrollIntoViewCallsDuringFocusin !== 1);
+  if (!violation) return;
+  throw new Error(
+    SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT +
+      ': ' +
+      violation.actionId +
+      ' at ' +
+      violation.width +
+      'px observed ' +
+      violation.scrollIntoViewCallsDuringFocusin +
+      ' toolbar scrollIntoView calls before focusin completed; expected exactly 1.',
   );
 }
 
@@ -920,6 +937,62 @@ browserTest(
         'shortcutBtn',
       ];
       const reverseTabOrder = expectedTabOrder.slice().reverse();
+      await evaluate(
+        cdp,
+        `(() => {
+          const toolbar = document.querySelector('.topbar');
+          const originalScrollIntoView = Element.prototype.scrollIntoView;
+          const controller = new AbortController();
+          const probe = {
+            calls: [],
+            controller,
+            currentActionId: null,
+            currentEventId: null,
+            focusEvents: [],
+            nextEventId: 0,
+            originalScrollIntoView,
+          };
+          window.__toolbarFocusScrollTimingProbe = probe;
+          toolbar.addEventListener(
+            'focusin',
+            (event) => {
+              const action = event.target.closest('button');
+              if (!action || !toolbar.contains(action)) return;
+              probe.currentActionId = action.id;
+              probe.currentEventId = ++probe.nextEventId;
+            },
+            { capture: true, signal: controller.signal },
+          );
+          Element.prototype.scrollIntoView = function (options) {
+            if (toolbar.contains(this)) {
+              probe.calls.push({
+                actionId: this.id,
+                eventId: probe.currentEventId,
+              });
+            }
+            originalScrollIntoView.call(this, options);
+          };
+          toolbar.addEventListener(
+            'focusin',
+            (event) => {
+              const action = event.target.closest('button');
+              if (!action || !toolbar.contains(action)) return;
+              probe.focusEvents.push({
+                actionId: action.id,
+                scrollIntoViewCallsDuringFocusin: probe.calls.filter(
+                  (call) =>
+                    call.eventId === probe.currentEventId &&
+                    call.actionId === probe.currentActionId,
+                ).length,
+                width: innerWidth,
+              });
+              probe.currentActionId = null;
+              probe.currentEventId = null;
+            },
+            { signal: controller.signal },
+          );
+        })()`,
+      );
       const measureToolbarFocusTarget = () =>
         evaluate(
           cdp,
@@ -1070,6 +1143,27 @@ browserTest(
           })),
       );
       expect(clippedFocusMeasurements).toEqual([]);
+      const focusScrollTimingTrace = await evaluate(
+        cdp,
+        `(() => {
+          const probe = window.__toolbarFocusScrollTimingProbe;
+          probe.controller.abort();
+          Element.prototype.scrollIntoView = probe.originalScrollIntoView;
+          delete window.__toolbarFocusScrollTimingProbe;
+          return probe.focusEvents;
+        })()`,
+      );
+      expect(
+        focusScrollTimingTrace.map(({ actionId, width }) => ({ actionId, width })),
+      ).toEqual(
+        TOOLBAR_FOCUS_VIEWPORT_WIDTHS.flatMap((width) =>
+          [...expectedTabOrder, ...reverseTabOrder].map((actionId) => ({
+            actionId,
+            width,
+          })),
+        ),
+      );
+      assertSynchronousToolbarFocusScroll(focusScrollTimingTrace);
 
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 375,
