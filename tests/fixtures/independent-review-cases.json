@@ -7,53 +7,91 @@
   "comments": {
     "missingBy": [
       {
-        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass"
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass",
+        "author_association": "OWNER"
       }
     ],
     "malformedBy": [
       {
-        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=not-a-uuid"
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=not-a-uuid",
+        "author_association": "OWNER"
       }
     ],
     "staleHead": [
       {
-        "body": "independent-review head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb verdict=pass by=11111111-1111-4111-8111-111111111111"
+        "body": "independent-review head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
       }
     ],
     "wrongVerdict": [
       {
-        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=fail by=11111111-1111-4111-8111-111111111111"
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=fail by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
       }
     ],
     "selfReview": [
       {
-        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=33333333-3333-4333-8333-333333333333"
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=33333333-3333-4333-8333-333333333333",
+        "author_association": "OWNER"
       }
     ],
     "valid": [
       {
-        "body": "\n\nindependent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111\nIndependent review notes."
+        "body": "\n\nindependent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111\nIndependent review notes.",
+        "author_association": "OWNER"
       }
     ],
     "multiple": [
       {
-        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass"
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass",
+        "author_association": "OWNER"
       },
       {
-        "body": "independent-review head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb verdict=pass by=11111111-1111-4111-8111-111111111111"
+        "body": "independent-review head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
       },
       {
-        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111\nReview completed for the current head."
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111\nReview completed for the current head.",
+        "author_association": "OWNER"
       }
     ],
     "fencedMarker": [
       {
-        "body": "```text\nindependent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111\n```"
+        "body": "```text\nindependent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111\n```",
+        "author_association": "OWNER"
       }
     ],
     "instructionalMarker": [
       {
-        "body": "Post this example only after review:\nindependent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111"
+        "body": "Post this example only after review:\nindependent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
+      }
+    ],
+    "contributorMarker": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "CONTRIBUTOR"
+      }
+    ],
+    "noneMarker": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "NONE"
+      }
+    ],
+    "missingAssociation": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111"
+      }
+    ],
+    "mixedAuthority": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "CONTRIBUTOR"
+      },
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
       }
     ]
   },

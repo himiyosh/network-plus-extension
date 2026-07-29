@@ -49,13 +49,15 @@ describe('independent-review marker evaluation', () => {
     });
   });
 
-  test('passes an exact-head marker with a well-formed independent UUID', () => {
+  test('passes an exact-head OWNER marker with a well-formed independent UUID', () => {
     expect(evaluateComments(fixtures.comments.valid)).toMatchObject({
       ok: true,
       code: 'VALID_MARKER',
       reviewerId: fixtures.reviewerUuid,
+      commentIndex: 1,
       diagnostics: {
         implementationSessionIds: 2,
+        unauthorizedMarkers: 0,
       },
     });
   });
@@ -139,11 +141,45 @@ describe('independent-review marker evaluation', () => {
     });
   });
 
+  test.each([
+    ['CONTRIBUTOR', 'contributorMarker'],
+    ['NONE', 'noneMarker'],
+  ])('rejects an exact marker from a %s comment', (_, fixtureName) => {
+    expect(evaluateComments(fixtures.comments[fixtureName])).toMatchObject({
+      ok: false,
+      code: 'NO_VALID_MARKER',
+      diagnostics: {
+        implementationSessionIds: 2,
+        unauthorizedMarkers: 1,
+      },
+    });
+  });
+
+  test('fails closed when a comment is missing author_association', () => {
+    expect(() => evaluateComments(fixtures.comments.missingAssociation)).toThrow(
+      'issue comment entry 1 is missing author_association',
+    );
+  });
+
+  test('passes mixed comments only through the exact OWNER marker', () => {
+    expect(evaluateComments(fixtures.comments.mixedAuthority)).toMatchObject({
+      ok: true,
+      code: 'VALID_MARKER',
+      reviewerId: fixtures.reviewerUuid,
+      commentIndex: 2,
+      diagnostics: {
+        implementationSessionIds: 2,
+        unauthorizedMarkers: 1,
+      },
+    });
+  });
+
   test('formats the implementation-session count without commit content', () => {
     const { formatDiagnostics } = loadChecker();
     const result = evaluateComments(fixtures.comments.valid);
 
     expect(formatDiagnostics(result.diagnostics)).toContain('implementationSessionIds=2');
+    expect(formatDiagnostics(result.diagnostics)).toContain('unauthorized=0');
     expect(formatDiagnostics(result.diagnostics)).not.toContain('Copilot App');
   });
 });
