@@ -367,7 +367,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | [docs/store-assets/](docs/store-assets/) | 300x300 ロゴ、1280x800 合成サンプル画像、機械可読 inventory |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-coordinator-contract.js](scripts/check-coordinator-contract.js) | コーディネータートポロジー規約と agent `tools:` 制限リスト再導入の静的チェック |
-| [scripts/check-independent-review.js](scripts/check-independent-review.js) | first non-empty unfenced line の exact-head PASS marker、full reviewer UUID、physical/escaped PR commit trailer の `Copilot-Session` との独立性を検証する required CI gate |
+| [scripts/check-independent-review.js](scripts/check-independent-review.js) | GitHub `OWNER` comment の first non-empty unfenced line にある exact-head PASS marker、full reviewer UUID、physical/escaped PR commit trailer の `Copilot-Session` との独立性を検証する required CI gate |
 | [scripts/check-extension-package.js](scripts/check-extension-package.js) | 拡張機能の参照・権限・配布内容チェックとZIP作成 |
 | [scripts/check-store-readiness.js](scripts/check-store-readiness.js) | package discovery metadata、Edge Add-ons dossier/privacy、URL、manifest同期、合成 PNG 寸法・inventory の静的チェック |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | manifest/package/package-lock/panel fallback バージョン同期チェックスクリプト |
@@ -380,7 +380,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 ### Unreleased
 
-- required Node 22/24 CI の最終 step に exact-head `independent-review` marker gate を追加し、first non-empty unfenced line の marker、full reviewer UUID、physical/escaped PR commit の `Copilot-Session` trailer との不一致を必須化
+- required Node 22/24 CI の最終 step に exact-head `independent-review` marker gate を追加し、GitHub `OWNER` comment の first non-empty unfenced line にある marker、full reviewer UUID、physical/escaped PR commit の `Copilot-Session` trailer との不一致を必須化
 - 検証済みの description、homepage、support route、7 件の search vocabulary を `package.json` に記録し、`store:check` で manifest / Edge Add-ons dossier との drift を拒否。README 冒頭から release ZIP と support へ直接移動できる導線も追加
 - 完全なローカルサンプル中だけ、ステータスバーと `Sample guide` に `Exit · restore prior recording state` を追加。3 件の provenance / method / domain / path / status を検証して fail closed に終了し、開始前の記録状態とカラムフィルターを復元
 - `Keyboard Shortcuts` ダイアログに、captured traffic を読まず、allowlist 済みの version / Edge major / coarse OS / settings のみを直接操作時にコピーする任意の `Copy safe support summary` を追加

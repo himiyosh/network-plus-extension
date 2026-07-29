@@ -20,6 +20,7 @@ const COPILOT_COAUTHOR_PATTERN = new RegExp(
 );
 const FENCE_OPEN_PATTERN = /^\s*(`{3,}|~{3,})/;
 const FENCE_CLOSE_PATTERN = /^\s*(`{3,}|~{3,})\s*$/;
+const REQUIRED_AUTHOR_ASSOCIATION = 'OWNER';
 const DEFAULT_API_URL = 'https://api.github.com';
 const PAGE_SIZE = 100;
 const MAX_PAGES = 100;
@@ -155,6 +156,9 @@ const validateComments = (comments) => {
     if (!comment || typeof comment !== 'object' || typeof comment.body !== 'string') {
       throw new Error(`issue comment entry ${index + 1} is missing body`);
     }
+    if (typeof comment.author_association !== 'string' || comment.author_association === '') {
+      throw new Error(`issue comment entry ${index + 1} is missing author_association`);
+    }
   }
 };
 
@@ -197,6 +201,7 @@ const createDiagnostics = (implementationSessionIds) => ({
   wrongVerdictMarkers: 0,
   selfReviewMarkers: 0,
   misplacedMarkers: 0,
+  unauthorizedMarkers: 0,
 });
 
 const inspectCommentMarker = (body) => {
@@ -258,6 +263,10 @@ const evaluateIndependentReview = ({ comments, commits, headSha }) => {
     const marker = inspection.marker;
     diagnostics.misplacedMarkers += inspection.misplacedMarkers;
     if (marker.kind === 'not-marker') {
+      continue;
+    }
+    if (comment.author_association !== REQUIRED_AUTHOR_ASSOCIATION) {
+      diagnostics.unauthorizedMarkers += 1;
       continue;
     }
 
@@ -392,6 +401,7 @@ const formatDiagnostics = (diagnostics) =>
     `wrongVerdict=${diagnostics.wrongVerdictMarkers}`,
     `selfReview=${diagnostics.selfReviewMarkers}`,
     `misplaced=${diagnostics.misplacedMarkers}`,
+    `unauthorized=${diagnostics.unauthorizedMarkers}`,
   ].join(', ');
 
 const main = async () => {
@@ -433,6 +443,7 @@ module.exports = {
   COPILOT_SESSION_PATTERN,
   COPILOT_COAUTHOR_PATTERN,
   MARKER_PATTERN,
+  REQUIRED_AUTHOR_ASSOCIATION,
   SHA_PATTERN,
   UUID_PATTERN,
   evaluateIndependentReview,
