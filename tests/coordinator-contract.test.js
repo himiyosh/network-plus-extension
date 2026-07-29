@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const {
   REQUIRED_TOPOLOGY_SECTIONS,
+  REQUIRED_TOPOLOGY_CONCEPTS,
   REQUIRED_INSTRUCTIONS_CONCEPTS,
   AGENT_HOST_TOOL_FALLBACK_CONCEPT,
   AGENT_REVIEW_GOVERNANCE_CONCEPTS,
@@ -16,6 +17,30 @@ const {
   validateAgentHostToolFallback,
   validateAgentReviewGovernance,
 } = require('../scripts/check-coordinator-contract');
+
+const REVIEW_MARKER_EXAMPLE = 'independent-review head=<40hex> verdict=pass by=<full lowercase UUID>';
+const REVIEW_GUIDANCE_CONCEPTS = [
+  REVIEW_MARKER_EXAMPLE,
+  'HTML comment',
+  'at=',
+  'fenced',
+  'incompatible',
+  'proxy',
+  'merger self-review',
+  'issue #95',
+];
+const ROTATION_CONCEPTS = [
+  'INDEPENDENT_REVIEW_REVIEWER_SESSION_ID',
+  'INDEPENDENT_REVIEW_MERGER_SESSION_ID',
+  'gh variable set',
+  'gh variable get',
+];
+const REVIEW_GOVERNANCE_TEXT = [
+  '`independent-review` は `continuous-improvement-watchdog.md` の global owner が担当し、`by=` は full UUID とする。',
+  '実装チャイルドを所有または adopt した coordinator は投稿禁止。`Copilot-Session` 一致は拒否し、マージ済み履歴には遡及適用しない。',
+  ...REVIEW_GUIDANCE_CONCEPTS,
+  ...ROTATION_CONCEPTS,
+].join(' ');
 
 // ---------------------------------------------------------------------------
 // Unit tests for pure helpers
@@ -64,8 +89,7 @@ describe('validateTopologyDoc', () => {
       size: '## セッションサイズ制限\n\nキックオフ 32 KiB、完了 8 KiB、ハンドオフ 64 KiB。\n',
       rollover: '## ロールオーバー条件\n\n約 70% に達した場合。100 ターン。\n',
       cleanup: '## クリーンアップゲート\n\nゲート一覧。\n',
-      review:
-        '## 独立レビューゲート\n\n`independent-review` は `continuous-improvement-watchdog.md` の global owner が担当し、`by=` は full UUID とする。実装チャイルドを所有または adopt した coordinator は投稿禁止。`Copilot-Session` 一致は拒否し、マージ済み履歴には遡及適用しない。\n',
+      review: `## 独立レビューゲート\n\n${REVIEW_GOVERNANCE_TEXT}\n`,
       fallback: '## Host-Tool Fallback\n\nBLOCKERS: 報告方法。\n',
       datasafety: '## データ安全性\n\nデータ安全性ルール。\n',
     };
@@ -161,8 +185,7 @@ describe('validateCopilotInstructions', () => {
       max3: '同時に 3 つまで',
       sizes: '32 KiB キックオフ、8 KiB 完了報告、64 KiB ハンドオフ',
       rollover: '約 70% に達した場合',
-      review:
-        '`independent-review` は `continuous-improvement-watchdog.md` の global owner が担当し、`by=` は full UUID とする。実装チャイルドを所有または adopt した coordinator は投稿禁止。`Copilot-Session` 一致は拒否し、マージ済み履歴には遡及適用しない。',
+      review: REVIEW_GOVERNANCE_TEXT,
       fallback: '### 7.5 Host-Tool Fallback\n\nBLOCKERS: 報告方法。',
       noManifest: '追跡ファイルのコミットは行わない',
       sensitive: 'PII・顧客データ',
@@ -237,7 +260,7 @@ describe('validateCopilotInstructions', () => {
   test('REQUIRED_INSTRUCTIONS_CONCEPTS covers all checked concepts', () => {
     // Each concept must be detected when missing
     for (const [concept] of REQUIRED_INSTRUCTIONS_CONCEPTS) {
-      const content = buildInstructions().replace(concept, '');
+      const content = buildInstructions().split(concept).join('');
       const errors = validateCopilotInstructions(content);
       expect(errors.some((e) => e.includes(concept))).toBe(true);
     }
@@ -267,8 +290,7 @@ describe('validateAgentHostToolFallback', () => {
 });
 
 describe('validateAgentReviewGovernance', () => {
-  const compliantAgent =
-    '`independent-review` は `continuous-improvement-watchdog.md` の global owner が担当し、`by=` は full UUID とする。実装チャイルドを所有または adopt した coordinator は投稿禁止。`Copilot-Session` 一致は拒否する。';
+  const compliantAgent = REVIEW_GOVERNANCE_TEXT;
 
   test('accepts complete independent-review governance', () => {
     expect(validateAgentReviewGovernance(compliantAgent)).toEqual([]);
@@ -276,8 +298,31 @@ describe('validateAgentReviewGovernance', () => {
 
   test('reports every missing independent-review governance concept', () => {
     for (const concept of AGENT_REVIEW_GOVERNANCE_CONCEPTS) {
-      const errors = validateAgentReviewGovernance(compliantAgent.replace(concept, ''));
+      const errors = validateAgentReviewGovernance(compliantAgent.split(concept).join(''));
       expect(errors.some((error) => error.includes(concept))).toBe(true);
+    }
+  });
+});
+
+describe('protected independent-review guidance contract', () => {
+  test('keeps the exact marker, invalid-form rejections, and trust boundary in every loaded guidance surface', () => {
+    const topologyConcepts = REQUIRED_TOPOLOGY_CONCEPTS;
+    const instructionConcepts = REQUIRED_INSTRUCTIONS_CONCEPTS.map(([concept]) => concept);
+
+    expect(topologyConcepts).toEqual(expect.arrayContaining([...REVIEW_GUIDANCE_CONCEPTS, ...ROTATION_CONCEPTS]));
+    expect(instructionConcepts).toEqual(expect.arrayContaining(REVIEW_GUIDANCE_CONCEPTS));
+    expect(AGENT_REVIEW_GOVERNANCE_CONCEPTS).toEqual(expect.arrayContaining(REVIEW_GUIDANCE_CONCEPTS));
+  });
+
+  test.each([
+    ['docs/coordinator-topology.md', [...REVIEW_GUIDANCE_CONCEPTS, ...ROTATION_CONCEPTS]],
+    ['.github/copilot-instructions.md', REVIEW_GUIDANCE_CONCEPTS],
+    ['.github/agents/NetworkPlusAgent.agent.md', REVIEW_GUIDANCE_CONCEPTS],
+  ])('%s contains the repository-specific reviewer contract', (filePath, requiredConcepts) => {
+    const content = fs.readFileSync(path.join(__dirname, '..', filePath), 'utf8');
+
+    for (const concept of requiredConcepts) {
+      expect(content).toContain(concept);
     }
   });
 });
