@@ -116,7 +116,7 @@ const assertToolbarReverseFocusContract = (source) => {
     {
       name: 'one-sided focus-scroll mutation',
       pattern:
-        /Element\.prototype\.scrollIntoView = function \(options\) \{[\s\S]*?toolbar\.scrollLeft = lockedToolbarScrollLeft;/,
+        /window\.__reverseToolbarOriginalScrollIntoView = Element\.prototype\.scrollIntoView;\s*const originalScrollIntoView = Element\.prototype\.scrollIntoView;\s*Element\.prototype\.scrollIntoView = function \(options\) \{\s*if \(toolbar\.contains\(this\)\) \{\s*toolbar\.scrollLeft = lockedToolbarScrollLeft;/,
     },
     {
       name: 'named mutation rejection',
