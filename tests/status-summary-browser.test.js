@@ -1019,17 +1019,23 @@ browserTest(
             const action = document.querySelector('#${pointerCase.actionId}');
             action.style.transform = '';
             const toolbarRect = toolbar.getBoundingClientRect();
-            const visibleLeft = toolbarRect.left + toolbar.clientLeft;
-            const visibleRight = visibleLeft + toolbar.clientWidth;
+            const toolbarLeft = toolbarRect.left + toolbar.clientLeft;
+            const toolbarRight = toolbarLeft + toolbar.clientWidth;
+            const toolbarTop = toolbarRect.top + toolbar.clientTop;
+            const toolbarBottom = toolbarTop + toolbar.clientHeight;
             const forcedVisibleWidth = ${pointerCase.forcedVisibleWidth ?? 'null'};
             if (forcedVisibleWidth !== null) {
               const initialActionRect = action.getBoundingClientRect();
               action.style.transform =
                 'translateX(' +
-                (visibleRight - forcedVisibleWidth - initialActionRect.left) +
+                (toolbarRight - forcedVisibleWidth - initialActionRect.left) +
                 'px)';
             }
             const actionRect = action.getBoundingClientRect();
+            const visibleLeft = Math.max(actionRect.left, toolbarLeft);
+            const visibleRight = Math.min(actionRect.right, toolbarRight);
+            const visibleTop = Math.max(actionRect.top, toolbarTop);
+            const visibleBottom = Math.min(actionRect.bottom, toolbarBottom);
             const controller = new AbortController();
             window.__toolbarPointerProbeController?.abort();
             window.__toolbarPointerProbeController = controller;
@@ -1052,15 +1058,9 @@ browserTest(
               { signal: controller.signal },
             );
             return {
-              x: Math.min(actionRect.right - 4, visibleRight - 4),
-              y: actionRect.top + actionRect.height / 2,
-              visibleWidth: Math.round(
-                Math.max(
-                  0,
-                  Math.min(actionRect.right, visibleRight) -
-                    Math.max(actionRect.left, visibleLeft),
-                ),
-              ),
+              x: (visibleLeft + visibleRight) / 2,
+              y: (visibleTop + visibleBottom) / 2,
+              visibleWidth: Math.round(Math.max(0, visibleRight - visibleLeft)),
               actionWidth: Math.round(actionRect.width),
             };
           })()`,
