@@ -36,14 +36,29 @@ test('fails explicitly in CI when no browser executable is discoverable', () => 
 });
 
 test('locks toolbar branding coverage to both exact sides of the content breakpoint', () => {
-  const viewportDeclaration = browserSuiteSource.match(
-    /const TOOLBAR_VIEWPORT_WIDTHS = \[([^\]]+)\];/,
-  );
+  const viewportDeclaration = browserSuiteSource.match(/const TOOLBAR_VIEWPORT_WIDTHS = \[([^\]]+)\];/);
 
   expect(viewportDeclaration).not.toBeNull();
-  expect(viewportDeclaration[1].match(/\d+/g).map(Number)).toEqual([
-    375, 500, 800, 1280, 1366, 1367, 1500,
-  ]);
+  expect(viewportDeclaration[1].match(/\d+/g).map(Number)).toEqual([375, 500, 800, 1280, 1366, 1367, 1500]);
+});
+
+test('locks request-grid focus coverage to narrow, stacked, and split layouts', () => {
+  const viewportDeclaration = browserSuiteSource.match(/const GRID_FOCUS_VIEWPORT_WIDTHS = \[([^\]]+)\];/);
+
+  expect(viewportDeclaration).not.toBeNull();
+  expect(viewportDeclaration[1].match(/\d+/g).map(Number)).toEqual([375, 500, 800, 1280]);
+});
+
+test('locks the request-grid journey to real forward and reverse Tab traversal', () => {
+  const journeyStart = browserSuiteSource.indexOf(
+    "'request-grid focus stays visible without disrupting pointer sorting or resizing'",
+  );
+
+  expect(journeyStart).toBeGreaterThan(-1);
+  const gridJourney = browserSuiteSource.slice(journeyStart);
+  expect(gridJourney).toContain('const reverseGridTargets = expectedGridTargets.slice().reverse();');
+  expect(gridJourney).toContain("await pressKey(cdp, 'Tab', 'Tab', 9, 8);");
+  expect(gridJourney).toContain('reverseTabTrace.push(traceEntry);');
 });
 
 test('retains the local-only skip when no browser executable is discoverable', () => {
@@ -71,6 +86,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title: 'constrained toolbar prioritizes actions while preserving local overflow access',
+    },
+    {
+      skipped: true,
+      title: 'request-grid focus stays visible without disrupting pointer sorting or resizing',
     },
   ]);
 });

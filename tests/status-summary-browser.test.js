@@ -14,6 +14,7 @@ const BROWSER_REQUIRED_IN_CI_MESSAGE =
 const TRANSIENT_PROFILE_CLEANUP_ERRORS = new Set(['ENOTEMPTY', 'EBUSY']);
 const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1280, 1366, 1367, 1500];
 const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
+const GRID_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -25,8 +26,7 @@ function findBrowserExecutable() {
     process.env.EDGE_BIN,
     process.env.CHROME_BIN,
     programFiles && path.join(programFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    programFilesX86 &&
-      path.join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    programFilesX86 && path.join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
     localAppData && path.join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe'),
     programFiles && path.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
     programFilesX86 && path.join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -87,9 +87,7 @@ async function findPanelTarget(browserWebSocketUrl) {
   const targetListUrl = `http://${browserUrl.host}/json/list`;
   for (let attempt = 0; attempt < 50; attempt++) {
     const targets = await fetch(targetListUrl).then((response) => response.json());
-    const panelTarget = targets.find(
-      (target) => target.type === 'page' && target.url.endsWith('/panel.html'),
-    );
+    const panelTarget = targets.find((target) => target.type === 'page' && target.url.endsWith('/panel.html'));
     if (panelTarget) return panelTarget;
     await delay(100);
   }
@@ -183,11 +181,12 @@ async function evaluate(cdp, expression, awaitPromise = false) {
   return response.result.value;
 }
 
-async function pressKey(cdp, key, code, windowsVirtualKeyCode) {
+async function pressKey(cdp, key, code, windowsVirtualKeyCode, modifiers = 0) {
   await cdp.send('Input.dispatchKeyEvent', {
     type: 'keyDown',
     key,
     code,
+    modifiers,
     windowsVirtualKeyCode,
     nativeVirtualKeyCode: windowsVirtualKeyCode,
   });
@@ -195,6 +194,7 @@ async function pressKey(cdp, key, code, windowsVirtualKeyCode) {
     type: 'keyUp',
     key,
     code,
+    modifiers,
     windowsVirtualKeyCode,
     nativeVirtualKeyCode: windowsVirtualKeyCode,
   });
@@ -203,14 +203,11 @@ async function pressKey(cdp, key, code, windowsVirtualKeyCode) {
 async function expectFullAccessibilityTreeWithoutControl(cdp, accessibleName) {
   const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
   expect(accessibilityTree.nodes.length).toBeGreaterThan(0);
-  expect(
-    accessibilityTree.nodes.some((node) => node.name?.value === accessibleName),
-  ).toBe(false);
+  expect(accessibilityTree.nodes.some((node) => node.name?.value === accessibleName)).toBe(false);
 }
 
 async function stopBrowser(browserProcess) {
-  const hasExited = () =>
-    !browserProcess || browserProcess.exitCode !== null || browserProcess.signalCode !== null;
+  const hasExited = () => !browserProcess || browserProcess.exitCode !== null || browserProcess.signalCode !== null;
   const waitForExit = (timeoutMs) =>
     new Promise((resolve) => {
       if (hasExited()) {
@@ -253,13 +250,7 @@ function removeProfileDirectory(profileDirectory) {
     });
   } catch (error) {
     if (!error || !TRANSIENT_PROFILE_CLEANUP_ERRORS.has(error.code)) throw error;
-    console.warn(
-      'Browser profile cleanup exhausted retries for ' +
-        profileDirectory +
-        ' (' +
-        error.code +
-        ').',
-    );
+    console.warn('Browser profile cleanup exhausted retries for ' + profileDirectory + ' (' + error.code + ').');
   }
 }
 
@@ -280,9 +271,7 @@ test('profile cleanup warns after bounded retries exhaust a transient ENOTEMPTY 
       retryDelay: 100,
     });
     expect(warningSpy).toHaveBeenCalledWith(
-      'Browser profile cleanup exhausted retries for ' +
-        profileDirectory +
-        ' (ENOTEMPTY).',
+      'Browser profile cleanup exhausted retries for ' + profileDirectory + ' (ENOTEMPTY).',
     );
   } finally {
     removeSpy.mockRestore();
@@ -319,9 +308,7 @@ test('collapsed accessibility check rejects an empty second AX tree', async () =
       (node) => node.role?.value === 'button' && node.name?.value === 'Close request details',
     ),
   ).toBe(true);
-  await expect(
-    expectFullAccessibilityTreeWithoutControl(cdp, 'Close request details'),
-  ).rejects.toThrow();
+  await expect(expectFullAccessibilityTreeWithoutControl(cdp, 'Close request details')).rejects.toThrow();
   expect(cdp.send).toHaveBeenNthCalledWith(2, 'Accessibility.getFullAXTree');
 });
 
@@ -874,12 +861,8 @@ browserTest(
         expect(measurement.actions).toHaveLength(12);
         expect(measurement.actions.map((action) => action.id)).toEqual(expectedActionOrder);
       }
-      expect(viewportMeasurements.slice(0, 3).every((measurement) => measurement.toolbarOverflow > 0)).toBe(
-        true,
-      );
-      const measurementsByWidth = new Map(
-        viewportMeasurements.map((measurement) => [measurement.width, measurement]),
-      );
+      expect(viewportMeasurements.slice(0, 3).every((measurement) => measurement.toolbarOverflow > 0)).toBe(true);
+      const measurementsByWidth = new Map(viewportMeasurements.map((measurement) => [measurement.width, measurement]));
       const desktopMeasurement = measurementsByWidth.get(1280);
       expect(desktopMeasurement.toolbarOverflow).toBe(0);
       expect(desktopMeasurement.actions.every((action) => action.fullyVisible)).toBe(true);
@@ -1109,8 +1092,7 @@ browserTest(
       }
       expect(
         pointerMeasurements.every(
-          (measurement) =>
-            measurement.visibleWidth > 0 && measurement.visibleWidth < measurement.actionWidth,
+          (measurement) => measurement.visibleWidth > 0 && measurement.visibleWidth < measurement.actionWidth,
         ),
       ).toBe(true);
       expect(
@@ -1137,6 +1119,439 @@ browserTest(
           toolbarScrollLeft: 0,
         },
       ]);
+    } finally {
+      if (cdp) await cdp.close();
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'request-grid focus stays visible without disrupting pointer sorting or resizing',
+  async () => {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-grid-focus-dom-'));
+    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+    const browserProcess = spawn(
+      browserExecutable,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        '--allow-file-access-from-files',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-sandbox',
+        panelUrl,
+      ],
+      { stdio: 'ignore' },
+    );
+
+    let cdp;
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      const panelTarget = await findPanelTarget(browserWebSocketUrl);
+      cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
+      await cdp.send('Runtime.enable');
+      await cdp.send('Page.bringToFront');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        cdp,
+        `(async () => {
+          if (document.readyState === 'loading') {
+            await new Promise((resolve) => window.addEventListener('DOMContentLoaded', resolve, { once: true }));
+          }
+          const sampleButton = Array.from(document.querySelectorAll('button')).find(
+            (button) => button.textContent.trim() === 'Explore sample capture',
+          );
+          if (!sampleButton) throw new Error('Sample capture action was not found.');
+          sampleButton.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        })()`,
+        true,
+      );
+
+      const toolbarTabOrder = [
+        'searchToggleBtn',
+        'clearBtn',
+        'importBtn',
+        'exportHarBtn',
+        'autoScrollBtn',
+        'filterBtn',
+        'presetsBtn',
+        'columnsBtn',
+        'retentionBtn',
+        'themeBtn',
+        'shortcutBtn',
+      ];
+      const visibleColumns = [
+        ['id', 'ID'],
+        ['clientStart', 'ClientStart'],
+        ['serverDone', 'ServerDone'],
+        ['method', 'Method'],
+        ['status', 'Status'],
+        ['domain', 'Domain'],
+        ['path', 'Path'],
+        ['type', 'Type'],
+        ['duration', 'Duration'],
+        ['size', 'Size'],
+      ];
+      const expectedGridTargets = visibleColumns.flatMap(([columnId, label]) => [
+        {
+          key: `header:${columnId}`,
+          role: 'columnheader',
+          accessibleName: label,
+        },
+        {
+          key: `separator:${columnId}`,
+          role: 'separator',
+          accessibleName: `Resize ${label} column`,
+        },
+      ]);
+      const reverseGridTargets = expectedGridTargets.slice().reverse();
+      const measureGridFocusTarget = () =>
+        evaluate(
+          cdp,
+          `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
+            const active = document.activeElement;
+            const header = active.closest('th[data-col-id]');
+            const tableWrap = document.querySelector('#tableWrap');
+            const tableRect = tableWrap.getBoundingClientRect();
+            const visibleLeft = tableRect.left + tableWrap.clientLeft;
+            const visibleRight = visibleLeft + tableWrap.clientWidth;
+            const activeRect = active.getBoundingClientRect();
+            const style = getComputedStyle(active);
+            const outlineAllowance = Number.parseFloat(style.outlineWidth) || 0;
+            const kind = active.classList.contains('col-resizer') ? 'separator' : 'header';
+            resolve({
+              key: kind + ':' + (header?.dataset.colId || ''),
+              role: active.getAttribute('role'),
+              accessibleName: active.getAttribute('aria-label'),
+              inTableWrap: tableWrap.contains(active),
+              focusVisible: active.matches(':focus-visible'),
+              outlineStyle: style.outlineStyle,
+              outlineWidth: style.outlineWidth,
+              documentScrollLeft: document.scrollingElement.scrollLeft,
+              documentScrollTop: document.scrollingElement.scrollTop,
+              documentOverflow:
+                document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              tableScrollLeft: tableWrap.scrollLeft,
+              tableScrollMax: tableWrap.scrollWidth - tableWrap.clientWidth,
+              fullyVisibleWithOutline:
+                activeRect.left - outlineAllowance >= visibleLeft &&
+                activeRect.right + outlineAllowance <= visibleRight,
+              visibleWidth: Math.round(
+                Math.max(
+                  0,
+                  Math.min(activeRect.right, visibleRight) -
+                    Math.max(activeRect.left, visibleLeft),
+                ),
+              ),
+              targetWidth: Math.round(activeRect.width),
+              clippedSide:
+                activeRect.left - outlineAllowance < visibleLeft ? 'left' : 'right',
+            });
+          })))`,
+          true,
+        );
+      const focusMeasurements = [];
+      for (const width of GRID_FOCUS_VIEWPORT_WIDTHS) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await evaluate(
+          cdp,
+          `(async () => {
+            document.body.tabIndex = -1;
+            document.body.focus();
+            document.querySelector('.topbar').scrollLeft = 0;
+            document.querySelector('#tableWrap').scrollLeft = 0;
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          })()`,
+          true,
+        );
+        const traversedToolbar = [];
+        for (const expectedId of toolbarTabOrder) {
+          await pressKey(cdp, 'Tab', 'Tab', 9);
+          const activeId = await evaluate(cdp, 'document.activeElement.id');
+          expect(activeId).toBe(expectedId);
+          traversedToolbar.push(activeId);
+        }
+        const forwardTabTrace = [];
+        for (const expectedTarget of expectedGridTargets) {
+          await pressKey(cdp, 'Tab', 'Tab', 9);
+          const traceEntry = await measureGridFocusTarget();
+          expect({
+            key: traceEntry.key,
+            role: traceEntry.role,
+            accessibleName: traceEntry.accessibleName,
+          }).toEqual(expectedTarget);
+          forwardTabTrace.push(traceEntry);
+        }
+        await pressKey(cdp, 'Tab', 'Tab', 9);
+        const reverseStart = await evaluate(
+          cdp,
+          `(() => ({
+            focusedRowId:
+              document.activeElement.closest('tr[data-row-id]')?.dataset.rowId || null,
+            documentScrollLeft: document.scrollingElement.scrollLeft,
+            documentScrollTop: document.scrollingElement.scrollTop,
+          }))()`,
+        );
+        expect(reverseStart.focusedRowId).not.toBeNull();
+        expect(reverseStart.documentScrollLeft).toBe(0);
+        expect(reverseStart.documentScrollTop).toBe(0);
+
+        const reverseTabTrace = [];
+        for (const expectedTarget of reverseGridTargets) {
+          await pressKey(cdp, 'Tab', 'Tab', 9, 8);
+          const traceEntry = await measureGridFocusTarget();
+          expect({
+            key: traceEntry.key,
+            role: traceEntry.role,
+            accessibleName: traceEntry.accessibleName,
+          }).toEqual(expectedTarget);
+          reverseTabTrace.push(traceEntry);
+        }
+        focusMeasurements.push({
+          width,
+          traversedToolbar,
+          forwardTabTrace,
+          reverseTabTrace,
+        });
+      }
+
+      for (const measurement of focusMeasurements) {
+        expect(measurement.traversedToolbar).toEqual(toolbarTabOrder);
+        expect(measurement.forwardTabTrace.map((entry) => entry.key)).toEqual(
+          expectedGridTargets.map((target) => target.key),
+        );
+        expect(measurement.reverseTabTrace.map((entry) => entry.key)).toEqual(
+          reverseGridTargets.map((target) => target.key),
+        );
+        expect(
+          [...measurement.forwardTabTrace, ...measurement.reverseTabTrace].every(
+            (entry) =>
+              entry.inTableWrap &&
+              entry.focusVisible &&
+              entry.outlineStyle === 'solid' &&
+              entry.outlineWidth === '2px' &&
+              entry.documentScrollLeft === 0 &&
+              entry.documentScrollTop === 0 &&
+              entry.documentOverflow === 0 &&
+              entry.tableScrollLeft >= 0 &&
+              entry.tableScrollLeft <= entry.tableScrollMax,
+          ),
+        ).toBe(true);
+      }
+      const clippedFocusMeasurements = focusMeasurements.flatMap((measurement) =>
+        [
+          ...measurement.forwardTabTrace.map((entry) => ({
+            ...entry,
+            direction: 'forward',
+          })),
+          ...measurement.reverseTabTrace.map((entry) => ({
+            ...entry,
+            direction: 'reverse',
+          })),
+        ]
+          .filter((entry) => !entry.fullyVisibleWithOutline)
+          .map((entry) => ({
+            width: measurement.width,
+            direction: entry.direction,
+            key: entry.key,
+            visibleWidth: entry.visibleWidth,
+            targetWidth: entry.targetWidth,
+            clippedSide: entry.clippedSide,
+            tableScrollLeft: entry.tableScrollLeft,
+          })),
+      );
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 375,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const headerPointerPoint = await evaluate(
+        cdp,
+        `(async () => {
+          document.body.focus();
+          const tableWrap = document.querySelector('#tableWrap');
+          tableWrap.scrollLeft = 0;
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const header = document.querySelector('th[data-col-id="method"]');
+          const tableRect = tableWrap.getBoundingClientRect();
+          const visibleLeft = tableRect.left + tableWrap.clientLeft;
+          const visibleRight = visibleLeft + tableWrap.clientWidth;
+          const headerRect = header.getBoundingClientRect();
+          const controller = new AbortController();
+          window.__gridPointerProbeController?.abort();
+          window.__gridPointerProbeController = controller;
+          window.__gridPointerProbe = { clickTargets: [] };
+          document.addEventListener(
+            'click',
+            (event) => {
+              const targetHeader = event.target.closest('th[data-col-id]');
+              window.__gridPointerProbe.clickTargets.push({
+                columnId: targetHeader?.dataset.colId || null,
+                kind: event.target.classList.contains('col-resizer') ? 'separator' : 'header',
+              });
+            },
+            { capture: true, signal: controller.signal },
+          );
+          return {
+            x: Math.min(headerRect.right - 8, visibleRight - 4),
+            y: headerRect.top + headerRect.height / 2,
+            visibleWidth: Math.round(
+              Math.max(
+                0,
+                Math.min(headerRect.right, visibleRight) - Math.max(headerRect.left, visibleLeft),
+              ),
+            ),
+            headerWidth: Math.round(headerRect.width),
+            tableScrollLeft: tableWrap.scrollLeft,
+          };
+        })()`,
+        true,
+      );
+      expect(headerPointerPoint.visibleWidth).toBeGreaterThan(0);
+      expect(headerPointerPoint.visibleWidth).toBeLessThan(headerPointerPoint.headerWidth);
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: headerPointerPoint.x,
+        y: headerPointerPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await delay(80);
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: headerPointerPoint.x,
+        y: headerPointerPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      const headerPointerMeasurement = await evaluate(
+        cdp,
+        `(async () => {
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const header = document.querySelector('th[data-col-id="method"]');
+          const measurement = {
+            clickTargets: window.__gridPointerProbe.clickTargets,
+            ariaSort: header.getAttribute('aria-sort'),
+            focusedColumnId: document.activeElement.closest('th[data-col-id]')?.dataset.colId || null,
+            tableScrollLeft: document.querySelector('#tableWrap').scrollLeft,
+            documentScrollLeft: document.scrollingElement.scrollLeft,
+          };
+          window.__gridPointerProbeController.abort();
+          return measurement;
+        })()`,
+        true,
+      );
+      expect(headerPointerMeasurement).toEqual({
+        clickTargets: [{ columnId: 'method', kind: 'header' }],
+        ariaSort: 'ascending',
+        focusedColumnId: 'method',
+        tableScrollLeft: headerPointerPoint.tableScrollLeft,
+        documentScrollLeft: 0,
+      });
+
+      const separatorPointerPoint = await evaluate(
+        cdp,
+        `(async () => {
+          document.body.focus();
+          const tableWrap = document.querySelector('#tableWrap');
+          tableWrap.scrollLeft = tableWrap.scrollWidth - tableWrap.clientWidth - 3;
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const separator = document.querySelector('th[data-col-id="size"] .col-resizer');
+          const tableRect = tableWrap.getBoundingClientRect();
+          const visibleLeft = tableRect.left + tableWrap.clientLeft;
+          const visibleRight = visibleLeft + tableWrap.clientWidth;
+          const separatorRect = separator.getBoundingClientRect();
+          const x = Math.min(separatorRect.right - 1, visibleRight - 1);
+          const y = separatorRect.top + separatorRect.height / 2;
+          const hitTarget = document.elementFromPoint(x, y);
+          return {
+            x,
+            y,
+            columnId: hitTarget?.closest('th[data-col-id]')?.dataset.colId || null,
+            hitSeparator: hitTarget === separator,
+            visibleWidth: Math.round(
+              Math.max(
+                0,
+                Math.min(separatorRect.right, visibleRight) -
+                  Math.max(separatorRect.left, visibleLeft),
+              ),
+            ),
+            separatorWidth: Math.round(separatorRect.width),
+            columnWidth: Number(separator.getAttribute('aria-valuenow')),
+            tableScrollLeft: tableWrap.scrollLeft,
+          };
+        })()`,
+        true,
+      );
+      expect(separatorPointerPoint.columnId).toBe('size');
+      expect(separatorPointerPoint.hitSeparator).toBe(true);
+      expect(separatorPointerPoint.visibleWidth).toBeGreaterThan(0);
+      expect(separatorPointerPoint.visibleWidth).toBeLessThan(separatorPointerPoint.separatorWidth);
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: separatorPointerPoint.x,
+        y: separatorPointerPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      await delay(80);
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: separatorPointerPoint.x + 20,
+        y: separatorPointerPoint.y,
+        button: 'left',
+        buttons: 1,
+      });
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: separatorPointerPoint.x + 20,
+        y: separatorPointerPoint.y,
+        button: 'left',
+        clickCount: 1,
+      });
+      const separatorPointerMeasurement = await evaluate(
+        cdp,
+        `(() => {
+          const separator = document.querySelector('th[data-col-id="size"] .col-resizer');
+          return {
+            columnWidth: Number(separator.getAttribute('aria-valuenow')),
+            tableScrollLeft: document.querySelector('#tableWrap').scrollLeft,
+            documentScrollLeft: document.scrollingElement.scrollLeft,
+          };
+        })()`,
+      );
+      expect(separatorPointerMeasurement).toEqual({
+        columnWidth: separatorPointerPoint.columnWidth + 20,
+        tableScrollLeft: separatorPointerPoint.tableScrollLeft,
+        documentScrollLeft: 0,
+      });
+      expect({
+        contract: 'forward and reverse request-grid focus containment',
+        clippedFocusMeasurements,
+      }).toEqual({
+        contract: 'forward and reverse request-grid focus containment',
+        clippedFocusMeasurements: [],
+      });
     } finally {
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);

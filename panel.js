@@ -8872,6 +8872,32 @@ const _NetworkPlus = (function () {
 
     // [U6] Roving row focus, selection, copy, and context actions
     const tableWrap = $('#tableWrap');
+    tableWrap.addEventListener('focusin', (event) => {
+      const control = event.target.closest('th[data-col-id], .col-resizer');
+      if (!control || !tableWrap.contains(control)) return;
+      window.requestAnimationFrame(() => {
+        if (document.activeElement !== control) return;
+        if (!control.matches(':focus-visible')) return;
+        const tableRect = tableWrap.getBoundingClientRect();
+        const controlRect = control.getBoundingClientRect();
+        const outlineAllowance = Number.parseFloat(getComputedStyle(control).outlineWidth) || 0;
+        const visibleLeft = tableRect.left + tableWrap.clientLeft;
+        const visibleRight = visibleLeft + tableWrap.clientWidth;
+        let scrollDelta = 0;
+        if (controlRect.left - outlineAllowance < visibleLeft) {
+          scrollDelta = controlRect.left - outlineAllowance - visibleLeft;
+        } else if (controlRect.right + outlineAllowance > visibleRight) {
+          scrollDelta = controlRect.right + outlineAllowance - visibleRight;
+        }
+        if (scrollDelta !== 0) {
+          const maxScrollLeft = Math.max(0, tableWrap.scrollWidth - tableWrap.clientWidth);
+          tableWrap.scrollLeft = Math.min(
+            maxScrollLeft,
+            Math.max(0, tableWrap.scrollLeft + scrollDelta),
+          );
+        }
+      });
+    });
     let previousTableScrollTop = tableWrap.scrollTop;
     tableWrap.addEventListener('scroll', () => {
       const currentScrollTop = tableWrap.scrollTop;
