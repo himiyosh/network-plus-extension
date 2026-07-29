@@ -6,7 +6,7 @@ const MARKER_PREFIX = 'independent-review';
 const MARKER_PATTERN = /^independent-review head=(\S+) verdict=(\S+) by=(\S+)$/;
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const UUID_SOURCE = '[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}';
-const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`, 'i');
+const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`);
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const TRAILER_PREFIX_SOURCE = '(?:^|\\r?\\n|\\\\n)';
 const TRAILER_SUFFIX_SOURCE = '(?=$|\\r?\\n|\\\\n)';
@@ -26,6 +26,17 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 100;
 const MAX_PULL_REQUEST_COMMITS = 250;
 const PULL_REQUEST_EVENTS = new Set(['pull_request', 'pull_request_target']);
+const DIAGNOSTIC_FIELDS = [
+  ['implementationSessionIds', 'implementationSessionIds'],
+  ['markerLines', 'markerLines'],
+  ['malformedMarkers', 'malformed'],
+  ['staleHeadMarkers', 'staleHead'],
+  ['wrongVerdictMarkers', 'wrongVerdict'],
+  ['selfReviewMarkers', 'selfReview'],
+  ['wrongReviewerMarkers', 'wrongReviewer'],
+  ['misplacedMarkers', 'misplaced'],
+  ['unauthorizedMarkers', 'unauthorized'],
+];
 
 const parseCliArgs = (argv) => {
   const supported = new Set(['--repository', '--pr', '--head']);
@@ -130,6 +141,20 @@ const resolveReviewContext = ({ argv = [], env = process.env, readFile = fs.read
   });
 };
 
+const normalizeReviewSessionConfiguration = ({ reviewerSessionId, mergerSessionId }) => {
+  if (typeof reviewerSessionId !== 'string' || !UUID_PATTERN.test(reviewerSessionId)) {
+    throw new Error('independent-review reviewer session configuration must be a full lowercase UUID');
+  }
+  if (typeof mergerSessionId !== 'string' || !UUID_PATTERN.test(mergerSessionId)) {
+    throw new Error('independent-review merger session configuration must be a full lowercase UUID');
+  }
+  if (reviewerSessionId === mergerSessionId) {
+    throw new Error('independent-review reviewer session configuration must differ from merger session configuration');
+  }
+
+  return { reviewerSessionId, mergerSessionId };
+};
+
 const parseMarkerLine = (line) => {
   if (typeof line !== 'string' || !line.startsWith(MARKER_PREFIX)) {
     return { kind: 'not-marker' };
@@ -201,6 +226,7 @@ const createDiagnostics = (implementationSessionIds) => ({
   staleHeadMarkers: 0,
   wrongVerdictMarkers: 0,
   selfReviewMarkers: 0,
+  wrongReviewerMarkers: 0,
   misplacedMarkers: 0,
   unauthorizedMarkers: 0,
 });
@@ -248,13 +274,20 @@ const inspectCommentMarker = (body) => {
   };
 };
 
-const evaluateIndependentReview = ({ comments, commits, headSha }) => {
+const evaluateIndependentReview = ({ comments, commits, headSha, reviewerSessionId, mergerSessionId }) => {
   if (typeof headSha !== 'string' || !SHA_PATTERN.test(headSha)) {
     throw new Error('head must be a full 40-character Git SHA');
   }
 
+  const configuration = normalizeReviewSessionConfiguration({ reviewerSessionId, mergerSessionId });
   validateComments(comments);
   const implementationSessionIds = extractCopilotSessionIds(commits);
+  if (implementationSessionIds.size === 0) {
+    throw new Error(
+      'independent-review requires at least one parseable Copilot-Session UUID (implementationSessionIds=0)',
+    );
+  }
+
   const expectedHead = headSha.toLowerCase();
   const diagnostics = createDiagnostics(implementationSessionIds.size);
   let validMarker = null;
@@ -280,6 +313,8 @@ const evaluateIndependentReview = ({ comments, commits, headSha }) => {
       diagnostics.wrongVerdictMarkers += 1;
     } else if (implementationSessionIds.has(marker.reviewerId)) {
       diagnostics.selfReviewMarkers += 1;
+    } else if (marker.reviewerId !== configuration.reviewerSessionId) {
+      diagnostics.wrongReviewerMarkers += 1;
     } else if (validMarker === null) {
       validMarker = {
         reviewerId: marker.reviewerId,
@@ -388,15 +423,26 @@ const assertCompleteCommitCollection = ({ commits, totalCommits }) => {
   }
 };
 
+const assertStableCommitCount = ({ initialTotalCommits, finalTotalCommits }) => {
+  if (initialTotalCommits !== finalTotalCommits) {
+    throw new Error(
+      `PR commit count changed during collection (initialTotalCommits=${initialTotalCommits}, finalTotalCommits=${finalTotalCommits})`,
+    );
+  }
+};
+
 const runIndependentReviewCheck = async ({
   repository,
   prNumber,
   headSha,
   token,
+  reviewerSessionId,
+  mergerSessionId,
   apiUrl = DEFAULT_API_URL,
   fetchImpl = globalThis.fetch,
 }) => {
   const context = normalizeReviewContext({ repository, prNumber, headSha });
+  const configuration = normalizeReviewSessionConfiguration({ reviewerSessionId, mergerSessionId });
   if (typeof token !== 'string' || token.trim() === '') {
     throw new Error('GITHUB_TOKEN is required for pull request review checks');
   }
@@ -435,26 +481,44 @@ const runIndependentReviewCheck = async ({
     token,
     fetchImpl,
   });
+  const finalMetadata = await fetchGitHubResource({
+    apiUrl,
+    repository: context.repository,
+    endpoint: `pulls/${context.prNumber}`,
+    label: 'pull request metadata',
+    token,
+    fetchImpl,
+  });
+  const finalTotalCommits = validatePullRequestCommitCount(finalMetadata);
+  assertStableCommitCount({
+    initialTotalCommits: totalCommits,
+    finalTotalCommits,
+  });
   assertCompleteCommitCollection({ commits, totalCommits });
 
   return evaluateIndependentReview({
     comments,
     commits,
     headSha: context.headSha,
+    ...configuration,
   });
 };
 
-const formatDiagnostics = (diagnostics) =>
-  [
-    `implementationSessionIds=${diagnostics.implementationSessionIds}`,
-    `markerLines=${diagnostics.markerLines}`,
-    `malformed=${diagnostics.malformedMarkers}`,
-    `staleHead=${diagnostics.staleHeadMarkers}`,
-    `wrongVerdict=${diagnostics.wrongVerdictMarkers}`,
-    `selfReview=${diagnostics.selfReviewMarkers}`,
-    `misplaced=${diagnostics.misplacedMarkers}`,
-    `unauthorized=${diagnostics.unauthorizedMarkers}`,
-  ].join(', ');
+const formatDiagnostics = (diagnostics) => {
+  if (!diagnostics || typeof diagnostics !== 'object' || Array.isArray(diagnostics)) {
+    throw new Error('independent-review diagnostics must be an object');
+  }
+
+  const formatted = [];
+  for (const [field, label] of DIAGNOSTIC_FIELDS) {
+    const value = diagnostics[field];
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`independent-review diagnostics field ${field} must be a non-negative integer`);
+    }
+    formatted.push(`${label}=${value}`);
+  }
+  return formatted.join(', ');
+};
 
 const main = async () => {
   try {
@@ -467,6 +531,8 @@ const main = async () => {
     const result = await runIndependentReviewCheck({
       ...context,
       token: process.env.GITHUB_TOKEN,
+      reviewerSessionId: process.env.INDEPENDENT_REVIEW_REVIEWER_SESSION_ID,
+      mergerSessionId: process.env.INDEPENDENT_REVIEW_MERGER_SESSION_ID,
       apiUrl: process.env.GITHUB_API_URL ?? DEFAULT_API_URL,
     });
 
@@ -499,6 +565,7 @@ module.exports = {
   REQUIRED_AUTHOR_ASSOCIATION,
   SHA_PATTERN,
   UUID_PATTERN,
+  assertStableCommitCount,
   assertCompleteCommitCollection,
   evaluateIndependentReview,
   extractCopilotSessionIds,
@@ -506,6 +573,7 @@ module.exports = {
   fetchGitHubResource,
   formatDiagnostics,
   inspectCommentMarker,
+  normalizeReviewSessionConfiguration,
   parseCliArgs,
   parseMarkerLine,
   resolveReviewContext,
