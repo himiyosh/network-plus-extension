@@ -1113,9 +1113,7 @@ browserTest(
         ),
       ).toBe(true);
       expect(
-        pointerMeasurements.find(
-          (measurement) => measurement.caseId === 'exportHarBtn@500-sub-4px',
-        ).visibleWidth,
+        pointerMeasurements.find((measurement) => measurement.caseId === 'exportHarBtn@500-sub-4px').visibleWidth,
       ).toBe(2);
       expect(
         pointerMeasurements.map((measurement) => ({
