@@ -61,6 +61,7 @@
 - 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿してはならない。
 - コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、実装セッションから独立した reviewer に exact-head review を委譲する。marker の `by=` には reviewer attribution の full UUID を記録し、`author_association: OWNER` の issue comment の first non-empty unfenced line に置く。説明文の後や fenced code block 内の marker は clearance として扱わない。
 - required CI は marker の `head=<40hex>`、`verdict=pass`、full UUID の `by=`、GitHub `OWNER` association を検証し、PR コミットにあるいずれかの `Copilot-Session` trailer と reviewer UUID が一致した場合、または drive-by comment の場合は拒否する。同じ GitHub account を共有するセッション間では `author_association` は global-owner session identity を証明しない。実装チャイルドを所有または adopt したコーディネーターの clearance 禁止と trusted reviewer binding は、CI では完全に機械検証できない文書化された governance boundary とする。
+- GitHub REST の PR commit list は最大 250 件のため、required CI は pull request metadata の総コミット数と収集件数の一致を marker 評価前に確認する。総数が 250 件を超える、metadata が欠落または不正、あるいは件数が一致しない場合は fail closed とする。250 件を超える PR は 250 件以下の複数 PR に分割し、各 PR で review gate を再実行する。
 - ゲート自体の導入 PR では、通常の全品質ゲートを先に実行し、marker 未投稿による失敗を final marker step だけに限定する。global owner がその PR の exact head を独立レビューして marker を投稿後、同じ required workflow を rerun する。既にマージ済みの PR 履歴には遡及適用しない。
 
 ## Host-Tool Fallback
