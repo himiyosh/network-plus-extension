@@ -1,0 +1,130 @@
+{
+  "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "staleHeadSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reviewerUuid": "11111111-1111-4111-8111-111111111111",
+  "escapedSessionUuid": "44444444-4444-4444-8444-444444444444",
+  "implementationSessionUuids": ["22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"],
+  "comments": {
+    "missingBy": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass",
+        "author_association": "OWNER"
+      }
+    ],
+    "malformedBy": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=not-a-uuid",
+        "author_association": "OWNER"
+      }
+    ],
+    "staleHead": [
+      {
+        "body": "independent-review head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
+      }
+    ],
+    "wrongVerdict": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=fail by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
+      }
+    ],
+    "selfReview": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=33333333-3333-4333-8333-333333333333",
+        "author_association": "OWNER"
+      }
+    ],
+    "valid": [
+      {
+        "body": "\n\nindependent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111\nIndependent review notes.",
+        "author_association": "OWNER"
+      }
+    ],
+    "multiple": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass",
+        "author_association": "OWNER"
+      },
+      {
+        "body": "independent-review head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
+      },
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111\nReview completed for the current head.",
+        "author_association": "OWNER"
+      }
+    ],
+    "fencedMarker": [
+      {
+        "body": "```text\nindependent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111\n```",
+        "author_association": "OWNER"
+      }
+    ],
+    "instructionalMarker": [
+      {
+        "body": "Post this example only after review:\nindependent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
+      }
+    ],
+    "contributorMarker": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "CONTRIBUTOR"
+      }
+    ],
+    "noneMarker": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "NONE"
+      }
+    ],
+    "missingAssociation": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111"
+      }
+    ],
+    "mixedAuthority": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "CONTRIBUTOR"
+      },
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
+      }
+    ]
+  },
+  "escapedCommit": {
+    "commit": {
+      "message": "test: preserve tooling attribution\n\nCo-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>\\nCopilot-Session: 44444444-4444-4444-8444-444444444444"
+    }
+  },
+  "copilotWithoutSessionCommit": {
+    "commit": {
+      "message": "fix: missing session attribution\n\nCo-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>"
+    }
+  },
+  "copilotMalformedSessionCommit": {
+    "commit": {
+      "message": "fix: malformed session attribution\n\nCo-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>\\nCopilot-Session: not-a-uuid"
+    }
+  },
+  "humanOnlyCommit": {
+    "commit": {
+      "message": "docs: clarify local workflow\n\nSigned-off-by: Human Reviewer <reviewer@example.test>"
+    }
+  },
+  "commits": [
+    {
+      "commit": {
+        "message": "test: add red gate cases\n\nCopilot-Session: 22222222-2222-4222-8222-222222222222"
+      }
+    },
+    {
+      "commit": {
+        "message": "feat: add review gate\n\nCopilot-Session: 33333333-3333-4333-8333-333333333333\nCopilot-Session: 22222222-2222-4222-8222-222222222222"
+      }
+    }
+  ]
+}
