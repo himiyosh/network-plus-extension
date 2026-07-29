@@ -4,11 +4,11 @@ const fixtures = require('./fixtures/independent-review-cases.json');
 
 const loadChecker = () => require('../scripts/check-independent-review');
 
-const evaluateComments = (comments) => {
+const evaluateComments = (comments, commits = fixtures.commits) => {
   const { evaluateIndependentReview } = loadChecker();
   return evaluateIndependentReview({
     comments,
-    commits: fixtures.commits,
+    commits,
     headSha: fixtures.headSha,
   });
 };
@@ -54,6 +54,9 @@ describe('independent-review marker evaluation', () => {
       ok: true,
       code: 'VALID_MARKER',
       reviewerId: fixtures.reviewerUuid,
+      diagnostics: {
+        implementationSessionIds: 2,
+      },
     });
   });
 
@@ -65,6 +68,7 @@ describe('independent-review marker evaluation', () => {
       code: 'VALID_MARKER',
       reviewerId: fixtures.reviewerUuid,
       diagnostics: {
+        implementationSessionIds: 2,
         malformedMarkers: 1,
         staleHeadMarkers: 1,
       },
@@ -77,6 +81,70 @@ describe('independent-review marker evaluation', () => {
     expect([...extractCopilotSessionIds(fixtures.commits)].sort()).toEqual(
       [...fixtures.implementationSessionUuids].sort(),
     );
+  });
+
+  test('extracts an exact escaped-newline Copilot-Session trailer', () => {
+    const { extractCopilotSessionIds } = loadChecker();
+
+    expect([...extractCopilotSessionIds([fixtures.escapedCommit])]).toEqual([fixtures.escapedSessionUuid]);
+  });
+
+  test('preserves actual-newline trailers and human-only commits in a mixed PR', () => {
+    const { extractCopilotSessionIds } = loadChecker();
+    const commits = [fixtures.commits[0], fixtures.humanOnlyCommit, fixtures.escapedCommit];
+
+    expect([...extractCopilotSessionIds(commits)].sort()).toEqual(
+      [fixtures.implementationSessionUuids[0], fixtures.escapedSessionUuid].sort(),
+    );
+  });
+
+  test.each([
+    ['missing', 'copilotWithoutSessionCommit'],
+    ['malformed', 'copilotMalformedSessionCommit'],
+  ])('fails a Copilot-coauthored commit with a %s session trailer', (_, fixtureName) => {
+    const { extractCopilotSessionIds } = loadChecker();
+
+    expect(() => extractCopilotSessionIds([fixtures[fixtureName]])).toThrow(
+      /PR commit entry 1.*implementationSessionIds=0/,
+    );
+  });
+
+  test('fails a Copilot-authored PR when zero session IDs can be extracted', () => {
+    expect(() => evaluateComments(fixtures.comments.valid, [fixtures.copilotWithoutSessionCommit])).toThrow(
+      /implementationSessionIds=0/,
+    );
+  });
+
+  test('allows an explicitly human-only PR while exposing a zero session count', () => {
+    expect(evaluateComments(fixtures.comments.valid, [fixtures.humanOnlyCommit])).toMatchObject({
+      ok: true,
+      code: 'VALID_MARKER',
+      diagnostics: {
+        implementationSessionIds: 0,
+      },
+    });
+  });
+
+  test.each([
+    ['fenced code block', 'fencedMarker'],
+    ['instructional text', 'instructionalMarker'],
+  ])('rejects a conforming marker embedded in %s', (_, fixtureName) => {
+    expect(evaluateComments(fixtures.comments[fixtureName])).toMatchObject({
+      ok: false,
+      code: 'NO_VALID_MARKER',
+      diagnostics: {
+        implementationSessionIds: 2,
+        misplacedMarkers: 1,
+      },
+    });
+  });
+
+  test('formats the implementation-session count without commit content', () => {
+    const { formatDiagnostics } = loadChecker();
+    const result = evaluateComments(fixtures.comments.valid);
+
+    expect(formatDiagnostics(result.diagnostics)).toContain('implementationSessionIds=2');
+    expect(formatDiagnostics(result.diagnostics)).not.toContain('Copilot App');
   });
 });
 
