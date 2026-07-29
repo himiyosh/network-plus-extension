@@ -1459,7 +1459,7 @@ browserTest(
             },
             { capture: true, signal: controller.signal },
           );
-          const x = Math.min(headerRect.right - 8, visibleRight - 4);
+          const x = (visibleHeaderLeft + visibleHeaderRight) / 2;
           const y = headerRect.top + headerRect.height / 2;
           const hitTarget = document.elementFromPoint(x, y);
           return {
@@ -1541,7 +1541,7 @@ browserTest(
           const separatorRect = separator.getBoundingClientRect();
           const visibleSeparatorLeft = Math.max(separatorRect.left, visibleLeft);
           const visibleSeparatorRight = Math.min(separatorRect.right, visibleRight);
-          const x = Math.min(separatorRect.right - 1, visibleRight - 1);
+          const x = (visibleSeparatorLeft + visibleSeparatorRight) / 2;
           const y = separatorRect.top + separatorRect.height / 2;
           const hitTarget = document.elementFromPoint(x, y);
           const controller = new AbortController();
