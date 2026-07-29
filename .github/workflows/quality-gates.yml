@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -76,3 +78,8 @@ jobs:
 
       - name: Check coordinator contract
         run: npm run contract:check
+
+      - name: Check independent review marker
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-independent-review.js

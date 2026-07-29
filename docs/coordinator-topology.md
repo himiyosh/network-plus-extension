@@ -56,6 +56,13 @@
 
 **アーカイブ操作はホストツール経由でのみ実行する。**
 
+## 独立レビューゲート
+
+- 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿してはならない。
+- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、実装セッションから独立した reviewer に exact-head review を委譲する。marker の `by=` には reviewer attribution の full UUID を記録する。
+- required CI は marker の `head=<40hex>`、`verdict=pass`、full UUID の `by=` を検証し、PR コミットにあるいずれかの `Copilot-Session` trailer と reviewer UUID が一致した場合は拒否する。実装チャイルドを所有または adopt したコーディネーターの clearance 禁止は、CI では完全に機械検証できない文書化された governance boundary とする。
+- ゲート自体の導入 PR では、通常の全品質ゲートを先に実行し、marker 未投稿による失敗を final marker step だけに限定する。global owner がその PR の exact head を独立レビューして marker を投稿後、同じ required workflow を rerun する。既にマージ済みの PR 履歴には遡及適用しない。
+
 ## Host-Tool Fallback
 
 セッション管理ツール（セッション名変更・タスクセッション作成・メッセージング・アーカイブ）がハーネスで利用できない場合:
