@@ -5,9 +5,21 @@ const fs = require('fs');
 const MARKER_PREFIX = 'independent-review';
 const MARKER_PATTERN = /^independent-review head=(\S+) verdict=(\S+) by=(\S+)$/;
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
-const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const UUID_SOURCE = '[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}';
+const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`, 'i');
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const COPILOT_SESSION_PATTERN = /^Copilot-Session:\s*(\S+)\s*$/gm;
+const TRAILER_PREFIX_SOURCE = '(?:^|\\r?\\n|\\\\n)';
+const TRAILER_SUFFIX_SOURCE = '(?=$|\\r?\\n|\\\\n)';
+const COPILOT_SESSION_PATTERN = new RegExp(
+  `${TRAILER_PREFIX_SOURCE}Copilot-Session:[ \\t]*(${UUID_SOURCE})[ \\t]*${TRAILER_SUFFIX_SOURCE}`,
+  'gi',
+);
+const COPILOT_COAUTHOR_PATTERN = new RegExp(
+  `${TRAILER_PREFIX_SOURCE}Co-authored-by:[ \\t]*Copilot App <223556219\\+Copilot@users\\.noreply\\.github\\.com>[ \\t]*${TRAILER_SUFFIX_SOURCE}`,
+  'i',
+);
+const FENCE_OPEN_PATTERN = /^\s*(`{3,}|~{3,})/;
+const FENCE_CLOSE_PATTERN = /^\s*(`{3,}|~{3,})\s*$/;
 const DEFAULT_API_URL = 'https://api.github.com';
 const PAGE_SIZE = 100;
 const MAX_PAGES = 100;
@@ -158,23 +170,77 @@ const extractCopilotSessionIds = (commits) => {
       throw new Error(`PR commit entry ${index + 1} is missing commit.message`);
     }
 
+    const commitSessionIds = new Set();
     for (const match of message.matchAll(new RegExp(COPILOT_SESSION_PATTERN))) {
-      if (UUID_PATTERN.test(match[1])) {
-        sessionIds.add(match[1].toLowerCase());
-      }
+      commitSessionIds.add(match[1].toLowerCase());
+    }
+
+    if (COPILOT_COAUTHOR_PATTERN.test(message) && commitSessionIds.size === 0) {
+      throw new Error(
+        `PR commit entry ${index + 1} is Copilot-coauthored but has no parseable Copilot-Session UUID (implementationSessionIds=0)`,
+      );
+    }
+
+    for (const sessionId of commitSessionIds) {
+      sessionIds.add(sessionId);
     }
   }
 
   return sessionIds;
 };
 
-const createDiagnostics = () => ({
+const createDiagnostics = (implementationSessionIds) => ({
+  implementationSessionIds,
   markerLines: 0,
   malformedMarkers: 0,
   staleHeadMarkers: 0,
   wrongVerdictMarkers: 0,
   selfReviewMarkers: 0,
+  misplacedMarkers: 0,
 });
+
+const inspectCommentMarker = (body) => {
+  let fence = null;
+  let firstUnfencedLine = null;
+  let misplacedMarkers = 0;
+
+  for (const line of body.split(/\r?\n/)) {
+    if (fence) {
+      if (parseMarkerLine(line).kind !== 'not-marker') {
+        misplacedMarkers += 1;
+      }
+
+      const close = line.match(FENCE_CLOSE_PATTERN);
+      if (close && close[1][0] === fence.character && close[1].length >= fence.length) {
+        fence = null;
+      }
+      continue;
+    }
+
+    const open = line.match(FENCE_OPEN_PATTERN);
+    if (open) {
+      fence = {
+        character: open[1][0],
+        length: open[1].length,
+      };
+      continue;
+    }
+
+    if (firstUnfencedLine === null && line.trim() !== '') {
+      firstUnfencedLine = line;
+      continue;
+    }
+
+    if (parseMarkerLine(line).kind !== 'not-marker') {
+      misplacedMarkers += 1;
+    }
+  }
+
+  return {
+    marker: parseMarkerLine(firstUnfencedLine),
+    misplacedMarkers,
+  };
+};
 
 const evaluateIndependentReview = ({ comments, commits, headSha }) => {
   if (typeof headSha !== 'string' || !SHA_PATTERN.test(headSha)) {
@@ -184,31 +250,31 @@ const evaluateIndependentReview = ({ comments, commits, headSha }) => {
   validateComments(comments);
   const implementationSessionIds = extractCopilotSessionIds(commits);
   const expectedHead = headSha.toLowerCase();
-  const diagnostics = createDiagnostics();
+  const diagnostics = createDiagnostics(implementationSessionIds.size);
   let validMarker = null;
 
   for (const [commentIndex, comment] of comments.entries()) {
-    for (const line of comment.body.split(/\r?\n/)) {
-      const marker = parseMarkerLine(line);
-      if (marker.kind === 'not-marker') {
-        continue;
-      }
+    const inspection = inspectCommentMarker(comment.body);
+    const marker = inspection.marker;
+    diagnostics.misplacedMarkers += inspection.misplacedMarkers;
+    if (marker.kind === 'not-marker') {
+      continue;
+    }
 
-      diagnostics.markerLines += 1;
-      if (marker.kind === 'malformed') {
-        diagnostics.malformedMarkers += 1;
-      } else if (marker.headSha !== expectedHead) {
-        diagnostics.staleHeadMarkers += 1;
-      } else if (marker.verdict !== 'pass') {
-        diagnostics.wrongVerdictMarkers += 1;
-      } else if (implementationSessionIds.has(marker.reviewerId)) {
-        diagnostics.selfReviewMarkers += 1;
-      } else if (validMarker === null) {
-        validMarker = {
-          reviewerId: marker.reviewerId,
-          commentIndex: commentIndex + 1,
-        };
-      }
+    diagnostics.markerLines += 1;
+    if (marker.kind === 'malformed') {
+      diagnostics.malformedMarkers += 1;
+    } else if (marker.headSha !== expectedHead) {
+      diagnostics.staleHeadMarkers += 1;
+    } else if (marker.verdict !== 'pass') {
+      diagnostics.wrongVerdictMarkers += 1;
+    } else if (implementationSessionIds.has(marker.reviewerId)) {
+      diagnostics.selfReviewMarkers += 1;
+    } else if (validMarker === null) {
+      validMarker = {
+        reviewerId: marker.reviewerId,
+        commentIndex: commentIndex + 1,
+      };
     }
   }
 
@@ -319,11 +385,13 @@ const runIndependentReviewCheck = async ({
 
 const formatDiagnostics = (diagnostics) =>
   [
+    `implementationSessionIds=${diagnostics.implementationSessionIds}`,
     `markerLines=${diagnostics.markerLines}`,
     `malformed=${diagnostics.malformedMarkers}`,
     `staleHead=${diagnostics.staleHeadMarkers}`,
     `wrongVerdict=${diagnostics.wrongVerdictMarkers}`,
     `selfReview=${diagnostics.selfReviewMarkers}`,
+    `misplaced=${diagnostics.misplacedMarkers}`,
   ].join(', ');
 
 const main = async () => {
@@ -363,6 +431,7 @@ if (require.main === module) {
 
 module.exports = {
   COPILOT_SESSION_PATTERN,
+  COPILOT_COAUTHOR_PATTERN,
   MARKER_PATTERN,
   SHA_PATTERN,
   UUID_PATTERN,
@@ -370,6 +439,7 @@ module.exports = {
   extractCopilotSessionIds,
   fetchGitHubCollection,
   formatDiagnostics,
+  inspectCommentMarker,
   parseCliArgs,
   parseMarkerLine,
   resolveReviewContext,

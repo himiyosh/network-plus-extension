@@ -220,7 +220,7 @@ description: "Network+ for DevTools 統合エキスパートエージェント�
 ### Independent-review governance
 
 - 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿しない。
-- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、marker の `by=` には reviewer attribution の full UUID を使用する。
+- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、marker の `by=` には reviewer attribution の full UUID を使用する。marker は issue comment の first non-empty unfenced line とし、説明文の後や fenced code block 内には置かない。
 - CI は PR コミットの `Copilot-Session` trailer と marker identity の一致を拒否する。コーディネーター所有者の clearance 禁止は文書化された governance boundary であり、CI の identity check で代替しない。
 
 ---

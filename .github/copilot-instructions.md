@@ -297,7 +297,7 @@ npm run version:check      # package.json と manifest.json の version 同期�
 ### 7.4 独立レビューゲート
 
 - 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿してはならない。
-- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決して exact-head review を委譲し、marker の `by=` に reviewer attribution の full UUID を記録する。
+- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決して exact-head review を委譲し、marker の `by=` に reviewer attribution の full UUID を記録する。marker は issue comment の first non-empty unfenced line とし、説明文の後や fenced code block 内には置かない。
 - CI は PR コミット内の `Copilot-Session` trailer と marker の `by=` が一致する実装セッション自己レビューを機械的に拒否する。コーディネーター所有者による clearance 禁止は文書化された governance boundary として維持する。
 - 導入 PR は通常の全ゲート通過後、global owner の marker がない final marker step だけが失敗する。global owner が exact head を独立レビューして marker を投稿後、同じ required workflow を rerun する。既にマージ済みの PR 履歴には遡及適用しない。
 
