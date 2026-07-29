@@ -17,6 +17,13 @@ const getBlock = (pattern) => {
   return match[1];
 };
 
+const getUniqueCssRuleBlock = (selector) => {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const matches = Array.from(css.matchAll(new RegExp(`^\\s*${escapedSelector}\\{([^}]*)}`, 'gm')));
+  expect(matches).toHaveLength(1);
+  return matches[0][1];
+};
+
 const parseTokens = (block) =>
   Object.fromEntries(Array.from(block.matchAll(/--([a-z0-9-]+):([^;}]*)/g), (match) => [match[1], match[2].trim()]));
 
@@ -1184,6 +1191,14 @@ describe('keyboard trust static contracts', () => {
     expect(js).toContain("adjustMainSplitByKeyboard(currentPrimarySize, totalSize, isNarrow, event.key, event.shiftKey)");
     expect(js).toContain("adjustInspectorSplitByKeyboard(");
     expect(css).toContain('.col-resizer:focus-visible');
+  });
+
+  test('omits ineffective scroll margins from request-grid focus targets', () => {
+    const deadScrollMarginOwners = ['.title-row th', '.col-resizer'].filter((selector) =>
+      /(?:^|;)\s*scroll-margin-inline\s*:/.test(getUniqueCssRuleBlock(selector)),
+    );
+
+    expect(deadScrollMarginOwners).toEqual([]);
   });
 
   test('gives popup triggers matching roles, ownership, focus entry, and restoration', () => {

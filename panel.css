@@ -239,7 +239,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 
 /* === Table Grid === */
 .grid{border-collapse:separate;border-spacing:0;table-layout:fixed}
-.title-row th{position:sticky;top:0;background:var(--th-bg);border-bottom:2px solid var(--th-border);font-weight:700;text-align:left;padding:7px 8px;white-space:nowrap;z-index:2;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-muted);scroll-margin-inline:2px}
+.title-row th{position:sticky;top:0;background:var(--th-bg);border-bottom:2px solid var(--th-border);font-weight:700;text-align:left;padding:7px 8px;white-space:nowrap;z-index:2;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-muted)}
 .title-row th.sortable-header{cursor:pointer;-webkit-user-select:none;user-select:none}
 .title-row th.waterfall-header{cursor:default;-webkit-user-select:none;user-select:none}
 .title-row th.sortable-header:hover{background:var(--th-bg);color:var(--text-accent);box-shadow:inset 0 -2px 0 var(--accent)}
@@ -434,7 +434,7 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .sample-guide-form .sample-guide-primary:active{background:var(--accent-fill);color:var(--on-accent)}
 
 /* === Column Resizer === */
-.col-resizer{position:absolute;top:0;right:0;width:5px;height:100%;cursor:col-resize;z-index:1;scroll-margin-inline:2px}
+.col-resizer{position:absolute;top:0;right:0;width:5px;height:100%;cursor:col-resize;z-index:1}
 .col-resizer:hover,.col-resizer:focus-visible{background:var(--accent-dim)}
 .col-resizer:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
