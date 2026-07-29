@@ -992,8 +992,14 @@ browserTest(
       expect(clippedFocusMeasurements).toEqual([]);
 
       const pointerCases = [
-        { width: 500, actionId: 'exportHarBtn' },
-        { width: 800, actionId: 'presetsBtn' },
+        { caseId: 'exportHarBtn@500', width: 500, actionId: 'exportHarBtn' },
+        { caseId: 'presetsBtn@800', width: 800, actionId: 'presetsBtn' },
+        {
+          caseId: 'exportHarBtn@500-sub-4px',
+          width: 500,
+          actionId: 'exportHarBtn',
+          forcedVisibleWidth: 2,
+        },
       ];
       const pointerMeasurements = [];
       for (const pointerCase of pointerCases) {
@@ -1011,9 +1017,18 @@ browserTest(
             toolbar.scrollLeft = 0;
             await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
             const action = document.querySelector('#${pointerCase.actionId}');
+            action.style.transform = '';
             const toolbarRect = toolbar.getBoundingClientRect();
             const visibleLeft = toolbarRect.left + toolbar.clientLeft;
             const visibleRight = visibleLeft + toolbar.clientWidth;
+            const forcedVisibleWidth = ${pointerCase.forcedVisibleWidth ?? 'null'};
+            if (forcedVisibleWidth !== null) {
+              const initialActionRect = action.getBoundingClientRect();
+              action.style.transform =
+                'translateX(' +
+                (visibleRight - forcedVisibleWidth - initialActionRect.left) +
+                'px)';
+            }
             const actionRect = action.getBoundingClientRect();
             const controller = new AbortController();
             window.__toolbarPointerProbeController?.abort();
@@ -1072,6 +1087,7 @@ browserTest(
             `(async () => {
               await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
               const measurement = {
+                caseId: '${pointerCase.caseId}',
                 width: ${pointerCase.width},
                 actionId: '${pointerCase.actionId}',
                 visibleWidth: ${point.visibleWidth},
@@ -1081,6 +1097,7 @@ browserTest(
                 toolbarScrollLeft: document.querySelector('.topbar').scrollLeft,
               };
               window.__toolbarPointerProbeController.abort();
+              document.querySelector('#${pointerCase.actionId}').style.transform = '';
               if (document.querySelector('#dataSafetyDialog').open) {
                 document.querySelector('#dataSafetyDialog').close();
               }
@@ -1096,7 +1113,13 @@ browserTest(
         ),
       ).toBe(true);
       expect(
+        pointerMeasurements.find(
+          (measurement) => measurement.caseId === 'exportHarBtn@500-sub-4px',
+        ).visibleWidth,
+      ).toBe(2);
+      expect(
         pointerMeasurements.map((measurement) => ({
+          caseId: measurement.caseId,
           width: measurement.width,
           actionId: measurement.actionId,
           clickTargets: measurement.clickTargets,
@@ -1105,6 +1128,7 @@ browserTest(
         })),
       ).toEqual([
         {
+          caseId: 'exportHarBtn@500',
           width: 500,
           actionId: 'exportHarBtn',
           clickTargets: ['exportHarBtn'],
@@ -1112,9 +1136,18 @@ browserTest(
           toolbarScrollLeft: 0,
         },
         {
+          caseId: 'presetsBtn@800',
           width: 800,
           actionId: 'presetsBtn',
           clickTargets: ['presetsBtn'],
+          actionDeliveries: 1,
+          toolbarScrollLeft: 0,
+        },
+        {
+          caseId: 'exportHarBtn@500-sub-4px',
+          width: 500,
+          actionId: 'exportHarBtn',
+          clickTargets: ['exportHarBtn'],
           actionDeliveries: 1,
           toolbarScrollLeft: 0,
         },
