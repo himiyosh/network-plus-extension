@@ -1424,14 +1424,23 @@ browserTest(
           tableWrap.scrollLeft = 0;
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const header = document.querySelector('th[data-col-id="method"]');
+          header.style.transform = '';
           const tableRect = tableWrap.getBoundingClientRect();
           const visibleLeft = tableRect.left + tableWrap.clientLeft;
           const visibleRight = visibleLeft + tableWrap.clientWidth;
+          const forcedVisibleWidth = 2;
+          const initialHeaderRect = header.getBoundingClientRect();
+          header.style.transform =
+            'translateX(' +
+            (visibleRight - forcedVisibleWidth - initialHeaderRect.left) +
+            'px)';
           const headerRect = header.getBoundingClientRect();
+          const visibleHeaderLeft = Math.max(headerRect.left, visibleLeft);
+          const visibleHeaderRight = Math.min(headerRect.right, visibleRight);
           const controller = new AbortController();
           window.__gridPointerProbeController?.abort();
           window.__gridPointerProbeController = controller;
-          window.__gridPointerProbe = { clickTargets: [] };
+          window.__gridPointerProbe = { clickTargets: [], headerDeliveries: 0 };
           document.addEventListener(
             'click',
             (event) => {
@@ -1443,15 +1452,24 @@ browserTest(
             },
             { capture: true, signal: controller.signal },
           );
+          header.addEventListener(
+            'click',
+            () => {
+              window.__gridPointerProbe.headerDeliveries += 1;
+            },
+            { capture: true, signal: controller.signal },
+          );
+          const x = Math.min(headerRect.right - 8, visibleRight - 4);
+          const y = headerRect.top + headerRect.height / 2;
+          const hitTarget = document.elementFromPoint(x, y);
           return {
-            x: Math.min(headerRect.right - 8, visibleRight - 4),
-            y: headerRect.top + headerRect.height / 2,
-            visibleWidth: Math.round(
-              Math.max(
-                0,
-                Math.min(headerRect.right, visibleRight) - Math.max(headerRect.left, visibleLeft),
-              ),
-            ),
+            x,
+            y,
+            columnId: hitTarget?.closest('th[data-col-id]')?.dataset.colId || null,
+            hitHeader:
+              hitTarget?.closest('th[data-col-id]') === header &&
+              !hitTarget.classList.contains('col-resizer'),
+            visibleWidth: Math.round(Math.max(0, visibleHeaderRight - visibleHeaderLeft)),
             headerWidth: Math.round(headerRect.width),
             tableScrollLeft: tableWrap.scrollLeft,
           };
@@ -1460,6 +1478,7 @@ browserTest(
       );
       expect(headerPointerPoint.visibleWidth).toBeGreaterThan(0);
       expect(headerPointerPoint.visibleWidth).toBeLessThan(headerPointerPoint.headerWidth);
+      expect(headerPointerPoint.visibleWidth).toBe(2);
       await cdp.send('Input.dispatchMouseEvent', {
         type: 'mousePressed',
         x: headerPointerPoint.x,
@@ -1482,51 +1501,77 @@ browserTest(
           const header = document.querySelector('th[data-col-id="method"]');
           const measurement = {
             clickTargets: window.__gridPointerProbe.clickTargets,
+            headerDeliveries: window.__gridPointerProbe.headerDeliveries,
             ariaSort: header.getAttribute('aria-sort'),
             focusedColumnId: document.activeElement.closest('th[data-col-id]')?.dataset.colId || null,
             tableScrollLeft: document.querySelector('#tableWrap').scrollLeft,
             documentScrollLeft: document.scrollingElement.scrollLeft,
+            documentScrollTop: document.scrollingElement.scrollTop,
           };
           window.__gridPointerProbeController.abort();
+          header.style.transform = '';
           return measurement;
         })()`,
         true,
       );
-      expect(headerPointerMeasurement).toEqual({
-        clickTargets: [{ columnId: 'method', kind: 'header' }],
-        ariaSort: 'ascending',
-        focusedColumnId: 'method',
-        tableScrollLeft: headerPointerPoint.tableScrollLeft,
-        documentScrollLeft: 0,
-      });
 
       const separatorPointerPoint = await evaluate(
         cdp,
         `(async () => {
           document.body.focus();
           const tableWrap = document.querySelector('#tableWrap');
+          tableWrap.style.transform = '';
           tableWrap.scrollLeft = tableWrap.scrollWidth - tableWrap.clientWidth - 3;
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          tableWrap.style.transform = 'translateX(2px)';
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const separator = document.querySelector('th[data-col-id="size"] .col-resizer');
+          separator.style.transform = '';
           const tableRect = tableWrap.getBoundingClientRect();
           const visibleLeft = tableRect.left + tableWrap.clientLeft;
           const visibleRight = visibleLeft + tableWrap.clientWidth;
+          const forcedVisibleWidth = 0.5;
+          const initialSeparatorRect = separator.getBoundingClientRect();
+          separator.style.transform =
+            'translateX(' +
+            (visibleLeft + forcedVisibleWidth - initialSeparatorRect.right) +
+            'px)';
+          separator.style.clipPath =
+            'inset(0 0 0 calc(100% - ' + forcedVisibleWidth + 'px))';
           const separatorRect = separator.getBoundingClientRect();
+          const visibleSeparatorLeft = Math.max(separatorRect.left, visibleLeft);
+          const visibleSeparatorRight = Math.min(separatorRect.right, visibleRight);
           const x = Math.min(separatorRect.right - 1, visibleRight - 1);
           const y = separatorRect.top + separatorRect.height / 2;
           const hitTarget = document.elementFromPoint(x, y);
+          const controller = new AbortController();
+          window.__gridResizeProbeController?.abort();
+          window.__gridResizeProbeController = controller;
+          window.__gridResizeProbe = { mouseDownTargets: [], resizeDeliveries: 0 };
+          document.addEventListener(
+            'mousedown',
+            (event) => {
+              const targetHeader = event.target.closest('th[data-col-id]');
+              window.__gridResizeProbe.mouseDownTargets.push({
+                columnId: targetHeader?.dataset.colId || null,
+                kind: event.target.classList.contains('col-resizer') ? 'separator' : 'header',
+              });
+            },
+            { capture: true, signal: controller.signal },
+          );
+          separator.addEventListener(
+            'mousedown',
+            () => {
+              window.__gridResizeProbe.resizeDeliveries += 1;
+            },
+            { capture: true, signal: controller.signal },
+          );
           return {
             x,
             y,
             columnId: hitTarget?.closest('th[data-col-id]')?.dataset.colId || null,
             hitSeparator: hitTarget === separator,
-            visibleWidth: Math.round(
-              Math.max(
-                0,
-                Math.min(separatorRect.right, visibleRight) -
-                  Math.max(separatorRect.left, visibleLeft),
-              ),
-            ),
+            visibleWidth: Math.max(0, visibleSeparatorRight - visibleSeparatorLeft),
             separatorWidth: Math.round(separatorRect.width),
             columnWidth: Number(separator.getAttribute('aria-valuenow')),
             tableScrollLeft: tableWrap.scrollLeft,
@@ -1534,10 +1579,9 @@ browserTest(
         })()`,
         true,
       );
-      expect(separatorPointerPoint.columnId).toBe('size');
-      expect(separatorPointerPoint.hitSeparator).toBe(true);
       expect(separatorPointerPoint.visibleWidth).toBeGreaterThan(0);
       expect(separatorPointerPoint.visibleWidth).toBeLessThan(separatorPointerPoint.separatorWidth);
+      expect(separatorPointerPoint.visibleWidth).toBeCloseTo(0.5, 5);
       await cdp.send('Input.dispatchMouseEvent', {
         type: 'mousePressed',
         x: separatorPointerPoint.x,
@@ -1564,17 +1608,60 @@ browserTest(
         cdp,
         `(() => {
           const separator = document.querySelector('th[data-col-id="size"] .col-resizer');
-          return {
+          const measurement = {
+            mouseDownTargets: window.__gridResizeProbe.mouseDownTargets,
+            resizeDeliveries: window.__gridResizeProbe.resizeDeliveries,
             columnWidth: Number(separator.getAttribute('aria-valuenow')),
             tableScrollLeft: document.querySelector('#tableWrap').scrollLeft,
             documentScrollLeft: document.scrollingElement.scrollLeft,
+            documentScrollTop: document.scrollingElement.scrollTop,
           };
+          window.__gridResizeProbeController.abort();
+          separator.style.transform = '';
+          separator.style.clipPath = '';
+          document.querySelector('#tableWrap').style.transform = '';
+          return measurement;
         })()`,
       );
-      expect(separatorPointerMeasurement).toEqual({
-        columnWidth: separatorPointerPoint.columnWidth + 20,
-        tableScrollLeft: separatorPointerPoint.tableScrollLeft,
-        documentScrollLeft: 0,
+      expect({
+        method: {
+          columnId: headerPointerPoint.columnId,
+          hitHeader: headerPointerPoint.hitHeader,
+          ...headerPointerMeasurement,
+          tableScrollDelta:
+            headerPointerMeasurement.tableScrollLeft - headerPointerPoint.tableScrollLeft,
+        },
+        size: {
+          columnId: separatorPointerPoint.columnId,
+          hitSeparator: separatorPointerPoint.hitSeparator,
+          ...separatorPointerMeasurement,
+          tableScrollDelta:
+            separatorPointerMeasurement.tableScrollLeft - separatorPointerPoint.tableScrollLeft,
+        },
+      }).toEqual({
+        method: {
+          columnId: 'method',
+          hitHeader: true,
+          clickTargets: [{ columnId: 'method', kind: 'header' }],
+          headerDeliveries: 1,
+          ariaSort: 'ascending',
+          focusedColumnId: 'method',
+          tableScrollLeft: headerPointerPoint.tableScrollLeft,
+          documentScrollLeft: 0,
+          documentScrollTop: 0,
+          tableScrollDelta: 0,
+        },
+        size: {
+          columnId: 'size',
+          hitSeparator: true,
+          mouseDownTargets: [{ columnId: 'size', kind: 'separator' }],
+          resizeDeliveries: 1,
+          columnWidth: separatorPointerPoint.columnWidth + 20,
+          tableScrollLeft: separatorPointerPoint.tableScrollLeft,
+          documentScrollLeft: 0,
+          documentScrollTop: 0,
+          tableScrollDelta: 0,
+        },
       });
       expect({
         contract: 'forward and reverse request-grid focus containment',
