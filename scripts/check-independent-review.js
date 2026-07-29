@@ -24,6 +24,7 @@ const REQUIRED_AUTHOR_ASSOCIATION = 'OWNER';
 const DEFAULT_API_URL = 'https://api.github.com';
 const PAGE_SIZE = 100;
 const MAX_PAGES = 100;
+const MAX_PULL_REQUEST_COMMITS = 250;
 const PULL_REQUEST_EVENTS = new Set(['pull_request', 'pull_request_target']);
 
 const parseCliArgs = (argv) => {
@@ -304,41 +305,51 @@ const evaluateIndependentReview = ({ comments, commits, headSha }) => {
   };
 };
 
-const fetchGitHubCollection = async ({ apiUrl, repository, endpoint, label, token, fetchImpl }) => {
-  const items = [];
+const fetchGitHubResource = async ({ apiUrl, repository, endpoint, label, token, fetchImpl }) => {
   const [owner, repo] = repository.split('/').map(encodeURIComponent);
   const baseUrl = apiUrl.replace(/\/+$/, '');
+  const url = `${baseUrl}/repos/${owner}/${repo}/${endpoint}`;
+
+  let response;
+  try {
+    response = await fetchImpl(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+  } catch {
+    throw new Error(`${label} API request failed`);
+  }
+
+  if (!response || typeof response.ok !== 'boolean' || typeof response.status !== 'number') {
+    throw new Error(`${label} API returned malformed response metadata`);
+  }
+  if (!response.ok) {
+    throw new Error(`${label} API request failed with status ${response.status}`);
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(`${label} API returned malformed JSON`);
+  }
+};
+
+const fetchGitHubCollection = async ({ apiUrl, repository, endpoint, label, token, fetchImpl }) => {
+  const items = [];
 
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const url = `${baseUrl}/repos/${owner}/${repo}/${endpoint}?per_page=${PAGE_SIZE}&page=${page}`;
-
-    let response;
-    try {
-      response = await fetchImpl(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/vnd.github+json',
-          Authorization: `Bearer ${token}`,
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      });
-    } catch {
-      throw new Error(`${label} API request failed`);
-    }
-
-    if (!response || typeof response.ok !== 'boolean' || typeof response.status !== 'number') {
-      throw new Error(`${label} API returned malformed response metadata`);
-    }
-    if (!response.ok) {
-      throw new Error(`${label} API request failed with status ${response.status}`);
-    }
-
-    let pageItems;
-    try {
-      pageItems = await response.json();
-    } catch {
-      throw new Error(`${label} API returned malformed JSON`);
-    }
+    const pageItems = await fetchGitHubResource({
+      apiUrl,
+      repository,
+      endpoint: `${endpoint}?per_page=${PAGE_SIZE}&page=${page}`,
+      label,
+      token,
+      fetchImpl,
+    });
     if (!Array.isArray(pageItems)) {
       throw new Error(`${label} response must be an array`);
     }
@@ -350,6 +361,31 @@ const fetchGitHubCollection = async ({ apiUrl, repository, endpoint, label, toke
   }
 
   throw new Error(`${label} API exceeded the pagination limit`);
+};
+
+const validatePullRequestCommitCount = (metadata) => {
+  if (
+    !metadata ||
+    typeof metadata !== 'object' ||
+    Array.isArray(metadata) ||
+    !Number.isSafeInteger(metadata.commits) ||
+    metadata.commits <= 0
+  ) {
+    throw new Error('pull request metadata has an invalid commits count');
+  }
+
+  return metadata.commits;
+};
+
+const assertCompleteCommitCollection = ({ commits, totalCommits }) => {
+  if (!Array.isArray(commits)) {
+    throw new Error('PR commits response must be an array');
+  }
+  if (commits.length !== totalCommits) {
+    throw new Error(
+      `PR commit collection is incomplete (totalCommits=${totalCommits}, collectedCommits=${commits.length})`,
+    );
+  }
 };
 
 const runIndependentReviewCheck = async ({
@@ -368,6 +404,21 @@ const runIndependentReviewCheck = async ({
     throw new Error('Fetch API is unavailable');
   }
 
+  const metadata = await fetchGitHubResource({
+    apiUrl,
+    repository: context.repository,
+    endpoint: `pulls/${context.prNumber}`,
+    label: 'pull request metadata',
+    token,
+    fetchImpl,
+  });
+  const totalCommits = validatePullRequestCommitCount(metadata);
+  if (totalCommits > MAX_PULL_REQUEST_COMMITS) {
+    throw new Error(
+      `PR commit collection is unsupported (totalCommits=${totalCommits}, supportedLimit=${MAX_PULL_REQUEST_COMMITS}); split the pull request into smaller pull requests`,
+    );
+  }
+
   const comments = await fetchGitHubCollection({
     apiUrl,
     repository: context.repository,
@@ -384,6 +435,7 @@ const runIndependentReviewCheck = async ({
     token,
     fetchImpl,
   });
+  assertCompleteCommitCollection({ commits, totalCommits });
 
   return evaluateIndependentReview({
     comments,
@@ -442,17 +494,21 @@ if (require.main === module) {
 module.exports = {
   COPILOT_SESSION_PATTERN,
   COPILOT_COAUTHOR_PATTERN,
+  MAX_PULL_REQUEST_COMMITS,
   MARKER_PATTERN,
   REQUIRED_AUTHOR_ASSOCIATION,
   SHA_PATTERN,
   UUID_PATTERN,
+  assertCompleteCommitCollection,
   evaluateIndependentReview,
   extractCopilotSessionIds,
   fetchGitHubCollection,
+  fetchGitHubResource,
   formatDiagnostics,
   inspectCommentMarker,
   parseCliArgs,
   parseMarkerLine,
   resolveReviewContext,
   runIndependentReviewCheck,
+  validatePullRequestCommitCount,
 };
