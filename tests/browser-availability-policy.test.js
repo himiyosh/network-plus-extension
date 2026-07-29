@@ -4,6 +4,9 @@ const vm = require('vm');
 
 const browserSuitePath = path.join(__dirname, 'status-summary-browser.test.js');
 const browserSuiteSource = fs.readFileSync(browserSuitePath, 'utf8');
+const TOOLBAR_FOCUS_JOURNEY_TITLE =
+  'constrained toolbar prioritizes actions while preserving local overflow access';
+const REVERSE_TOOLBAR_FOCUS_CONTRACT = 'reverse-direction toolbar focus containment';
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -74,6 +77,56 @@ const assertJourneyConsumesViewportWidths = (source, journeyTitle, constantName)
   );
   if (!directLoop.test(Function.prototype.toString.call(journey.callback))) {
     throw new Error(`${constantName} must be consumed directly by "${journeyTitle}".`);
+  }
+};
+
+const assertToolbarReverseFocusContract = (source) => {
+  const journey = evaluateBrowserSuite(source, {}).find(
+    ({ title, callback }) =>
+      title === TOOLBAR_FOCUS_JOURNEY_TITLE && typeof callback === 'function',
+  );
+  if (!journey) {
+    throw new Error(
+      `${REVERSE_TOOLBAR_FOCUS_CONTRACT}: "${TOOLBAR_FOCUS_JOURNEY_TITLE}" is not registered.`,
+    );
+  }
+
+  const callbackSource = Function.prototype.toString.call(journey.callback);
+  const requirements = [
+    {
+      name: 'exact reverse action order',
+      pattern: /const reverseTabOrder = expectedTabOrder\.slice\(\)\.reverse\(\);/,
+    },
+    {
+      name: 'real Shift+Tab traversal',
+      pattern:
+        /for \(const expectedId of reverseTabOrder\) \{\s*await pressKey\(cdp, 'Tab', 'Tab', 9, 8\);[\s\S]*?reverseTabTrace\.push\(\{ \.\.\.traceEntry, width, direction: 'reverse' \}\);/,
+    },
+    {
+      name: 'reverse trace capture',
+      pattern: /reverseTabTrace\.push\(\{ \.\.\.traceEntry, width, direction: 'reverse' \}\);/,
+    },
+    {
+      name: 'production reverse containment assertion',
+      pattern:
+        /assertToolbarFocusContainment\(\s*measurement\.reverseTabTrace,\s*REVERSE_TOOLBAR_FOCUS_CONTRACT,\s*\);/,
+    },
+    {
+      name: 'one-sided focus-scroll mutation',
+      pattern:
+        /Element\.prototype\.scrollIntoView = function \(options\) \{[\s\S]*?toolbar\.scrollLeft = lockedToolbarScrollLeft;/,
+    },
+    {
+      name: 'named mutation rejection',
+      pattern:
+        /expect\(\(\) =>\s*assertToolbarFocusContainment\(\s*mutatedReverseTabTrace,\s*REVERSE_TOOLBAR_FOCUS_CONTRACT,\s*\),\s*\)\.toThrow\(REVERSE_TOOLBAR_FOCUS_CONTRACT\);/,
+    },
+  ];
+  const missingRequirement = requirements.find(
+    ({ pattern }) => !pattern.test(callbackSource),
+  );
+  if (missingRequirement) {
+    throw new Error(`${REVERSE_TOOLBAR_FOCUS_CONTRACT}: missing ${missingRequirement.name}.`);
   }
 };
 
@@ -194,6 +247,36 @@ test('locks the request-grid journey to real forward and reverse Tab traversal',
   expect(gridJourney).toContain('const reverseGridTargets = expectedGridTargets.slice().reverse();');
   expect(gridJourney).toContain("await pressKey(cdp, 'Tab', 'Tab', 9, 8);");
   expect(gridJourney).toContain('reverseTabTrace.push(traceEntry);');
+});
+
+test('locks the toolbar journey to real reverse Shift+Tab and a named one-sided mutation proof', () => {
+  expect(() => assertToolbarReverseFocusContract(browserSuiteSource)).not.toThrow();
+});
+
+test.each([
+  [
+    'Shift+Tab removal',
+    (source) =>
+      source.replace(
+        "await pressKey(cdp, 'Tab', 'Tab', 9, 8);",
+        "await pressKey(cdp, 'Tab', 'Tab', 9);",
+      ),
+  ],
+  [
+    'one-sided focus-scroll proof removal',
+    (source) =>
+      source.replace(
+        /if \(toolbar\.contains\(this\)\) \{\s*toolbar\.scrollLeft = lockedToolbarScrollLeft;/,
+        'if (toolbar.contains(this)) {\n                void lockedToolbarScrollLeft;',
+      ),
+  ],
+])('%s fails with the reverse-direction contract diagnostic', (_mutationName, mutateSource) => {
+  const mutatedSource = mutateSource(browserSuiteSource);
+
+  expect(mutatedSource).not.toBe(browserSuiteSource);
+  expect(() => assertToolbarReverseFocusContract(mutatedSource)).toThrow(
+    REVERSE_TOOLBAR_FOCUS_CONTRACT,
+  );
 });
 
 test('retains the local-only skip when no browser executable is discoverable', () => {

@@ -15,6 +15,7 @@ const TRANSIENT_PROFILE_CLEANUP_ERRORS = new Set(['ENOTEMPTY', 'EBUSY']);
 const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1280, 1366, 1367, 1500];
 const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const GRID_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
+const REVERSE_TOOLBAR_FOCUS_CONTRACT = 'reverse-direction toolbar focus containment';
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -198,6 +199,25 @@ async function pressKey(cdp, key, code, windowsVirtualKeyCode, modifiers = 0) {
     windowsVirtualKeyCode,
     nativeVirtualKeyCode: windowsVirtualKeyCode,
   });
+}
+
+function assertToolbarFocusContainment(trace, contractName) {
+  const violation = trace.find((entry) => !entry.fullyVisibleWithOutline);
+  if (!violation) return;
+  throw new Error(
+    contractName +
+      ': ' +
+      violation.id +
+      ' at ' +
+      violation.width +
+      'px is clipped on the ' +
+      violation.clippedSide +
+      ' side (' +
+      violation.visibleWidth +
+      '/' +
+      violation.actionWidth +
+      'px visible).',
+  );
 }
 
 async function expectFullAccessibilityTreeWithoutControl(cdp, accessibleName) {
@@ -899,6 +919,52 @@ browserTest(
         'themeBtn',
         'shortcutBtn',
       ];
+      const reverseTabOrder = expectedTabOrder.slice().reverse();
+      const measureToolbarFocusTarget = () =>
+        evaluate(
+          cdp,
+          `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
+            const active = document.activeElement;
+            const toolbar = document.querySelector('.topbar');
+            const toolbarRect = toolbar.getBoundingClientRect();
+            const visibleLeft = toolbarRect.left + toolbar.clientLeft;
+            const visibleRight = visibleLeft + toolbar.clientWidth;
+            const activeRect = active.getBoundingClientRect();
+            const style = getComputedStyle(active);
+            const outlineAllowance = Number.parseFloat(style.outlineWidth) || 0;
+            resolve({
+              id: active.id,
+              inToolbar: toolbar.contains(active),
+              focusVisible: active.matches(':focus-visible'),
+              outlineStyle: style.outlineStyle,
+              outlineWidth: style.outlineWidth,
+              documentScrollLeft: document.scrollingElement.scrollLeft,
+              documentScrollTop: document.scrollingElement.scrollTop,
+              documentOverflow:
+                document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              toolbarScrollLeft: toolbar.scrollLeft,
+              toolbarScrollMax: toolbar.scrollWidth - toolbar.clientWidth,
+              fullyVisibleWithOutline:
+                activeRect.left - outlineAllowance >= visibleLeft &&
+                activeRect.right + outlineAllowance <= visibleRight,
+              visibleWidth: Math.round(
+                Math.max(
+                  0,
+                  Math.min(activeRect.right, visibleRight) -
+                    Math.max(activeRect.left, visibleLeft),
+                ),
+              ),
+              actionWidth: Math.round(activeRect.width),
+              clippedSide:
+                activeRect.left - outlineAllowance < visibleLeft
+                  ? 'left'
+                  : activeRect.right + outlineAllowance > visibleRight
+                    ? 'right'
+                    : null,
+            });
+          })))`,
+          true,
+        );
       const focusMeasurements = [];
       for (const width of TOOLBAR_FOCUS_VIEWPORT_WIDTHS) {
         await cdp.send('Emulation.setDeviceMetricsOverride', {
@@ -920,53 +986,49 @@ browserTest(
         const tabTrace = [];
         for (const expectedId of expectedTabOrder) {
           await pressKey(cdp, 'Tab', 'Tab', 9);
-          const traceEntry = await evaluate(
-            cdp,
-            `new Promise((resolve) => requestAnimationFrame(() => {
-              const active = document.activeElement;
-              const toolbar = document.querySelector('.topbar');
-              const toolbarRect = toolbar.getBoundingClientRect();
-              const visibleLeft = toolbarRect.left + toolbar.clientLeft;
-              const visibleRight = visibleLeft + toolbar.clientWidth;
-              const activeRect = active.getBoundingClientRect();
-              const style = getComputedStyle(active);
-              const outlineAllowance = Number.parseFloat(style.outlineWidth) || 0;
-              resolve({
-                id: active.id,
-                inToolbar: toolbar.contains(active),
-                focusVisible: active.matches(':focus-visible'),
-                outlineStyle: style.outlineStyle,
-                outlineWidth: style.outlineWidth,
-                documentScrollLeft: document.scrollingElement.scrollLeft,
-                documentScrollTop: document.scrollingElement.scrollTop,
-                documentOverflow:
-                  document.documentElement.scrollWidth - document.documentElement.clientWidth,
-                fullyVisibleWithOutline:
-                  activeRect.left - outlineAllowance >= visibleLeft &&
-                  activeRect.right + outlineAllowance <= visibleRight,
-                visibleWidth: Math.round(
-                  Math.max(
-                    0,
-                    Math.min(activeRect.right, visibleRight) -
-                      Math.max(activeRect.left, visibleLeft),
-                  ),
-                ),
-                actionWidth: Math.round(activeRect.width),
-                clippedSide:
-                  activeRect.left - outlineAllowance < visibleLeft ? 'left' : 'right',
-              });
-            }))`,
-            true,
-          );
+          const traceEntry = await measureToolbarFocusTarget();
           expect(traceEntry.id).toBe(expectedId);
-          tabTrace.push(traceEntry);
+          tabTrace.push({ ...traceEntry, width, direction: 'forward' });
         }
-        focusMeasurements.push({ width, tabTrace });
+        await pressKey(cdp, 'Tab', 'Tab', 9);
+        const reverseStart = await evaluate(
+          cdp,
+          `(() => {
+            const toolbar = document.querySelector('.topbar');
+            return {
+              activeId: document.activeElement.id,
+              inToolbar: toolbar.contains(document.activeElement),
+              documentScrollLeft: document.scrollingElement.scrollLeft,
+              documentScrollTop: document.scrollingElement.scrollTop,
+              documentOverflow:
+                document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              toolbarScrollLeft: toolbar.scrollLeft,
+              toolbarScrollMax: toolbar.scrollWidth - toolbar.clientWidth,
+            };
+          })()`,
+        );
+        expect(reverseStart.inToolbar).toBe(false);
+        expect(reverseStart.documentScrollLeft).toBe(0);
+        expect(reverseStart.documentScrollTop).toBe(0);
+        expect(reverseStart.documentOverflow).toBe(0);
+        if (reverseStart.toolbarScrollMax > 0) {
+          expect(reverseStart.toolbarScrollLeft).toBeGreaterThan(0);
+        }
+
+        const reverseTabTrace = [];
+        for (const expectedId of reverseTabOrder) {
+          await pressKey(cdp, 'Tab', 'Tab', 9, 8);
+          const traceEntry = await measureToolbarFocusTarget();
+          expect(traceEntry.id).toBe(expectedId);
+          reverseTabTrace.push({ ...traceEntry, width, direction: 'reverse' });
+        }
+        focusMeasurements.push({ width, tabTrace, reverseStart, reverseTabTrace });
       }
       for (const measurement of focusMeasurements) {
         expect(measurement.tabTrace.map((entry) => entry.id)).toEqual(expectedTabOrder);
+        expect(measurement.reverseTabTrace.map((entry) => entry.id)).toEqual(reverseTabOrder);
         expect(
-          measurement.tabTrace.every(
+          [...measurement.tabTrace, ...measurement.reverseTabTrace].every(
             (entry) =>
               entry.inToolbar &&
               entry.focusVisible &&
@@ -974,22 +1036,111 @@ browserTest(
               entry.outlineWidth === '2px' &&
               entry.documentScrollLeft === 0 &&
               entry.documentScrollTop === 0 &&
-              entry.documentOverflow === 0,
+              entry.documentOverflow === 0 &&
+              entry.toolbarScrollLeft >= 0 &&
+              entry.toolbarScrollLeft <= entry.toolbarScrollMax,
           ),
         ).toBe(true);
+        assertToolbarFocusContainment(
+          measurement.reverseTabTrace,
+          REVERSE_TOOLBAR_FOCUS_CONTRACT,
+        );
+        if (measurement.reverseStart.toolbarScrollMax > 0) {
+          expect(measurement.reverseTabTrace.at(-1).toolbarScrollLeft).toBeLessThan(
+            measurement.reverseStart.toolbarScrollLeft,
+          );
+        } else {
+          expect(measurement.reverseStart.toolbarScrollLeft).toBe(0);
+          expect(measurement.reverseTabTrace.every((entry) => entry.toolbarScrollLeft === 0)).toBe(
+            true,
+          );
+        }
       }
       const clippedFocusMeasurements = focusMeasurements.flatMap((measurement) =>
-        measurement.tabTrace
+        [...measurement.tabTrace, ...measurement.reverseTabTrace]
           .filter((entry) => !entry.fullyVisibleWithOutline)
           .map((entry) => ({
             width: measurement.width,
+            direction: entry.direction,
             id: entry.id,
             visibleWidth: entry.visibleWidth,
             actionWidth: entry.actionWidth,
             clippedSide: entry.clippedSide,
+            toolbarScrollLeft: entry.toolbarScrollLeft,
           })),
       );
       expect(clippedFocusMeasurements).toEqual([]);
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 375,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const mutatedReverseTabTrace = [];
+      try {
+        const mutationStart = await evaluate(
+          cdp,
+          `(async () => {
+            const toolbar = document.querySelector('.topbar');
+            const firstGridTarget = document.querySelector('th[data-col-id]');
+            if (!firstGridTarget) throw new Error('Request-grid focus target was not found.');
+            document.body.focus();
+            const lockedToolbarScrollLeft = toolbar.scrollWidth - toolbar.clientWidth;
+            toolbar.scrollLeft = lockedToolbarScrollLeft;
+            window.__reverseToolbarOriginalScrollIntoView = Element.prototype.scrollIntoView;
+            const originalScrollIntoView = Element.prototype.scrollIntoView;
+            Element.prototype.scrollIntoView = function (options) {
+              if (toolbar.contains(this)) {
+                toolbar.scrollLeft = lockedToolbarScrollLeft;
+                return;
+              }
+              originalScrollIntoView.call(this, options);
+            };
+            firstGridTarget.focus({ preventScroll: true });
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            );
+            return {
+              activeInToolbar: toolbar.contains(document.activeElement),
+              toolbarScrollLeft: toolbar.scrollLeft,
+              toolbarScrollMax: toolbar.scrollWidth - toolbar.clientWidth,
+            };
+          })()`,
+          true,
+        );
+        expect(mutationStart.activeInToolbar).toBe(false);
+        expect(mutationStart.toolbarScrollMax).toBeGreaterThan(0);
+        expect(mutationStart.toolbarScrollLeft).toBe(mutationStart.toolbarScrollMax);
+
+        for (const expectedId of reverseTabOrder) {
+          await pressKey(cdp, 'Tab', 'Tab', 9, 8);
+          const traceEntry = await measureToolbarFocusTarget();
+          expect(traceEntry.id).toBe(expectedId);
+          mutatedReverseTabTrace.push({
+            ...traceEntry,
+            width: 375,
+            direction: 'reverse',
+          });
+        }
+      } finally {
+        await evaluate(
+          cdp,
+          `(() => {
+            if (window.__reverseToolbarOriginalScrollIntoView) {
+              Element.prototype.scrollIntoView = window.__reverseToolbarOriginalScrollIntoView;
+              delete window.__reverseToolbarOriginalScrollIntoView;
+            }
+          })()`,
+        );
+      }
+      expect(mutatedReverseTabTrace.map((entry) => entry.id)).toEqual(reverseTabOrder);
+      expect(() =>
+        assertToolbarFocusContainment(
+          mutatedReverseTabTrace,
+          REVERSE_TOOLBAR_FOCUS_CONTRACT,
+        ),
+      ).toThrow(REVERSE_TOOLBAR_FOCUS_CONTRACT);
 
       const pointerCases = [
         { caseId: 'exportHarBtn@500', width: 500, actionId: 'exportHarBtn' },
