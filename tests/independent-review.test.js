@@ -19,13 +19,44 @@ const createResponse = (data, status = 200) => ({
   json: async () => data,
 });
 
-const createApiFetch = ({ comments = fixtures.comments.valid, commits = fixtures.commits, failures = {} } = {}) =>
+const createCommitCollection = (count) => {
+  if (count < fixtures.commits.length) {
+    throw new Error('commit collection fixture must retain the implementation commits');
+  }
+
+  return [
+    ...fixtures.commits,
+    ...Array.from({ length: count - fixtures.commits.length }, () => fixtures.humanOnlyCommit),
+  ];
+};
+
+const paginate = (url, items) => {
+  if (!Array.isArray(items)) {
+    return items;
+  }
+
+  const parsedUrl = new URL(url);
+  const perPage = Number(parsedUrl.searchParams.get('per_page'));
+  const page = Number(parsedUrl.searchParams.get('page'));
+  return items.slice((page - 1) * perPage, page * perPage);
+};
+
+const createApiFetch = ({
+  comments = fixtures.comments.valid,
+  commits = fixtures.commits,
+  metadata = { commits: commits.length },
+  failures = {},
+} = {}) =>
   jest.fn(async (url) => {
-    if (url.includes('/comments')) {
-      return failures.comments ?? createResponse(comments);
+    const pathname = new URL(url).pathname;
+    if (pathname.endsWith('/comments')) {
+      return failures.comments ?? createResponse(paginate(url, comments));
     }
-    if (url.includes('/commits')) {
-      return failures.commits ?? createResponse(commits);
+    if (pathname.endsWith('/commits')) {
+      return failures.commits ?? createResponse(paginate(url, commits));
+    }
+    if (/\/pulls\/\d+$/.test(pathname)) {
+      return failures.metadata ?? createResponse(metadata);
     }
     throw new Error(`Unexpected API URL: ${url}`);
   });
@@ -192,7 +223,7 @@ describe('GitHub API handling', () => {
     token: 'test-token-value',
   };
 
-  test('reads issue comments and PR commits without exposing the token', async () => {
+  test('reads PR metadata, issue comments, and PR commits without exposing the token', async () => {
     const { runIndependentReviewCheck } = loadChecker();
     const fetchImpl = createApiFetch();
 
@@ -200,13 +231,15 @@ describe('GitHub API handling', () => {
       ok: true,
       reviewerId: fixtures.reviewerUuid,
     });
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl.mock.calls.some(([url]) => /\/pulls\/86$/.test(new URL(url).pathname))).toBe(true);
     for (const [, options] of fetchImpl.mock.calls) {
       expect(options.headers.Authorization).toBe(`Bearer ${request.token}`);
     }
   });
 
   test.each([
+    ['pull request metadata', 'metadata', '/pulls/86'],
     ['issue comments', 'comments', '/comments'],
     ['PR commits', 'commits', '/commits'],
   ])('fails closed when the %s API request fails', async (label, endpoint, pathFragment) => {
@@ -225,6 +258,87 @@ describe('GitHub API handling', () => {
     expect(error.message).not.toContain(request.token);
     expect(error.message).not.toContain('sensitive response body');
     expect(fetchImpl.mock.calls.some(([url]) => url.includes(pathFragment))).toBe(true);
+  });
+
+  test.each([
+    ['below the ceiling', fixtures.commitCollectionLimits.below],
+    ['at the ceiling', fixtures.commitCollectionLimits.supported],
+  ])('accepts a complete commit collection %s', async (_, commitCount) => {
+    const { runIndependentReviewCheck } = loadChecker();
+    const commits = createCommitCollection(commitCount);
+    const fetchImpl = createApiFetch({
+      commits,
+      metadata: { commits: commitCount },
+    });
+
+    await expect(runIndependentReviewCheck({ ...request, fetchImpl })).resolves.toMatchObject({
+      ok: true,
+      code: 'VALID_MARKER',
+      reviewerId: fixtures.reviewerUuid,
+      diagnostics: {
+        implementationSessionIds: 2,
+      },
+    });
+
+    const requestedPaths = fetchImpl.mock.calls.map(([url]) => new URL(url).pathname);
+    expect(requestedPaths.filter((pathname) => pathname.endsWith('/commits'))).toHaveLength(3);
+    expect(requestedPaths.filter((pathname) => /\/pulls\/86$/.test(pathname))).toHaveLength(1);
+  });
+
+  test('fails before collection or marker evaluation above GitHub’s 250-commit ceiling', async () => {
+    const { runIndependentReviewCheck } = loadChecker();
+    const fetchImpl = createApiFetch({
+      commits: createCommitCollection(fixtures.commitCollectionLimits.supported),
+      metadata: { commits: fixtures.commitCollectionLimits.above },
+    });
+
+    const error = await runIndependentReviewCheck({ ...request, fetchImpl }).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain('totalCommits=251');
+    expect(error.message).toContain('supportedLimit=250');
+    expect(error.message).toContain('split the pull request');
+    expect(error.message).not.toContain(request.token);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test('fails on a metadata/API count mismatch before marker evaluation', async () => {
+    const { runIndependentReviewCheck } = loadChecker();
+    const metadataCount = fixtures.commitCollectionLimits.below;
+    const collectedCount = metadataCount - 1;
+    const fetchImpl = createApiFetch({
+      comments: [{ body: null, author_association: 'OWNER' }],
+      commits: createCommitCollection(collectedCount),
+      metadata: { commits: metadataCount },
+    });
+
+    const error = await runIndependentReviewCheck({ ...request, fetchImpl }).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain(`totalCommits=${metadataCount}`);
+    expect(error.message).toContain(`collectedCommits=${collectedCount}`);
+    expect(error.message).not.toContain('issue comment entry');
+    expect(error.message).not.toContain('Copilot App');
+    expect(error.message).not.toContain(request.token);
+  });
+
+  test.each([
+    ['missing', {}],
+    ['null', null],
+    ['array', []],
+    ['string', { commits: '2' }],
+    ['fractional', { commits: 2.5 }],
+    ['negative', { commits: -1 }],
+  ])('fails closed on %s pull request commit-count metadata', async (_, metadata) => {
+    const { runIndependentReviewCheck } = loadChecker();
+    const fetchImpl = createApiFetch({ metadata });
+
+    const error = await runIndependentReviewCheck({ ...request, fetchImpl }).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe('pull request metadata has an invalid commits count');
+    expect(error.message).not.toContain(request.token);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   test('fails closed on malformed issue-comment API data', async () => {
@@ -335,5 +449,14 @@ describe('required workflow integration', () => {
     expect(workflow).toContain('issues: read');
     expect(workflow).toContain('pull-requests: read');
     expect(workflow.slice(reviewStep).trim()).toMatch(/run: node scripts\/check-independent-review\.js$/);
+  });
+
+  test('documents split-PR recovery for the 250-commit API ceiling', () => {
+    const readRepositoryFile = (filePath) => fs.readFileSync(path.join(__dirname, '..', filePath), 'utf8');
+    const topology = readRepositoryFile('docs/coordinator-topology.md');
+    const readme = readRepositoryFile('README.md');
+
+    expect(topology).toMatch(/250[\s\S]*分割/);
+    expect(readme).toMatch(/250[\s\S]*分割/);
   });
 });

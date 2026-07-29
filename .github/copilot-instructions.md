@@ -299,6 +299,7 @@ npm run version:check      # package.json と manifest.json の version 同期�
 - 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿してはならない。
 - コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決して exact-head review を委譲し、marker の `by=` に reviewer attribution の full UUID を記録する。marker は `author_association: OWNER` の issue comment の first non-empty unfenced line とし、説明文の後や fenced code block 内には置かない。
 - CI は PR コミット内の `Copilot-Session` trailer と marker の `by=` が一致する実装セッション自己レビュー、および `OWNER` 以外の drive-by comment を機械的に拒否する。同じ GitHub account を共有するセッション間では `author_association` は global-owner session identity を証明しないため、コーディネーター所有者による clearance 禁止と trusted reviewer binding は別の governance boundary として維持する。
+- CI は GitHub REST の上限 250 件まで PR commit collection の完全性を metadata 総数との一致で証明する。250 件超、metadata の欠落または不正、件数不一致では marker 評価前に fail closed とし、oversized PR は 250 件以下の複数 PR に分割して再実行する。
 - 導入 PR は通常の全ゲート通過後、global owner の marker がない final marker step だけが失敗する。global owner が exact head を独立レビューして marker を投稿後、同じ required workflow を rerun する。既にマージ済みの PR 履歴には遡及適用しない。
 
 ### 7.5 Host-Tool Fallback
