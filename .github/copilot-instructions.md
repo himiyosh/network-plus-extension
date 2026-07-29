@@ -294,11 +294,18 @@ npm run version:check      # package.json と manifest.json の version 同期�
 
 コンテキスト使用率が既知の API 上限の約 70%、または出力が著しく長大・断片化した場合、またはターン数が約 100 を超えた場合。ロールオーバー状態はセッション artifact または durable issue/git リファレンスに記録する。リポジトリへの追跡ファイルのコミットは行わない。
 
-### 7.4 Host-Tool Fallback
+### 7.4 独立レビューゲート
+
+- 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿してはならない。
+- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決して exact-head review を委譲し、marker の `by=` に reviewer attribution の full UUID を記録する。marker は `author_association: OWNER` の issue comment の first non-empty unfenced line とし、説明文の後や fenced code block 内には置かない。
+- CI は PR コミット内の `Copilot-Session` trailer と marker の `by=` が一致する実装セッション自己レビュー、および `OWNER` 以外の drive-by comment を機械的に拒否する。同じ GitHub account を共有するセッション間では `author_association` は global-owner session identity を証明しないため、コーディネーター所有者による clearance 禁止と trusted reviewer binding は別の governance boundary として維持する。
+- 導入 PR は通常の全ゲート通過後、global owner の marker がない final marker step だけが失敗する。global owner が exact head を独立レビューして marker を投稿後、同じ required workflow を rerun する。既にマージ済みの PR 履歴には遡及適用しない。
+
+### 7.5 Host-Tool Fallback
 
 セッション管理ツールが利用できない場合: 安全な in-session 作業のみ継続し、アプリ DB 編集・OS プロセス強制終了・マネージドワークツリー削除・破壊的 git 操作をアーカイブの代替として行わない。次の進捗報告の `BLOCKERS:` 行にツール名と影響を記載する。
 
-### 7.5 データ安全性
+### 7.6 データ安全性
 
 ハンドオフ・セッション artifact に PII・顧客データ・認証情報・生の診断ペイロードを含めない。
 

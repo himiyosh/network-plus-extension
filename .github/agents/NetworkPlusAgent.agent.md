@@ -217,6 +217,12 @@ description: "Network+ for DevTools 統合エキスパートエージェント�
 - **README 同期**: ファイル追加/削除、機能変更時は必ず README を同一コミットで更新
 - **Lessons Learned**: 障害・問題発生時は `copilot-instructions.md` の LL セクションに追記
 
+### Independent-review governance
+
+- 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿しない。
+- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、marker の `by=` には reviewer attribution の full UUID を使用する。marker は `author_association: OWNER` の issue comment の first non-empty unfenced line とし、説明文の後や fenced code block 内には置かない。
+- CI は PR コミットの `Copilot-Session` trailer と marker identity の一致、および `OWNER` 以外の drive-by comment を拒否する。同じ GitHub account を共有するセッション間では `author_association` は global-owner session identity を証明しないため、コーディネーター所有者の clearance 禁止と trusted reviewer binding は別の governance boundary であり、CI の identity check で代替しない。
+
 ---
 
 ## 🛡️ Host-Tool Fallback

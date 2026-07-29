@@ -4,6 +4,7 @@ const {
   REQUIRED_TOPOLOGY_SECTIONS,
   REQUIRED_INSTRUCTIONS_CONCEPTS,
   AGENT_HOST_TOOL_FALLBACK_CONCEPT,
+  AGENT_REVIEW_GOVERNANCE_CONCEPTS,
   TOPOLOGY_DOC,
   AGENT_FILE,
   COPILOT_INSTRUCTIONS_FILE,
@@ -13,6 +14,7 @@ const {
   validateAgentNoRestrictiveTools,
   validateCopilotInstructions,
   validateAgentHostToolFallback,
+  validateAgentReviewGovernance,
 } = require('../scripts/check-coordinator-contract');
 
 // ---------------------------------------------------------------------------
@@ -62,6 +64,8 @@ describe('validateTopologyDoc', () => {
       size: '## セッションサイズ制限\n\nキックオフ 32 KiB、完了 8 KiB、ハンドオフ 64 KiB。\n',
       rollover: '## ロールオーバー条件\n\n約 70% に達した場合。100 ターン。\n',
       cleanup: '## クリーンアップゲート\n\nゲート一覧。\n',
+      review:
+        '## 独立レビューゲート\n\n`independent-review` は `continuous-improvement-watchdog.md` の global owner が担当し、`by=` は full UUID とする。実装チャイルドを所有または adopt した coordinator は投稿禁止。`Copilot-Session` 一致は拒否し、マージ済み履歴には遡及適用しない。\n',
       fallback: '## Host-Tool Fallback\n\nBLOCKERS: 報告方法。\n',
       datasafety: '## データ安全性\n\nデータ安全性ルール。\n',
     };
@@ -157,7 +161,9 @@ describe('validateCopilotInstructions', () => {
       max3: '同時に 3 つまで',
       sizes: '32 KiB キックオフ、8 KiB 完了報告、64 KiB ハンドオフ',
       rollover: '約 70% に達した場合',
-      fallback: '### 7.4 Host-Tool Fallback\n\nBLOCKERS: 報告方法。',
+      review:
+        '`independent-review` は `continuous-improvement-watchdog.md` の global owner が担当し、`by=` は full UUID とする。実装チャイルドを所有または adopt した coordinator は投稿禁止。`Copilot-Session` 一致は拒否し、マージ済み履歴には遡及適用しない。',
+      fallback: '### 7.5 Host-Tool Fallback\n\nBLOCKERS: 報告方法。',
       noManifest: '追跡ファイルのコミットは行わない',
       sensitive: 'PII・顧客データ',
     };
@@ -211,7 +217,7 @@ describe('validateCopilotInstructions', () => {
   });
 
   test('reports missing BLOCKERS fallback reporting requirement', () => {
-    const content = buildInstructions({ fallback: '### 7.4 Host-Tool Fallback\n\nフォールバック手順。' });
+    const content = buildInstructions({ fallback: '### 7.5 Host-Tool Fallback\n\nフォールバック手順。' });
     const errors = validateCopilotInstructions(content);
     expect(errors.some((e) => e.includes('BLOCKERS'))).toBe(true);
   });
@@ -260,6 +266,22 @@ describe('validateAgentHostToolFallback', () => {
   });
 });
 
+describe('validateAgentReviewGovernance', () => {
+  const compliantAgent =
+    '`independent-review` は `continuous-improvement-watchdog.md` の global owner が担当し、`by=` は full UUID とする。実装チャイルドを所有または adopt した coordinator は投稿禁止。`Copilot-Session` 一致は拒否する。';
+
+  test('accepts complete independent-review governance', () => {
+    expect(validateAgentReviewGovernance(compliantAgent)).toEqual([]);
+  });
+
+  test('reports every missing independent-review governance concept', () => {
+    for (const concept of AGENT_REVIEW_GOVERNANCE_CONCEPTS) {
+      const errors = validateAgentReviewGovernance(compliantAgent.replace(concept, ''));
+      expect(errors.some((error) => error.includes(concept))).toBe(true);
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Integration: validate the real repository files
 // ---------------------------------------------------------------------------
@@ -289,6 +311,13 @@ describe('real repository files', () => {
 
     const content = fs.readFileSync(absPath, 'utf8');
     expect(validateAgentHostToolFallback(content)).toEqual([]);
+  });
+
+  test('NetworkPlusAgent.agent.md retains independent-review governance', () => {
+    const absPath = path.join(root, AGENT_FILE);
+    const content = fs.readFileSync(absPath, 'utf8');
+
+    expect(validateAgentReviewGovernance(content)).toEqual([]);
   });
 
   test('copilot-instructions.md exists and retains all coordinator contracts', () => {
