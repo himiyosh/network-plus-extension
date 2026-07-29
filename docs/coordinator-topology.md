@@ -59,10 +59,23 @@
 ## 独立レビューゲート
 
 - 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿してはならない。
-- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、実装セッションから独立した reviewer に exact-head review を委譲する。marker の `by=` には reviewer attribution の full UUID を記録し、`author_association: OWNER` の issue comment の first non-empty unfenced line に置く。説明文の後や fenced code block 内の marker は clearance として扱わない。
-- required CI は marker の `head=<40hex>`、`verdict=pass`、full UUID の `by=`、GitHub `OWNER` association を検証し、PR コミットにあるいずれかの `Copilot-Session` trailer と reviewer UUID が一致した場合、または drive-by comment の場合は拒否する。同じ GitHub account を共有するセッション間では `author_association` は global-owner session identity を証明しない。実装チャイルドを所有または adopt したコーディネーターの clearance 禁止と trusted reviewer binding は、CI では完全に機械検証できない文書化された governance boundary とする。
-- GitHub REST の PR commit list は最大 250 件のため、required CI は pull request metadata の総コミット数と収集件数の一致を marker 評価前に確認する。総数が 250 件を超える、metadata が欠落または不正、あるいは件数が一致しない場合は fail closed とする。250 件を超える PR は 250 件以下の複数 PR に分割し、各 PR で review gate を再実行する。
+- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、実装セッションから独立した reviewer に exact-head review を委譲する。repository Actions variables `INDEPENDENT_REVIEW_REVIEWER_SESSION_ID` と `INDEPENDENT_REVIEW_MERGER_SESSION_ID` は full UUID (full lowercase UUID) で相互に異なる必要があり、required CI は marker の `by=` と設定済み reviewer UUID の一致を必須化する。
+- required CI は PR コミットにあるいずれかの `Copilot-Session` trailer と reviewer UUID が一致する実装セッション自己レビュー、implementation-session attribution が空の PR、`OWNER` 以外の drive-by comment を拒否する。同じ GitHub account を共有するセッション間では `author_association` は reviewer session identity を証明しないため、実際にレビューした設定済み reviewer session 自身だけが marker を投稿する。
+- GitHub REST の PR commit list は最大 250 件のため、required CI は収集前後に pull request metadata の総コミット数を取得し、総数の安定性と収集件数の一致を marker 評価前に確認する。総数が 250 件を超える、metadata が欠落または不正、収集中に総数が変わる、あるいは件数が一致しない場合は fail closed とする。250 件を超える PR は 250 件以下の複数 PR に分割し、各 PR で review gate を再実行する。
+- repository Actions variables は PR 外の非 secret attribution を使う近接防御であり、PR-editable checker code の trust boundary を解決したと表現してはならない。外部所有の trusted required check への移行は issue #95 の対象として維持する。
 - ゲート自体の導入 PR では、通常の全品質ゲートを先に実行し、marker 未投稿による失敗を final marker step だけに限定する。global owner がその PR の exact head を独立レビューして marker を投稿後、同じ required workflow を rerun する。既にマージ済みの PR 履歴には遡及適用しない。
+
+### Repository-specific marker
+
+コピー用の唯一の Network+ marker は `independent-review head=<40hex> verdict=pass by=<full lowercase UUID>`。`author_association: OWNER` の issue comment の first non-empty unfenced line に置き、説明は次の行以降に記載する。HTML comment wrapper、末尾の `at=`、fenced example、他リポジトリの incompatible marker format、別セッション ID の proxy posting、merger self-review は clearance として扱わない。
+
+### Actions variable rotation runbook
+
+1. ホストの session metadata と `continuous-improvement-watchdog.md` から、次に実レビューを行う reviewer UUID と merge を所有する coordinator UUID を取得する。両方が full lowercase UUID で相互に異なることをローカルで検証し、token、credential、comment body、commit message は出力しない。
+2. repository root で `gh variable set INDEPENDENT_REVIEW_REVIEWER_SESSION_ID --body "$reviewer_id"` と `gh variable set INDEPENDENT_REVIEW_MERGER_SESSION_ID --body "$merger_id"` を順に実行する。これらは非 secret UUID であり、secret や credential を変数へ格納しない。
+3. `gh variable get INDEPENDENT_REVIEW_REVIEWER_SESSION_ID` と `gh variable get INDEPENDENT_REVIEW_MERGER_SESSION_ID` の取得値を、意図した UUID とローカルで exact compare する。両方の一致と相互不一致を確認するまでレビューを委譲せず、marker を投稿しない。
+4. PR の full 40-character head SHA を再取得し、その exact head を設定済み reviewer session がレビューする。reviewer 本人が marker を投稿した後だけ同じ required workflow を rerun し、merger または coordinator は reviewer UUID を proxy posting しない。
+5. missing、malformed、equal、stale、mismatched configuration で失敗した場合は marker 投稿と merge を停止する。意図した最後の reviewer/merger pair を手順 2 で再設定し、手順 3 の read-back、head 再取得、exact-head review、workflow rerun を順番どおりにやり直す。PR 内の allowlist、workflow、checker を編集して recovery を迂回しない。
 
 ## Host-Tool Fallback
 
