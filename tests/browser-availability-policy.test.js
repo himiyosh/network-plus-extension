@@ -5,10 +5,12 @@ const vm = require('vm');
 const browserSuitePath = path.join(__dirname, 'status-summary-browser.test.js');
 const browserSuiteSource = fs.readFileSync(browserSuitePath, 'utf8');
 
-const evaluateBrowserSuiteRegistration = (environment) => {
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const evaluateBrowserSuite = (source, environment) => {
   const registrations = [];
-  const testApi = (title) => registrations.push({ skipped: false, title });
-  testApi.skip = (title) => registrations.push({ skipped: true, title });
+  const testApi = (title, callback) => registrations.push({ callback, skipped: false, title });
+  testApi.skip = (title, callback) => registrations.push({ callback, skipped: true, title });
 
   const mockedFs = Object.create(fs);
   mockedFs.accessSync = () => {
@@ -16,7 +18,7 @@ const evaluateBrowserSuiteRegistration = (environment) => {
   };
 
   vm.runInNewContext(
-    browserSuiteSource,
+    source,
     {
       __dirname: path.dirname(browserSuitePath),
       process: { env: environment },
@@ -29,6 +31,67 @@ const evaluateBrowserSuiteRegistration = (environment) => {
   return registrations;
 };
 
+const evaluateBrowserSuiteRegistration = (environment) =>
+  evaluateBrowserSuite(browserSuiteSource, environment).map(({ skipped, title }) => ({ skipped, title }));
+
+const getDeclaredViewportWidths = (source, constantName) => {
+  const declaration = source.match(
+    new RegExp(`const ${escapeRegex(constantName)} = \\[([^\\]]+)\\];`),
+  );
+  if (!declaration) {
+    throw new Error(`${constantName} must have a literal array declaration.`);
+  }
+
+  const widths = declaration[1].match(/\d+/g)?.map(Number);
+  if (!widths?.length) {
+    throw new Error(`${constantName} must declare at least one viewport width.`);
+  }
+  return widths;
+};
+
+const assertExactViewportWidths = (source, constantName, expectedWidths) => {
+  const actualWidths = getDeclaredViewportWidths(source, constantName);
+  if (
+    actualWidths.length !== expectedWidths.length ||
+    actualWidths.some((width, index) => width !== expectedWidths[index])
+  ) {
+    throw new Error(
+      `${constantName} must declare exactly [${expectedWidths.join(', ')}]; received [${actualWidths.join(', ')}].`,
+    );
+  }
+};
+
+const assertJourneyConsumesViewportWidths = (source, journeyTitle, constantName) => {
+  const journey = evaluateBrowserSuite(source, {}).find(
+    ({ title, callback }) => title === journeyTitle && typeof callback === 'function',
+  );
+  if (!journey) {
+    throw new Error(`${constantName} cannot be verified because "${journeyTitle}" is not registered.`);
+  }
+
+  const directLoop = new RegExp(
+    `for\\s*\\(\\s*const\\s+width\\s+of\\s+${escapeRegex(constantName)}\\s*\\)`,
+  );
+  if (!directLoop.test(Function.prototype.toString.call(journey.callback))) {
+    throw new Error(`${constantName} must be consumed directly by "${journeyTitle}".`);
+  }
+};
+
+const replaceViewportDeclaration = (source, constantName, widths) =>
+  source.replace(
+    new RegExp(`const ${escapeRegex(constantName)} = \\[[^\\]]+\\];`),
+    `const ${constantName} = [${widths.join(', ')}];`,
+  );
+
+const divergeViewportLoop = (source, constantName, widths) => {
+  const directLoop = new RegExp(
+    `for\\s*\\(\\s*const\\s+width\\s+of\\s+${escapeRegex(constantName)}\\s*\\)`,
+  );
+  return directLoop.test(source)
+    ? source.replace(directLoop, `for (const width of [${widths.join(', ')}])`)
+    : source;
+};
+
 test('fails explicitly in CI when no browser executable is discoverable', () => {
   expect(() => evaluateBrowserSuiteRegistration({ CI: 'true' })).toThrow(
     'Real-browser regression tests require an executable Chrome or Edge in CI.',
@@ -38,15 +101,87 @@ test('fails explicitly in CI when no browser executable is discoverable', () => 
 test('locks toolbar branding coverage to both exact sides of the content breakpoint', () => {
   const viewportDeclaration = browserSuiteSource.match(/const TOOLBAR_VIEWPORT_WIDTHS = \[([^\]]+)\];/);
 
+  assertExactViewportWidths(
+    browserSuiteSource,
+    'TOOLBAR_VIEWPORT_WIDTHS',
+    [375, 500, 800, 1280, 1366, 1367, 1500],
+  );
   expect(viewportDeclaration).not.toBeNull();
   expect(viewportDeclaration[1].match(/\d+/g).map(Number)).toEqual([375, 500, 800, 1280, 1366, 1367, 1500]);
+});
+
+test('locks toolbar focus coverage to narrow, stacked, and split layouts', () => {
+  assertExactViewportWidths(
+    browserSuiteSource,
+    'TOOLBAR_FOCUS_VIEWPORT_WIDTHS',
+    [375, 500, 800, 1280],
+  );
 });
 
 test('locks request-grid focus coverage to narrow, stacked, and split layouts', () => {
   const viewportDeclaration = browserSuiteSource.match(/const GRID_FOCUS_VIEWPORT_WIDTHS = \[([^\]]+)\];/);
 
+  assertExactViewportWidths(browserSuiteSource, 'GRID_FOCUS_VIEWPORT_WIDTHS', [375, 500, 800, 1280]);
   expect(viewportDeclaration).not.toBeNull();
   expect(viewportDeclaration[1].match(/\d+/g).map(Number)).toEqual([375, 500, 800, 1280]);
+});
+
+test.each([
+  ['TOOLBAR_VIEWPORT_WIDTHS', [375, 500, 800, 1280, 1366, 1367, 1500]],
+  ['TOOLBAR_FOCUS_VIEWPORT_WIDTHS', [375, 500, 800, 1280]],
+  ['GRID_FOCUS_VIEWPORT_WIDTHS', [375, 500, 800, 1280]],
+])('%s declaration narrowing fails with a named diagnostic', (constantName, expectedWidths) => {
+  const narrowedSource = replaceViewportDeclaration(browserSuiteSource, constantName, [1280]);
+
+  expect(() => assertExactViewportWidths(narrowedSource, constantName, expectedWidths)).toThrow(constantName);
+});
+
+test.each([
+  [
+    'TOOLBAR_VIEWPORT_WIDTHS',
+    [375, 500, 800, 1280, 1366, 1367, 1500],
+    'constrained toolbar prioritizes actions while preserving local overflow access',
+  ],
+  [
+    'TOOLBAR_FOCUS_VIEWPORT_WIDTHS',
+    [375, 500, 800, 1280],
+    'constrained toolbar prioritizes actions while preserving local overflow access',
+  ],
+  [
+    'GRID_FOCUS_VIEWPORT_WIDTHS',
+    [375, 500, 800, 1280],
+    'request-grid focus stays visible without disrupting pointer sorting or resizing',
+  ],
+])('%s loop divergence fails with a named diagnostic', (constantName, widths, journeyTitle) => {
+  const divergentSource = divergeViewportLoop(browserSuiteSource, constantName, widths);
+
+  expect(() => assertJourneyConsumesViewportWidths(divergentSource, journeyTitle, constantName)).toThrow(
+    constantName,
+  );
+});
+
+test('locks the toolbar measurement journey to its declared viewport widths', () => {
+  assertJourneyConsumesViewportWidths(
+    browserSuiteSource,
+    'constrained toolbar prioritizes actions while preserving local overflow access',
+    'TOOLBAR_VIEWPORT_WIDTHS',
+  );
+});
+
+test('locks the toolbar focus journey to its declared viewport widths', () => {
+  assertJourneyConsumesViewportWidths(
+    browserSuiteSource,
+    'constrained toolbar prioritizes actions while preserving local overflow access',
+    'TOOLBAR_FOCUS_VIEWPORT_WIDTHS',
+  );
+});
+
+test('locks the request-grid journey to its declared viewport widths', () => {
+  assertJourneyConsumesViewportWidths(
+    browserSuiteSource,
+    'request-grid focus stays visible without disrupting pointer sorting or resizing',
+    'GRID_FOCUS_VIEWPORT_WIDTHS',
+  );
 });
 
 test('locks the request-grid journey to real forward and reverse Tab traversal', () => {
