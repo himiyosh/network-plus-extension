@@ -4,12 +4,18 @@ const fixtures = require('./fixtures/independent-review-cases.json');
 
 const loadChecker = () => require('../scripts/check-independent-review');
 
-const evaluateComments = (comments, commits = fixtures.commits) => {
+const reviewConfiguration = {
+  reviewerSessionId: fixtures.reviewerUuid,
+  mergerSessionId: fixtures.mergerUuid,
+};
+
+const evaluateComments = (comments, commits = fixtures.commits, configuration = reviewConfiguration) => {
   const { evaluateIndependentReview } = loadChecker();
   return evaluateIndependentReview({
     comments,
     commits,
     headSha: fixtures.headSha,
+    ...configuration,
   });
 };
 
@@ -45,9 +51,12 @@ const createApiFetch = ({
   comments = fixtures.comments.valid,
   commits = fixtures.commits,
   metadata = { commits: commits.length },
+  metadataSequence,
   failures = {},
-} = {}) =>
-  jest.fn(async (url) => {
+} = {}) => {
+  let metadataRequestIndex = 0;
+
+  return jest.fn(async (url) => {
     const pathname = new URL(url).pathname;
     if (pathname.endsWith('/comments')) {
       return failures.comments ?? createResponse(paginate(url, comments));
@@ -56,10 +65,16 @@ const createApiFetch = ({
       return failures.commits ?? createResponse(paginate(url, commits));
     }
     if (/\/pulls\/\d+$/.test(pathname)) {
-      return failures.metadata ?? createResponse(metadata);
+      const currentMetadata =
+        metadataSequence && metadataRequestIndex < metadataSequence.length
+          ? metadataSequence[metadataRequestIndex]
+          : metadata;
+      metadataRequestIndex += 1;
+      return failures.metadata ?? createResponse(currentMetadata);
     }
     throw new Error(`Unexpected API URL: ${url}`);
   });
+};
 
 describe('independent-review marker evaluation', () => {
   test.each([
@@ -91,6 +106,33 @@ describe('independent-review marker evaluation', () => {
         unauthorizedMarkers: 0,
       },
     });
+  });
+
+  test('rejects an exact-head OWNER marker from a reviewer other than the configured reviewer', () => {
+    expect(evaluateComments(fixtures.comments.wrongReviewer)).toMatchObject({
+      ok: false,
+      code: 'NO_VALID_MARKER',
+      diagnostics: {
+        implementationSessionIds: 2,
+        wrongReviewerMarkers: 1,
+      },
+    });
+  });
+
+  test.each([
+    ['missing reviewer', { reviewerSessionId: undefined, mergerSessionId: fixtures.mergerUuid }],
+    ['missing merger', { reviewerSessionId: fixtures.reviewerUuid, mergerSessionId: undefined }],
+    ['malformed reviewer', { reviewerSessionId: 'not-a-uuid', mergerSessionId: fixtures.mergerUuid }],
+    [
+      'non-lowercase reviewer',
+      { reviewerSessionId: 'A3db7911-b380-48b0-a8c3-214d848815e2', mergerSessionId: fixtures.mergerUuid },
+    ],
+    ['malformed merger', { reviewerSessionId: fixtures.reviewerUuid, mergerSessionId: 'not-a-uuid' }],
+    ['equal reviewer and merger', { reviewerSessionId: fixtures.reviewerUuid, mergerSessionId: fixtures.reviewerUuid }],
+  ])('fails closed for %s configuration', (_, configuration) => {
+    expect(() => evaluateComments(fixtures.comments.valid, fixtures.commits, configuration)).toThrow(
+      /independent-review (reviewer|merger) session configuration/,
+    );
   });
 
   test('passes multiple comments only when one marker is valid for the exact head', () => {
@@ -148,14 +190,10 @@ describe('independent-review marker evaluation', () => {
     );
   });
 
-  test('allows an explicitly human-only PR while exposing a zero session count', () => {
-    expect(evaluateComments(fixtures.comments.valid, [fixtures.humanOnlyCommit])).toMatchObject({
-      ok: true,
-      code: 'VALID_MARKER',
-      diagnostics: {
-        implementationSessionIds: 0,
-      },
-    });
+  test('fails closed when no implementation session attribution can be established', () => {
+    expect(() => evaluateComments(fixtures.comments.valid, [fixtures.humanOnlyCommit])).toThrow(
+      /implementationSessionIds=0/,
+    );
   });
 
   test.each([
@@ -205,13 +243,17 @@ describe('independent-review marker evaluation', () => {
     });
   });
 
-  test('formats the implementation-session count without commit content', () => {
+  test('rejects injected commit content instead of formatting it as diagnostics', () => {
     const { formatDiagnostics } = loadChecker();
     const result = evaluateComments(fixtures.comments.valid);
+    const unsafeCommitMessage = fixtures.copilotWithoutSessionCommit.commit.message;
 
-    expect(formatDiagnostics(result.diagnostics)).toContain('implementationSessionIds=2');
-    expect(formatDiagnostics(result.diagnostics)).toContain('unauthorized=0');
-    expect(formatDiagnostics(result.diagnostics)).not.toContain('Copilot App');
+    expect(() =>
+      formatDiagnostics({
+        ...result.diagnostics,
+        implementationSessionIds: unsafeCommitMessage,
+      }),
+    ).toThrow(/diagnostics.*implementationSessionIds/);
   });
 });
 
@@ -221,6 +263,7 @@ describe('GitHub API handling', () => {
     prNumber: 86,
     headSha: fixtures.headSha,
     token: 'test-token-value',
+    ...reviewConfiguration,
   };
 
   test('reads PR metadata, issue comments, and PR commits without exposing the token', async () => {
@@ -231,7 +274,7 @@ describe('GitHub API handling', () => {
       ok: true,
       reviewerId: fixtures.reviewerUuid,
     });
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(fetchImpl.mock.calls.some(([url]) => /\/pulls\/86$/.test(new URL(url).pathname))).toBe(true);
     for (const [, options] of fetchImpl.mock.calls) {
       expect(options.headers.Authorization).toBe(`Bearer ${request.token}`);
@@ -282,7 +325,28 @@ describe('GitHub API handling', () => {
 
     const requestedPaths = fetchImpl.mock.calls.map(([url]) => new URL(url).pathname);
     expect(requestedPaths.filter((pathname) => pathname.endsWith('/commits'))).toHaveLength(3);
-    expect(requestedPaths.filter((pathname) => /\/pulls\/86$/.test(pathname))).toHaveLength(1);
+    expect(requestedPaths.filter((pathname) => /\/pulls\/86$/.test(pathname))).toHaveLength(2);
+  });
+
+  test('fails closed when exactly-250 metadata changes during commit collection', async () => {
+    const { runIndependentReviewCheck } = loadChecker();
+    const initialCount = fixtures.commitCollectionLimits.supported;
+    const changedCount = fixtures.commitCollectionLimits.above;
+    const fetchImpl = createApiFetch({
+      comments: [{ body: null, author_association: 'OWNER' }],
+      commits: createCommitCollection(initialCount),
+      metadataSequence: [{ commits: initialCount }, { commits: changedCount }],
+    });
+
+    const error = await runIndependentReviewCheck({ ...request, fetchImpl }).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain(`initialTotalCommits=${initialCount}`);
+    expect(error.message).toContain(`finalTotalCommits=${changedCount}`);
+    expect(error.message).not.toContain('issue comment entry');
+    expect(error.message).not.toContain(request.token);
+    const requestedPaths = fetchImpl.mock.calls.map(([url]) => new URL(url).pathname);
+    expect(requestedPaths.filter((pathname) => /\/pulls\/86$/.test(pathname))).toHaveLength(2);
   });
 
   test('fails before collection or marker evaluation above GitHub’s 250-commit ceiling', async () => {
@@ -318,7 +382,6 @@ describe('GitHub API handling', () => {
     expect(error.message).toContain(`totalCommits=${metadataCount}`);
     expect(error.message).toContain(`collectedCommits=${collectedCount}`);
     expect(error.message).not.toContain('issue comment entry');
-    expect(error.message).not.toContain('Copilot App');
     expect(error.message).not.toContain(request.token);
   });
 
@@ -343,11 +406,16 @@ describe('GitHub API handling', () => {
 
   test('fails closed on malformed issue-comment API data', async () => {
     const { runIndependentReviewCheck } = loadChecker();
-    const fetchImpl = createApiFetch({ comments: { body: 'not-an-array' } });
+    const unsafeCommentBody = 'Copilot App unsafe comment body';
+    const fetchImpl = createApiFetch({
+      comments: [{ body: { unsafeCommentBody }, author_association: 'OWNER' }],
+    });
 
-    await expect(runIndependentReviewCheck({ ...request, fetchImpl })).rejects.toThrow(
-      'issue comments response must be an array',
-    );
+    const error = await runIndependentReviewCheck({ ...request, fetchImpl }).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe('issue comment entry 1 is missing body');
+    expect(error.message).not.toContain(unsafeCommentBody);
   });
 
   test('fails closed on malformed PR-commit API data', async () => {
@@ -448,6 +516,12 @@ describe('required workflow integration', () => {
     expect(reviewStep).toBeGreaterThan(contractStep);
     expect(workflow).toContain('issues: read');
     expect(workflow).toContain('pull-requests: read');
+    expect(workflow).toContain(
+      'INDEPENDENT_REVIEW_REVIEWER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_REVIEWER_SESSION_ID }}',
+    );
+    expect(workflow).toContain(
+      'INDEPENDENT_REVIEW_MERGER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_MERGER_SESSION_ID }}',
+    );
     expect(workflow.slice(reviewStep).trim()).toMatch(/run: node scripts\/check-independent-review\.js$/);
   });
 

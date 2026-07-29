@@ -82,4 +82,6 @@ jobs:
       - name: Check independent review marker
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          INDEPENDENT_REVIEW_REVIEWER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_REVIEWER_SESSION_ID }}
+          INDEPENDENT_REVIEW_MERGER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_MERGER_SESSION_ID }}
         run: node scripts/check-independent-review.js

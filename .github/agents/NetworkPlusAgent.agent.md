@@ -220,9 +220,11 @@ description: "Network+ for DevTools 統合エキスパートエージェント�
 ### Independent-review governance
 
 - 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿しない。
-- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、marker の `by=` には reviewer attribution の full UUID を使用する。marker は `author_association: OWNER` の issue comment の first non-empty unfenced line とし、説明文の後や fenced code block 内には置かない。
-- CI は PR コミットの `Copilot-Session` trailer と marker identity の一致、および `OWNER` 以外の drive-by comment を拒否する。同じ GitHub account を共有するセッション間では `author_association` は global-owner session identity を証明しないため、コーディネーター所有者の clearance 禁止と trusted reviewer binding は別の governance boundary であり、CI の identity check で代替しない。
-- CI は GitHub REST の上限 250 件まで PR commit collection の完全性を metadata 総数との一致で証明する。250 件超、metadata の欠落または不正、件数不一致では marker 評価前に fail closed とし、oversized PR は 250 件以下の複数 PR に分割して再実行する。
+- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、`INDEPENDENT_REVIEW_REVIEWER_SESSION_ID` と `INDEPENDENT_REVIEW_MERGER_SESSION_ID` が full UUID (full lowercase UUID) で相互に異なることを `docs/coordinator-topology.md` の rotation runbook どおりに確認してから exact-head review を委譲する。
+- reviewer が投稿できる Network+ marker は `independent-review head=<40hex> verdict=pass by=<full lowercase UUID>` のみで、`author_association: OWNER` comment の first non-empty unfenced line に置く。HTML comment wrapper、末尾の `at=`、fenced example、他リポジトリの incompatible marker format、proxy posting、merger self-review を使用しない。
+- 実際にレビューした設定済み reviewer session 自身だけが marker を投稿する。実装セッションとその owner/adopter は投稿せず、別セッション ID を代理投稿しない。CI は設定済み reviewer 以外の `by=`、PR コミットの `Copilot-Session` trailer と一致する identity、空の implementation-session attribution、`OWNER` 以外の drive-by comment を拒否する。
+- CI は GitHub REST の最大 250 件の commit collection と収集前後の metadata 総数を marker 評価前に照合する。250 件超、metadata 不正、件数不一致、収集中の総数変更は fail closed とする。
+- repository Actions variables は PR-editable checker code の trust boundary を解決しない近接防御であり、外部所有の trusted required check は issue #95 の対象として残る。
 
 ---
 

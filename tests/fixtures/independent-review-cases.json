@@ -7,6 +7,8 @@
     "above": 251
   },
   "reviewerUuid": "11111111-1111-4111-8111-111111111111",
+  "mergerUuid": "55555555-5555-4555-8555-555555555555",
+  "wrongReviewerUuid": "66666666-6666-4666-8666-666666666666",
   "escapedSessionUuid": "44444444-4444-4444-8444-444444444444",
   "implementationSessionUuids": ["22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"],
   "comments": {
@@ -31,6 +33,12 @@
     "wrongVerdict": [
       {
         "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=fail by=11111111-1111-4111-8111-111111111111",
+        "author_association": "OWNER"
+      }
+    ],
+    "wrongReviewer": [
+      {
+        "body": "independent-review head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa verdict=pass by=66666666-6666-4666-8666-666666666666",
         "author_association": "OWNER"
       }
     ],

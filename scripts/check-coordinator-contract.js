@@ -67,6 +67,18 @@ const REQUIRED_TOPOLOGY_CONCEPTS = [
   '所有または adopt', // coordinator self-clearance prohibition
   'Copilot-Session', // mechanically enforced implementation identity
   '遡及適用しない', // merged history is out of scope
+  'independent-review head=<40hex> verdict=pass by=<full lowercase UUID>',
+  'HTML comment',
+  'at=',
+  'fenced',
+  'incompatible',
+  'proxy',
+  'merger self-review',
+  'issue #95',
+  'INDEPENDENT_REVIEW_REVIEWER_SESSION_ID',
+  'INDEPENDENT_REVIEW_MERGER_SESSION_ID',
+  'gh variable set',
+  'gh variable get',
 ];
 
 /**
@@ -91,6 +103,14 @@ const REQUIRED_INSTRUCTIONS_CONCEPTS = [
   ['所有または adopt', 'coordinator self-clearance prohibition'],
   ['Copilot-Session', 'mechanically enforced implementation identity'],
   ['遡及適用しない', 'no retroactive merged-history enforcement'],
+  ['independent-review head=<40hex> verdict=pass by=<full lowercase UUID>', 'repository-specific marker template'],
+  ['HTML comment', 'HTML-comment marker rejection'],
+  ['at=', 'trailing marker field rejection'],
+  ['fenced', 'fenced marker rejection'],
+  ['incompatible', 'other-repository marker rejection'],
+  ['proxy', 'proxy marker prohibition'],
+  ['merger self-review', 'merger self-review prohibition'],
+  ['issue #95', 'external trusted-check boundary'],
 ];
 
 /**
@@ -104,6 +124,14 @@ const AGENT_REVIEW_GOVERNANCE_CONCEPTS = [
   'full UUID',
   '所有または adopt',
   'Copilot-Session',
+  'independent-review head=<40hex> verdict=pass by=<full lowercase UUID>',
+  'HTML comment',
+  'at=',
+  'fenced',
+  'incompatible',
+  'proxy',
+  'merger self-review',
+  'issue #95',
 ];
 
 // ---------------------------------------------------------------------------
