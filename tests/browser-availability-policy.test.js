@@ -11,6 +11,8 @@ const STATUS_WORKSPACE_JOURNEY_TITLE =
   'narrow sample status disclosure preserves the evidence workspace and interaction state';
 const GRID_FOCUS_JOURNEY_TITLE =
   'request-grid focus allowance matches the painted outline without disrupting pointer sorting or resizing';
+const SEPARATOR_FOCUS_JOURNEY_TITLE =
+  'workbench separators preserve inset focus rings across responsive themes and resizing inputs';
 const BROWSER_POLICY_GUARD_CONTRACT = 'browser availability source-contract policy pin';
 const BROWSER_POLICY_GUARD_COMMAND = 'npx jest tests/browser-availability-policy.test.js --runInBand --coverage=false';
 const BROWSER_POLICY_GUARD_STEP_NAME = 'Run browser source-contract policy';
@@ -408,6 +410,11 @@ const VIEWPORT_CONTRACTS = [
     journeyTitle: GRID_FOCUS_JOURNEY_TITLE,
   },
   {
+    constantName: 'SEPARATOR_FOCUS_VIEWPORT_WIDTHS',
+    expectedWidths: [320, 375, 414, 700, 701, 768, 1280],
+    journeyTitle: SEPARATOR_FOCUS_JOURNEY_TITLE,
+  },
+  {
     constantName: 'STATUS_WORKSPACE_VIEWPORT_WIDTHS',
     expectedWidths: [320, 375, 414, 768, 1280],
     journeyTitle: STATUS_WORKSPACE_JOURNEY_TITLE,
@@ -535,6 +542,14 @@ test('locks toolbar focus coverage to narrow, stacked, and split layouts', () =>
 
 test('locks request-grid focus coverage to narrow, stacked, and split layouts', () => {
   assertExactViewportWidths(browserSuiteSource, 'GRID_FOCUS_VIEWPORT_WIDTHS', [375, 500, 800, 1280]);
+});
+
+test('locks separator focus coverage to acceptance widths and both sides of the responsive boundary', () => {
+  assertExactViewportWidths(
+    browserSuiteSource,
+    'SEPARATOR_FOCUS_VIEWPORT_WIDTHS',
+    [320, 375, 414, 700, 701, 768, 1280],
+  );
 });
 
 test('locks sample status workspace coverage to every required narrow width and the wide control', () => {
@@ -760,6 +775,14 @@ test('locks the request-grid journey to its declared viewport widths', () => {
     browserSuiteSource,
     GRID_FOCUS_JOURNEY_TITLE,
     'GRID_FOCUS_VIEWPORT_WIDTHS',
+  );
+});
+
+test('locks the workbench separator journey to its declared viewport widths', () => {
+  assertJourneyConsumesViewportWidths(
+    browserSuiteSource,
+    SEPARATOR_FOCUS_JOURNEY_TITLE,
+    'SEPARATOR_FOCUS_VIEWPORT_WIDTHS',
   );
 });
 
@@ -1095,6 +1118,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title: GRID_FOCUS_JOURNEY_TITLE,
+    },
+    {
+      skipped: true,
+      title: SEPARATOR_FOCUS_JOURNEY_TITLE,
     },
   ]);
 });

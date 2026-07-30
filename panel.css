@@ -169,7 +169,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .resizer{flex:0 0 4px;cursor:col-resize;background:var(--separator);z-index:2;transition:background 0.15s}
 .resizer[hidden],.details[hidden]{display:none}
 .resizer:hover,.resizer:focus-visible{background:var(--accent)}
-.resizer:focus-visible,.inspector-divider:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.content .resizer:focus-visible,.inspector-panels .inspector-divider:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* === Details Panel === */
 .details{display:flex;flex-direction:column;flex:0 0 50%;min-width:300px;min-height:0;overflow:hidden;border-left:1px solid var(--separator)}

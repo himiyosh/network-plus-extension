@@ -71,6 +71,86 @@ const searchColorTokens = [
   'search-orange',
 ];
 const nonTextContrastTokens = ['control-border', 'separator'];
+const SEPARATOR_FOCUS_CASCADE_CONTRACT = 'workbench separator focus cascade';
+
+const getOutlineSelectorRule = (source, selectorSuffix) => {
+  const matches = Array.from(source.matchAll(/^([^@{}\n]+)\{([^{}]*)\}$/gm)).flatMap((match) =>
+    match[1]
+      .split(',')
+      .map((selector) => selector.trim())
+      .filter(
+        (selector) =>
+          selector.endsWith(selectorSuffix) &&
+          match[2].includes('outline:') &&
+          match[2].includes('outline-offset:'),
+      )
+      .map((selector) => ({
+        declarations: match[2],
+        index: match.index,
+        selector,
+      })),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `${SEPARATOR_FOCUS_CASCADE_CONTRACT}: expected exactly one outline rule ending in ${selectorSuffix}; received ${matches.length}.`,
+    );
+  }
+  return matches[0];
+};
+
+const getSelectorSpecificity = (selector) => {
+  const ids = (selector.match(/#[\w-]+/g) || []).length;
+  const classLike = (
+    selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+(?:\([^)]*\))?/g) || []
+  ).length;
+  const types = (
+    selector
+      .replace(/#[\w-]+|\.[\w-]+|\[[^\]]+\]|::?[\w-]+(?:\([^)]*\))?|[>+~*]/g, ' ')
+      .match(/\b[a-z][\w-]*\b/gi) || []
+  ).length;
+  return [ids, classLike, types];
+};
+
+const compareSpecificity = (left, right) => {
+  for (let index = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+};
+
+const assertSeparatorFocusCascade = (source) => {
+  const genericRule = getOutlineSelectorRule(source, '[tabindex]:focus-visible');
+  if (!genericRule.declarations.includes('outline-offset:2px')) {
+    throw new Error(
+      `${SEPARATOR_FOCUS_CASCADE_CONTRACT}: the generic tabindex focus rule must retain its +2px offset.`,
+    );
+  }
+
+  for (const selectorSuffix of ['.resizer:focus-visible', '.inspector-divider:focus-visible']) {
+    const componentRule = getOutlineSelectorRule(source, selectorSuffix);
+    if (
+      !componentRule.declarations.includes('outline:2px solid var(--accent)') ||
+      !componentRule.declarations.includes('outline-offset:-2px')
+    ) {
+      throw new Error(
+        `${SEPARATOR_FOCUS_CASCADE_CONTRACT}: ${componentRule.selector} must declare the 2px solid inset outline.`,
+      );
+    }
+    const componentSpecificity = getSelectorSpecificity(componentRule.selector);
+    const genericSpecificity = getSelectorSpecificity(genericRule.selector);
+    const comparison = compareSpecificity(componentSpecificity, genericSpecificity);
+    if (comparison > 0 || (comparison === 0 && componentRule.index > genericRule.index)) continue;
+    const componentSpecificityText = componentSpecificity.join('-');
+    if (comparison === 0) {
+      throw new Error(
+        `${SEPARATOR_FOCUS_CASCADE_CONTRACT}: ${componentRule.selector} ties ${genericRule.selector} at specificity ${componentSpecificityText} and appears before the later generic rule, so its -2px outline offset loses to +2px.`,
+      );
+    }
+    throw new Error(
+      `${SEPARATOR_FOCUS_CASCADE_CONTRACT}: ${componentRule.selector} has lower specificity ${componentSpecificityText} than ${genericRule.selector}, so its -2px outline offset loses to +2px.`,
+    );
+  }
+};
 
 
 describe('accessible theme contract', () => {
@@ -1247,6 +1327,35 @@ describe('keyboard trust static contracts', () => {
     expect(js).toContain("adjustMainSplitByKeyboard(currentPrimarySize, totalSize, isNarrow, event.key, event.shiftKey)");
     expect(js).toContain("adjustInspectorSplitByKeyboard(");
     expect(css).toContain('.col-resizer:focus-visible');
+  });
+
+  test('keeps workbench separator inset focus rules above the generic tabindex cascade', () => {
+    expect(() => assertSeparatorFocusCascade(css)).not.toThrow();
+  });
+
+  test.each([
+    {
+      label: 'main workbench separator',
+      winningSelector: '.content .resizer:focus-visible',
+      losingSelector: '.resizer:focus-visible',
+    },
+    {
+      label: 'request and response inspector separator',
+      winningSelector: '.inspector-panels .inspector-divider:focus-visible',
+      losingSelector: '.inspector-divider:focus-visible',
+    },
+  ])('$label equal-specificity mutation fails with the named cascade reason', ({ winningSelector, losingSelector }) => {
+    const fixture = [
+      '.content .resizer:focus-visible,.inspector-panels .inspector-divider:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}',
+      'button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}',
+    ].join('\n');
+    const mutatedFixture = fixture.replace(winningSelector, losingSelector);
+
+    expect(() => assertSeparatorFocusCascade(mutatedFixture)).toThrow(
+      new Error(
+        `${SEPARATOR_FOCUS_CASCADE_CONTRACT}: ${losingSelector} ties [tabindex]:focus-visible at specificity 0-2-0 and appears before the later generic rule, so its -2px outline offset loses to +2px.`,
+      ),
+    );
   });
 
   test('omits ineffective scroll margins from request-grid focus targets', () => {

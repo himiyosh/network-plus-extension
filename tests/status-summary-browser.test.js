@@ -16,6 +16,12 @@ const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1280, 1366, 1367, 1500];
 const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const GRID_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const STATUS_WORKSPACE_VIEWPORT_WIDTHS = [320, 375, 414, 768, 1280];
+const SEPARATOR_FOCUS_VIEWPORT_WIDTHS = [320, 375, 414, 700, 701, 768, 1280];
+const SEPARATOR_FOCUS_THEMES = [
+  { name: 'system', dataTheme: null, mediaColorScheme: 'dark' },
+  { name: 'dark', dataTheme: 'dark', mediaColorScheme: 'light' },
+  { name: 'light', dataTheme: 'light', mediaColorScheme: 'dark' },
+];
 const SAFETY_STATUS_MESSAGE = 'Clipboard copy failed during sanitization. No data was copied.';
 const REVERSE_TOOLBAR_FOCUS_CONTRACT = 'reverse-direction toolbar focus containment';
 const SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT =
@@ -2824,6 +2830,493 @@ browserTest(
         },
       });
       assertGridFocusAllowancePolicy(focusAllowanceMeasurements);
+    } finally {
+      if (cdp) await cdp.close();
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'workbench separators preserve inset focus rings across responsive themes and resizing inputs',
+  async () => {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-separator-focus-dom-'));
+    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+    const browserProcess = spawn(
+      browserExecutable,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        '--allow-file-access-from-files',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-sandbox',
+        panelUrl,
+      ],
+      { stdio: 'ignore' },
+    );
+
+    let cdp;
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      const panelTarget = await findPanelTarget(browserWebSocketUrl);
+      cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
+      await cdp.send('Runtime.enable');
+      await cdp.send('Page.bringToFront');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await waitForSampleCaptureAction(cdp);
+      await evaluate(
+        cdp,
+        `(async () => {
+          if (document.readyState === 'loading') {
+            await new Promise((resolve) => window.addEventListener('DOMContentLoaded', resolve, { once: true }));
+          }
+          const sampleButton = Array.from(document.querySelectorAll('button')).find(
+            (button) => button.textContent.trim() === 'Explore sample capture',
+          );
+          if (!sampleButton) throw new Error('Sample capture action was not found.');
+          sampleButton.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        })()`,
+        true,
+      );
+
+      const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      const getSeparatorAccessibility = (accessibleName) => {
+        const node = accessibilityTree.nodes.find(
+          (candidate) =>
+            candidate.role?.value === 'separator' &&
+            candidate.name?.value === accessibleName,
+        );
+        expect(node).toBeDefined();
+        return Object.fromEntries(
+          (node.properties || []).map((property) => [property.name, property.value?.value]),
+        );
+      };
+      expect({
+        main: getSeparatorAccessibility('Resize request list and request details'),
+        inspector: getSeparatorAccessibility('Resize request and response inspectors'),
+      }).toMatchObject({
+        main: { focusable: true, orientation: 'vertical' },
+        inspector: { focusable: true, orientation: 'horizontal' },
+      });
+
+      const applyScenario = async (width, theme) => {
+        await cdp.send('Emulation.setEmulatedMedia', {
+          features: [{ name: 'prefers-color-scheme', value: theme.mediaColorScheme }],
+        });
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await evaluate(
+          cdp,
+          `(async () => {
+            const dataTheme = ${JSON.stringify(theme.dataTheme)};
+            if (dataTheme == null) {
+              document.documentElement.removeAttribute('data-theme');
+            } else {
+              document.documentElement.setAttribute('data-theme', dataTheme);
+            }
+            const tableWrap = document.querySelector('#tableWrap');
+            const details = document.querySelector('#details');
+            const requestPane = document.querySelector('#inspector-request');
+            const responsePane = document.querySelector('#inspector-response');
+            tableWrap.style.flexBasis = '';
+            details.style.flexBasis = '';
+            requestPane.style.flex = '';
+            requestPane.style.height = '';
+            responsePane.style.flex = '';
+            responsePane.style.height = '';
+            document.scrollingElement.scrollTo(0, 0);
+            window.dispatchEvent(new Event('resize'));
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          })()`,
+          true,
+        );
+      };
+
+      const focusSeparatorFromAnchor = async (anchorSelector) => {
+        await evaluate(cdp, `document.querySelector(${JSON.stringify(anchorSelector)}).focus()`);
+        await pressKey(cdp, 'Tab', 'Tab', 9, 8);
+      };
+
+      const measureFocusedSeparator = (
+        selector,
+        containerSelector,
+        primarySelector,
+        axis,
+        inlineProperty,
+      ) =>
+        evaluate(
+          cdp,
+          `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
+            const separator = document.querySelector(${JSON.stringify(selector)});
+            const container = document.querySelector(${JSON.stringify(containerSelector)});
+            const primary = document.querySelector(${JSON.stringify(primarySelector)});
+            const separatorRect = separator.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            const primaryRect = primary.getBoundingClientRect();
+            const style = getComputedStyle(separator);
+            const rootStyle = getComputedStyle(document.documentElement);
+            const outlineWidth = Number.parseFloat(style.outlineWidth) || 0;
+            const outlineOffset = Number.parseFloat(style.outlineOffset) || 0;
+            const paintedExternalFootprint = Math.max(0, outlineWidth + outlineOffset);
+            const accentProbe = document.createElement('span');
+            accentProbe.style.color = 'var(--accent)';
+            document.body.appendChild(accentProbe);
+            const accentColor = getComputedStyle(accentProbe).color;
+            accentProbe.remove();
+            resolve({
+              activeId: document.activeElement.id,
+              focusVisible: separator.matches(':focus-visible'),
+              outlineStyle: style.outlineStyle,
+              outlineWidth: style.outlineWidth,
+              outlineOffset: style.outlineOffset,
+              outlineColor: style.outlineColor,
+              accentColor,
+              paintedExternalFootprint,
+              contained:
+                separatorRect.left - paintedExternalFootprint >= Math.max(0, containerRect.left) &&
+                separatorRect.top - paintedExternalFootprint >= Math.max(0, containerRect.top) &&
+                separatorRect.right + paintedExternalFootprint <= Math.min(innerWidth, containerRect.right) &&
+                separatorRect.bottom + paintedExternalFootprint <= Math.min(innerHeight, containerRect.bottom),
+              role: separator.getAttribute('role'),
+              ariaLabel: separator.getAttribute('aria-label'),
+              ariaControls: separator.getAttribute('aria-controls'),
+              ariaOrientation: separator.getAttribute('aria-orientation'),
+              ariaValueMin: separator.getAttribute('aria-valuemin'),
+              ariaValueMax: separator.getAttribute('aria-valuemax'),
+              ariaValueNow: separator.getAttribute('aria-valuenow'),
+              ariaValueText: separator.getAttribute('aria-valuetext'),
+              cursor: style.cursor,
+              primarySize: ${JSON.stringify(axis)} === 'width' ? primaryRect.width : primaryRect.height,
+              primaryInlineSize:
+                Number.parseFloat(primary.style[${JSON.stringify(inlineProperty)}]) || null,
+              separatorWidth: separatorRect.width,
+              separatorHeight: separatorRect.height,
+              dataTheme: document.documentElement.getAttribute('data-theme'),
+              systemDark: matchMedia('(prefers-color-scheme: dark)').matches,
+              accentToken: rootStyle.getPropertyValue('--accent').trim(),
+              pageBackground: getComputedStyle(document.body).backgroundColor,
+              documentScrollLeft: document.scrollingElement.scrollLeft,
+              documentScrollTop: document.scrollingElement.scrollTop,
+              documentOverflowX:
+                document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              documentOverflowY:
+                document.documentElement.scrollHeight - document.documentElement.clientHeight,
+            });
+          })))`,
+          true,
+        );
+
+      const expectFocusContract = (measurement, expected) => {
+        expect({
+          activeId: measurement.activeId,
+          focusVisible: measurement.focusVisible,
+          outlineStyle: measurement.outlineStyle,
+          outlineWidth: measurement.outlineWidth,
+          outlineOffset: measurement.outlineOffset,
+          paintedExternalFootprint: measurement.paintedExternalFootprint,
+          contained: measurement.contained,
+          role: measurement.role,
+          ariaLabel: measurement.ariaLabel,
+          ariaControls: measurement.ariaControls,
+          ariaOrientation: measurement.ariaOrientation,
+          ariaValueMin: measurement.ariaValueMin,
+          ariaValueMax: measurement.ariaValueMax,
+          cursor: measurement.cursor,
+          documentScrollLeft: measurement.documentScrollLeft,
+          documentScrollTop: measurement.documentScrollTop,
+          documentOverflowX: measurement.documentOverflowX,
+          documentOverflowY: measurement.documentOverflowY,
+        }).toEqual({
+          activeId: expected.id,
+          focusVisible: true,
+          outlineStyle: 'solid',
+          outlineWidth: '2px',
+          outlineOffset: '-2px',
+          paintedExternalFootprint: 0,
+          contained: true,
+          role: 'separator',
+          ariaLabel: expected.ariaLabel,
+          ariaControls: expected.ariaControls,
+          ariaOrientation: expected.orientation,
+          ariaValueMin: '0',
+          ariaValueMax: '100',
+          cursor: expected.cursor,
+          documentScrollLeft: 0,
+          documentScrollTop: 0,
+          documentOverflowX: 0,
+          documentOverflowY: 0,
+        });
+        expect(measurement.outlineColor).toBe(measurement.accentColor);
+        expect(Number(measurement.ariaValueNow)).toBeGreaterThanOrEqual(0);
+        expect(Number(measurement.ariaValueNow)).toBeLessThanOrEqual(100);
+        expect(measurement.ariaValueText).toMatch(expected.valueTextPattern);
+        expect(measurement.separatorWidth).toBeGreaterThan(0);
+        expect(measurement.separatorHeight).toBeGreaterThan(0);
+      };
+
+      const themeMeasurements = [];
+      for (const theme of SEPARATOR_FOCUS_THEMES) {
+        for (const width of SEPARATOR_FOCUS_VIEWPORT_WIDTHS) {
+          await applyScenario(width, theme);
+          const isNarrow = width <= 700;
+          const mainAxis = isNarrow ? 'height' : 'width';
+          const mainKey = isNarrow ? 'ArrowDown' : 'ArrowRight';
+          const mainCode = isNarrow ? 'ArrowDown' : 'ArrowRight';
+          const mainKeyCode = isNarrow ? 40 : 39;
+
+          await focusSeparatorFromAnchor('#detailsCloseBtn');
+          const mainBefore = await measureFocusedSeparator(
+            '#resizer',
+            '#content',
+            '#tableWrap',
+            mainAxis,
+            'flexBasis',
+          );
+          expectFocusContract(mainBefore, {
+            id: 'resizer',
+            ariaLabel: 'Resize request list and request details',
+            ariaControls: 'tableWrap details',
+            orientation: isNarrow ? 'horizontal' : 'vertical',
+            cursor: isNarrow ? 'row-resize' : 'col-resize',
+            valueTextPattern: /^Request list \d+ percent$/,
+          });
+          expect(isNarrow ? mainBefore.separatorHeight : mainBefore.separatorWidth).toBe(4);
+          await pressKey(cdp, mainKey, mainCode, mainKeyCode);
+          const mainAfter = await measureFocusedSeparator(
+            '#resizer',
+            '#content',
+            '#tableWrap',
+            mainAxis,
+            'flexBasis',
+          );
+          expectFocusContract(mainAfter, {
+            id: 'resizer',
+            ariaLabel: 'Resize request list and request details',
+            ariaControls: 'tableWrap details',
+            orientation: isNarrow ? 'horizontal' : 'vertical',
+            cursor: isNarrow ? 'row-resize' : 'col-resize',
+            valueTextPattern: /^Request list \d+ percent$/,
+          });
+          expect(mainAfter.primarySize).toBeGreaterThan(mainBefore.primarySize);
+          expect(mainAfter.primaryInlineSize).toBe(Math.round(mainBefore.primarySize + 10));
+          expect(Number(mainAfter.ariaValueNow)).toBeGreaterThan(Number(mainBefore.ariaValueNow));
+          expect(mainAfter.ariaValueText).not.toBe(mainBefore.ariaValueText);
+
+          await focusSeparatorFromAnchor('#res-tab-headers');
+          const inspectorBefore = await measureFocusedSeparator(
+            '#inspector-divider',
+            '.inspector-panels',
+            '#inspector-request',
+            'height',
+            'height',
+          );
+          expectFocusContract(inspectorBefore, {
+            id: 'inspector-divider',
+            ariaLabel: 'Resize request and response inspectors',
+            ariaControls: 'inspector-request inspector-response',
+            orientation: 'horizontal',
+            cursor: 'row-resize',
+            valueTextPattern: /^Request inspector \d+ percent$/,
+          });
+          expect(inspectorBefore.separatorHeight).toBe(3);
+          await pressKey(cdp, 'ArrowDown', 'ArrowDown', 40);
+          const inspectorAfter = await measureFocusedSeparator(
+            '#inspector-divider',
+            '.inspector-panels',
+            '#inspector-request',
+            'height',
+            'height',
+          );
+          expectFocusContract(inspectorAfter, {
+            id: 'inspector-divider',
+            ariaLabel: 'Resize request and response inspectors',
+            ariaControls: 'inspector-request inspector-response',
+            orientation: 'horizontal',
+            cursor: 'row-resize',
+            valueTextPattern: /^Request inspector \d+ percent$/,
+          });
+          expect(inspectorAfter.primarySize).toBeGreaterThan(inspectorBefore.primarySize);
+          expect(inspectorAfter.primaryInlineSize).toBe(
+            Math.round(inspectorBefore.primarySize + 10),
+          );
+          expect(Number(inspectorAfter.ariaValueNow)).toBeGreaterThan(
+            Number(inspectorBefore.ariaValueNow),
+          );
+          expect(inspectorAfter.ariaValueText).not.toBe(inspectorBefore.ariaValueText);
+
+          themeMeasurements.push({
+            theme: theme.name,
+            width,
+            dataTheme: mainBefore.dataTheme,
+            systemDark: mainBefore.systemDark,
+            accentToken: mainBefore.accentToken,
+            pageBackground: mainBefore.pageBackground,
+          });
+        }
+      }
+
+      const systemTheme = themeMeasurements.filter((measurement) => measurement.theme === 'system');
+      const darkTheme = themeMeasurements.filter((measurement) => measurement.theme === 'dark');
+      const lightTheme = themeMeasurements.filter((measurement) => measurement.theme === 'light');
+      for (const measurements of [systemTheme, darkTheme, lightTheme]) {
+        expect(measurements).toHaveLength(SEPARATOR_FOCUS_VIEWPORT_WIDTHS.length);
+        expect(new Set(measurements.map((measurement) => measurement.accentToken)).size).toBe(1);
+        expect(new Set(measurements.map((measurement) => measurement.pageBackground)).size).toBe(1);
+      }
+      expect(systemTheme.every((measurement) => measurement.dataTheme === null && measurement.systemDark)).toBe(
+        true,
+      );
+      expect(darkTheme.every((measurement) => measurement.dataTheme === 'dark' && !measurement.systemDark)).toBe(
+        true,
+      );
+      expect(lightTheme.every((measurement) => measurement.dataTheme === 'light' && measurement.systemDark)).toBe(
+        true,
+      );
+      expect(systemTheme[0].accentToken).toBe(darkTheme[0].accentToken);
+      expect(systemTheme[0].pageBackground).toBe(darkTheme[0].pageBackground);
+      expect(lightTheme[0].accentToken).not.toBe(darkTheme[0].accentToken);
+      expect(lightTheme[0].pageBackground).not.toBe(darkTheme[0].pageBackground);
+
+      const dragSeparator = async (selector, primarySelector, axis, delta) => {
+        const before = await evaluate(
+          cdp,
+          `(() => {
+            const separator = document.querySelector(${JSON.stringify(selector)});
+            const primary = document.querySelector(${JSON.stringify(primarySelector)});
+            const rect = separator.getBoundingClientRect();
+            const controller = new AbortController();
+            window.__workbenchSeparatorPointerProbe?.controller.abort();
+            window.__workbenchSeparatorPointerProbe = {
+              controller,
+              deliveries: 0,
+              mouseDownTargetIds: [],
+            };
+            document.addEventListener(
+              'mousedown',
+              (event) => {
+                window.__workbenchSeparatorPointerProbe.mouseDownTargetIds.push(event.target.id);
+              },
+              { capture: true, signal: controller.signal },
+            );
+            separator.addEventListener(
+              'mousedown',
+              () => {
+                window.__workbenchSeparatorPointerProbe.deliveries += 1;
+              },
+              { capture: true, signal: controller.signal },
+            );
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            return {
+              x,
+              y,
+              hitTargetId: document.elementFromPoint(x, y)?.id || null,
+              primarySize:
+                ${JSON.stringify(axis)} === 'width'
+                  ? primary.getBoundingClientRect().width
+                  : primary.getBoundingClientRect().height,
+              ariaValueNow: separator.getAttribute('aria-valuenow'),
+              ariaValueText: separator.getAttribute('aria-valuetext'),
+            };
+          })()`,
+        );
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x: before.x,
+          y: before.y,
+          button: 'left',
+          clickCount: 1,
+        });
+        await delay(80);
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: before.x + (axis === 'width' ? delta : 0),
+          y: before.y + (axis === 'height' ? delta : 0),
+          button: 'left',
+          buttons: 1,
+        });
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: before.x + (axis === 'width' ? delta : 0),
+          y: before.y + (axis === 'height' ? delta : 0),
+          button: 'left',
+          clickCount: 1,
+        });
+        const after = await evaluate(
+          cdp,
+          `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
+            const separator = document.querySelector(${JSON.stringify(selector)});
+            const primary = document.querySelector(${JSON.stringify(primarySelector)});
+            const probe = window.__workbenchSeparatorPointerProbe;
+            resolve({
+              deliveries: probe.deliveries,
+              mouseDownTargetIds: probe.mouseDownTargetIds,
+              primarySize:
+                ${JSON.stringify(axis)} === 'width'
+                  ? primary.getBoundingClientRect().width
+                  : primary.getBoundingClientRect().height,
+              ariaValueNow: separator.getAttribute('aria-valuenow'),
+              ariaValueText: separator.getAttribute('aria-valuetext'),
+              documentScrollLeft: document.scrollingElement.scrollLeft,
+              documentScrollTop: document.scrollingElement.scrollTop,
+              documentOverflowX:
+                document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              documentOverflowY:
+                document.documentElement.scrollHeight - document.documentElement.clientHeight,
+            });
+            probe.controller.abort();
+          })))`,
+          true,
+        );
+        expect({
+          hitTargetId: before.hitTargetId,
+          deliveries: after.deliveries,
+          mouseDownTargetIds: after.mouseDownTargetIds,
+          documentScrollLeft: after.documentScrollLeft,
+          documentScrollTop: after.documentScrollTop,
+          documentOverflowX: after.documentOverflowX,
+          documentOverflowY: after.documentOverflowY,
+        }).toEqual({
+          hitTargetId: selector.slice(1),
+          deliveries: 1,
+          mouseDownTargetIds: [selector.slice(1)],
+          documentScrollLeft: 0,
+          documentScrollTop: 0,
+          documentOverflowX: 0,
+          documentOverflowY: 0,
+        });
+        expect(after.primarySize).toBeGreaterThan(before.primarySize);
+        expect(Number(after.ariaValueNow)).toBeGreaterThan(Number(before.ariaValueNow));
+        expect(after.ariaValueText).not.toBe(before.ariaValueText);
+      };
+
+      for (const width of [700, 701]) {
+        await applyScenario(width, SEPARATOR_FOCUS_THEMES[0]);
+        await dragSeparator(
+          '#resizer',
+          '#tableWrap',
+          width <= 700 ? 'height' : 'width',
+          20,
+        );
+        await dragSeparator('#inspector-divider', '#inspector-request', 'height', 20);
+      }
     } finally {
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);
