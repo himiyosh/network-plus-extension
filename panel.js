@@ -3644,6 +3644,7 @@ const _NetworkPlus = (function () {
     activeRows: new Set(),
     filteredRows: [], // [U5] cache for filtered rows
     pendingLiveRows: [],
+    liveRowsAwaitingRender: [],
     retention: {
       requestLimit: DEFAULT_REQUEST_RETENTION_LIMIT,
       unlimited: false,
@@ -4187,6 +4188,7 @@ const _NetworkPlus = (function () {
       0,
     );
     state.filteredRows = state.filteredRows.filter((row) => !evictedSet.has(row));
+    state.liveRowsAwaitingRender = state.liveRowsAwaitingRender.filter((row) => !evictedSet.has(row));
     state.visibleBytes = Math.max(0, state.visibleBytes - evictedVisibleBytes);
     state.selectedRows = new Set(plan.retainedSelectedRows);
     state.pendingLiveRows.length = 0;
@@ -4301,6 +4303,17 @@ const _NetworkPlus = (function () {
     );
     normalizeIncomingResponseContent(retainedIncomingRows, source);
     return retainedIncomingRows;
+  }
+
+  function commitPendingLiveRows() {
+    const queuedRows = state.pendingLiveRows.splice(0, state.pendingLiveRows.length);
+    if (queuedRows.length === 0) return [];
+    const liveRows = addRowsWithRetention(queuedRows, 'live');
+    for (const row of liveRows) {
+      state.automaticResponsePrefetchScheduler.enqueue(row);
+    }
+    state.liveRowsAwaitingRender.push(...liveRows);
+    return liveRows;
   }
 
   function recordSkippedImportRows(skippedCount) {
@@ -6723,6 +6736,7 @@ const _NetworkPlus = (function () {
   }
 
   function activateSampleCapture() {
+    commitPendingLiveRows();
     if (state.automaticResponsePrefetchScheduler) {
       state.automaticResponsePrefetchScheduler.resetFailureSummary();
     }
@@ -8344,6 +8358,7 @@ const _NetworkPlus = (function () {
     let pendingResponseSearchFrame = false;
     const resetPendingLiveRows = () => {
       pendingLiveRows.length = 0;
+      state.liveRowsAwaitingRender.length = 0;
       pendingScrollToBottom = false;
     };
 
@@ -8393,6 +8408,7 @@ const _NetworkPlus = (function () {
     });
     $('#retentionCancelBtn').addEventListener('click', () => retentionDialog.close());
     $('#retentionSaveBtn').addEventListener('click', () => {
+      commitPendingLiveRows();
       const normalized = normalizeRetentionSetting({
         unlimited: retentionUnlimitedInput.checked,
         requestLimit: Number(retentionLimitInput.value),
@@ -8541,6 +8557,7 @@ const _NetworkPlus = (function () {
 
     // [U4] Clear — reset visible working state and retain one bounded Undo snapshot.
     clearButton.addEventListener('click', () => {
+      commitPendingLiveRows();
       disposeClearUndoSnapshot('clear');
       const snapshot = createClearUndoSnapshot(searchPanelVisible);
       const clearedSampleCapture = snapshot.sampleCaptureActive;
@@ -8597,6 +8614,7 @@ const _NetworkPlus = (function () {
       true,
     );
     undoClearButton.addEventListener('click', () => {
+      commitPendingLiveRows();
       const consumed = consumeClearUndoSnapshot('undo');
       if (!consumed || consumed.disposition !== 'restore') {
         clearButton.focus({ preventScroll: true });
@@ -8621,7 +8639,10 @@ const _NetworkPlus = (function () {
     updateRecordState();
 
     // Export
-    $('#exportHarBtn').addEventListener('click', (event) => openExportSafetyDialog(event.currentTarget));
+    $('#exportHarBtn').addEventListener('click', (event) => {
+      commitPendingLiveRows();
+      openExportSafetyDialog(event.currentTarget);
+    });
 
     // Column settings menu and filter dialog
     const columnsContextMenu = document.createElement('div');
@@ -9126,12 +9147,14 @@ const _NetworkPlus = (function () {
           }));
         }
         contextMenu.appendChild(createRowMenuButton('Keep Selected (' + selectedCount + ')', () => {
+          commitPendingLiveRows();
           const rowsToRemove = state.rows.filter((targetRow) => !state.selectedRows.has(targetRow));
           removeRowsFromState(rowsToRemove, false);
           state.selectedRows.clear();
           renderBody();
         }));
         contextMenu.appendChild(createRowMenuButton('Delete Selected (' + selectedCount + ')', () => {
+          commitPendingLiveRows();
           removeRowsFromState(Array.from(state.selectedRows), false);
           state.selectedRows.clear();
           renderBody();
@@ -9780,6 +9803,7 @@ const _NetworkPlus = (function () {
       };
 
       const commitStagedImport = (stagedImport) => {
+        commitPendingLiveRows();
         if (state.automaticResponsePrefetchScheduler) {
           state.automaticResponsePrefetchScheduler.resetFailureSummary();
         }
@@ -9916,17 +9940,18 @@ const _NetworkPlus = (function () {
       pendingLiveFrame = true;
       window.requestAnimationFrame(() => {
         pendingLiveFrame = false;
-        const queuedRows = pendingLiveRows.splice(0, pendingLiveRows.length);
         const shouldScrollToBottom = pendingScrollToBottom && state.autoScroll;
         pendingScrollToBottom = false;
+        commitPendingLiveRows();
+        const liveRows = state.liveRowsAwaitingRender
+          .splice(0, state.liveRowsAwaitingRender.length)
+          .filter((row) => isActiveRetainedRow(row, state.retainedRows, state.activeRows));
+        if (liveRows.length === 0) return;
         const fastPathEligible = isIncrementalAppendEligible(
           state.sort,
           countActiveColumnFilters(state.columnFilterRules),
           state.search.keywords,
           state.renderedActiveFilterCount,
-        );
-        const liveRows = queuedRows.filter((row) =>
-          isActiveRetainedRow(row, state.retainedRows, state.activeRows),
         );
         if (!fastPathEligible || !appendIncrementalRows(liveRows)) renderBody();
         if (shouldScrollToBottom && state.autoScroll) {
@@ -9944,9 +9969,6 @@ const _NetworkPlus = (function () {
           'Undo for the cleared local sample was closed before live capture to keep sample and live traffic separate.',
         );
         const row = buildRowFromRequest(request);
-        addRowsWithRetention([row], 'live');
-        if (!isActiveRetainedRow(row, state.retainedRows, state.activeRows)) return;
-        state.automaticResponsePrefetchScheduler.enqueue(row);
         const wasAtBottom =
           state.autoScroll &&
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;

@@ -72,6 +72,43 @@ const searchColorTokens = [
 ];
 const nonTextContrastTokens = ['control-border', 'separator'];
 const SEPARATOR_FOCUS_CASCADE_CONTRACT = 'workbench separator focus cascade';
+const LIVE_COMMIT_BOUNDARIES = [
+  {
+    label: 'Export HAR',
+    startMarker: "$('#exportHarBtn').addEventListener('click'",
+    endMarker: '// Column settings menu and filter dialog',
+    requiredPattern: /commitPendingLiveRows\(\);[\s\S]*openExportSafetyDialog\(/,
+    diagnostic: 'Export HAR must commit pending live rows before openExportSafetyDialog.',
+  },
+  {
+    label: 'Keep Selected',
+    startMarker: "createRowMenuButton('Keep Selected (",
+    endMarker: "createRowMenuButton('Delete Selected (",
+    requiredPattern: /commitPendingLiveRows\(\);[\s\S]*removeRowsFromState\(/,
+    diagnostic: 'Keep Selected must commit pending live rows before removeRowsFromState.',
+  },
+  {
+    label: 'Delete Selected',
+    startMarker: "createRowMenuButton('Delete Selected (",
+    endMarker: 'showAccessiblePopupAt(contextMenu',
+    requiredPattern: /commitPendingLiveRows\(\);[\s\S]*removeRowsFromState\(/,
+    diagnostic: 'Delete Selected must commit pending live rows before removeRowsFromState.',
+  },
+];
+
+const getLiveCommitBoundarySlice = (source, boundary) => {
+  const start = source.indexOf(boundary.startMarker);
+  const end = source.indexOf(boundary.endMarker, start);
+  if (start < 0 || end < 0 || end <= start) {
+    throw new Error(`${boundary.label} live commit boundary markers are missing or out of order.`);
+  }
+  return { block: source.slice(start, end), end, start };
+};
+
+const assertLiveCommitBoundary = (source, boundary) => {
+  const { block } = getLiveCommitBoundarySlice(source, boundary);
+  if (!boundary.requiredPattern.test(block)) throw new Error(boundary.diagnostic);
+};
 
 const getOutlineSelectorRule = (source, selectorSuffix) => {
   const matches = Array.from(source.matchAll(/^([^@{}\n]+)\{([^{}]*)\}$/gm)).flatMap((match) =>
@@ -1022,13 +1059,18 @@ describe('recoverable Clear Undo static contracts', () => {
     );
 
     const liveStart = js.indexOf('chrome.devtools.network.onRequestFinished.addListener');
-    const liveEnd = js.indexOf('const wasAtBottom', liveStart);
+    const liveEnd = js.indexOf('scheduleLiveRows(wasAtBottom);', liveStart);
     const liveBlock = js.slice(liveStart, liveEnd);
+    const commitStart = js.indexOf('function commitPendingLiveRows');
+    const commitEnd = js.indexOf('function recordSkippedImportRows', commitStart);
+    const commitBlock = js.slice(commitStart, commitEnd);
     expect(liveBlock.indexOf("disposeClearUndoSnapshot(\n          'live'")).toBeLessThan(
       liveBlock.indexOf('const row = buildRowFromRequest(request);'),
     );
     expect(liveBlock).toContain('keep sample and live traffic separate');
-    expect(liveBlock).toContain('state.automaticResponsePrefetchScheduler.enqueue(row);');
+    expect(liveBlock).toContain('pendingLiveRows.push(row);');
+    expect(liveBlock).not.toContain('automaticResponsePrefetchScheduler.enqueue(row);');
+    expect(commitBlock).toContain('state.automaticResponsePrefetchScheduler.enqueue(row);');
   });
 });
 
@@ -1052,7 +1094,7 @@ describe('capture retention static contracts', () => {
     expect(js).toContain('const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;');
     expect(js).toContain("const RETENTION_KEY = 'networkPlus.retention.v1';");
     expect(js).toContain("addRowsWithRetention(stagedImport.rows, 'import')");
-    expect(js).toContain("addRowsWithRetention([row], 'live')");
+    expect(js).toContain("addRowsWithRetention(queuedRows, 'live')");
     const clearBlock = js.slice(js.indexOf("clearButton.addEventListener('click'"), js.indexOf('// Pause/Resume'));
     expect(clearBlock).toContain('detachStoredRowsForClearUndo();');
     expect(clearBlock).not.toContain('state.nextId = 1');
@@ -1234,23 +1276,94 @@ describe('release trust static contracts', () => {
 });
 
 describe('scale trust static contracts', () => {
-  test('batches live rows and targets selection updates without rebuilding existing rows', () => {
-    expect(js).toContain('pendingLiveRows.push(row);');
-    const frameBlock = js.slice(js.indexOf('window.requestAnimationFrame(() => {'), js.indexOf('if (chrome && chrome.devtools'));
+  test('batches live retention and retained-only prefetch before one incremental frame update', () => {
+    const scheduleStart = js.indexOf('const scheduleLiveRows =');
+    const listenerStart = js.indexOf('if (chrome && chrome.devtools', scheduleStart);
+    const listenerEnd = js.indexOf('// Error handlers', listenerStart);
+    const frameBlock = js.slice(scheduleStart, listenerStart);
+    const listenerBlock = js.slice(listenerStart, listenerEnd);
+    const commitStart = js.indexOf('function commitPendingLiveRows');
+    const commitEnd = js.indexOf('function recordSkippedImportRows', commitStart);
+    const commitBlock = js.slice(commitStart, commitEnd);
+    expect(listenerBlock).toContain('pendingLiveRows.push(row);');
+    expect(listenerBlock).not.toContain('addRowsWithRetention(');
+    expect(listenerBlock).not.toContain('automaticResponsePrefetchScheduler.enqueue(');
+    expect(commitBlock).toContain("const liveRows = addRowsWithRetention(queuedRows, 'live');");
+    expect(commitBlock.match(/addRowsWithRetention\(/g)).toHaveLength(1);
+    expect(commitBlock).toContain('for (const row of liveRows)');
+    expect(commitBlock).toContain('state.automaticResponsePrefetchScheduler.enqueue(row);');
+    expect(commitBlock).toContain('state.liveRowsAwaitingRender.push(...liveRows);');
+    expect(commitBlock.indexOf("addRowsWithRetention(queuedRows, 'live')")).toBeLessThan(
+      commitBlock.indexOf('state.automaticResponsePrefetchScheduler.enqueue(row);'),
+    );
+    expect(frameBlock).toContain('commitPendingLiveRows();');
+    expect(frameBlock).toContain('const liveRows = state.liveRowsAwaitingRender');
+    expect(frameBlock.match(/commitPendingLiveRows\(\)/g)).toHaveLength(1);
     expect(frameBlock).toContain('isIncrementalAppendEligible(');
+    const cleanupStart = js.indexOf('function cleanupEvictedRowReferences');
+    const cleanupEnd = js.indexOf('function removeRowsFromState', cleanupStart);
+    expect(js.slice(cleanupStart, cleanupEnd)).toContain(
+      'state.liveRowsAwaitingRender = state.liveRowsAwaitingRender.filter',
+    );
+    const resetStart = js.indexOf('const resetPendingLiveRows =');
+    const resetEnd = js.indexOf('// Theme init', resetStart);
+    expect(js.slice(resetStart, resetEnd)).toContain('state.liveRowsAwaitingRender.length = 0;');
 
     const appendBlock = js.slice(js.indexOf('function appendIncrementalRows'), js.indexOf('function replaceRenderedRowStates'));
     expect(appendBlock).toContain('document.createDocumentFragment()');
     expect(appendBlock).not.toContain('tbody.textContent =');
     expect(appendBlock).toContain('getIncrementalAppendBatch(liveRows, renderedRowIds)');
-    expect(js).toContain(
-      'queuedRows.filter((row) =>\n          isActiveRetainedRow(row, state.retainedRows, state.activeRows),',
-    );
 
     expect(js).toContain('renderedRow.replaceWith(replacement);');
     const selectionBlock = js.slice(js.indexOf('function selectRow'), js.indexOf('const titleParts', js.indexOf('function selectRow')));
     expect(selectionBlock).toContain('replaceRenderedRowStates');
   });
+
+  test('commits pending live rows before stateful action boundaries inspect capture state', () => {
+    const retentionSaveStart = js.indexOf("$('#retentionSaveBtn').addEventListener('click'");
+    const retentionSaveEnd = js.indexOf('// [U4] Clear', retentionSaveStart);
+    const clearStart = js.indexOf("clearButton.addEventListener('click'");
+    const clearEnd = js.indexOf("undoClearButton.addEventListener('click'", clearStart);
+    const undoStart = clearEnd;
+    const undoEnd = js.indexOf('// Pause/Resume', undoStart);
+    const importStart = js.indexOf('const commitStagedImport =');
+    const importEnd = js.indexOf("importBtn.addEventListener('click'", importStart);
+    const sampleStart = js.indexOf('function activateSampleCapture');
+    const sampleEnd = js.indexOf('function updateEmptyState', sampleStart);
+
+    expect(js.slice(retentionSaveStart, retentionSaveEnd)).toMatch(
+      /commitPendingLiveRows\(\);[\s\S]*state\.retention\.requestLimit =/,
+    );
+    expect(js.slice(clearStart, clearEnd)).toMatch(
+      /commitPendingLiveRows\(\);[\s\S]*createClearUndoSnapshot\(/,
+    );
+    expect(js.slice(undoStart, undoEnd)).toMatch(
+      /commitPendingLiveRows\(\);[\s\S]*consumeClearUndoSnapshot\('undo'\)/,
+    );
+    expect(js.slice(importStart, importEnd)).toMatch(
+      /commitPendingLiveRows\(\);[\s\S]*clearStoredRows\(\)/,
+    );
+    expect(js.slice(sampleStart, sampleEnd)).toMatch(
+      /commitPendingLiveRows\(\);[\s\S]*enterSampleCaptureMode\(\)/,
+    );
+    for (const boundary of LIVE_COMMIT_BOUNDARIES) {
+      expect(() => assertLiveCommitBoundary(js, boundary)).not.toThrow();
+    }
+  });
+
+  test.each(LIVE_COMMIT_BOUNDARIES)(
+    '$label boundary guard rejects deletion of commitPendingLiveRows',
+    (boundary) => {
+      const { block, end, start } = getLiveCommitBoundarySlice(js, boundary);
+      const mutatedBlock = block.replace('commitPendingLiveRows();', '');
+      expect(mutatedBlock).not.toBe(block);
+      const mutatedSource = js.slice(0, start) + mutatedBlock + js.slice(end);
+
+      expect(() => assertLiveCommitBoundary(mutatedSource, boundary)).toThrow(
+        new Error(boundary.diagnostic),
+      );
+    },
+  );
 
   test('navigates search matches through targeted row replacement without full-table rendering', () => {
     const scrollStart = js.indexOf('function scrollToSearchMatch');

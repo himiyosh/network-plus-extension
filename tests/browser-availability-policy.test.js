@@ -1101,6 +1101,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
+      title: 'same-frame live bursts batch retention cleanup and prefetch only retained rows',
+    },
+    {
+      skipped: true,
       title: 'live summary update preserves focused status chip identity and the pending click gesture',
     },
     {

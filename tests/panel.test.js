@@ -1628,6 +1628,28 @@ describe('capture retention helpers', () => {
     expect(np.appendRowsWithRetention([], incoming, 3, true).evictedRows).toEqual([]);
   });
 
+  test('keeps one 5,000-row live frame batch identity-equivalent to iterative retention', () => {
+    const retained = rows(5000);
+    const incoming = Array.from({ length: 100 }, (_, index) => ({ id: 5001 + index }));
+    let iterativeRows = retained;
+    const iterativeEvictions = [];
+    for (const row of incoming) {
+      const plan = np.planClearUndoRetention([], iterativeRows, [row], 5000, false);
+      iterativeRows = plan.retainedActiveRows;
+      iterativeEvictions.push(...plan.evictedRows);
+    }
+
+    const batched = np.planClearUndoRetention([], retained, incoming, 5000, false);
+
+    expect(batched.retainedActiveRows).toHaveLength(5000);
+    expect(batched.evictedRows).toHaveLength(100);
+    expect(batched.retainedActiveRows.every((row, index) => row === iterativeRows[index])).toBe(true);
+    expect(batched.evictedRows.every((row, index) => row === iterativeEvictions[index])).toBe(true);
+    expect(batched.evictedRows[0]).toBe(retained[0]);
+    expect(batched.evictedRows.at(-1)).toBe(retained[99]);
+    expect(batched.retainedIncomingRows.every((row, index) => row === incoming[index])).toBe(true);
+  });
+
   test('counts held Clear rows inside retention and evicts them before newer active traffic', () => {
     const held = rows(3);
     const active = [{ id: 4 }];

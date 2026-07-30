@@ -271,6 +271,16 @@ async function waitForSampleCaptureAction(cdp) {
   );
 }
 
+async function waitForLiveNetworkListener(cdp) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const available = await evaluate(cdp, `typeof window.__networkPlusLiveListener === 'function'`);
+    if (available) return;
+    await delay(50);
+  }
+  throw new Error('Live network listener was not registered within 5000ms.');
+}
+
 function assertToolbarFocusContainment(trace, contractName) {
   const violation = trace.find((entry) => !entry.fullyVisibleWithOutline);
   if (!violation) return;
@@ -548,6 +558,365 @@ test('grid focus allowance reports unexplained reserve and scroll beyond the pai
     ),
   );
 });
+
+browserTest(
+  'same-frame live bursts batch retention cleanup and prefetch only retained rows',
+  async () => {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-live-retention-'));
+    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+    const browserProcess = spawn(
+      browserExecutable,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        '--allow-file-access-from-files',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-sandbox',
+        panelUrl,
+      ],
+      { stdio: 'ignore' },
+    );
+
+    let cdp;
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      const panelTarget = await findPanelTarget(browserWebSocketUrl);
+      cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
+      await cdp.send('Runtime.enable');
+      await cdp.send('Page.enable');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `(() => {
+          const chromeApi = globalThis.chrome || {};
+          chromeApi.storage = {
+            local: {
+              get(_keys, callback) {
+                callback({});
+              },
+              set(_value, callback) {
+                if (callback) callback();
+              },
+            },
+          };
+          chromeApi.runtime = {
+            lastError: null,
+            getManifest() {
+              return { version: '1.6.0' };
+            },
+          };
+          chromeApi.devtools = {
+            network: {
+              onRequestFinished: {
+                addListener(listener) {
+                  globalThis.__networkPlusLiveListener = listener;
+                },
+              },
+            },
+            panels: {
+              openResource() {},
+            },
+          };
+          globalThis.chrome = chromeApi;
+          globalThis.__networkPlusPrefetchStarted = [];
+        })();`,
+      });
+      await cdp.send('Page.reload', { ignoreCache: true });
+      await waitForLiveNetworkListener(cdp);
+
+      const boundaryResult = await evaluate(
+        cdp,
+        `(async () => {
+          const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+          const settleFrames = async () => {
+            await nextFrame();
+            await nextFrame();
+          };
+          const makeRequest = (sourceId) => ({
+            startedDateTime: new Date(1704067200000 + sourceId).toISOString(),
+            time: 10,
+            request: {
+              method: 'GET',
+              url: 'https://example.test/boundary/' + sourceId,
+              headers: [],
+            },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              httpVersion: 'HTTP/2',
+              headers: [],
+              bodySize: 42,
+              content: { size: 42, mimeType: 'text/plain' },
+            },
+            timings: { wait: 10 },
+            getContent(callback) {
+              callback('', '');
+            },
+          });
+          const emitRange = (start, count) => {
+            for (let offset = 0; offset < count; offset += 1) {
+              window.__networkPlusLiveListener(makeRequest(start + offset));
+            }
+          };
+          const captureGrid = () => {
+            const tbody = document.querySelector('#tbody');
+            const renderedRows = Array.from(tbody.querySelectorAll('tr[data-row-id]'));
+            return {
+              rowCount: renderedRows.length,
+              rowIds: renderedRows.map((row) => Number(row.dataset.rowId)),
+              counter: document.querySelector('#counter').textContent,
+              totalSize: document.querySelector('#totalSize').textContent,
+              statsText: document.querySelector('#statsSummary').textContent.replace(/\\s+/g, ' ').trim(),
+              tabStopIds: Array.from(tbody.querySelectorAll('tr[tabindex="0"]')).map(
+                (row) => row.dataset.rowId,
+              ),
+            };
+          };
+
+          emitRange(1, 1);
+          document.querySelector('#exportHarBtn').click();
+          document.querySelector('#dataSafetyCancelBtn').click();
+          await settleFrames();
+          const exportBoundary = captureGrid();
+
+          emitRange(2, 1);
+          document.querySelector('#retentionBtn').click();
+          document.querySelector('#retentionUnlimited').checked = false;
+          document.querySelector('#retentionLimit').value = '99';
+          document.querySelector('#retentionSaveBtn').click();
+          await settleFrames();
+          const invalidRetentionBoundary = captureGrid();
+          document.querySelector('#retentionCancelBtn').click();
+
+          document.querySelector('#retentionBtn').click();
+          document.querySelector('#retentionLimit').value = '100';
+          document.querySelector('#retentionSaveBtn').click();
+          await settleFrames();
+          emitRange(3, 98);
+          await settleFrames();
+          document.querySelector('#clearBtn').click();
+          const undoButton = document.querySelector('#undoClearBtn');
+          const undoWasAvailable = !undoButton.hidden && !undoButton.disabled;
+          emitRange(101, 100);
+          undoButton.click();
+          await settleFrames();
+
+          return {
+            exportBoundary,
+            invalidRetentionBoundary,
+            undoBoundary: {
+              ...captureGrid(),
+              undoWasAvailable,
+            },
+          };
+        })()`,
+        true,
+      );
+      await evaluate(cdp, 'localStorage.clear(); window.__networkPlusLiveListener = null');
+      await cdp.send('Page.reload', { ignoreCache: true });
+      await waitForLiveNetworkListener(cdp);
+
+      const result = await evaluate(
+        cdp,
+        `(async () => {
+          const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+          const settleFrames = async () => {
+            await nextFrame();
+            await nextFrame();
+          };
+          const makeRequest = (sourceId) => ({
+            startedDateTime: new Date(1704067200000 + sourceId).toISOString(),
+            time: 10,
+            request: {
+              method: 'GET',
+              url: 'https://example.test/live/' + sourceId,
+              headers: [],
+            },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              httpVersion: 'HTTP/2',
+              headers: [],
+              bodySize: 0,
+              content: { size: 0, mimeType: 'text/plain' },
+            },
+            timings: { wait: 10 },
+            getContent(callback) {
+              window.__networkPlusPrefetchStarted.push(sourceId);
+              callback('', '');
+            },
+          });
+          const emitRange = (start, count) => {
+            for (let offset = 0; offset < count; offset += 1) {
+              window.__networkPlusLiveListener(makeRequest(start + offset));
+            }
+          };
+
+          emitRange(1, 5000);
+          await settleFrames();
+          if (window.__networkPlusPrefetchStarted.length !== 5000) {
+            throw new Error(
+              'Initial prefetch did not settle: ' + window.__networkPlusPrefetchStarted.length + '/5000',
+            );
+          }
+
+          const tbody = document.querySelector('#tbody');
+          const tableWrap = document.querySelector('#tableWrap');
+          tbody.querySelector('tr[data-row-id="2500"]').click();
+          const focusRow = tbody.querySelector('tr[data-row-id="2500"]');
+          focusRow.focus({ preventScroll: true });
+          tableWrap.scrollTop = Math.floor(tableWrap.scrollHeight / 2);
+          tableWrap.dispatchEvent(new Event('scroll'));
+          const scrollTopBefore = tableWrap.scrollTop;
+          window.__networkPlusFocusedRow = focusRow;
+          window.__networkPlusPrefetchStarted = [];
+
+          let cleanupQueries = 0;
+          let mutationBatches = 0;
+          const originalQuerySelectorAll = Element.prototype.querySelectorAll;
+          Element.prototype.querySelectorAll = function (selector) {
+            if (
+              this === tbody &&
+              selector === 'tr[data-row-id]' &&
+              new Error().stack.includes('cleanupEvictedRowReferences')
+            ) {
+              cleanupQueries += 1;
+            }
+            return originalQuerySelectorAll.call(this, selector);
+          };
+          const observer = new MutationObserver((records) => {
+            if (records.some((record) => record.type === 'childList')) mutationBatches += 1;
+          });
+          observer.observe(tbody, { childList: true });
+
+          emitRange(5001, 100);
+          await settleFrames();
+          observer.disconnect();
+          Element.prototype.querySelectorAll = originalQuerySelectorAll;
+
+          const renderedRows = Array.from(tbody.querySelectorAll('tr[data-row-id]'));
+          const renderedIds = renderedRows.map((row) => Number(row.dataset.rowId));
+          const firstBurst = {
+            cleanupQueries,
+            mutationBatches,
+            rowCount: renderedRows.length,
+            uniqueRowCount: new Set(renderedIds).size,
+            firstRowId: renderedIds[0],
+            lastRowId: renderedIds.at(-1),
+            sameFocusedNode: tbody.querySelector('tr[data-row-id="2500"]') === window.__networkPlusFocusedRow,
+            selectedRowId: tbody.querySelector('tr.selected')?.dataset.rowId || null,
+            focusedRowId: document.activeElement?.closest?.('tr[data-row-id]')?.dataset.rowId || null,
+            autoScrollPressed: document.querySelector('#autoScrollBtn')?.getAttribute('aria-pressed'),
+            stayedAwayFromBottom:
+              tableWrap.scrollTop + tableWrap.clientHeight < tableWrap.scrollHeight - 2,
+            scrollTopBefore,
+            scrollTopAfter: tableWrap.scrollTop,
+            documentHasHorizontalOverflow:
+              document.documentElement.scrollWidth > document.documentElement.clientWidth,
+            documentHasVerticalOverflow:
+              document.documentElement.scrollHeight > document.documentElement.clientHeight,
+            prefetchedSourceIds: window.__networkPlusPrefetchStarted.slice(),
+          };
+
+          document.querySelector('#retentionBtn').click();
+          document.querySelector('#retentionUnlimited').checked = false;
+          document.querySelector('#retentionLimit').value = '100';
+          document.querySelector('#retentionSaveBtn').click();
+          await settleFrames();
+          document.querySelector('#clearBtn').click();
+          window.__networkPlusPrefetchStarted = [];
+          emitRange(10001, 200);
+          await settleFrames();
+
+          const boundedRows = Array.from(tbody.querySelectorAll('tr[data-row-id]'));
+          return {
+            firstBurst,
+            transientBurst: {
+              rowCount: boundedRows.length,
+              firstRowId: Number(boundedRows[0]?.dataset.rowId),
+              lastRowId: Number(boundedRows.at(-1)?.dataset.rowId),
+              prefetchedSourceIds: window.__networkPlusPrefetchStarted.slice(),
+            },
+          };
+        })()`,
+        true,
+      );
+
+      expect(boundaryResult.exportBoundary).toEqual(
+        expect.objectContaining({
+          rowCount: 1,
+          rowIds: [1],
+          counter: '1 / 1 requests · 0 active column filters',
+          totalSize: '42 B transferred',
+          tabStopIds: ['1'],
+        }),
+      );
+      expect(boundaryResult.exportBoundary.statsText).toContain('2xx');
+      expect(boundaryResult.exportBoundary.statsText).toContain('1');
+      expect(boundaryResult.invalidRetentionBoundary).toEqual(
+        expect.objectContaining({
+          rowCount: 2,
+          rowIds: [1, 2],
+          counter: '2 / 2 requests · 0 active column filters',
+          totalSize: '84 B transferred',
+          tabStopIds: ['1'],
+        }),
+      );
+      expect(boundaryResult.invalidRetentionBoundary.statsText).toContain('2xx');
+      expect(boundaryResult.invalidRetentionBoundary.statsText).toContain('2');
+      expect(boundaryResult.undoBoundary).toEqual(
+        expect.objectContaining({
+          rowCount: 100,
+          rowIds: Array.from({ length: 100 }, (_, index) => 101 + index),
+          counter: '100 / 100 requests · 0 active column filters',
+          tabStopIds: ['101'],
+          undoWasAvailable: true,
+        }),
+      );
+      expect(boundaryResult.undoBoundary.statsText).toContain('2xx');
+      expect(boundaryResult.undoBoundary.statsText).toContain('100');
+      expect(result.firstBurst).toEqual(
+        expect.objectContaining({
+          cleanupQueries: 1,
+          mutationBatches: 1,
+          rowCount: 5000,
+          uniqueRowCount: 5000,
+          firstRowId: 101,
+          lastRowId: 5100,
+          sameFocusedNode: true,
+          selectedRowId: '2500',
+          focusedRowId: '2500',
+          autoScrollPressed: 'false',
+          stayedAwayFromBottom: true,
+          documentHasHorizontalOverflow: false,
+          documentHasVerticalOverflow: false,
+          prefetchedSourceIds: Array.from({ length: 100 }, (_, index) => 5001 + index),
+        }),
+      );
+      expect(result.firstBurst.scrollTopAfter).toBeGreaterThan(0);
+      expect(result.transientBurst).toEqual({
+        rowCount: 100,
+        firstRowId: 5201,
+        lastRowId: 5300,
+        prefetchedSourceIds: Array.from({ length: 100 }, (_, index) => 10101 + index),
+      });
+    } finally {
+      if (cdp) await cdp.close();
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
 
 browserTest(
   'live summary update preserves focused status chip identity and the pending click gesture',
