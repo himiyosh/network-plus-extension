@@ -110,6 +110,111 @@ const assertLiveCommitBoundary = (source, boundary) => {
   if (!boundary.requiredPattern.test(block)) throw new Error(boundary.diagnostic);
 };
 
+const assertLiveCommitFallbackContract = (source) => {
+  if (!source.includes('const LIVE_COMMIT_MAX_WAIT_MS = 250;')) {
+    throw new Error('Live commit fallback must keep one named 250ms maximum wait.');
+  }
+  if (!source.includes('const LIVE_PENDING_HIGH_WATER_MARK = 5000;')) {
+    throw new Error('Live commit scheduling must keep one named 5,000-row pending high-water.');
+  }
+  if (!source.includes('let pendingLiveCommitTimer = null;')) {
+    throw new Error('Live commit fallback must keep one shared timer handle.');
+  }
+
+  const cancelStart = source.indexOf('function cancelPendingLiveCommitTimer');
+  const armStart = source.indexOf('function armPendingLiveCommitTimer');
+  const commitStart = source.indexOf('function commitPendingLiveRows');
+  const commitEnd = source.indexOf('function recordSkippedImportRows', commitStart);
+  const scheduleStart = source.indexOf('const scheduleLiveRows =');
+  const scheduleEnd = source.indexOf('if (chrome && chrome.devtools', scheduleStart);
+  if (
+    cancelStart < 0 ||
+    armStart <= cancelStart ||
+    commitStart <= armStart ||
+    commitEnd <= commitStart ||
+    scheduleStart < 0 ||
+    scheduleEnd <= scheduleStart
+  ) {
+    throw new Error('Live commit fallback functions are missing or out of order.');
+  }
+
+  const cancelBlock = source.slice(cancelStart, armStart);
+  const armBlock = source.slice(armStart, commitStart);
+  const commitBlock = source.slice(commitStart, commitEnd);
+  const scheduleBlock = source.slice(scheduleStart, scheduleEnd);
+  const cancelGuard = 'if (pendingLiveCommitTimer === null) return;';
+  const clearTimer = 'clearTimeout(pendingLiveCommitTimer);';
+  const clearHandle = 'pendingLiveCommitTimer = null;';
+  if (!cancelBlock.includes(cancelGuard) || !cancelBlock.includes(clearTimer)) {
+    throw new Error('Live commit fallback cancellation must guard and clear the shared timer.');
+  }
+  if (cancelBlock.indexOf(clearTimer) > cancelBlock.indexOf(clearHandle)) {
+    throw new Error('Live commit fallback cancellation must clear the timer before its handle.');
+  }
+
+  const armGuard = 'if (pendingLiveCommitTimer !== null) return;';
+  const setTimer = 'pendingLiveCommitTimer = setTimeout(() => {';
+  const callbackCommit = 'commitPendingLiveRows();';
+  if (!armBlock.includes(armGuard) || !armBlock.includes(setTimer)) {
+    throw new Error('Live commit fallback must coalesce requests behind one armed timer.');
+  }
+  if (!armBlock.includes('}, LIVE_COMMIT_MAX_WAIT_MS);')) {
+    throw new Error('Live commit fallback must use the named maximum wait.');
+  }
+  if (armBlock.indexOf(armGuard) > armBlock.indexOf(setTimer)) {
+    throw new Error('Live commit fallback must guard before arming its timer.');
+  }
+  if (
+    armBlock.indexOf(clearHandle) < armBlock.indexOf(setTimer) ||
+    armBlock.indexOf(clearHandle) > armBlock.indexOf(callbackCommit)
+  ) {
+    throw new Error('Live commit fallback callback must clear its handle before committing.');
+  }
+
+  const cancelCommit = 'cancelPendingLiveCommitTimer();';
+  const takePendingRows = 'state.pendingLiveRows.splice(0, state.pendingLiveRows.length)';
+  if (
+    !commitBlock.includes(cancelCommit) ||
+    commitBlock.indexOf(cancelCommit) > commitBlock.indexOf(takePendingRows)
+  ) {
+    throw new Error('Every live commit must cancel the fallback before taking pending rows.');
+  }
+
+  const armCommit = 'armPendingLiveCommitTimer();';
+  const pendingFrameGuard = 'if (pendingLiveFrame) return;';
+  const drainAwaitingRows = 'const liveRows = state.liveRowsAwaitingRender';
+  const highWaterCommit =
+    'if (pendingLiveRows.length >= LIVE_PENDING_HIGH_WATER_MARK) {\n' +
+    '        commitPendingLiveRows();\n' +
+    '      }';
+  const armPendingBatch =
+    'if (pendingLiveRows.length > 0) {\n' +
+    '        armPendingLiveCommitTimer();\n' +
+    '      }';
+  if (!scheduleBlock.includes(highWaterCommit) || !scheduleBlock.includes(armPendingBatch)) {
+    throw new Error('Live scheduling must independently flush high-water and arm max-wait batches.');
+  }
+  if (scheduleBlock.includes('state.rows.length + pendingLiveRows.length')) {
+    throw new Error('Live high-water must not restore per-request flushing from retained row count.');
+  }
+  if (
+    !scheduleBlock.includes(armCommit) ||
+    scheduleBlock.indexOf(highWaterCommit) > scheduleBlock.indexOf(armPendingBatch) ||
+    scheduleBlock.indexOf(armCommit) > scheduleBlock.indexOf(pendingFrameGuard)
+  ) {
+    throw new Error('Live scheduling must flush high-water before arming max-wait and coalescing the frame.');
+  }
+  const frameStart = scheduleBlock.indexOf('window.requestAnimationFrame(() => {');
+  const frameBlock = scheduleBlock.slice(frameStart);
+  if (
+    frameStart < 0 ||
+    frameBlock.indexOf(callbackCommit) < 0 ||
+    frameBlock.indexOf(callbackCommit) > frameBlock.indexOf(drainAwaitingRows)
+  ) {
+    throw new Error('The delayed frame must commit and cancel fallback work before rendering.');
+  }
+};
+
 const getOutlineSelectorRule = (source, selectorSuffix) => {
   const matches = Array.from(source.matchAll(/^([^@{}\n]+)\{([^{}]*)\}$/gm)).flatMap((match) =>
     match[1]
@@ -1276,6 +1381,105 @@ describe('release trust static contracts', () => {
 });
 
 describe('scale trust static contracts', () => {
+  test('coalesces one bounded live fallback and cancels it before any commit drains pending rows', () => {
+    expect(() => assertLiveCommitFallbackContract(js)).not.toThrow();
+  });
+
+  test.each([
+    {
+      label: 'maximum wait deletion',
+      mutate: (source) => source.replace('  const LIVE_COMMIT_MAX_WAIT_MS = 250;\n', ''),
+    },
+    {
+      label: 'pending high-water deletion',
+      mutate: (source) =>
+        source.replace('  const LIVE_PENDING_HIGH_WATER_MARK = 5000;\n', ''),
+    },
+    {
+      label: 'shared timer deletion',
+      mutate: (source) => source.replace('  let pendingLiveCommitTimer = null;\n', ''),
+    },
+    {
+      label: 'timer guard deletion',
+      mutate: (source) =>
+        source.replace('    if (pendingLiveCommitTimer !== null) return;\n', ''),
+    },
+    {
+      label: 'timer clear deletion',
+      mutate: (source) => source.replace('    clearTimeout(pendingLiveCommitTimer);\n', ''),
+    },
+    {
+      label: 'callback ordering reversal',
+      mutate: (source) =>
+        source.replace(
+          '      pendingLiveCommitTimer = null;\n      commitPendingLiveRows();',
+          '      commitPendingLiveRows();\n      pendingLiveCommitTimer = null;',
+        ),
+    },
+    {
+      label: 'commit cancellation deletion',
+      mutate: (source) =>
+        source.replace(
+          '  function commitPendingLiveRows() {\n    cancelPendingLiveCommitTimer();',
+          '  function commitPendingLiveRows() {',
+        ),
+    },
+    {
+      label: 'fallback arm deletion',
+      mutate: (source) => source.replace('      armPendingLiveCommitTimer();\n', ''),
+    },
+    {
+      label: 'high-water commit deletion',
+      mutate: (source) =>
+        source.replace(
+          '      if (pendingLiveRows.length >= LIVE_PENDING_HIGH_WATER_MARK) {\n' +
+            '        commitPendingLiveRows();\n' +
+            '      }\n',
+          '',
+        ),
+    },
+    {
+      label: 'pending timer ownership deletion',
+      mutate: (source) =>
+        source.replace(
+          '      if (pendingLiveRows.length > 0) {\n' +
+            '        armPendingLiveCommitTimer();\n' +
+            '      }',
+          '      armPendingLiveCommitTimer();',
+        ),
+    },
+    {
+      label: 'high-water and timer ordering reversal',
+      mutate: (source) =>
+        source.replace(
+          '      if (pendingLiveRows.length >= LIVE_PENDING_HIGH_WATER_MARK) {\n' +
+            '        commitPendingLiveRows();\n' +
+            '      }\n' +
+            '      if (pendingLiveRows.length > 0) {\n' +
+            '        armPendingLiveCommitTimer();\n' +
+            '      }',
+          '      if (pendingLiveRows.length > 0) {\n' +
+            '        armPendingLiveCommitTimer();\n' +
+            '      }\n' +
+            '      if (pendingLiveRows.length >= LIVE_PENDING_HIGH_WATER_MARK) {\n' +
+            '        commitPendingLiveRows();\n' +
+            '      }',
+        ),
+    },
+    {
+      label: 'frame commit deletion',
+      mutate: (source) =>
+        source.replace(
+          '        pendingScrollToBottom = false;\n        commitPendingLiveRows();',
+          '        pendingScrollToBottom = false;',
+        ),
+    },
+  ])('rejects live fallback $label', ({ mutate }) => {
+    const mutatedSource = mutate(js);
+    expect(mutatedSource).not.toBe(js);
+    expect(() => assertLiveCommitFallbackContract(mutatedSource)).toThrow();
+  });
+
   test('batches live retention and retained-only prefetch before one incremental frame update', () => {
     const scheduleStart = js.indexOf('const scheduleLiveRows =');
     const listenerStart = js.indexOf('if (chrome && chrome.devtools', scheduleStart);
@@ -1298,7 +1502,7 @@ describe('scale trust static contracts', () => {
     );
     expect(frameBlock).toContain('commitPendingLiveRows();');
     expect(frameBlock).toContain('const liveRows = state.liveRowsAwaitingRender');
-    expect(frameBlock.match(/commitPendingLiveRows\(\)/g)).toHaveLength(1);
+    expect(frameBlock.match(/commitPendingLiveRows\(\)/g)).toHaveLength(2);
     expect(frameBlock).toContain('isIncrementalAppendEligible(');
     const cleanupStart = js.indexOf('function cleanupEvictedRowReferences');
     const cleanupEnd = js.indexOf('function removeRowsFromState', cleanupStart);

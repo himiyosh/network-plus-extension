@@ -271,14 +271,35 @@ async function waitForSampleCaptureAction(cdp) {
   );
 }
 
-async function waitForLiveNetworkListener(cdp) {
+async function waitForLiveNetworkListener(cdp, expectedUrl) {
   const deadline = Date.now() + 5000;
+  let lastState = null;
   while (Date.now() < deadline) {
-    const available = await evaluate(cdp, `typeof window.__networkPlusLiveListener === 'function'`);
-    if (available) return;
+    try {
+      lastState = await evaluate(
+        cdp,
+        `({
+          listenerType: typeof window.__networkPlusLiveListener,
+          readyState: document.readyState,
+          status: document.querySelector('#status')?.textContent || '',
+          url: location.href,
+        })`,
+      );
+      if (
+        lastState.listenerType === 'function' &&
+        (!expectedUrl || lastState.url === expectedUrl)
+      ) {
+        return;
+      }
+    } catch (error) {
+      if (!error.message.includes('Execution context was destroyed')) throw error;
+    }
     await delay(50);
   }
-  throw new Error('Live network listener was not registered within 5000ms.');
+  throw new Error(
+    'Live network listener was not registered within 5000ms; last observed ' +
+      JSON.stringify(lastState),
+  );
 }
 
 function assertToolbarFocusContainment(trace, contractName) {
@@ -454,6 +475,120 @@ function removeProfileDirectory(profileDirectory) {
   }
 }
 
+function createInstrumentedPanelFixture() {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-retention-fixture-'));
+  const vendorDirectory = path.join(fixtureDirectory, 'vendor');
+  fs.mkdirSync(vendorDirectory);
+  fs.copyFileSync(path.join(repositoryRoot, 'panel.html'), path.join(fixtureDirectory, 'panel.html'));
+  fs.copyFileSync(path.join(repositoryRoot, 'panel.css'), path.join(fixtureDirectory, 'panel.css'));
+  fs.copyFileSync(path.join(repositoryRoot, 'vendor', 'fflate.js'), path.join(vendorDirectory, 'fflate.js'));
+
+  const panelSource = fs.readFileSync(path.join(repositoryRoot, 'panel.js'), 'utf8');
+  const stateExposureMarker = "  document.addEventListener('DOMContentLoaded', init);";
+  const mutationCountMarker =
+    "    if (queuedRows.length === 0) return [];\n    const liveRows = addRowsWithRetention(queuedRows, 'live');";
+  if (!panelSource.includes(stateExposureMarker) || !panelSource.includes(mutationCountMarker)) {
+    throw new Error('Instrumented retention fixture could not expose panel state.');
+  }
+  const instrumentedPanelSource = panelSource
+    .replace(
+      mutationCountMarker,
+      "    if (queuedRows.length === 0) return [];\n" +
+        '    globalThis.__networkPlusLiveMutationCount =\n' +
+        '      (globalThis.__networkPlusLiveMutationCount || 0) + 1;\n' +
+        "    const liveRows = addRowsWithRetention(queuedRows, 'live');",
+    )
+    .replace(
+      stateExposureMarker,
+      '  globalThis.__networkPlusState = state;\n\n' + stateExposureMarker,
+    );
+  fs.writeFileSync(
+    path.join(fixtureDirectory, 'panel.js'),
+    instrumentedPanelSource,
+  );
+  return fixtureDirectory;
+}
+
+async function installControllableLiveScheduler(cdp) {
+  await evaluate(
+    cdp,
+    `(() => {
+      let now = 0;
+      let nextFrameId = 1;
+      let nextTimerId = 1;
+      const frames = new Map();
+      const timers = new Map();
+      const timerArms = new Map();
+      const timerCancels = new Map();
+      const normalizeDelay = (delay) => {
+        const value = Number(delay);
+        return Number.isFinite(value) && value > 0 ? value : 0;
+      };
+      const increment = (counts, delay) => {
+        counts.set(delay, (counts.get(delay) || 0) + 1);
+      };
+      globalThis.requestAnimationFrame = (callback) => {
+        const id = nextFrameId;
+        nextFrameId += 1;
+        frames.set(id, callback);
+        return id;
+      };
+      globalThis.cancelAnimationFrame = (id) => {
+        frames.delete(id);
+      };
+      globalThis.setTimeout = (callback, delay, ...args) => {
+        const id = nextTimerId;
+        nextTimerId += 1;
+        const normalizedDelay = normalizeDelay(delay);
+        timers.set(id, {
+          args,
+          callback,
+          delay: normalizedDelay,
+          due: now + normalizedDelay,
+        });
+        increment(timerArms, normalizedDelay);
+        return id;
+      };
+      globalThis.clearTimeout = (id) => {
+        const timer = timers.get(id);
+        if (!timer) return;
+        timers.delete(id);
+        increment(timerCancels, timer.delay);
+      };
+      globalThis.__networkPlusSchedulerSnapshot = () => ({
+        frameCount: frames.size,
+        timerArmCounts: Object.fromEntries(timerArms),
+        timerCancelCounts: Object.fromEntries(timerCancels),
+        timerDelays: Array.from(timers.values(), (timer) => timer.delay),
+      });
+      globalThis.__networkPlusAdvanceTime = async (milliseconds) => {
+        now += normalizeDelay(milliseconds);
+        while (true) {
+          const dueTimers = Array.from(timers.entries())
+            .filter((entry) => entry[1].due <= now)
+            .sort((left, right) => left[1].due - right[1].due || left[0] - right[0]);
+          if (dueTimers.length === 0) break;
+          for (const [id, timer] of dueTimers) {
+            if (!timers.delete(id)) continue;
+            timer.callback(...timer.args);
+            await Promise.resolve();
+          }
+        }
+        return globalThis.__networkPlusSchedulerSnapshot();
+      };
+      globalThis.__networkPlusRunNextFrame = async () => {
+        const nextFrame = frames.entries().next().value;
+        if (!nextFrame) return false;
+        const [id, callback] = nextFrame;
+        frames.delete(id);
+        callback(now);
+        await Promise.resolve();
+        return true;
+      };
+    })()`,
+  );
+}
+
 test('profile cleanup warns after bounded retries exhaust a transient ENOTEMPTY error', () => {
   const profileDirectory = '/tmp/network-plus-cleanup-test';
   const cleanupError = Object.assign(new Error('Directory not empty'), { code: 'ENOTEMPTY' });
@@ -563,7 +698,9 @@ browserTest(
   'same-frame live bursts batch retention cleanup and prefetch only retained rows',
   async () => {
     const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-live-retention-'));
+    const fixtureDirectory = createInstrumentedPanelFixture();
     const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+    const instrumentedPanelUrl = pathToFileURL(path.join(fixtureDirectory, 'panel.html')).href;
     const browserProcess = spawn(
       browserExecutable,
       [
@@ -721,9 +858,10 @@ browserTest(
         })()`,
         true,
       );
-      await evaluate(cdp, 'localStorage.clear(); window.__networkPlusLiveListener = null');
-      await cdp.send('Page.reload', { ignoreCache: true });
-      await waitForLiveNetworkListener(cdp);
+      await evaluate(cdp, 'localStorage.clear()');
+      const visiblePanelUrl = panelUrl + '?scenario=visible-burst';
+      await cdp.send('Page.navigate', { url: visiblePanelUrl });
+      await waitForLiveNetworkListener(cdp, visiblePanelUrl);
 
       const result = await evaluate(
         cdp,
@@ -851,6 +989,337 @@ browserTest(
         true,
       );
 
+      await evaluate(cdp, 'localStorage.clear()');
+      const highWaterPanelUrl = instrumentedPanelUrl + '?scenario=high-water';
+      await cdp.send('Page.navigate', { url: highWaterPanelUrl });
+      await waitForLiveNetworkListener(cdp, highWaterPanelUrl);
+      await installControllableLiveScheduler(cdp);
+
+      const highWaterResult = await evaluate(
+        cdp,
+        `(async () => {
+          const state = window.__networkPlusState;
+          const tbody = document.querySelector('#tbody');
+          const makeRequest = (sourceId) => ({
+            startedDateTime: new Date(1704067200000 + sourceId).toISOString(),
+            time: 10,
+            request: {
+              method: 'GET',
+              url: 'https://example.test/high-water/' + sourceId,
+              headers: [],
+            },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              httpVersion: 'HTTP/2',
+              headers: [],
+              bodySize: 0,
+              content: { size: 0, mimeType: 'text/plain' },
+            },
+            timings: { wait: 10 },
+            getContent(callback) {
+              window.__networkPlusPrefetchStarted.push(sourceId);
+              callback('', '');
+            },
+          });
+          const fallbackTimerCount = () =>
+            window
+              .__networkPlusSchedulerSnapshot()
+              .timerDelays.filter((delay) => delay === 250).length;
+          const emitRange = (start, count) => {
+            let maxAwaitingCount = 0;
+            let maxPendingCount = 0;
+            for (let offset = 0; offset < count; offset += 1) {
+              window.__networkPlusLiveListener(makeRequest(start + offset));
+              maxAwaitingCount = Math.max(
+                maxAwaitingCount,
+                state.liveRowsAwaitingRender.length,
+              );
+              maxPendingCount = Math.max(maxPendingCount, state.pendingLiveRows.length);
+            }
+            return { maxAwaitingCount, maxPendingCount };
+          };
+          let cleanupQueries = 0;
+          const originalQuerySelectorAll = Element.prototype.querySelectorAll;
+          Element.prototype.querySelectorAll = function (selector) {
+            if (
+              this === tbody &&
+              selector === 'tr[data-row-id]' &&
+              new Error().stack.includes('cleanupEvictedRowReferences')
+            ) {
+              cleanupQueries += 1;
+            }
+            return originalQuerySelectorAll.call(this, selector);
+          };
+
+          const limitedHighWater = emitRange(1, 20000);
+          const limitedScheduler = window.__networkPlusSchedulerSnapshot();
+          const beforeFrame = {
+            awaitingCount: state.liveRowsAwaitingRender.length,
+            awaitingMatchesRows: state.liveRowsAwaitingRender.every(
+              (row, index) => row === state.rows[index],
+            ),
+            cleanupQueries,
+            evictedRequests: state.retention.evictedRequests,
+            fallbackArms: limitedScheduler.timerArmCounts['250'] || 0,
+            fallbackCancels: limitedScheduler.timerCancelCounts['250'] || 0,
+            fallbackTimerCount: fallbackTimerCount(),
+            firstRetainedId: state.rows[0]?.id || null,
+            frameCount: limitedScheduler.frameCount,
+            lastRetainedId: state.rows.at(-1)?.id || null,
+            liveMutationCount: window.__networkPlusLiveMutationCount || 0,
+            maxAwaitingCount: limitedHighWater.maxAwaitingCount,
+            maxPendingCount: limitedHighWater.maxPendingCount,
+            pendingCount: state.pendingLiveRows.length,
+            retainedCount: state.rows.length,
+            renderedCount: tbody.querySelectorAll('tr[data-row-id]').length,
+          };
+
+          const frameRan = await window.__networkPlusRunNextFrame();
+          await Promise.resolve();
+          await Promise.resolve();
+          const renderedRows = Array.from(tbody.querySelectorAll('tr[data-row-id]'));
+          const afterFrame = {
+            awaitingCount: state.liveRowsAwaitingRender.length,
+            firstRenderedId: Number(renderedRows[0]?.dataset.rowId),
+            frameRan,
+            lastRenderedId: Number(renderedRows.at(-1)?.dataset.rowId),
+            liveMutationCount: window.__networkPlusLiveMutationCount || 0,
+            pendingCount: state.pendingLiveRows.length,
+            renderedCount: renderedRows.length,
+            retainedCount: state.rows.length,
+          };
+
+          state.retention.unlimited = true;
+          const unlimitedHighWater = emitRange(20001, 10000);
+          const unlimitedScheduler = window.__networkPlusSchedulerSnapshot();
+          const unlimited = {
+            awaitingCount: state.liveRowsAwaitingRender.length,
+            awaitingMatchesRows: state.liveRowsAwaitingRender.every(
+              (row, index) => row === state.rows[index + 5000],
+            ),
+            evictedRequests: state.retention.evictedRequests,
+            fallbackArms: unlimitedScheduler.timerArmCounts['250'] || 0,
+            fallbackCancels: unlimitedScheduler.timerCancelCounts['250'] || 0,
+            fallbackTimerCount: fallbackTimerCount(),
+            firstRetainedId: state.rows[0]?.id || null,
+            frameCount: unlimitedScheduler.frameCount,
+            lastRetainedId: state.rows.at(-1)?.id || null,
+            liveMutationCount: window.__networkPlusLiveMutationCount || 0,
+            maxAwaitingCount: unlimitedHighWater.maxAwaitingCount,
+            maxPendingCount: unlimitedHighWater.maxPendingCount,
+            pendingCount: state.pendingLiveRows.length,
+            retainedCount: state.rows.length,
+          };
+          Element.prototype.querySelectorAll = originalQuerySelectorAll;
+          return { afterFrame, beforeFrame, unlimited };
+        })()`,
+        true,
+      );
+
+      await evaluate(cdp, 'localStorage.clear()');
+      const maxWaitPanelUrl = instrumentedPanelUrl + '?scenario=max-wait';
+      await cdp.send('Page.navigate', { url: maxWaitPanelUrl });
+      await waitForLiveNetworkListener(cdp, maxWaitPanelUrl);
+      await installControllableLiveScheduler(cdp);
+
+      const suspendedFrameResult = await evaluate(
+        cdp,
+        `(async () => {
+          const state = window.__networkPlusState;
+          const makeRequest = (sourceId) => ({
+            startedDateTime: new Date(1704067200000 + sourceId).toISOString(),
+            time: 10,
+            request: {
+              method: 'GET',
+              url: 'https://example.test/suspended/' + sourceId,
+              headers: [],
+            },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              httpVersion: 'HTTP/2',
+              headers: [],
+              bodySize: 0,
+              content: { size: 0, mimeType: 'text/plain' },
+            },
+            timings: { wait: 10 },
+            getContent(callback) {
+              window.__networkPlusPrefetchStarted.push(sourceId);
+              callback('', '');
+            },
+          });
+          const emitRange = (start, count) => {
+            for (let offset = 0; offset < count; offset += 1) {
+              window.__networkPlusLiveListener(makeRequest(start + offset));
+            }
+          };
+          const fallbackTimerCount = () =>
+            window
+              .__networkPlusSchedulerSnapshot()
+              .timerDelays.filter((delay) => delay === 250).length;
+          const waitForPrefetch = async () => {
+            await state.automaticResponsePrefetchScheduler.whenIdle();
+            await Promise.resolve();
+          };
+          const captureBoundedState = () => ({
+            awaitingIds: state.liveRowsAwaitingRender.map((row) => row.id),
+            awaitingMatchesRows: state.liveRowsAwaitingRender.every(
+              (row, index) => row === state.rows[index],
+            ),
+            pendingCount: state.pendingLiveRows.length,
+            rowIds: state.rows.map((row) => row.id),
+          });
+
+          document.querySelector('#retentionBtn').click();
+          document.querySelector('#retentionUnlimited').checked = false;
+          document.querySelector('#retentionLimit').value = '100';
+          document.querySelector('#retentionSaveBtn').click();
+
+          emitRange(1, 150);
+          const firstPendingRows = state.pendingLiveRows.slice();
+          const beforeFallback = {
+            awaitingCount: state.liveRowsAwaitingRender.length,
+            fallbackTimerCount: fallbackTimerCount(),
+            frameCount: window.__networkPlusSchedulerSnapshot().frameCount,
+            liveMutationCount: window.__networkPlusLiveMutationCount || 0,
+            pendingCount: state.pendingLiveRows.length,
+            rowCount: state.rows.length,
+          };
+          let firstCleanupQueries = 0;
+          const tbody = document.querySelector('#tbody');
+          const originalQuerySelectorAll = Element.prototype.querySelectorAll;
+          Element.prototype.querySelectorAll = function (selector) {
+            if (
+              this === tbody &&
+              selector === 'tr[data-row-id]' &&
+              new Error().stack.includes('cleanupEvictedRowReferences')
+            ) {
+              firstCleanupQueries += 1;
+            }
+            return originalQuerySelectorAll.call(this, selector);
+          };
+          await window.__networkPlusAdvanceTime(250);
+          await waitForPrefetch();
+          Element.prototype.querySelectorAll = originalQuerySelectorAll;
+          const firstFallback = {
+            ...captureBoundedState(),
+            cleanupQueries: firstCleanupQueries,
+            disposedTransientRows: firstPendingRows
+              .slice(0, 50)
+              .every((row) => row._retentionDisposed === true && row._reqObj === null),
+            liveMutationCount: window.__networkPlusLiveMutationCount || 0,
+            prefetchedSourceIds: window.__networkPlusPrefetchStarted.slice(),
+            retainedIncomingIdentity: state.rows.every(
+              (row, index) => row === firstPendingRows[index + 50],
+            ),
+          };
+
+          window.__networkPlusPrefetchStarted = [];
+          emitRange(151, 80);
+          await window.__networkPlusAdvanceTime(250);
+          await waitForPrefetch();
+          const secondFallback = {
+            ...captureBoundedState(),
+            liveMutationCount: window.__networkPlusLiveMutationCount || 0,
+            prefetchedSourceIds: window.__networkPlusPrefetchStarted.slice(),
+          };
+
+          window.__networkPlusPrefetchStarted = [];
+          emitRange(231, 160);
+          const thirdPendingRows = state.pendingLiveRows.slice();
+          await window.__networkPlusAdvanceTime(250);
+          await waitForPrefetch();
+          const thirdFallback = {
+            ...captureBoundedState(),
+            disposedTransientRows: thirdPendingRows
+              .slice(0, 60)
+              .every((row) => row._retentionDisposed === true && row._reqObj === null),
+            liveMutationCount: window.__networkPlusLiveMutationCount || 0,
+            prefetchedSourceIds: window.__networkPlusPrefetchStarted.slice(),
+            retainedIncomingIdentity: state.rows.every(
+              (row, index) => row === thirdPendingRows[index + 60],
+            ),
+          };
+
+          window.__networkPlusPrefetchStarted = [];
+          let finalCleanupQueries = 0;
+          let mutationBatches = 0;
+          Element.prototype.querySelectorAll = function (selector) {
+            if (
+              this === tbody &&
+              selector === 'tr[data-row-id]' &&
+              new Error().stack.includes('cleanupEvictedRowReferences')
+            ) {
+              finalCleanupQueries += 1;
+            }
+            return originalQuerySelectorAll.call(this, selector);
+          };
+          const observer = new MutationObserver((records) => {
+            if (records.some((record) => record.type === 'childList')) mutationBatches += 1;
+          });
+          observer.observe(tbody, { childList: true });
+          emitRange(391, 30);
+          const beforeDelayedFrame = {
+            fallbackTimerCount: fallbackTimerCount(),
+            frameCount: window.__networkPlusSchedulerSnapshot().frameCount,
+            pendingCount: state.pendingLiveRows.length,
+          };
+          const frameRan = await window.__networkPlusRunNextFrame();
+          await waitForPrefetch();
+          await Promise.resolve();
+          await Promise.resolve();
+          observer.disconnect();
+          Element.prototype.querySelectorAll = originalQuerySelectorAll;
+          const renderedIds = Array.from(
+            tbody.querySelectorAll('tr[data-row-id]'),
+            (row) => Number(row.dataset.rowId),
+          );
+          const afterDelayedFrame = {
+            ...captureBoundedState(),
+            cleanupQueries: finalCleanupQueries,
+            fallbackTimerCount: fallbackTimerCount(),
+            frameCount: window.__networkPlusSchedulerSnapshot().frameCount,
+            frameRan,
+            liveMutationCount: window.__networkPlusLiveMutationCount || 0,
+            mutationBatches,
+            prefetchedSourceIds: window.__networkPlusPrefetchStarted.slice(),
+            renderedIds,
+            documentHasHorizontalOverflow:
+              document.documentElement.scrollWidth > document.documentElement.clientWidth,
+            documentHasVerticalOverflow:
+              document.documentElement.scrollHeight > document.documentElement.clientHeight,
+          };
+          const prefetchCountBeforeCanceledFallback =
+            window.__networkPlusPrefetchStarted.length;
+          await window.__networkPlusAdvanceTime(250);
+          await waitForPrefetch();
+          const afterCanceledFallback = {
+            awaitingCount: state.liveRowsAwaitingRender.length,
+            liveMutationCount: window.__networkPlusLiveMutationCount || 0,
+            pendingCount: state.pendingLiveRows.length,
+            prefetchCount: window.__networkPlusPrefetchStarted.length,
+            prefetchCountBeforeCanceledFallback,
+            renderedIds: Array.from(
+              tbody.querySelectorAll('tr[data-row-id]'),
+              (row) => Number(row.dataset.rowId),
+            ),
+            rowIds: state.rows.map((row) => row.id),
+          };
+
+          return {
+            afterCanceledFallback,
+            afterDelayedFrame,
+            beforeDelayedFrame,
+            beforeFallback,
+            firstFallback,
+            secondFallback,
+            thirdFallback,
+          };
+        })()`,
+        true,
+      );
+
       expect(boundaryResult.exportBoundary).toEqual(
         expect.objectContaining({
           rowCount: 1,
@@ -909,10 +1378,122 @@ browserTest(
         lastRowId: 5300,
         prefetchedSourceIds: Array.from({ length: 100 }, (_, index) => 10101 + index),
       });
+      expect(highWaterResult.beforeFrame).toEqual({
+        awaitingCount: 5000,
+        awaitingMatchesRows: true,
+        cleanupQueries: 3,
+        evictedRequests: 15000,
+        fallbackArms: 4,
+        fallbackCancels: 4,
+        fallbackTimerCount: 0,
+        firstRetainedId: 15001,
+        frameCount: 1,
+        lastRetainedId: 20000,
+        liveMutationCount: 4,
+        maxAwaitingCount: 5000,
+        maxPendingCount: 4999,
+        pendingCount: 0,
+        retainedCount: 5000,
+        renderedCount: 0,
+      });
+      expect(highWaterResult.afterFrame).toEqual({
+        awaitingCount: 0,
+        firstRenderedId: 15001,
+        frameRan: true,
+        lastRenderedId: 20000,
+        liveMutationCount: 4,
+        pendingCount: 0,
+        renderedCount: 5000,
+        retainedCount: 5000,
+      });
+      expect(highWaterResult.unlimited).toEqual({
+        awaitingCount: 10000,
+        awaitingMatchesRows: true,
+        evictedRequests: 15000,
+        fallbackArms: 6,
+        fallbackCancels: 6,
+        fallbackTimerCount: 0,
+        firstRetainedId: 15001,
+        frameCount: 1,
+        lastRetainedId: 30000,
+        liveMutationCount: 6,
+        maxAwaitingCount: 10000,
+        maxPendingCount: 4999,
+        pendingCount: 0,
+        retainedCount: 15000,
+      });
+      expect(suspendedFrameResult.beforeFallback).toEqual({
+        awaitingCount: 0,
+        fallbackTimerCount: 1,
+        frameCount: 1,
+        liveMutationCount: 0,
+        pendingCount: 150,
+        rowCount: 0,
+      });
+      expect(suspendedFrameResult.firstFallback).toEqual({
+        awaitingIds: Array.from({ length: 100 }, (_, index) => 51 + index),
+        awaitingMatchesRows: true,
+        cleanupQueries: 1,
+        disposedTransientRows: true,
+        liveMutationCount: 1,
+        pendingCount: 0,
+        prefetchedSourceIds: Array.from({ length: 100 }, (_, index) => 51 + index),
+        retainedIncomingIdentity: true,
+        rowIds: Array.from({ length: 100 }, (_, index) => 51 + index),
+      });
+      expect(suspendedFrameResult.secondFallback).toEqual({
+        awaitingIds: Array.from({ length: 100 }, (_, index) => 131 + index),
+        awaitingMatchesRows: true,
+        liveMutationCount: 2,
+        pendingCount: 0,
+        prefetchedSourceIds: Array.from({ length: 80 }, (_, index) => 151 + index),
+        rowIds: Array.from({ length: 100 }, (_, index) => 131 + index),
+      });
+      expect(suspendedFrameResult.thirdFallback).toEqual({
+        awaitingIds: Array.from({ length: 100 }, (_, index) => 291 + index),
+        awaitingMatchesRows: true,
+        disposedTransientRows: true,
+        liveMutationCount: 3,
+        pendingCount: 0,
+        prefetchedSourceIds: Array.from({ length: 100 }, (_, index) => 291 + index),
+        retainedIncomingIdentity: true,
+        rowIds: Array.from({ length: 100 }, (_, index) => 291 + index),
+      });
+      expect(suspendedFrameResult.beforeDelayedFrame).toEqual({
+        fallbackTimerCount: 1,
+        frameCount: 1,
+        pendingCount: 30,
+      });
+      expect(suspendedFrameResult.afterDelayedFrame).toEqual({
+        awaitingIds: [],
+        awaitingMatchesRows: true,
+        cleanupQueries: 1,
+        documentHasHorizontalOverflow: false,
+        documentHasVerticalOverflow: false,
+        fallbackTimerCount: 0,
+        frameCount: 0,
+        frameRan: true,
+        liveMutationCount: 4,
+        mutationBatches: 1,
+        pendingCount: 0,
+        prefetchedSourceIds: Array.from({ length: 30 }, (_, index) => 391 + index),
+        renderedIds: Array.from({ length: 100 }, (_, index) => 321 + index),
+        rowIds: Array.from({ length: 100 }, (_, index) => 321 + index),
+      });
+      expect(suspendedFrameResult.afterCanceledFallback).toEqual({
+        awaitingCount: 0,
+        liveMutationCount: 4,
+        pendingCount: 0,
+        prefetchCount: 30,
+        prefetchCountBeforeCanceledFallback: 30,
+        renderedIds: Array.from({ length: 100 }, (_, index) => 321 + index),
+        rowIds: Array.from({ length: 100 }, (_, index) => 321 + index),
+      });
     } finally {
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);
       removeProfileDirectory(profileDirectory);
+      removeProfileDirectory(fixtureDirectory);
     }
   },
   TEST_TIMEOUT_MS,

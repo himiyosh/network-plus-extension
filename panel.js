@@ -35,6 +35,8 @@ const _NetworkPlus = (function () {
   const TRUNCATE_LIMIT = 2000;
   const FILTER_DEBOUNCE_MS = 150;
   const DEEP_SEARCH_DEBOUNCE_MS = 250;
+  const LIVE_COMMIT_MAX_WAIT_MS = 250;
+  const LIVE_PENDING_HIGH_WATER_MARK = 5000;
   const RESPONSE_CONTENT_TIMEOUT_MS = 10000;
   // Foreground details and HAR work bypass these slots, so the total can be 4 plus distinct foreground operations.
   const AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY = 4;
@@ -3698,6 +3700,7 @@ const _NetworkPlus = (function () {
     },
   };
   let clearUndoTimer = null;
+  let pendingLiveCommitTimer = null;
 
   function createAutomaticResponsePrefetchScheduler(options) {
     const config = options || {};
@@ -4305,7 +4308,22 @@ const _NetworkPlus = (function () {
     return retainedIncomingRows;
   }
 
+  function cancelPendingLiveCommitTimer() {
+    if (pendingLiveCommitTimer === null) return;
+    clearTimeout(pendingLiveCommitTimer);
+    pendingLiveCommitTimer = null;
+  }
+
+  function armPendingLiveCommitTimer() {
+    if (pendingLiveCommitTimer !== null) return;
+    pendingLiveCommitTimer = setTimeout(() => {
+      pendingLiveCommitTimer = null;
+      commitPendingLiveRows();
+    }, LIVE_COMMIT_MAX_WAIT_MS);
+  }
+
   function commitPendingLiveRows() {
+    cancelPendingLiveCommitTimer();
     const queuedRows = state.pendingLiveRows.splice(0, state.pendingLiveRows.length);
     if (queuedRows.length === 0) return [];
     const liveRows = addRowsWithRetention(queuedRows, 'live');
@@ -9936,6 +9954,12 @@ const _NetworkPlus = (function () {
     });
     const scheduleLiveRows = (scrollToBottom) => {
       if (scrollToBottom) pendingScrollToBottom = true;
+      if (pendingLiveRows.length >= LIVE_PENDING_HIGH_WATER_MARK) {
+        commitPendingLiveRows();
+      }
+      if (pendingLiveRows.length > 0) {
+        armPendingLiveCommitTimer();
+      }
       if (pendingLiveFrame) return;
       pendingLiveFrame = true;
       window.requestAnimationFrame(() => {
