@@ -39,6 +39,18 @@ describe('fmtTime', () => {
   });
 });
 
+describe('painted outline footprint', () => {
+  test.each([
+    ['2px', '-2px', 0],
+    ['2px', '-1px', 1],
+    ['2px', '0px', 2],
+    ['2px', '1px', 3],
+    ['none', '-2px', 0],
+  ])('derives the external footprint from width %s and offset %s', (outlineWidth, outlineOffset, expected) => {
+    expect(np.calculateExternalOutlineFootprint(outlineWidth, outlineOffset)).toBe(expected);
+  });
+});
+
 describe('status announcement planning', () => {
   test('deduplicates automatic summaries but forces repeated user retry feedback', () => {
     const message = 'Response-body retry failed for request 42.';

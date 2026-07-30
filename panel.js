@@ -675,6 +675,13 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 3: Pure Utility Functions (testable)
   // ============================================================
+  function calculateExternalOutlineFootprint(outlineWidth, outlineOffset) {
+    const width = Number.parseFloat(outlineWidth);
+    if (!Number.isFinite(width) || width <= 0) return 0;
+    const offset = Number.parseFloat(outlineOffset);
+    return Math.max(0, width + (Number.isFinite(offset) ? offset : 0));
+  }
+
   function clampPopupPosition(x, y, popupWidth, popupHeight, viewportWidth, viewportHeight, margin) {
     const edge = Number.isFinite(margin) && margin >= 0 ? margin : POPUP_VIEWPORT_MARGIN;
     const viewportW = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
@@ -8944,7 +8951,11 @@ const _NetworkPlus = (function () {
         if (!control.matches(':focus-visible')) return;
         const tableRect = tableWrap.getBoundingClientRect();
         const controlRect = control.getBoundingClientRect();
-        const outlineAllowance = Number.parseFloat(getComputedStyle(control).outlineWidth) || 0;
+        const style = getComputedStyle(control);
+        const outlineAllowance = calculateExternalOutlineFootprint(
+          style.outlineWidth,
+          style.outlineOffset,
+        );
         const visibleLeft = tableRect.left + tableWrap.clientLeft;
         const visibleRight = visibleLeft + tableWrap.clientWidth;
         let scrollDelta = 0;
@@ -9980,6 +9991,7 @@ const _NetworkPlus = (function () {
   return {
     fmtBytes,
     fmtTime,
+    calculateExternalOutlineFootprint,
     clampPopupPosition,
     calculateMainSplit,
     adjustMainSplitByKeyboard,

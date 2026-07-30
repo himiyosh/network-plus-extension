@@ -20,6 +20,8 @@ const SAFETY_STATUS_MESSAGE = 'Clipboard copy failed during sanitization. No dat
 const REVERSE_TOOLBAR_FOCUS_CONTRACT = 'reverse-direction toolbar focus containment';
 const SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT =
   'synchronous toolbar keyboard focus-scroll timing';
+const GRID_FOCUS_ALLOWANCE_CONTRACT = 'painted request-grid focus allowance';
+const CSS_PIXEL_TOLERANCE = 0.01;
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -297,6 +299,91 @@ function assertSynchronousToolbarFocusScroll(trace) {
   );
 }
 
+function assertGridFocusAllowancePolicy(trace) {
+  const underAllocated = trace.find(
+    (entry) =>
+      !entry.fullyVisibleWithPaintedIndicator ||
+      entry.edgeClearance + CSS_PIXEL_TOLERANCE < entry.paintedExternalFootprint,
+  );
+  if (underAllocated) {
+    throw new Error(
+      GRID_FOCUS_ALLOWANCE_CONTRACT +
+        ': ' +
+        underAllocated.key +
+        ' at ' +
+        underAllocated.width +
+        'px during ' +
+        underAllocated.direction +
+        ' traversal keeps ' +
+        underAllocated.edgeClearance +
+        'px at the constrained edge, smaller than the ' +
+        underAllocated.paintedExternalFootprint +
+        'px painted external footprint.',
+    );
+  }
+
+  const overReserved = trace.find(
+    (entry) =>
+      entry.reservedInlineAllowance - entry.paintedExternalFootprint > CSS_PIXEL_TOLERANCE,
+  );
+  if (overReserved) {
+    throw new Error(
+      GRID_FOCUS_ALLOWANCE_CONTRACT +
+        ': #tableWrap reserves ' +
+        overReserved.reservedInlineAllowance +
+        'px for ' +
+        overReserved.key +
+        ' at ' +
+        overReserved.width +
+        'px, exceeding its ' +
+        overReserved.paintedExternalFootprint +
+        'px painted external footprint.',
+    );
+  }
+
+  const overScrolled = trace.find(
+    (entry) =>
+      Math.abs(entry.actualScrollDelta) - Math.abs(entry.minimumScrollDelta) > CSS_PIXEL_TOLERANCE,
+  );
+  if (overScrolled) {
+    throw new Error(
+      GRID_FOCUS_ALLOWANCE_CONTRACT +
+        ': ' +
+        overScrolled.key +
+        ' at ' +
+        overScrolled.width +
+        'px during ' +
+        overScrolled.direction +
+        ' traversal scrolled ' +
+        overScrolled.actualScrollDelta +
+        'px; the painted footprint required only ' +
+        overScrolled.minimumScrollDelta +
+        'px.',
+    );
+  }
+}
+
+function completeGridFocusTransition(end) {
+  const actualScrollDelta = end.focusScrollWrites.reduce(
+    (total, write) => total + write.actualScrollDelta,
+    0,
+  );
+  const minimumScrollDelta = end.focusScrollWrites.reduce(
+    (total, write) => total + write.minimumScrollDelta,
+    0,
+  );
+  const edgeClearance =
+    minimumScrollDelta < 0 || (minimumScrollDelta === 0 && actualScrollDelta < 0)
+      ? end.leftEdgeClearance
+      : end.rightEdgeClearance;
+  return {
+    ...end,
+    actualScrollDelta,
+    edgeClearance,
+    minimumScrollDelta,
+  };
+}
+
 async function expectFullAccessibilityTreeWithoutControl(cdp, accessibleName) {
   const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
   expect(accessibilityTree.nodes.length).toBeGreaterThan(0);
@@ -407,6 +494,53 @@ test('collapsed accessibility check rejects an empty second AX tree', async () =
   ).toBe(true);
   await expect(expectFullAccessibilityTreeWithoutControl(cdp, 'Close request details')).rejects.toThrow();
   expect(cdp.send).toHaveBeenNthCalledWith(2, 'Accessibility.getFullAXTree');
+});
+
+test('grid focus allowance reports an under-allocation separately from clipping', () => {
+  const measurement = {
+    key: 'header:size',
+    width: 375,
+    direction: 'forward',
+    fullyVisibleWithPaintedIndicator: false,
+    edgeClearance: 0,
+    paintedExternalFootprint: 1,
+    reservedInlineAllowance: 0,
+    actualScrollDelta: 10,
+    minimumScrollDelta: 11,
+  };
+
+  expect(() => assertGridFocusAllowancePolicy([measurement])).toThrow(
+    new Error(
+      'painted request-grid focus allowance: header:size at 375px during forward traversal keeps 0px at the constrained edge, smaller than the 1px painted external footprint.',
+    ),
+  );
+});
+
+test('grid focus allowance reports unexplained reserve and scroll beyond the painted footprint', () => {
+  const measurement = {
+    key: 'separator:size',
+    width: 375,
+    direction: 'reverse',
+    fullyVisibleWithPaintedIndicator: true,
+    edgeClearance: 2,
+    paintedExternalFootprint: 0,
+    reservedInlineAllowance: 2,
+    actualScrollDelta: -12,
+    minimumScrollDelta: -10,
+  };
+
+  expect(() => assertGridFocusAllowancePolicy([measurement])).toThrow(
+    new Error(
+      'painted request-grid focus allowance: #tableWrap reserves 2px for separator:size at 375px, exceeding its 0px painted external footprint.',
+    ),
+  );
+  expect(() =>
+    assertGridFocusAllowancePolicy([{ ...measurement, reservedInlineAllowance: 0 }]),
+  ).toThrow(
+    new Error(
+      'painted request-grid focus allowance: separator:size at 375px during reverse traversal scrolled -12px; the painted footprint required only -10px.',
+    ),
+  );
 });
 
 browserTest(
@@ -2094,7 +2228,7 @@ browserTest(
 );
 
 browserTest(
-  'request-grid focus stays visible without disrupting pointer sorting or resizing',
+  'request-grid focus allowance matches the painted outline without disrupting pointer sorting or resizing',
   async () => {
     const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-grid-focus-dom-'));
     const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
@@ -2184,6 +2318,64 @@ browserTest(
         },
       ]);
       const reverseGridTargets = expectedGridTargets.slice().reverse();
+      const prepareGridFocusTransition = () =>
+        evaluate(
+          cdp,
+          `(() => {
+            const tableWrap = document.querySelector('#tableWrap');
+            if (!Object.prototype.hasOwnProperty.call(tableWrap, 'scrollLeft')) {
+              let prototype = tableWrap;
+              let scrollLeftDescriptor = null;
+              while (prototype && !scrollLeftDescriptor) {
+                prototype = Object.getPrototypeOf(prototype);
+                scrollLeftDescriptor = Object.getOwnPropertyDescriptor(prototype, 'scrollLeft');
+              }
+              if (!scrollLeftDescriptor) {
+                throw new Error('Element.scrollLeft descriptor was not found.');
+              }
+              Object.defineProperty(tableWrap, 'scrollLeft', {
+                configurable: true,
+                get() {
+                  return scrollLeftDescriptor.get.call(this);
+                },
+                set(value) {
+                  const before = scrollLeftDescriptor.get.call(this);
+                  const control = document.activeElement.closest('th[data-col-id], .col-resizer');
+                  let minimumScrollLeft = before;
+                  if (control && this.contains(control)) {
+                    const tableRect = this.getBoundingClientRect();
+                    const controlRect = control.getBoundingClientRect();
+                    const style = getComputedStyle(control);
+                    const outlineWidth = Number.parseFloat(style.outlineWidth) || 0;
+                    const outlineOffset = Number.parseFloat(style.outlineOffset) || 0;
+                    const paintedExternalFootprint = Math.max(0, outlineWidth + outlineOffset);
+                    const visibleLeft = tableRect.left + this.clientLeft;
+                    const visibleRight = visibleLeft + this.clientWidth;
+                    let requiredDelta = 0;
+                    if (controlRect.left - paintedExternalFootprint < visibleLeft) {
+                      requiredDelta =
+                        controlRect.left - paintedExternalFootprint - visibleLeft;
+                    } else if (controlRect.right + paintedExternalFootprint > visibleRight) {
+                      requiredDelta =
+                        controlRect.right + paintedExternalFootprint - visibleRight;
+                    }
+                    minimumScrollLeft = Math.min(
+                      this.scrollWidth - this.clientWidth,
+                      Math.max(0, before + requiredDelta),
+                    );
+                  }
+                  scrollLeftDescriptor.set.call(this, value);
+                  window.__gridFocusScrollWrites.push({
+                    actualScrollDelta: scrollLeftDescriptor.get.call(this) - before,
+                    minimumScrollDelta: minimumScrollLeft - before,
+                  });
+                },
+              });
+            }
+            window.__gridFocusScrollWrites = [];
+          })()`,
+          true,
+        );
       const measureGridFocusTarget = () =>
         evaluate(
           cdp,
@@ -2196,7 +2388,16 @@ browserTest(
             const visibleRight = visibleLeft + tableWrap.clientWidth;
             const activeRect = active.getBoundingClientRect();
             const style = getComputedStyle(active);
-            const outlineAllowance = Number.parseFloat(style.outlineWidth) || 0;
+            const outlineWidth = Number.parseFloat(style.outlineWidth) || 0;
+            const outlineOffset = Number.parseFloat(style.outlineOffset) || 0;
+            const paintedExternalFootprint = Math.max(0, outlineWidth + outlineOffset);
+            const tableStyle = getComputedStyle(tableWrap);
+            const reservedInlineAllowance = Math.max(
+              Number.parseFloat(tableStyle.paddingInlineStart) || 0,
+              Number.parseFloat(tableStyle.paddingInlineEnd) || 0,
+              Number.parseFloat(tableStyle.scrollPaddingInlineStart) || 0,
+              Number.parseFloat(tableStyle.scrollPaddingInlineEnd) || 0,
+            );
             const kind = active.classList.contains('col-resizer') ? 'separator' : 'header';
             resolve({
               key: kind + ':' + (header?.dataset.colId || ''),
@@ -2206,15 +2407,21 @@ browserTest(
               focusVisible: active.matches(':focus-visible'),
               outlineStyle: style.outlineStyle,
               outlineWidth: style.outlineWidth,
+              outlineOffset: style.outlineOffset,
+              paintedExternalFootprint,
+              reservedInlineAllowance,
+              focusScrollWrites: window.__gridFocusScrollWrites.slice(),
               documentScrollLeft: document.scrollingElement.scrollLeft,
               documentScrollTop: document.scrollingElement.scrollTop,
               documentOverflow:
                 document.documentElement.scrollWidth - document.documentElement.clientWidth,
               tableScrollLeft: tableWrap.scrollLeft,
               tableScrollMax: tableWrap.scrollWidth - tableWrap.clientWidth,
-              fullyVisibleWithOutline:
-                activeRect.left - outlineAllowance >= visibleLeft &&
-                activeRect.right + outlineAllowance <= visibleRight,
+              fullyVisibleWithPaintedIndicator:
+                activeRect.left - paintedExternalFootprint >= visibleLeft &&
+                activeRect.right + paintedExternalFootprint <= visibleRight,
+              leftEdgeClearance: activeRect.left - visibleLeft,
+              rightEdgeClearance: visibleRight - activeRect.right,
               visibleWidth: Math.round(
                 Math.max(
                   0,
@@ -2224,7 +2431,7 @@ browserTest(
               ),
               targetWidth: Math.round(activeRect.width),
               clippedSide:
-                activeRect.left - outlineAllowance < visibleLeft ? 'left' : 'right',
+                activeRect.left - paintedExternalFootprint < visibleLeft ? 'left' : 'right',
             });
           })))`,
           true,
@@ -2257,8 +2464,9 @@ browserTest(
         }
         const forwardTabTrace = [];
         for (const expectedTarget of expectedGridTargets) {
+          await prepareGridFocusTransition();
           await pressKey(cdp, 'Tab', 'Tab', 9);
-          const traceEntry = await measureGridFocusTarget();
+          const traceEntry = completeGridFocusTransition(await measureGridFocusTarget());
           expect({
             key: traceEntry.key,
             role: traceEntry.role,
@@ -2282,8 +2490,9 @@ browserTest(
 
         const reverseTabTrace = [];
         for (const expectedTarget of reverseGridTargets) {
+          await prepareGridFocusTransition();
           await pressKey(cdp, 'Tab', 'Tab', 9, 8);
-          const traceEntry = await measureGridFocusTarget();
+          const traceEntry = completeGridFocusTransition(await measureGridFocusTarget());
           expect({
             key: traceEntry.key,
             role: traceEntry.role,
@@ -2314,6 +2523,7 @@ browserTest(
               entry.focusVisible &&
               entry.outlineStyle === 'solid' &&
               entry.outlineWidth === '2px' &&
+              entry.focusScrollWrites.length <= 1 &&
               entry.documentScrollLeft === 0 &&
               entry.documentScrollTop === 0 &&
               entry.documentOverflow === 0 &&
@@ -2322,7 +2532,7 @@ browserTest(
           ),
         ).toBe(true);
       }
-      const clippedFocusMeasurements = focusMeasurements.flatMap((measurement) =>
+      const focusAllowanceMeasurements = focusMeasurements.flatMap((measurement) =>
         [
           ...measurement.forwardTabTrace.map((entry) => ({
             ...entry,
@@ -2333,16 +2543,31 @@ browserTest(
             direction: 'reverse',
           })),
         ]
-          .filter((entry) => !entry.fullyVisibleWithOutline)
           .map((entry) => ({
             width: measurement.width,
             direction: entry.direction,
             key: entry.key,
+            actualScrollDelta: entry.actualScrollDelta,
+            edgeClearance: entry.edgeClearance,
+            fullyVisibleWithPaintedIndicator: entry.fullyVisibleWithPaintedIndicator,
+            minimumScrollDelta: entry.minimumScrollDelta,
+            outlineOffset: entry.outlineOffset,
+            paintedExternalFootprint: entry.paintedExternalFootprint,
+            reservedInlineAllowance: entry.reservedInlineAllowance,
             visibleWidth: entry.visibleWidth,
             targetWidth: entry.targetWidth,
             clippedSide: entry.clippedSide,
             tableScrollLeft: entry.tableScrollLeft,
           })),
+      );
+      await evaluate(
+        cdp,
+        `(() => {
+          const tableWrap = document.querySelector('#tableWrap');
+          delete tableWrap.scrollLeft;
+          delete window.__gridFocusScrollWrites;
+        })()`,
+        true,
       );
 
       await cdp.send('Emulation.setDeviceMetricsOverride', {
@@ -2598,13 +2823,7 @@ browserTest(
           tableScrollDelta: 0,
         },
       });
-      expect({
-        contract: 'forward and reverse request-grid focus containment',
-        clippedFocusMeasurements,
-      }).toEqual({
-        contract: 'forward and reverse request-grid focus containment',
-        clippedFocusMeasurements: [],
-      });
+      assertGridFocusAllowancePolicy(focusAllowanceMeasurements);
     } finally {
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);

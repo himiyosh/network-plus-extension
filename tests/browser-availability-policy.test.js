@@ -9,6 +9,8 @@ const qualityGatesSource = fs.readFileSync(qualityGatesPath, 'utf8');
 const TOOLBAR_FOCUS_JOURNEY_TITLE = 'constrained toolbar prioritizes actions while preserving local overflow access';
 const STATUS_WORKSPACE_JOURNEY_TITLE =
   'narrow sample status disclosure preserves the evidence workspace and interaction state';
+const GRID_FOCUS_JOURNEY_TITLE =
+  'request-grid focus allowance matches the painted outline without disrupting pointer sorting or resizing';
 const BROWSER_POLICY_GUARD_CONTRACT = 'browser availability source-contract policy pin';
 const BROWSER_POLICY_GUARD_COMMAND = 'npx jest tests/browser-availability-policy.test.js --runInBand --coverage=false';
 const BROWSER_POLICY_GUARD_STEP_NAME = 'Run browser source-contract policy';
@@ -403,7 +405,7 @@ const VIEWPORT_CONTRACTS = [
   {
     constantName: 'GRID_FOCUS_VIEWPORT_WIDTHS',
     expectedWidths: [375, 500, 800, 1280],
-    journeyTitle: 'request-grid focus stays visible without disrupting pointer sorting or resizing',
+    journeyTitle: GRID_FOCUS_JOURNEY_TITLE,
   },
   {
     constantName: 'STATUS_WORKSPACE_VIEWPORT_WIDTHS',
@@ -756,7 +758,7 @@ test('locks the toolbar focus journey to its declared viewport widths', () => {
 test('locks the request-grid journey to its declared viewport widths', () => {
   assertJourneyConsumesViewportWidths(
     browserSuiteSource,
-    'request-grid focus stays visible without disrupting pointer sorting or resizing',
+    GRID_FOCUS_JOURNEY_TITLE,
     'GRID_FOCUS_VIEWPORT_WIDTHS',
   );
 });
@@ -771,7 +773,7 @@ test('locks the sample status workspace journey to its declared viewport widths'
 
 test('locks the request-grid journey to real forward and reverse Tab traversal', () => {
   const journeyStart = browserSuiteSource.indexOf(
-    "'request-grid focus stays visible without disrupting pointer sorting or resizing'",
+    `'${GRID_FOCUS_JOURNEY_TITLE}'`,
   );
 
   expect(journeyStart).toBeGreaterThan(-1);
@@ -1067,6 +1069,14 @@ test('retains the local-only skip when no browser executable is discoverable', (
       title: 'collapsed accessibility check rejects an empty second AX tree',
     },
     {
+      skipped: false,
+      title: 'grid focus allowance reports an under-allocation separately from clipping',
+    },
+    {
+      skipped: false,
+      title: 'grid focus allowance reports unexplained reserve and scroll beyond the painted footprint',
+    },
+    {
       skipped: true,
       title: 'live summary update preserves focused status chip identity and the pending click gesture',
     },
@@ -1084,7 +1094,7 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
-      title: 'request-grid focus stays visible without disrupting pointer sorting or resizing',
+      title: GRID_FOCUS_JOURNEY_TITLE,
     },
   ]);
 });
