@@ -9,11 +9,17 @@ const qualityGatesSource = fs.readFileSync(qualityGatesPath, 'utf8');
 const TOOLBAR_FOCUS_JOURNEY_TITLE = 'constrained toolbar prioritizes actions while preserving local overflow access';
 const BROWSER_POLICY_GUARD_CONTRACT = 'browser availability source-contract policy pin';
 const BROWSER_POLICY_GUARD_COMMAND = 'npx jest tests/browser-availability-policy.test.js --runInBand --coverage=false';
+const BROWSER_POLICY_GUARD_STEP_NAME = 'Run browser source-contract policy';
+const BROWSER_POLICY_GUARD_STEP_SOURCE = [
+  `      - name: ${BROWSER_POLICY_GUARD_STEP_NAME}`,
+  `        run: ${BROWSER_POLICY_GUARD_COMMAND}`,
+].join('\n');
 const REVERSE_TOOLBAR_FOCUS_CONTRACT = 'reverse-direction toolbar focus containment';
 const SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT = 'synchronous toolbar keyboard focus-scroll timing';
 const JAVASCRIPT_IDENTIFIER_PATTERN = '[A-Za-z_$][\\w$]*';
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const createBrowserPolicyGuardDiagnostic = (message) => `${BROWSER_POLICY_GUARD_CONTRACT}: ${message}`;
 
 const evaluateBrowserSuite = (source, environment) => {
   const registrations = [];
@@ -101,12 +107,57 @@ const requireSourceMatch = (source, pattern, contractName, requirementName) => {
   return match;
 };
 
+const getActiveNamedWorkflowSteps = (source, stepName) => {
+  const lines = source.split(/\r?\n/);
+  const stepHeaderPattern = new RegExp(`^(?<indent> *)- +name: *${escapeRegex(stepName)} *$`);
+
+  return lines.flatMap((line, startIndex) => {
+    const header = line.match(stepHeaderPattern);
+    if (!header) return [];
+
+    const nextStepPattern = new RegExp(`^${escapeRegex(header.groups.indent)}- +`);
+    const relativeEndIndex = lines.slice(startIndex + 1).findIndex((candidate) => nextStepPattern.test(candidate));
+    const endIndex = relativeEndIndex < 0 ? lines.length : startIndex + relativeEndIndex + 1;
+    return [{ lines: lines.slice(startIndex, endIndex) }];
+  });
+};
+
 const assertBrowserPolicyGuardPinned = (source) => {
-  const invocationCount = source.split(BROWSER_POLICY_GUARD_COMMAND).length - 1;
-  if (invocationCount !== 1) {
+  const matchingSteps = getActiveNamedWorkflowSteps(source, BROWSER_POLICY_GUARD_STEP_NAME);
+  if (matchingSteps.length !== 1) {
     throw new Error(
-      `${BROWSER_POLICY_GUARD_CONTRACT}: quality-gates.yml must invoke ` +
-        `"${BROWSER_POLICY_GUARD_COMMAND}" exactly once; received ${invocationCount}.`,
+      createBrowserPolicyGuardDiagnostic(
+        `quality-gates.yml must contain exactly one active "${BROWSER_POLICY_GUARD_STEP_NAME}" step; ` +
+          `received ${matchingSteps.length}.`,
+      ),
+    );
+  }
+
+  const activeProperties = matchingSteps[0].lines
+    .slice(1)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+  if (activeProperties.some((line) => /^continue-on-error\s*:/.test(line))) {
+    throw new Error(
+      createBrowserPolicyGuardDiagnostic(`"${BROWSER_POLICY_GUARD_STEP_NAME}" must not declare continue-on-error.`),
+    );
+  }
+  if (activeProperties.some((line) => /^if\s*:/.test(line))) {
+    throw new Error(createBrowserPolicyGuardDiagnostic(`"${BROWSER_POLICY_GUARD_STEP_NAME}" must not declare if.`));
+  }
+
+  const runProperties = activeProperties.filter((line) => /^run\s*:/.test(line));
+  const runCommand = runProperties[0]?.match(/^run\s*:\s*(.*)$/)?.[1];
+  if (runProperties.length !== 1 || runCommand !== BROWSER_POLICY_GUARD_COMMAND) {
+    throw new Error(
+      createBrowserPolicyGuardDiagnostic(
+        `"${BROWSER_POLICY_GUARD_STEP_NAME}" must run exactly "${BROWSER_POLICY_GUARD_COMMAND}".`,
+      ),
+    );
+  }
+  if (activeProperties.length !== 1) {
+    throw new Error(
+      createBrowserPolicyGuardDiagnostic(`"${BROWSER_POLICY_GUARD_STEP_NAME}" must contain only name and run.`),
     );
   }
 };
@@ -372,8 +423,98 @@ test('policy invocation removal fails with a named pin diagnostic', () => {
     'browser policy workflow invocation removal',
   );
 
-  expect(() => assertBrowserPolicyGuardPinned(mutatedWorkflow)).toThrow(BROWSER_POLICY_GUARD_CONTRACT);
+  expect(() => assertBrowserPolicyGuardPinned(mutatedWorkflow)).toThrow(
+    new Error(
+      createBrowserPolicyGuardDiagnostic(
+        `"${BROWSER_POLICY_GUARD_STEP_NAME}" must run exactly "${BROWSER_POLICY_GUARD_COMMAND}".`,
+      ),
+    ),
+  );
 });
+
+test.each([
+  {
+    mutationName: 'commented-out step',
+    replacement: BROWSER_POLICY_GUARD_STEP_SOURCE.split('\n')
+      .map((line) => `      # ${line.slice(6)}`)
+      .join('\n'),
+    expectedDiagnostic: createBrowserPolicyGuardDiagnostic(
+      `quality-gates.yml must contain exactly one active "${BROWSER_POLICY_GUARD_STEP_NAME}" step; received 0.`,
+    ),
+  },
+  {
+    mutationName: 'commented-out run command',
+    replacement: [
+      `      - name: ${BROWSER_POLICY_GUARD_STEP_NAME}`,
+      `        # run: ${BROWSER_POLICY_GUARD_COMMAND}`,
+    ].join('\n'),
+    expectedDiagnostic: createBrowserPolicyGuardDiagnostic(
+      `"${BROWSER_POLICY_GUARD_STEP_NAME}" must run exactly "${BROWSER_POLICY_GUARD_COMMAND}".`,
+    ),
+  },
+  {
+    mutationName: 'continue-on-error step',
+    replacement: [
+      `      - name: ${BROWSER_POLICY_GUARD_STEP_NAME}`,
+      '        continue-on-error: true',
+      `        run: ${BROWSER_POLICY_GUARD_COMMAND}`,
+    ].join('\n'),
+    expectedDiagnostic: createBrowserPolicyGuardDiagnostic(
+      `"${BROWSER_POLICY_GUARD_STEP_NAME}" must not declare continue-on-error.`,
+    ),
+  },
+  {
+    mutationName: 'if false step',
+    replacement: [
+      `      - name: ${BROWSER_POLICY_GUARD_STEP_NAME}`,
+      '        if: false',
+      `        run: ${BROWSER_POLICY_GUARD_COMMAND}`,
+    ].join('\n'),
+    expectedDiagnostic: createBrowserPolicyGuardDiagnostic(`"${BROWSER_POLICY_GUARD_STEP_NAME}" must not declare if.`),
+  },
+  {
+    mutationName: 'logical-OR success suffix',
+    replacement: [
+      `      - name: ${BROWSER_POLICY_GUARD_STEP_NAME}`,
+      `        run: ${BROWSER_POLICY_GUARD_COMMAND} || true`,
+    ].join('\n'),
+    expectedDiagnostic: createBrowserPolicyGuardDiagnostic(
+      `"${BROWSER_POLICY_GUARD_STEP_NAME}" must run exactly "${BROWSER_POLICY_GUARD_COMMAND}".`,
+    ),
+  },
+  {
+    mutationName: 'exit-zero success suffix',
+    replacement: [
+      `      - name: ${BROWSER_POLICY_GUARD_STEP_NAME}`,
+      `        run: ${BROWSER_POLICY_GUARD_COMMAND}; exit 0`,
+    ].join('\n'),
+    expectedDiagnostic: createBrowserPolicyGuardDiagnostic(
+      `"${BROWSER_POLICY_GUARD_STEP_NAME}" must run exactly "${BROWSER_POLICY_GUARD_COMMAND}".`,
+    ),
+  },
+  {
+    mutationName: 'echo-only command',
+    replacement: [
+      `      - name: ${BROWSER_POLICY_GUARD_STEP_NAME}`,
+      `        run: echo "${BROWSER_POLICY_GUARD_COMMAND}"`,
+    ].join('\n'),
+    expectedDiagnostic: createBrowserPolicyGuardDiagnostic(
+      `"${BROWSER_POLICY_GUARD_STEP_NAME}" must run exactly "${BROWSER_POLICY_GUARD_COMMAND}".`,
+    ),
+  },
+])(
+  '$mutationName fails with the exact workflow pin diagnostic',
+  ({ expectedDiagnostic, mutationName, replacement }) => {
+    const mutatedWorkflow = replaceSourceOrThrow(
+      qualityGatesSource,
+      BROWSER_POLICY_GUARD_STEP_SOURCE,
+      replacement,
+      mutationName,
+    );
+
+    expect(() => assertBrowserPolicyGuardPinned(mutatedWorkflow)).toThrow(new Error(expectedDiagnostic));
+  },
+);
 
 test('locks toolbar branding coverage to both exact sides of the content breakpoint', () => {
   assertExactViewportWidths(browserSuiteSource, 'TOOLBAR_VIEWPORT_WIDTHS', [375, 500, 800, 1280, 1366, 1367, 1500]);
@@ -423,12 +564,14 @@ const viewportDeclarationMutations = VIEWPORT_CONTRACTS.flatMap((contract) => {
     {
       ...contract,
       mutationName: 'missing declaration',
+      expectedDiagnostic: `${constantName} must have exactly one literal array declaration.`,
       mutateSource: (source) =>
         replaceViewportDeclaration(source, constantName, '', `${constantName} missing declaration`),
     },
     {
       ...contract,
       mutationName: 'renamed declaration',
+      expectedDiagnostic: `${constantName} must have exactly one literal array declaration.`,
       mutateSource: (source) =>
         replaceViewportDeclaration(
           source,
@@ -440,6 +583,7 @@ const viewportDeclarationMutations = VIEWPORT_CONTRACTS.flatMap((contract) => {
     {
       ...contract,
       mutationName: 'narrowed declaration',
+      expectedDiagnostic: `${constantName} must declare exactly [${expectedWidths.join(', ')}]; ` + 'received [1280].',
       mutateSource: (source) =>
         replaceViewportDeclaration(
           source,
@@ -451,6 +595,7 @@ const viewportDeclarationMutations = VIEWPORT_CONTRACTS.flatMap((contract) => {
     {
       ...contract,
       mutationName: 'malformed declaration',
+      expectedDiagnostic: `${constantName} must contain only decimal integer viewport widths in its literal array.`,
       mutateSource: (source) =>
         replaceViewportDeclaration(
           source,
@@ -462,6 +607,9 @@ const viewportDeclarationMutations = VIEWPORT_CONTRACTS.flatMap((contract) => {
     {
       ...contract,
       mutationName: 'divergent declaration',
+      expectedDiagnostic:
+        `${constantName} must declare exactly [${expectedWidths.join(', ')}]; ` +
+        `received [${expectedWidths.toReversed().join(', ')}].`,
       mutateSource: (source) =>
         replaceViewportDeclaration(
           source,
@@ -475,10 +623,12 @@ const viewportDeclarationMutations = VIEWPORT_CONTRACTS.flatMap((contract) => {
 
 test.each(viewportDeclarationMutations)(
   '$constantName $mutationName fails with a named diagnostic',
-  ({ constantName, expectedWidths, mutateSource }) => {
+  ({ constantName, expectedDiagnostic, expectedWidths, mutateSource }) => {
     const mutatedSource = mutateSource(browserSuiteSource);
 
-    expect(() => assertExactViewportWidths(mutatedSource, constantName, expectedWidths)).toThrow(constantName);
+    expect(() => assertExactViewportWidths(mutatedSource, constantName, expectedWidths)).toThrow(
+      new Error(expectedDiagnostic),
+    );
   },
 );
 
@@ -488,6 +638,7 @@ const viewportLoopMutations = VIEWPORT_CONTRACTS.flatMap((contract) => {
     {
       ...contract,
       mutationName: 'divergent literal loop',
+      expectedDiagnostic: `${constantName} must be consumed directly by "${contract.journeyTitle}".`,
       mutateSource: (source) =>
         replaceViewportLoopIterable(
           source,
@@ -499,6 +650,7 @@ const viewportLoopMutations = VIEWPORT_CONTRACTS.flatMap((contract) => {
     {
       ...contract,
       mutationName: 'indirect alias loop',
+      expectedDiagnostic: `${constantName} must be consumed directly by "${contract.journeyTitle}".`,
       mutateSource: (source) => {
         const aliasName = `${constantName}_COPY`;
         const sourceWithAlias = replaceViewportDeclaration(
@@ -520,12 +672,59 @@ const viewportLoopMutations = VIEWPORT_CONTRACTS.flatMap((contract) => {
 
 test.each(viewportLoopMutations)(
   '$constantName $mutationName fails with a named diagnostic',
-  ({ constantName, journeyTitle, mutateSource }) => {
+  ({ constantName, expectedDiagnostic, journeyTitle, mutateSource }) => {
     const mutatedSource = mutateSource(browserSuiteSource);
 
-    expect(() => assertJourneyConsumesViewportWidths(mutatedSource, journeyTitle, constantName)).toThrow(constantName);
+    expect(() => assertJourneyConsumesViewportWidths(mutatedSource, journeyTitle, constantName)).toThrow(
+      new Error(expectedDiagnostic),
+    );
   },
 );
+
+test.each(VIEWPORT_CONTRACTS)(
+  '$constantName journey registration removal fails with the exact named diagnostic',
+  ({ constantName, journeyTitle }) => {
+    const mutatedSource = replaceSourceOrThrow(
+      browserSuiteSource,
+      `'${journeyTitle}'`,
+      `'${journeyTitle} renamed'`,
+      `${constantName} journey registration removal`,
+    );
+
+    expect(() => assertJourneyConsumesViewportWidths(mutatedSource, journeyTitle, constantName)).toThrow(
+      new Error(`${constantName} cannot be verified because "${journeyTitle}" is not registered.`),
+    );
+  },
+);
+
+test('viewport loop mutation fixture fails closed when its direct loop is already absent', () => {
+  const constantName = 'TOOLBAR_VIEWPORT_WIDTHS';
+  const mutationName = 'missing viewport loop sentinel';
+  const sourceWithoutDirectLoop = replaceViewportLoopIterable(
+    browserSuiteSource,
+    constantName,
+    '[375]',
+    'remove viewport loop before safety check',
+  );
+
+  expect(() => replaceViewportLoopIterable(sourceWithoutDirectLoop, constantName, constantName, mutationName)).toThrow(
+    new Error(`Mutation fixture "${mutationName}" did not find ${constantName}'s direct loop.`),
+  );
+});
+
+test('toolbar journey mutation fixture fails closed when its registration is already absent', () => {
+  const mutationName = 'missing toolbar journey sentinel';
+  const sourceWithoutToolbarJourney = replaceSourceOrThrow(
+    browserSuiteSource,
+    `'${TOOLBAR_FOCUS_JOURNEY_TITLE}'`,
+    `'${TOOLBAR_FOCUS_JOURNEY_TITLE} renamed'`,
+    'remove toolbar journey before safety check',
+  );
+
+  expect(() =>
+    mutateToolbarJourney(sourceWithoutToolbarJourney, mutationName, (callbackSource) => `${callbackSource}\n`),
+  ).toThrow(new Error(`Mutation fixture "${mutationName}" could not isolate the toolbar journey.`));
+});
 
 test('locks the toolbar measurement journey to its declared viewport widths', () => {
   assertJourneyConsumesViewportWidths(
@@ -774,25 +973,63 @@ test('mutation fixtures fail closed when their source target drifts', () => {
 });
 
 test.each([
-  [
-    'capture-phase event identity removal',
-    (source) =>
-      source.replace(
-        /(probe\.currentEventId = \+\+probe\.nextEventId;\s*},\s*)\{ capture: true, signal: controller\.signal \}/,
-        '$1{ signal: controller.signal }',
+  {
+    mutationName: 'capture-phase event identity removal',
+    missingRequirement: 'capture-phase event identity',
+    mutateSource: (source) =>
+      mutateToolbarJourney(source, 'capture-phase event identity removal', (callbackSource) =>
+        replaceSourceOrThrow(
+          callbackSource,
+          /(probe\.currentEventId = \+\+probe\.nextEventId;\s*},\s*)\{ capture: true, signal: controller\.signal \}/,
+          '$1{ signal: controller.signal }',
+          'capture-phase event identity removal',
+        ),
       ),
-  ],
-  [
-    'production timing assertion removal',
-    (source) =>
-      source.replace('assertSynchronousToolbarFocusScroll(focusScrollTimingTrace);', 'void focusScrollTimingTrace;'),
-  ],
-])('%s fails with the synchronous focus-scroll diagnostic', (_mutationName, mutateSource) => {
+  },
+  {
+    mutationName: 'in-event scrollIntoView observation removal',
+    missingRequirement: 'in-event scrollIntoView observation',
+    mutateSource: (source) =>
+      mutateToolbarJourney(source, 'in-event scrollIntoView observation removal', (callbackSource) =>
+        replaceSourceOrThrow(
+          callbackSource,
+          'eventId: probe.currentEventId,',
+          'eventId: null,',
+          'in-event scrollIntoView observation removal',
+        ),
+      ),
+  },
+  {
+    mutationName: 'exact focus timing trace removal',
+    missingRequirement: 'exact focus timing trace',
+    mutateSource: (source) =>
+      mutateToolbarJourney(source, 'exact focus timing trace removal', (callbackSource) =>
+        replaceSourceOrThrow(
+          callbackSource,
+          'TOOLBAR_FOCUS_VIEWPORT_WIDTHS.flatMap((width) =>',
+          '[375].flatMap((width) =>',
+          'exact focus timing trace removal',
+        ),
+      ),
+  },
+  {
+    mutationName: 'production timing assertion removal',
+    missingRequirement: 'production timing assertion',
+    mutateSource: (source) =>
+      mutateToolbarJourney(source, 'production timing assertion removal', (callbackSource) =>
+        replaceSourceOrThrow(
+          callbackSource,
+          'assertSynchronousToolbarFocusScroll(focusScrollTimingTrace);',
+          'void focusScrollTimingTrace;',
+          'production timing assertion removal',
+        ),
+      ),
+  },
+])('$mutationName fails with the exact synchronous focus-scroll diagnostic', ({ missingRequirement, mutateSource }) => {
   const mutatedSource = mutateSource(browserSuiteSource);
 
-  expect(mutatedSource).not.toBe(browserSuiteSource);
   expect(() => assertSynchronousToolbarFocusScrollContract(mutatedSource)).toThrow(
-    SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT,
+    new Error(`${SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT}: missing ${missingRequirement}.`),
   );
 });
 
