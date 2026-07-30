@@ -27,6 +27,7 @@ const _NetworkPlus = (function () {
   const REQUEST_COUNT_ANNOUNCE_MS = 1000;
   const SEARCH_COUNT_ANNOUNCE_MS = 500;
   const RETENTION_ANNOUNCE_MS = 750;
+  const STATUS_DETAILS_MEDIA_QUERY = '(max-width: 800px)';
   const DATA_SAFETY_ANNOUNCE_MS = 500;
   const CLEAR_UNDO_TIMEOUT_MS = 10000;
   const COPY_FEEDBACK_DURATION_MS = 1800;
@@ -355,6 +356,12 @@ const _NetworkPlus = (function () {
   // ============================================================
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
+  function getMatchMediaApi() {
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia.bind(window)
+      : null;
+  }
 
   let statusGeneration = 0;
   function setStatus(t, forceAnnouncement) {
@@ -6204,6 +6211,66 @@ const _NetworkPlus = (function () {
     });
   }
 
+  function initializeStatusDetailsDisclosure() {
+    const toggle = $('#statusDetailsToggle');
+    const details = $('#statusDetails');
+    if (!toggle || !details) return;
+
+    const matchMediaApi = getMatchMediaApi();
+    if (!matchMediaApi) return;
+    let mediaQuery;
+    try {
+      mediaQuery = matchMediaApi(STATUS_DETAILS_MEDIA_QUERY);
+    } catch (_error) {
+      return;
+    }
+    if (!mediaQuery || typeof mediaQuery.matches !== 'boolean') return;
+
+    let expanded = false;
+    let detailsHadFocus = false;
+    details.addEventListener('focusin', () => {
+      detailsHadFocus = true;
+    });
+    details.addEventListener('focusout', (event) => {
+      if (event.relatedTarget && !details.contains(event.relatedTarget)) {
+        detailsHadFocus = false;
+      }
+    });
+    const sync = () => {
+      const available = mediaQuery.matches;
+      const visible = available && expanded;
+      if (!available && document.activeElement === toggle) {
+        const fallback = ['sampleExitBtn', 'sampleGuideBtn', 'undoClearBtn', 'clearBtn']
+          .map((id) => $('#' + id))
+          .find((candidate) => candidate && !candidate.hidden && !candidate.disabled);
+        if (fallback) fallback.focus({ preventScroll: true });
+      }
+      toggle.hidden = !available;
+      if (
+        available &&
+        !expanded &&
+        (detailsHadFocus || details.contains(document.activeElement))
+      ) {
+        toggle.focus({ preventScroll: true });
+        detailsHadFocus = false;
+      }
+      toggle.textContent = visible ? 'Less status' : 'More status';
+      toggle.setAttribute('aria-expanded', String(visible));
+      details.hidden = available && !expanded;
+    };
+
+    toggle.addEventListener('click', () => {
+      expanded = !expanded;
+      sync();
+    });
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', sync);
+    } else if (typeof mediaQuery.addListener === 'function') {
+      mediaQuery.addListener(sync);
+    }
+    sync();
+  }
+
   function getSampleCaptureExitPlan() {
     const retainedActiveRows = state.rows.filter((row) =>
       isActiveRetainedRow(row, state.retainedRows, state.activeRows),
@@ -8252,6 +8319,7 @@ const _NetworkPlus = (function () {
     initializeDataSafetyDialog();
     initializeSampleGuideDialog();
     initializeSampleCaptureExitActions();
+    initializeStatusDetailsDisclosure();
     setStatus('panel.js loaded');
 
     const toolbar = $('.topbar');
@@ -8791,9 +8859,7 @@ const _NetworkPlus = (function () {
             userAgent = '';
           }
           const mediaPreferences = readSupportMediaPreferences(
-            typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-              ? window.matchMedia.bind(window)
-              : null,
+            getMatchMediaApi(),
           );
           const forcedTheme = document.documentElement.getAttribute('data-theme');
           const summary = buildSafeSupportSummary({

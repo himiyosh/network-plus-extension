@@ -497,7 +497,7 @@ describe('guided sample capture static contracts', () => {
     );
     expect(css).not.toMatch(/\.statusbar\{[^}]*overflow-x:auto/);
     expect(css).toMatch(
-      /\.statusbar > span:not\(\.sr-only\)\{[^}]*min-width:0[^}]*max-width:100%[^}]*overflow-wrap:anywhere/,
+      /\.statusbar > span:not\(\.sr-only\),\.status-details > span\{[^}]*min-width:0[^}]*max-width:100%[^}]*overflow-wrap:anywhere/,
     );
     expect(css).toMatch(
       /#retentionStatus\{[^}]*white-space:normal[^}]*\}\s*#statsSummary\{[^}]*white-space:normal/,
@@ -522,6 +522,62 @@ describe('guided sample capture static contracts', () => {
     );
     expect(pauseBlock).toContain('updateRecordState();');
     expect(pauseBlock).toContain('updateEmptyState(state.filteredRows.length);');
+  });
+
+  test('uses a narrow-only accessible disclosure for secondary status telemetry', () => {
+    expect(html).toMatch(
+      /id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"/,
+    );
+    expect(html).toMatch(
+      /id="statusDetailsToggle"[^>]*aria-controls="statusDetails"[^>]*aria-expanded="false"[^>]*hidden>More status<\/button>/,
+    );
+    const toggleTag = html.match(/<button id="statusDetailsToggle"[^>]*>/)?.[0] || '';
+    expect(toggleTag).not.toContain('aria-label=');
+    expect(css).toContain('.status-details{display:contents}');
+    expect(css).toContain('@media (max-width:800px)');
+    expect(css).toMatch(
+      /\.status-details\{display:flex;[^}]*flex:1 0 100%;[^}]*flex-wrap:wrap[^}]*border-top:1px solid var\(--border\)/,
+    );
+    expect(css).toContain('.status-details[hidden]{display:none}');
+    expect(css).toMatch(
+      /@media \(max-width:800px\)\{[\s\S]*?\.status-details > span\{[^}]*min-width:0[^}]*max-width:100%[^}]*overflow-wrap:anywhere/,
+    );
+    const narrowStatusRule = css.match(/\.statusbar #statusText\{([^}]*)\}/)?.[1] || '';
+    expect(narrowStatusRule).toContain('flex:1 0 100%');
+    expect(narrowStatusRule).toContain('overflow-wrap:anywhere');
+    expect(narrowStatusRule).toContain('white-space:normal');
+    expect(narrowStatusRule).not.toMatch(/overflow:hidden|text-overflow:ellipsis|white-space:nowrap/);
+    expect(css).toMatch(
+      /\.statusbar #counter\{[^}]*flex:1 0 100%[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/,
+    );
+
+    const initializerStart = js.indexOf('function initializeStatusDetailsDisclosure()');
+    const initializerEnd = js.indexOf('\n  function ', initializerStart + 1);
+    const initializer = js.slice(initializerStart, initializerEnd);
+    expect(initializer).toContain('const matchMediaApi = getMatchMediaApi();');
+    expect(initializer).toContain('if (!matchMediaApi) return;');
+    expect(initializer).toContain('mediaQuery = matchMediaApi(STATUS_DETAILS_MEDIA_QUERY)');
+    expect(initializer).toContain('if (!mediaQuery || typeof mediaQuery.matches');
+    expect(initializer).toContain('document.activeElement === toggle');
+    expect(initializer).toContain("['sampleExitBtn', 'sampleGuideBtn', 'undoClearBtn', 'clearBtn']");
+    expect(initializer).toContain('fallback.focus({ preventScroll: true })');
+    expect(initializer).toContain('toggle.hidden = !available');
+    expect(initializer).toContain("details.addEventListener('focusin'");
+    expect(initializer).toContain("details.addEventListener('focusout'");
+    expect(initializer).toContain('event.relatedTarget && !details.contains(event.relatedTarget)');
+    expect(initializer).toContain('detailsHadFocus || details.contains(document.activeElement)');
+    expect(initializer).toContain('details.contains(document.activeElement)');
+    expect(initializer).toContain('toggle.focus({ preventScroll: true })');
+    expect(initializer).toContain('details.hidden = available && !expanded');
+    expect(initializer).toContain("toggle.setAttribute('aria-expanded', String(visible))");
+    expect(initializer).not.toContain("toggle.setAttribute('aria-label'");
+    expect(initializer).not.toContain("'Show retention and aggregate status details'");
+    expect(initializer).not.toContain("'Hide retention and aggregate status details'");
+    expect(initializer).not.toContain('innerHTML');
+    expect(js).toContain('initializeStatusDetailsDisclosure();');
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion:reduce\)\{[^}]*\.status-details-toggle\{transition:none\}/,
+    );
   });
 });
 
@@ -747,7 +803,7 @@ describe('sample evidence guide static contracts', () => {
 
   test('keeps prompt, reveal, and close controls narrow-safe and at least 24px', () => {
     expect(css).toMatch(
-      /\.sample-guide-btn,\.sample-exit-btn\{[^}]*min-height:24px[^}]*white-space:nowrap/,
+      /\.sample-guide-btn,\.sample-exit-btn,\.status-details-toggle\{[^}]*min-height:24px[^}]*white-space:nowrap/,
     );
     expect(css).toMatch(
       /#sampleGuideDialog\{[^}]*width:min\(480px,calc\(100vw - 16px\)\)[^}]*max-height:min\(calc\(100vh - 16px\),calc\(100dvh - 16px\)\)[^}]*overflow:auto/,
@@ -1875,6 +1931,7 @@ describe('shortcut help static contracts', () => {
     expect((js.match(/buildSafeSupportSummary\(\{/g) || [])).toHaveLength(1);
     expect((handler.match(/navigator\.userAgentData/g) || [])).toHaveLength(1);
     expect((handler.match(/navigator\.userAgent\b/g) || [])).toHaveLength(1);
+    expect(handler).toContain('getMatchMediaApi()');
     expect((js.match(/window\.matchMedia/g) || [])).toHaveLength(2);
   });
 

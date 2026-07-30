@@ -7,6 +7,8 @@ const browserSuiteSource = fs.readFileSync(browserSuitePath, 'utf8');
 const qualityGatesPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gates.yml');
 const qualityGatesSource = fs.readFileSync(qualityGatesPath, 'utf8');
 const TOOLBAR_FOCUS_JOURNEY_TITLE = 'constrained toolbar prioritizes actions while preserving local overflow access';
+const STATUS_WORKSPACE_JOURNEY_TITLE =
+  'narrow sample status disclosure preserves the evidence workspace and interaction state';
 const BROWSER_POLICY_GUARD_CONTRACT = 'browser availability source-contract policy pin';
 const BROWSER_POLICY_GUARD_COMMAND = 'npx jest tests/browser-availability-policy.test.js --runInBand --coverage=false';
 const BROWSER_POLICY_GUARD_STEP_NAME = 'Run browser source-contract policy';
@@ -403,6 +405,11 @@ const VIEWPORT_CONTRACTS = [
     expectedWidths: [375, 500, 800, 1280],
     journeyTitle: 'request-grid focus stays visible without disrupting pointer sorting or resizing',
   },
+  {
+    constantName: 'STATUS_WORKSPACE_VIEWPORT_WIDTHS',
+    expectedWidths: [320, 375, 414, 768, 1280],
+    journeyTitle: STATUS_WORKSPACE_JOURNEY_TITLE,
+  },
 ];
 
 test('fails explicitly in CI when no browser executable is discoverable', () => {
@@ -526,6 +533,10 @@ test('locks toolbar focus coverage to narrow, stacked, and split layouts', () =>
 
 test('locks request-grid focus coverage to narrow, stacked, and split layouts', () => {
   assertExactViewportWidths(browserSuiteSource, 'GRID_FOCUS_VIEWPORT_WIDTHS', [375, 500, 800, 1280]);
+});
+
+test('locks sample status workspace coverage to every required narrow width and the wide control', () => {
+  assertExactViewportWidths(browserSuiteSource, 'STATUS_WORKSPACE_VIEWPORT_WIDTHS', [320, 375, 414, 768, 1280]);
 });
 
 test.each(VIEWPORT_CONTRACTS)(
@@ -747,6 +758,14 @@ test('locks the request-grid journey to its declared viewport widths', () => {
     browserSuiteSource,
     'request-grid focus stays visible without disrupting pointer sorting or resizing',
     'GRID_FOCUS_VIEWPORT_WIDTHS',
+  );
+});
+
+test('locks the sample status workspace journey to its declared viewport widths', () => {
+  assertJourneyConsumesViewportWidths(
+    browserSuiteSource,
+    STATUS_WORKSPACE_JOURNEY_TITLE,
+    'STATUS_WORKSPACE_VIEWPORT_WIDTHS',
   );
 });
 
@@ -1054,6 +1073,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title: 'details close control reclaims the workbench and row selection reopens it',
+    },
+    {
+      skipped: true,
+      title: 'narrow sample status disclosure preserves the evidence workspace and interaction state',
     },
     {
       skipped: true,

@@ -15,6 +15,8 @@ const TRANSIENT_PROFILE_CLEANUP_ERRORS = new Set(['ENOTEMPTY', 'EBUSY']);
 const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1280, 1366, 1367, 1500];
 const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const GRID_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
+const STATUS_WORKSPACE_VIEWPORT_WIDTHS = [320, 375, 414, 768, 1280];
+const SAFETY_STATUS_MESSAGE = 'Clipboard copy failed during sanitization. No data was copied.';
 const REVERSE_TOOLBAR_FOCUS_CONTRACT = 'reverse-direction toolbar focus containment';
 const SYNCHRONOUS_TOOLBAR_FOCUS_SCROLL_CONTRACT =
   'synchronous toolbar keyboard focus-scroll timing';
@@ -185,10 +187,12 @@ async function evaluate(cdp, expression, awaitPromise = false) {
 }
 
 async function pressKey(cdp, key, code, windowsVirtualKeyCode, modifiers = 0) {
+  const text = key === ' ' ? { text: ' ', unmodifiedText: ' ' } : {};
   await cdp.send('Input.dispatchKeyEvent', {
     type: 'keyDown',
     key,
     code,
+    ...text,
     modifiers,
     windowsVirtualKeyCode,
     nativeVirtualKeyCode: windowsVirtualKeyCode,
@@ -201,6 +205,62 @@ async function pressKey(cdp, key, code, windowsVirtualKeyCode, modifiers = 0) {
     windowsVirtualKeyCode,
     nativeVirtualKeyCode: windowsVirtualKeyCode,
   });
+}
+
+async function waitForStatusDetailsState(cdp, expected, diagnostic) {
+  const deadline = Date.now() + 3000;
+  let lastState = null;
+  while (Date.now() < deadline) {
+    lastState = await evaluate(
+      cdp,
+      `(() => {
+        const toggle = document.querySelector('#statusDetailsToggle');
+        const details = document.querySelector('#statusDetails');
+        return {
+          activeElementId: document.activeElement?.id || '',
+          detailsHidden: details?.hidden ?? null,
+          expanded: toggle?.getAttribute('aria-expanded') || null,
+          toggleHidden: toggle?.hidden ?? null,
+        };
+      })()`,
+    );
+    if (Object.entries(expected).every(([key, value]) => lastState[key] === value)) {
+      return lastState;
+    }
+    await delay(50);
+  }
+  throw new Error(
+    diagnostic +
+      ': status disclosure did not reach ' +
+      JSON.stringify(expected) +
+      '; last observed ' +
+      JSON.stringify(lastState),
+  );
+}
+
+async function waitForSampleCaptureAction(cdp) {
+  const deadline = Date.now() + 5000;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const available = await evaluate(
+        cdp,
+        `Array.from(document.querySelectorAll('button')).some(
+          (button) => button.textContent.trim() === 'Explore sample capture',
+        )`,
+      );
+      if (available) return;
+      lastError = null;
+    } catch (error) {
+      if (!error.message.includes('Execution context was destroyed')) throw error;
+      lastError = error;
+    }
+    await delay(50);
+  }
+  throw new Error(
+    'Sample capture action was not ready within 5000ms' +
+      (lastError ? '; last transient error: ' + lastError.message : '.'),
+  );
 }
 
 function assertToolbarFocusContainment(trace, contractName) {
@@ -385,6 +445,7 @@ browserTest(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      await waitForSampleCaptureAction(cdp);
 
       const before = await evaluate(
         cdp,
@@ -398,6 +459,12 @@ browserTest(
           if (!sampleButton) throw new Error('Sample capture action was not found.');
           sampleButton.click();
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const statusDetailsToggle = document.querySelector('#statusDetailsToggle');
+          if (!statusDetailsToggle || statusDetailsToggle.hidden) {
+            throw new Error('Narrow status details disclosure was not available.');
+          }
+          statusDetailsToggle.click();
+          await new Promise((resolve) => requestAnimationFrame(resolve));
           const chip = document.querySelector('.status-summary-chip--5xx');
           if (!chip) throw new Error('5xx status triage chip was not rendered.');
           chip.focus();
@@ -509,6 +576,7 @@ browserTest(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      await waitForSampleCaptureAction(cdp);
 
       const initial = await evaluate(
         cdp,
@@ -778,6 +846,626 @@ browserTest(
 );
 
 browserTest(
+  'narrow sample status disclosure preserves the evidence workspace and interaction state',
+  async () => {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-status-workspace-dom-'));
+    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+    const browserProcess = spawn(
+      browserExecutable,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        '--allow-file-access-from-files',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-sandbox',
+        panelUrl,
+      ],
+      { stdio: 'ignore' },
+    );
+
+    let cdp;
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      const panelTarget = await findPanelTarget(browserWebSocketUrl);
+      cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
+      await cdp.send('Runtime.enable');
+      await cdp.send('Page.bringToFront');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await waitForSampleCaptureAction(cdp);
+
+      const initialState = await evaluate(
+        cdp,
+        `(async () => {
+          if (document.readyState === 'loading') {
+            await new Promise((resolve) => window.addEventListener('DOMContentLoaded', resolve, { once: true }));
+          }
+          const sampleButton = Array.from(document.querySelectorAll('button')).find(
+            (button) => button.textContent.trim() === 'Explore sample capture',
+          );
+          if (!sampleButton) throw new Error('Sample capture action was not found.');
+          sampleButton.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+          document.querySelector('#res-tab-timing').click();
+          document.querySelector('#searchToggleBtn').click();
+          const searchInput = document.querySelector('.search-keyword-input');
+          searchInput.value = '503';
+          searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+          await new Promise((resolve) => setTimeout(resolve, 1400));
+
+          return {
+            activeResponseTabId: document.querySelector('#res-tab-bar [aria-selected="true"]')?.id || null,
+            pauseDisabled: document.querySelector('#pauseBtn').disabled,
+            pauseLabel: document.querySelector('#pauseBtn').getAttribute('aria-label'),
+            requestCount: document.querySelector('#counter').textContent,
+            requestCountAnnouncement: document.querySelector('#requestCountStatus').textContent,
+            searchPanelDisplay: getComputedStyle(document.querySelector('#searchPanel')).display,
+            searchQuery: document.querySelector('.search-keyword-input')?.value || '',
+            selectedRowId: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+            statusText: document.querySelector('#statusText').textContent,
+          };
+        })()`,
+        true,
+      );
+      expect(initialState).toMatchObject({
+        activeResponseTabId: 'res-tab-timing',
+        pauseDisabled: true,
+        requestCount: '3 / 3 requests · 0 active column filters',
+        requestCountAnnouncement: '3 / 3 requests · 0 active column filters',
+        searchPanelDisplay: 'block',
+        searchQuery: '503',
+      });
+      expect(initialState.pauseLabel).toMatch(/local sample capture is active/i);
+      expect(initialState.selectedRowId).not.toBeNull();
+      expect(initialState.statusText).toMatch(/^Local sample capture: 3 synthetic requests loaded\./);
+
+      const viewportMeasurements = [];
+      for (const width of STATUS_WORKSPACE_VIEWPORT_WIDTHS) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await evaluate(
+          cdp,
+          'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+          true,
+        );
+        viewportMeasurements.push(
+          await evaluate(
+            cdp,
+            `(() => {
+              const statusbar = document.querySelector('.statusbar');
+              const statusbarRect = statusbar.getBoundingClientRect();
+              const immediateIds = [
+                'sampleCaptureStatus',
+                'sampleGuideBtn',
+                'sampleExitBtn',
+                'statusText',
+                'counter',
+              ];
+              const immediate = immediateIds.map((id) => {
+                const element = document.getElementById(id);
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return {
+                  id,
+                  keyboardReachable:
+                    element.tagName !== 'BUTTON' || (!element.disabled && element.tabIndex >= 0),
+                  visible:
+                    !element.hidden &&
+                    style.display !== 'none' &&
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    rect.top >= statusbarRect.top &&
+                    rect.bottom <= statusbarRect.bottom,
+                };
+              });
+              const visibleActions = Array.from(statusbar.querySelectorAll('button'))
+                .filter((button) => {
+                  const rect = button.getBoundingClientRect();
+                  const style = getComputedStyle(button);
+                  return (
+                    !button.hidden &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    rect.width > 0 &&
+                    rect.height > 0
+                  );
+                })
+                .map((button) => ({
+                  id: button.id,
+                  keyboardReachable: !button.disabled && button.tabIndex >= 0,
+                  singleLine:
+                    getComputedStyle(button).whiteSpace === 'nowrap' &&
+                    button.scrollHeight <= button.clientHeight + 1,
+                }));
+              const disclosure = document.querySelector('#statusDetailsToggle');
+              const details = document.querySelector('#statusDetails');
+              return {
+                width: innerWidth,
+                documentOverflow:
+                  document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                height: Math.round(statusbarRect.height),
+                heightRatio: statusbarRect.height / innerHeight,
+                immediate,
+                visibleActions,
+                disclosureExists: !!disclosure,
+                disclosureDisplay: disclosure ? getComputedStyle(disclosure).display : null,
+                detailsExists: !!details,
+                detailsDisplay: details ? getComputedStyle(details).display : null,
+                detailsHidden: details ? details.hidden : null,
+              };
+            })()`,
+          ),
+        );
+      }
+
+      const narrowMeasurements = viewportMeasurements.slice(0, -1);
+      for (const measurement of viewportMeasurements) {
+        expect(measurement.documentOverflow).toBe(0);
+        expect(measurement.immediate.every((item) => item.visible)).toBe(true);
+        expect(measurement.immediate.every((item) => item.keyboardReachable)).toBe(true);
+        expect(measurement.visibleActions.length).toBeGreaterThan(0);
+        expect(measurement.visibleActions.every((action) => action.singleLine)).toBe(true);
+        expect(measurement.visibleActions.every((action) => action.keyboardReachable)).toBe(true);
+      }
+      for (const measurement of narrowMeasurements) {
+        expect(measurement.height).toBeLessThanOrEqual(160);
+        expect(measurement.heightRatio).toBeLessThanOrEqual(0.2);
+        expect(measurement.disclosureExists).toBe(true);
+        expect(measurement.disclosureDisplay).not.toBe('none');
+        expect(measurement.detailsExists).toBe(true);
+        expect(measurement.detailsHidden).toBe(true);
+      }
+      const wideMeasurement = viewportMeasurements.at(-1);
+      expect(wideMeasurement).toMatchObject({
+        width: 1280,
+        disclosureExists: true,
+        disclosureDisplay: 'none',
+        detailsExists: true,
+        detailsDisplay: 'contents',
+        detailsHidden: false,
+      });
+
+      const safetyStatusMeasurements = [];
+      for (const width of STATUS_WORKSPACE_VIEWPORT_WIDTHS.slice(0, -1)) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        safetyStatusMeasurements.push(
+          await evaluate(
+            cdp,
+            `(async () => {
+              const status = document.querySelector('#statusText');
+              status.textContent = ${JSON.stringify(SAFETY_STATUS_MESSAGE)};
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const statusbarRect = document.querySelector('.statusbar').getBoundingClientRect();
+              const statusRect = status.getBoundingClientRect();
+              const style = getComputedStyle(status);
+              return {
+                width: innerWidth,
+                documentOverflow:
+                  document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                fullText: status.textContent,
+                statusFits:
+                  status.scrollWidth <= status.clientWidth + 1 &&
+                  status.scrollHeight <= status.clientHeight + 1,
+                statusInsideBar:
+                  statusRect.top >= statusbarRect.top &&
+                  statusRect.bottom <= statusbarRect.bottom,
+                statusbarHeight: Math.round(statusbarRect.height),
+                statusbarHeightRatio: statusbarRect.height / innerHeight,
+                textOverflow: style.textOverflow,
+                whiteSpace: style.whiteSpace,
+              };
+            })()`,
+            true,
+          ),
+        );
+      }
+      for (const measurement of safetyStatusMeasurements) {
+        expect(measurement).toMatchObject({
+          documentOverflow: 0,
+          fullText: SAFETY_STATUS_MESSAGE,
+          statusFits: true,
+          statusInsideBar: true,
+          textOverflow: 'clip',
+          whiteSpace: 'normal',
+        });
+        expect(measurement.statusbarHeight).toBeLessThanOrEqual(160);
+        expect(measurement.statusbarHeightRatio).toBeLessThanOrEqual(0.2);
+      }
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#statusText').textContent = ${JSON.stringify(initialState.statusText)};
+        })()`,
+      );
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+
+      const reverseBreakpointBaseline = await evaluate(
+        cdp,
+        `(() => {
+          const chip = document.querySelector('.status-summary-chip--5xx');
+          if (!chip) throw new Error('Wide status action was not available.');
+          chip.focus({ preventScroll: true });
+          return {
+            activeResponseTabId:
+              document.querySelector('#res-tab-bar [aria-selected="true"]')?.id || null,
+            documentScrollLeft: document.scrollingElement.scrollLeft,
+            documentScrollTop: document.scrollingElement.scrollTop,
+            pauseDisabled: document.querySelector('#pauseBtn').disabled,
+            pauseLabel: document.querySelector('#pauseBtn').getAttribute('aria-label'),
+            searchPanelDisplay: getComputedStyle(document.querySelector('#searchPanel')).display,
+            searchQuery: document.querySelector('.search-keyword-input')?.value || '',
+            selectedRowId: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+            tableScrollLeft: document.querySelector('#tableWrap').scrollLeft,
+            tableScrollTop: document.querySelector('#tableWrap').scrollTop,
+          };
+        })()`,
+      );
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 375,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await waitForStatusDetailsState(
+        cdp,
+        {
+          activeElementId: 'statusDetailsToggle',
+          detailsHidden: true,
+          expanded: 'false',
+          toggleHidden: false,
+        },
+        'Narrow breakpoint status-action focus transfer',
+      );
+      const reverseNarrowState = await evaluate(
+        cdp,
+        `(() => ({
+          activeResponseTabId:
+            document.querySelector('#res-tab-bar [aria-selected="true"]')?.id || null,
+          documentOverflow:
+            document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          documentScrollLeft: document.scrollingElement.scrollLeft,
+          documentScrollTop: document.scrollingElement.scrollTop,
+          pauseDisabled: document.querySelector('#pauseBtn').disabled,
+          pauseLabel: document.querySelector('#pauseBtn').getAttribute('aria-label'),
+          searchPanelDisplay: getComputedStyle(document.querySelector('#searchPanel')).display,
+          searchQuery: document.querySelector('.search-keyword-input')?.value || '',
+          selectedRowId: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+          tableScrollLeft: document.querySelector('#tableWrap').scrollLeft,
+          tableScrollTop: document.querySelector('#tableWrap').scrollTop,
+        }))()`,
+      );
+      expect(reverseNarrowState).toEqual({
+        ...reverseBreakpointBaseline,
+        documentOverflow: 0,
+      });
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await waitForStatusDetailsState(
+        cdp,
+        {
+          activeElementId: 'sampleExitBtn',
+          detailsHidden: false,
+          expanded: 'false',
+          toggleHidden: true,
+        },
+        'Wide breakpoint toggle focus transfer',
+      );
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 375,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await evaluate(
+        cdp,
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+        true,
+      );
+
+      const collapsedState = await evaluate(
+        cdp,
+        `(() => {
+          const details = document.querySelector('#statusDetails');
+          return {
+            detailsHidden: details.hidden,
+            retentionText: document.querySelector('#retentionStatus').textContent,
+            statusSummaryText: document.querySelector('.status-summary-accessible').textContent,
+            totalSizeText: document.querySelector('#totalSize').textContent,
+          };
+        })()`,
+      );
+      const collapsedAccessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      const collapsedAccessibleNames = collapsedAccessibilityTree.nodes.map((node) => node.name?.value).filter(Boolean);
+      expect(
+        collapsedAccessibilityTree.nodes.some(
+          (node) => node.role?.value === 'button' && node.name?.value === 'More status',
+        ),
+      ).toBe(true);
+      for (const immediateFact of [
+        'Local sample · live paused',
+        'Sample guide',
+        'Exit · restore prior recording state',
+        initialState.statusText,
+        initialState.requestCountAnnouncement,
+      ]) {
+        expect(collapsedAccessibleNames.some((name) => name.includes(immediateFact))).toBe(true);
+      }
+      expect(collapsedAccessibleNames.some((name) => name.includes(collapsedState.retentionText))).toBe(false);
+
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#statusDetailsToggle').focus();
+        })()`,
+      );
+      await pressKey(cdp, ' ', 'Space', 32);
+      await waitForStatusDetailsState(
+        cdp,
+        {
+          activeElementId: 'statusDetailsToggle',
+          detailsHidden: false,
+          expanded: 'true',
+          toggleHidden: false,
+        },
+        'Space expansion',
+      );
+
+      const expandedState = await evaluate(
+        cdp,
+        `(() => {
+          const details = document.querySelector('#statusDetails');
+          const statusbar = document.querySelector('.statusbar');
+          return {
+            activeElementId: document.activeElement.id,
+            activeResponseTabId:
+              document.querySelector('#res-tab-bar [aria-selected="true"]')?.id || null,
+            detailsHidden: details.hidden,
+            detailsPosition: getComputedStyle(details).position,
+            documentOverflow:
+              document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            documentScrollLeft: document.scrollingElement.scrollLeft,
+            documentScrollTop: document.scrollingElement.scrollTop,
+            expanded: document.querySelector('#statusDetailsToggle').getAttribute('aria-expanded'),
+            pauseDisabled: document.querySelector('#pauseBtn').disabled,
+            pauseLabel: document.querySelector('#pauseBtn').getAttribute('aria-label'),
+            searchPanelDisplay: getComputedStyle(document.querySelector('#searchPanel')).display,
+            searchQuery: document.querySelector('.search-keyword-input')?.value || '',
+            selectedRowId: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+            statusbarPosition: getComputedStyle(statusbar).position,
+            tableScrollLeft: document.querySelector('#tableWrap').scrollLeft,
+            tableScrollTop: document.querySelector('#tableWrap').scrollTop,
+          };
+        })()`,
+      );
+      expect(expandedState).toMatchObject({
+        activeElementId: 'statusDetailsToggle',
+        activeResponseTabId: initialState.activeResponseTabId,
+        detailsHidden: false,
+        detailsPosition: 'static',
+        documentOverflow: 0,
+        documentScrollLeft: 0,
+        documentScrollTop: 0,
+        expanded: 'true',
+        pauseDisabled: initialState.pauseDisabled,
+        pauseLabel: initialState.pauseLabel,
+        searchPanelDisplay: initialState.searchPanelDisplay,
+        searchQuery: initialState.searchQuery,
+        selectedRowId: initialState.selectedRowId,
+        statusbarPosition: 'static',
+        tableScrollLeft: 0,
+        tableScrollTop: 0,
+      });
+
+      const expandedAccessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      const expandedAccessibleNames = expandedAccessibilityTree.nodes.map((node) => node.name?.value).filter(Boolean);
+      expect(
+        expandedAccessibilityTree.nodes.some(
+          (node) => node.role?.value === 'button' && node.name?.value === 'Less status',
+        ),
+      ).toBe(true);
+      for (const disclosedFact of [
+        collapsedState.retentionText,
+        collapsedState.statusSummaryText,
+        collapsedState.totalSizeText,
+      ]) {
+        expect(expandedAccessibleNames.some((name) => name.includes(disclosedFact))).toBe(true);
+      }
+      expect(expandedAccessibleNames.some((name) => name.includes('Inspect first visible 2xx request'))).toBe(true);
+      expect(expandedAccessibleNames.some((name) => name.includes('Inspect first visible 5xx request'))).toBe(true);
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await waitForStatusDetailsState(
+        cdp,
+        {
+          activeElementId: 'sampleExitBtn',
+          detailsHidden: false,
+          expanded: 'false',
+          toggleHidden: true,
+        },
+        'Wide breakpoint focus transfer',
+      );
+      const wideBreakpointState = await evaluate(
+        cdp,
+        `(() => ({
+          activeResponseTabId:
+            document.querySelector('#res-tab-bar [aria-selected="true"]')?.id || null,
+          documentOverflow:
+            document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          documentScrollLeft: document.scrollingElement.scrollLeft,
+          documentScrollTop: document.scrollingElement.scrollTop,
+          pauseDisabled: document.querySelector('#pauseBtn').disabled,
+          pauseLabel: document.querySelector('#pauseBtn').getAttribute('aria-label'),
+          searchPanelDisplay: getComputedStyle(document.querySelector('#searchPanel')).display,
+          searchQuery: document.querySelector('.search-keyword-input')?.value || '',
+          selectedRowId: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+          tableScrollLeft: document.querySelector('#tableWrap').scrollLeft,
+          tableScrollTop: document.querySelector('#tableWrap').scrollTop,
+        }))()`,
+      );
+      expect(wideBreakpointState).toEqual({
+        activeResponseTabId: initialState.activeResponseTabId,
+        documentOverflow: 0,
+        documentScrollLeft: expandedState.documentScrollLeft,
+        documentScrollTop: expandedState.documentScrollTop,
+        pauseDisabled: initialState.pauseDisabled,
+        pauseLabel: initialState.pauseLabel,
+        searchPanelDisplay: initialState.searchPanelDisplay,
+        searchQuery: initialState.searchQuery,
+        selectedRowId: initialState.selectedRowId,
+        tableScrollLeft: expandedState.tableScrollLeft,
+        tableScrollTop: expandedState.tableScrollTop,
+      });
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 375,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await waitForStatusDetailsState(
+        cdp,
+        {
+          activeElementId: 'sampleExitBtn',
+          detailsHidden: false,
+          expanded: 'true',
+          toggleHidden: false,
+        },
+        'Narrow breakpoint state restoration',
+      );
+      const narrowBreakpointState = await evaluate(
+        cdp,
+        `(() => ({
+          activeResponseTabId:
+            document.querySelector('#res-tab-bar [aria-selected="true"]')?.id || null,
+          documentOverflow:
+            document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          documentScrollLeft: document.scrollingElement.scrollLeft,
+          documentScrollTop: document.scrollingElement.scrollTop,
+          pauseDisabled: document.querySelector('#pauseBtn').disabled,
+          pauseLabel: document.querySelector('#pauseBtn').getAttribute('aria-label'),
+          searchPanelDisplay: getComputedStyle(document.querySelector('#searchPanel')).display,
+          searchQuery: document.querySelector('.search-keyword-input')?.value || '',
+          selectedRowId: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+          tableScrollLeft: document.querySelector('#tableWrap').scrollLeft,
+          tableScrollTop: document.querySelector('#tableWrap').scrollTop,
+        }))()`,
+      );
+      expect(narrowBreakpointState).toEqual(wideBreakpointState);
+
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#statusDetailsToggle').focus({ preventScroll: true });
+        })()`,
+      );
+      await pressKey(cdp, ' ', 'Space', 32);
+      await waitForStatusDetailsState(
+        cdp,
+        {
+          activeElementId: 'statusDetailsToggle',
+          detailsHidden: true,
+          expanded: 'false',
+          toggleHidden: false,
+        },
+        'Space collapse',
+      );
+      const closedState = await evaluate(
+        cdp,
+        `(() => ({
+          activeElementId: document.activeElement.id,
+          activeResponseTabId:
+            document.querySelector('#res-tab-bar [aria-selected="true"]')?.id || null,
+          detailsHidden: document.querySelector('#statusDetails').hidden,
+          expanded: document.querySelector('#statusDetailsToggle').getAttribute('aria-expanded'),
+          pauseDisabled: document.querySelector('#pauseBtn').disabled,
+          pauseLabel: document.querySelector('#pauseBtn').getAttribute('aria-label'),
+          searchPanelDisplay: getComputedStyle(document.querySelector('#searchPanel')).display,
+          searchQuery: document.querySelector('.search-keyword-input')?.value || '',
+          selectedRowId: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+        }))()`,
+      );
+      expect(closedState).toEqual({
+        activeElementId: 'statusDetailsToggle',
+        activeResponseTabId: initialState.activeResponseTabId,
+        detailsHidden: true,
+        expanded: 'false',
+        pauseDisabled: initialState.pauseDisabled,
+        pauseLabel: initialState.pauseLabel,
+        searchPanelDisplay: initialState.searchPanelDisplay,
+        searchQuery: initialState.searchQuery,
+        selectedRowId: initialState.selectedRowId,
+      });
+
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#sampleExitBtn').click();
+        })()`,
+      );
+      await evaluate(
+        cdp,
+        'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+        true,
+      );
+      const exitedState = await evaluate(
+        cdp,
+        `(() => ({
+          pauseDisabled: document.querySelector('#pauseBtn').disabled,
+          pauseLabel: document.querySelector('#pauseBtn').getAttribute('aria-label'),
+          requestCount: document.querySelector('#counter').textContent,
+          sampleStatusHidden: document.querySelector('#sampleCaptureStatus').hidden,
+        }))()`,
+      );
+      expect(exitedState).toEqual({
+        pauseDisabled: false,
+        pauseLabel: 'Pause recording',
+        requestCount: '0 / 0 requests · 0 active column filters',
+        sampleStatusHidden: true,
+      });
+    } finally {
+      if (cdp) await cdp.close();
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'constrained toolbar prioritizes actions while preserving local overflow access',
   async () => {
     const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-toolbar-dom-'));
@@ -813,6 +1501,7 @@ browserTest(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      await waitForSampleCaptureAction(cdp);
       await evaluate(
         cdp,
         `(async () => {
@@ -1440,6 +2129,7 @@ browserTest(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      await waitForSampleCaptureAction(cdp);
       await evaluate(
         cdp,
         `(async () => {
