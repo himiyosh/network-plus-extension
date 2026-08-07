@@ -367,6 +367,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | [docs/store-assets/](docs/store-assets/) | 300x300 ロゴ、1280x800 合成サンプル画像、機械可読 inventory |
 | docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
 | [scripts/check-coordinator-contract.js](scripts/check-coordinator-contract.js) | コーディネータートポロジー規約と agent `tools:` 制限リスト再導入の静的チェック |
+| [.github/workflows/trusted-independent-review.yml](.github/workflows/trusted-independent-review.yml) | PR のコードを一切実行せず default branch の checker だけで exact-head marker を検証し、`independent-review` commit status を fail closed で発行する code-trust boundary (issue #95) |
 | [scripts/check-independent-review.js](scripts/check-independent-review.js) | repository Actions variables の reviewer/merger UUID 分離、GitHub `OWNER` comment の exact-head PASS marker、`Copilot-Session` attribution との独立性、収集前後の metadata 総数安定性、および最大 250 件の commit collection 完全性を検証する required CI gate |
 | [scripts/check-extension-package.js](scripts/check-extension-package.js) | 拡張機能の参照・権限・配布内容チェックとZIP作成 |
 | [scripts/check-store-readiness.js](scripts/check-store-readiness.js) | package discovery metadata、Edge Add-ons dossier/privacy、URL、manifest同期、合成 PNG 寸法・inventory の静的チェック |
@@ -379,6 +380,9 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 ### Unreleased
 
+- independent-review 検証の code-trust boundary を追加 (issue #95)。`pull_request_target` / `issue_comment` は base repository の default branch から workflow 定義が解決されるため、PR 由来のコードを checkout も実行もしない専用 workflow が default branch の checker だけで exact-head marker を検証し、`independent-review` commit status を fail closed で発行する。checker・テスト・workflow を書き換える PR でも、その run が何を検証するかを変えられない。最小権限 (`permissions: {}` + status write のみ)、依存インストールなし、検証前の failure seed、marker 投稿・削除への追従を、step allowlist と step 本文 digest の変異テストで固定
+- 上記 pin を赤チームで 2 回検証し、実測で見つかった迂回路を塞いだ。1 回目は step 本文を 1 バイトも変えずに gate を無力化できる経路 (job 級 `container:` / `defaults.run.shell` / job 級 `env:` shadowing / 2 つ目の job / `on:` の `paths-ignore` / top-level `env:` の `GH_HOST`・`NODE_OPTIONS`)、2 回目は `on:` より上の領域がどの digest にも入らず top-level 鍵の列挙が行 regex だったため Prettier 正準形の `'defaults':` で `run.shell` を差し替えられる経路。top-level key・job id・job key の列挙、job header の digest に加え、最終 catch-all を **workflow ファイル全体の digest** とし、regex で領域を切ることに依存しない構造にした。いずれの経路も変異テストで固定
+- 上記境界が守らない範囲を実測して明記 (PR #120)。commit status の名前空間は Actions app 共通で、PR 内 workflow が `permissions: statuses: write` を宣言すれば同じ context を投稿できるため、branch protection では投稿者を区別できない。無自覚な弱体化は機械的に不可能になったが、故意の偽装は防げない。恒久解である独立所有 GitHub App の check は issue #95 に残課題として維持
 - 高優先度 audit 勧告を依存更新で解消 (brace-expansion GHSA-rgw5-rvv9-x895 は 1.1.18/2.1.4/5.0.9 へ、js-yaml GHSA-5p4m-2wfm-xmqj は `@istanbuljs/load-nyc-config` 配下を published 修正版 5.2.2 へ override)。audit がクリーンになったため、期限付き一時許可の `scripts/check-audit-policy.js` をポリシー自身の指示どおり撤去し、`audit:strict` を素の `npm audit --audit-level=high` に置換
 - independent-review gate を repository Actions variables の設定済み reviewer UUID に拘束し、reviewer/merger の missing・malformed・equal configuration、mismatched marker、空の implementation-session attribution、収集中に変化した PR metadata 総数を marker 評価前に fail closed。Network+ 固有 marker と deterministic variable rotation/recovery runbook、issue #95 の外部 trusted-check 境界も明文化
 - independent-review gate で pull request metadata の総コミット数を取得し、最大 250 件の PR commit collection と一致しない場合は marker 評価前に fail closed。250 件を超える PR は 250 件以下の複数 PR に分割して review gate を再実行

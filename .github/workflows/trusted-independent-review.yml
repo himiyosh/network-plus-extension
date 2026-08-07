@@ -1,0 +1,140 @@
+name: Trusted Independent Review
+
+# This workflow is the code-trust boundary for the independent-review gate.
+#
+# GitHub resolves `pull_request_target` and `issue_comment` workflows from the
+# base repository's default branch, never from the pull request branch, and no
+# step here checks out or executes pull-request-provided code. A pull request
+# that edits or deletes the checker, its tests, or any workflow therefore
+# cannot change what this run verifies.
+#
+# What this does NOT cover, measured in PR #120: the commit-status namespace is
+# not owned by this workflow. Even with the repository default workflow
+# permission set to read, a pull-request-authored workflow can declare
+# `permissions: statuses: write` and post any context under the same GitHub
+# Actions app identity, so branch protection cannot tell the two apart. This
+# gate constrains the verification logic, not the result namespace. An
+# independently owned GitHub App check remains the durable fix, tracked in
+# issue #95.
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+  issue_comment:
+    types:
+      - created
+      - edited
+      - deleted
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+env:
+  TRUSTED_REVIEW_STATUS_CONTEXT: independent-review
+
+jobs:
+  trusted-review:
+    name: Trusted independent review
+    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: write
+
+    steps:
+      # Resolve the head before anything else so the fail-closed status can be
+      # published even when a later step fails. The pull_request_target payload
+      # already carries the head SHA, so the trigger that opens or updates a
+      # pull request needs no API call and cannot fail here; only the comment
+      # trigger falls back to the API, and by then an earlier run has already
+      # published a status for that head. The SHA is used solely as a status
+      # target and a checker argument, never as a ref to fetch or execute.
+      - name: Resolve pull request head
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          PAYLOAD_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          head_sha="${PAYLOAD_HEAD_SHA}"
+          if [ -z "${head_sha}" ]; then
+            head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          fi
+          if ! printf '%s' "${head_sha}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Resolved pull request head is not a full 40-character SHA."
+            exit 1
+          fi
+          echo "head_sha=${head_sha}" >>"${GITHUB_OUTPUT}"
+          echo "pr_number=${PR_NUMBER}" >>"${GITHUB_OUTPUT}"
+
+      # Publish failure first so an interrupted or crashed run leaves a blocking
+      # status instead of a pending one that never resolves.
+      - name: Seed fail-closed review status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            --field state=failure \
+            --field context="${TRUSTED_REVIEW_STATUS_CONTEXT}" \
+            --field description="Trusted verification started; this head fails closed until it passes." \
+            --field target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+
+      - name: Check out trusted default-branch code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.x
+
+      # The checker has no dependencies, so no install step runs here and no
+      # package lifecycle script executes inside the write-capable token scope.
+      - name: Verify independent review marker
+        id: verify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INDEPENDENT_REVIEW_REVIEWER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_REVIEWER_SESSION_ID }}
+          INDEPENDENT_REVIEW_MERGER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_MERGER_SESSION_ID }}
+          HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+        run: |
+          node scripts/check-independent-review.js \
+            --repository "${GITHUB_REPOSITORY}" \
+            --pr "${PR_NUMBER}" \
+            --head "${HEAD_SHA}"
+
+      - name: Publish trusted review status
+        if: always() && steps.context.outputs.head_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "${VERIFY_OUTCOME}" = "success" ]; then
+            state=success
+            description="Exact-head independent review verified by trusted default-branch code."
+          else
+            state=failure
+            description="No verified independent review for this exact head (${VERIFY_OUTCOME})."
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            --field state="${state}" \
+            --field context="${TRUSTED_REVIEW_STATUS_CONTEXT}" \
+            --field description="${description}" \
+            --field target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
