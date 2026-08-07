@@ -327,3 +327,63 @@ Commit `2321d67` が deep search 実装時に panel.js を大幅置換し、Cycl
 ### 品質ゲート
 
 PR #30 では version、repository/text/package integrity、audit、coordinator contract、構文・静的チェック、SAZ stress/data-descriptor checks、6 軸 specialist review を完了した。Jest、ESLint、Prettier は当該作業環境の依存取得障害でローカル実行できず、Node.js 22/24 CI の gate 対象とした。
+
+---
+
+## Cycle 8: 依存監査・フィルター正当性・CI 安定性・レビュー信頼境界 (PR #116 / #117 / #118 / #119, 2026-08-07)
+
+中断していた継続改善を利用者指示で再開したバッチ。1 本ずつ独立レビュー (fresh context, adversarial) を通し、exact-head marker を得てから merge した。
+
+### 実施した修正
+
+| # | 種別 | PR | 内容 |
+|---|---|---|---|
+| 1 | security | #116 | brace-expansion を修正版 1.1.18 / 2.1.4 / 5.0.9 (GHSA-rgw5-rvv9-x895) へ lockfile 更新。js-yaml (GHSA-5p4m-2wfm-xmqj) は当初 `@istanbuljs/load-nyc-config` 配下を 5.2.2 へ override したが、これは調査の誤りだった。3.15.1 / 4.3.1 は `v3-legacy` / `v4-legacy` タグで公開済み (2026-07-31) であり、`load-nyc-config` が宣言する `^3.13.1` の範囲内の 3.15.1 で足りる。#122 で override を撤去し 3.15.1 へ是正した |
+| 2 | chore | #116 | audit がクリーンになったため、期限付き一時許可 `scripts/check-audit-policy.js` をポリシー自身の指示どおり撤去し `audit:strict` を素の `npm audit --audit-level=high` に置換。放置すると 2026-08-09 の期限切れで全 CI が赤になるところだった |
+| 3 | fix | #117 | Domain / Path 列フィルターの `isEmpty` / `isNotEmpty` が multiText 分岐で黙って無効化されていた欠陥を修正。評価・active 判定・条件行 UI の 3 経路を `isValuelessFilterOperator` へ統一 |
+| 4 | test | #118 | browser suite の DevTools 起動待ちを deadline + 指数バックオフ + 診断付きメッセージ (経過時間・上限・最終観測) へ強化し、起動上限 15s→45s / テスト上限 45s→90s。CI の起動タイムアウト flake (run 31186834840) の恒久対策 |
+| 5 | security | #119 | independent-review 検証の code-trust boundary を追加。`pull_request_target` / `issue_comment` は base repository の default branch から workflow 定義が解決される性質を使い、PR 由来のコードを一切 checkout も実行もせずに default branch の checker だけで exact-head marker を検証し、`independent-review` commit status を fail closed で発行する |
+
+### レビュー信頼境界の検証 (#119)
+
+独立レビューは 3 回 FAIL を返した。うち 2 回が境界の実穴を突き、1 回は文書の不正確さのみを指摘した。下表の 3 行目は review ではなく自主的な赤チーム走行で見つけたものである。
+
+| # | 指摘 | 対応 |
+|---|---|---|
+| 1 | review 1 回目: pin が 6 件の改ざんを見逃す。うち `continue-on-error` + `steps.verify.conclusion` は検証失敗を success として発行する fail-open | パターン禁止方式を廃し、step allowlist・`run:` 本文の禁止構文・status 投稿規律・step 本文 digest の多層方式へ |
+| 2 | review 1 回目: resolve step 失敗時に status が一切出ず required check が pending のまま残る | head を `pull_request_target` payload から取得し、PR を開く / 更新する経路から API 依存を除去 |
+| 3 | 赤チーム走行: step 本文を 1 バイトも変えずに gate を無力化できる (job 級 `container:` / `defaults.run.shell` / job 級 `env:` shadowing / 2 つ目の job / `on:` `paths-ignore` / top-level `env:`) | top-level key・job id・job key の列挙と job header digest を追加 |
+| 4 | review 2 回目: `on:` より上の領域がどの digest にも入らず、鍵の列挙が行 regex。Prettier 正準形の `'defaults':` で `run.shell` を差し替えても全ゲート緑 | 最終 catch-all を **workflow ファイル全体の digest** とし、regex による領域分割への依存を排除 |
+| 5 | review 3 回目: 26 件の敵対的変異はすべて捕捉されたが、README と PR 本文に実装と一致しない記述が残っていた | 記述を実装に合わせ、開示していなかった 2 つの限界を本文へ明記 |
+
+境界が実際に機能することは使い捨て PR で実測した。
+
+```
+PR #121 (checker / そのテスト / boundary テスト / trusted workflow を削除し、
+         quality-gates の marker step も除去した PR)
+  -> run 31224000405 が main の定義と main の checker で実行され、
+     independent-review = failure を発行。PR 側に検証機構は 1 つも無い
+```
+
+### 境界が守らない範囲 (実測)
+
+```
+PR #120: repository default workflow permission = read でも、
+         PR 内 workflow が permissions: statuses: write を宣言して
+         commit status を投稿できた (creator=github-actions[bot], app id 15368)
+         -> ELEVATION_ALLOWED
+```
+
+commit status は required checks と同じ Actions app の名前空間にあるため branch protection では投稿者を区別できない。したがってこの境界が拘束するのは**検証ロジックであって結果の名前空間ではない**。checker / テスト / workflow の書き換えによる無自覚な弱体化は機械的に不可能になったが、`independent-review` を投稿する workflow を意図的に追加する偽装は防げない。恒久解である独立所有 GitHub App の check は issue #95 に残課題として維持する。
+
+また `tests/trusted-review-boundary.test.js` は PR 側で編集可能な tree にあり PR 側で編集可能な Jest 設定から実行されるため、enforcement ではなく **merge レビューを効かせるための review aid** である。強制力は base-resolved な workflow 側にある。
+
+### 品質ゲート
+
+| チェック | 結果 |
+|---|---|
+| Jest | ✅ 813/813 (Cycle 開始時 768) |
+| ESLint | ✅ 0 errors, 0 warnings |
+| Prettier / version / text / integrity / extension / store / contract | ✅ すべて OK |
+| npm audit --audit-level=high | ✅ 0 vulnerabilities |
+| 独立レビュー | ✅ 4 PR とも exact-head marker を取得して merge |
