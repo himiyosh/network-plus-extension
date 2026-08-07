@@ -5,9 +5,12 @@ const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
 
 const repositoryRoot = path.resolve(__dirname, '..');
-const BROWSER_START_TIMEOUT_MS = 15000;
+const BROWSER_START_TIMEOUT_MS = 45000;
+const PANEL_TARGET_TIMEOUT_MS = 15000;
+const STARTUP_POLL_INITIAL_DELAY_MS = 50;
+const STARTUP_POLL_MAX_DELAY_MS = 1000;
 const CDP_COMMAND_TIMEOUT_MS = 10000;
-const TEST_TIMEOUT_MS = 45000;
+const TEST_TIMEOUT_MS = 90000;
 const BROWSER_REQUIRED_IN_CI_MESSAGE =
   'Real-browser regression tests require an executable Chrome or Edge in CI. ' +
   'Set EDGE_BIN or CHROME_BIN to an executable browser path.';
@@ -71,7 +74,10 @@ const browserTest = browserExecutable ? test : test.skip;
 
 async function waitForDevTools(browserProcess, profileDirectory) {
   const activePortPath = path.join(profileDirectory, 'DevToolsActivePort');
-  const deadline = Date.now() + BROWSER_START_TIMEOUT_MS;
+  const startedAt = Date.now();
+  const deadline = startedAt + BROWSER_START_TIMEOUT_MS;
+  let pollDelay = STARTUP_POLL_INITIAL_DELAY_MS;
+  let lastObservation = 'DevToolsActivePort was never observed';
   while (Date.now() < deadline) {
     if (browserProcess.exitCode !== null || browserProcess.signalCode !== null) {
       throw new Error(
@@ -87,24 +93,53 @@ async function waitForDevTools(browserProcess, profileDirectory) {
       if (/^\d+$/.test(port) && browserPath) {
         return `ws://127.0.0.1:${port}${browserPath}`;
       }
+      lastObservation = 'DevToolsActivePort existed with incomplete content';
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
+      lastObservation = 'DevToolsActivePort was not created yet';
     }
-    await delay(100);
+    await delay(pollDelay);
+    pollDelay = Math.min(pollDelay * 2, STARTUP_POLL_MAX_DELAY_MS);
   }
-  throw new Error('Timed out waiting for the browser DevTools endpoint.');
+  throw new Error(
+    'Timed out waiting for the browser DevTools endpoint after ' +
+      (Date.now() - startedAt) +
+      'ms (limit ' +
+      BROWSER_START_TIMEOUT_MS +
+      'ms); last observed: ' +
+      lastObservation +
+      '.',
+  );
 }
 
 async function findPanelTarget(browserWebSocketUrl) {
   const browserUrl = new URL(browserWebSocketUrl);
   const targetListUrl = `http://${browserUrl.host}/json/list`;
-  for (let attempt = 0; attempt < 50; attempt++) {
-    const targets = await fetch(targetListUrl).then((response) => response.json());
-    const panelTarget = targets.find((target) => target.type === 'page' && target.url.endsWith('/panel.html'));
-    if (panelTarget) return panelTarget;
-    await delay(100);
+  const startedAt = Date.now();
+  const deadline = startedAt + PANEL_TARGET_TIMEOUT_MS;
+  let pollDelay = STARTUP_POLL_INITIAL_DELAY_MS;
+  let lastObservation = 'the target list was never fetched';
+  while (Date.now() < deadline) {
+    try {
+      const targets = await fetch(targetListUrl).then((response) => response.json());
+      const panelTarget = targets.find((target) => target.type === 'page' && target.url.endsWith('/panel.html'));
+      if (panelTarget) return panelTarget;
+      lastObservation = 'the target list had ' + targets.length + ' targets without the panel page';
+    } catch (error) {
+      lastObservation = 'the target list fetch failed: ' + error.message;
+    }
+    await delay(pollDelay);
+    pollDelay = Math.min(pollDelay * 2, STARTUP_POLL_MAX_DELAY_MS);
   }
-  throw new Error('Network+ panel target was not available.');
+  throw new Error(
+    'Network+ panel target was not available after ' +
+      (Date.now() - startedAt) +
+      'ms (limit ' +
+      PANEL_TARGET_TIMEOUT_MS +
+      'ms); last observed: ' +
+      lastObservation +
+      '.',
+  );
 }
 
 async function connectCdp(webSocketUrl) {
