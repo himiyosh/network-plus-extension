@@ -2195,6 +2195,19 @@ describe('active column filter helpers', () => {
     expect(np.isRuleActive({ mode: 'multiText', conditions: [{ op: 'contains', value: '' }] })).toBe(false);
   });
 
+  test('counts value-less multiText conditions as active', () => {
+    expect(np.isRuleActive({ mode: 'multiText', conditions: [{ op: 'empty', value: '' }] })).toBe(true);
+    expect(np.isRuleActive({ mode: 'multiText', conditions: [{ op: 'notempty', value: '' }] })).toBe(true);
+  });
+
+  test('identifies value-less filter operators', () => {
+    expect(np.isValuelessFilterOperator('empty')).toBe(true);
+    expect(np.isValuelessFilterOperator('notempty')).toBe(true);
+    expect(np.isValuelessFilterOperator('contains')).toBe(false);
+    expect(np.isValuelessFilterOperator('')).toBe(false);
+    expect(np.isValuelessFilterOperator(undefined)).toBe(false);
+  });
+
   test('counts active columns once regardless of condition count', () => {
     const rules = {
       method: { mode: 'methodSet', include: { GET: true, POST: false } },
@@ -2557,6 +2570,35 @@ describe('evaluateFilterRule', () => {
     };
     expect(np.evaluateFilterRule('/api/orders/123', rule, false)).toBe(true);
     expect(np.evaluateFilterRule('/api/internal/orders/123', rule, false)).toBe(false);
+  });
+
+  test('supports empty / notempty inside multiText conditions', () => {
+    const emptyRule = { mode: 'multiText', conditions: [{ op: 'empty', value: '' }] };
+    expect(np.evaluateFilterRule('', emptyRule, false)).toBe(true);
+    expect(np.evaluateFilterRule('contoso.com', emptyRule, false)).toBe(false);
+
+    const notEmptyRule = { mode: 'multiText', conditions: [{ op: 'notempty', value: '' }] };
+    expect(np.evaluateFilterRule('contoso.com', notEmptyRule, false)).toBe(true);
+    expect(np.evaluateFilterRule('', notEmptyRule, false)).toBe(false);
+  });
+
+  test('combines value-less and text multiText conditions with AND semantics', () => {
+    const rule = {
+      mode: 'multiText',
+      conditions: [
+        { op: 'notempty', value: '' },
+        { op: 'contains', value: 'api' },
+      ],
+    };
+    expect(np.evaluateFilterRule('api.contoso.com', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('www.contoso.com', rule, false)).toBe(false);
+    expect(np.evaluateFilterRule('', rule, false)).toBe(false);
+  });
+
+  test('still treats blank-value text multiText conditions as match-all', () => {
+    const rule = { mode: 'multiText', conditions: [{ op: 'contains', value: '   ' }] };
+    expect(np.evaluateFilterRule('anything', rule, false)).toBe(true);
+    expect(np.evaluateFilterRule('', rule, false)).toBe(true);
   });
 });
 

@@ -2111,6 +2111,32 @@ describe('visual-state dark-mode parity', () => {
   });
 });
 
+describe('column filter value-less operator contracts', () => {
+  test('multiText evaluation and active detection route value-less operators through isValuelessFilterOperator', () => {
+    const evaluateBlock = js.slice(
+      js.indexOf('function evaluateFilterRule'),
+      js.indexOf('// --- Standard operator-based rules ---'),
+    );
+    expect(evaluateBlock).toContain("rule.mode === 'multiText'");
+    expect(evaluateBlock).toContain('const needsValue = !isValuelessFilterOperator(cond && cond.op);');
+
+    const activeBlock = js.slice(js.indexOf('function isRuleActive'), js.indexOf('function countActiveColumnFilters'));
+    expect(activeBlock).toContain('isValuelessFilterOperator(condition && condition.op)');
+    expect(activeBlock).toContain('if (isValuelessFilterOperator(rule.op)) return true;');
+  });
+
+  test('multi-condition filter rows disable the value input for value-less operators', () => {
+    const multiBlock = js.slice(
+      js.indexOf("if (colId === 'domain' || colId === 'path')"),
+      js.indexOf('// --- Default: generic operator + value ---'),
+    );
+    expect(multiBlock).toContain('const updateInputState = () => {');
+    expect(multiBlock).toContain('isValuelessFilterOperator(opSelect.value)');
+    expect(multiBlock).toContain('input.disabled = noValueRequired;');
+    expect(multiBlock).toContain("if (noValueRequired) input.value = '';");
+  });
+});
+
 describe('filter preset static contracts', () => {
   test('FILTER_PRESET_KEY constant is defined in panel.js and bounded to MAX_FILTER_PRESETS', () => {
     expect(js).toContain("const FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1';");

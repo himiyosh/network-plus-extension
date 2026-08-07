@@ -2316,6 +2316,10 @@ const _NetworkPlus = (function () {
     return content;
   }
 
+  function isValuelessFilterOperator(op) {
+    return op === 'empty' || op === 'notempty';
+  }
+
   function isRuleActive(rule) {
     if (!rule) return false;
     if (rule.mode === 'methodSet') {
@@ -2335,11 +2339,13 @@ const _NetworkPlus = (function () {
     if (rule.mode === 'multiText') {
       return rule.conditions
         ? rule.conditions.some(
-          (condition) => condition.value != null && String(condition.value).trim() !== '',
+          (condition) =>
+            isValuelessFilterOperator(condition && condition.op) ||
+            (condition.value != null && String(condition.value).trim() !== ''),
         )
         : false;
     }
-    if (rule.op === 'empty' || rule.op === 'notempty') return true;
+    if (isValuelessFilterOperator(rule.op)) return true;
     return rule.value != null && String(rule.value).trim() !== '';
   }
 
@@ -4738,7 +4744,8 @@ const _NetworkPlus = (function () {
     if (rule && rule.mode === 'multiText') {
       if (!rule.conditions || rule.conditions.length === 0) return true;
       return rule.conditions.every((cond) => {
-        if (!cond.value || !cond.value.trim()) return true;
+        const needsValue = !isValuelessFilterOperator(cond && cond.op);
+        if (needsValue && (!cond.value || !cond.value.trim())) return true;
         return evaluateFilterRule(value, cond, false);
       });
     }
@@ -5713,6 +5720,13 @@ const _NetworkPlus = (function () {
           input.value = cond.value || '';
           input.setAttribute('aria-label', columnLabel + ' filter condition ' + (idx + 1) + ' value');
 
+          const updateInputState = () => {
+            const noValueRequired = isValuelessFilterOperator(opSelect.value);
+            input.disabled = noValueRequired;
+            if (noValueRequired) input.value = '';
+          };
+          updateInputState();
+
           const removeBtn = document.createElement('button');
           removeBtn.textContent = 'x';
           removeBtn.className = 'filter-remove-btn';
@@ -5727,6 +5741,8 @@ const _NetworkPlus = (function () {
 
           opSelect.addEventListener('change', () => {
             conditions[idx].op = opSelect.value;
+            updateInputState();
+            conditions[idx].value = input.value;
             state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
             onChange();
           });
@@ -5780,7 +5796,7 @@ const _NetworkPlus = (function () {
     input.setAttribute('aria-label', columnLabel + ' filter value');
 
     const updateInputState = () => {
-      const noValueRequired = opSelect.value === 'empty' || opSelect.value === 'notempty';
+      const noValueRequired = isValuelessFilterOperator(opSelect.value);
       input.disabled = noValueRequired;
       if (noValueRequired) input.value = '';
     };
@@ -10080,6 +10096,7 @@ const _NetworkPlus = (function () {
     buildHarResponseContent,
     cacheResponseContent,
     settleResponseContentForHar,
+    isValuelessFilterOperator,
     isRuleActive,
     countActiveColumnFilters,
     isVisualOnlyColumn,
