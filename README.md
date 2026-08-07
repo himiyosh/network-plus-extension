@@ -371,7 +371,6 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 | [scripts/check-extension-package.js](scripts/check-extension-package.js) | 拡張機能の参照・権限・配布内容チェックとZIP作成 |
 | [scripts/check-store-readiness.js](scripts/check-store-readiness.js) | package discovery metadata、Edge Add-ons dossier/privacy、URL、manifest同期、合成 PNG 寸法・inventory の静的チェック |
 | [scripts/check-version-sync.js](scripts/check-version-sync.js) | manifest/package/package-lock/panel fallback バージョン同期チェックスクリプト |
-| [scripts/check-audit-policy.js](scripts/check-audit-policy.js) | 高優先度の監査を維持しつつ GHSA-mh99-v99m-4gvg 由来のみを一時許可する監査ポリシー |
 | [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
 | [LICENSE](LICENSE) | MIT License |
 
@@ -380,6 +379,7 @@ Hallmark は実際の Edge DevTools パネルだけに適用します。Network+
 
 ### Unreleased
 
+- 高優先度 audit 勧告を依存更新で解消 (brace-expansion GHSA-rgw5-rvv9-x895 は 1.1.18/2.1.4/5.0.9 へ、js-yaml GHSA-5p4m-2wfm-xmqj は `@istanbuljs/load-nyc-config` 配下を published 修正版 5.2.2 へ override)。audit がクリーンになったため、期限付き一時許可の `scripts/check-audit-policy.js` をポリシー自身の指示どおり撤去し、`audit:strict` を素の `npm audit --audit-level=high` に置換
 - independent-review gate を repository Actions variables の設定済み reviewer UUID に拘束し、reviewer/merger の missing・malformed・equal configuration、mismatched marker、空の implementation-session attribution、収集中に変化した PR metadata 総数を marker 評価前に fail closed。Network+ 固有 marker と deterministic variable rotation/recovery runbook、issue #95 の外部 trusted-check 境界も明文化
 - independent-review gate で pull request metadata の総コミット数を取得し、最大 250 件の PR commit collection と一致しない場合は marker 評価前に fail closed。250 件を超える PR は 250 件以下の複数 PR に分割して review gate を再実行
 - required Node 22/24 CI の最終 step に exact-head `independent-review` marker gate を追加し、GitHub `OWNER` comment の first non-empty unfenced line にある marker、full reviewer UUID、physical/escaped PR commit の `Copilot-Session` trailer との不一致を必須化
