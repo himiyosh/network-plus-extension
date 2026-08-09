@@ -4,8 +4,8 @@ const { getReleaseArchiveName } = require('./check-extension-package');
 
 const FALLBACK_PATTERN = /\bconst\s+TEST_EXTENSION_VERSION_FALLBACK\s*=\s*['"]([^'"]+)['"]\s*;/g;
 const README_PATH = 'README.md';
-const QUICK_TRY_PREFIX = '**すぐに試す:**';
-const RELEASE_SETUP_HEADING = '### リリース ZIP から試す';
+const QUICK_TRY_PREFIX = '**Try it now:**';
+const RELEASE_SETUP_HEADING = '### Install from the release ZIP';
 const RELEASE_SETUP_BOUNDARY_PATTERN = /^#{2,3}(?:[ \t]+|$)/;
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'));

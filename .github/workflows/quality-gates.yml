@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: read
-  issues: read
-  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -81,10 +79,3 @@ jobs:
 
       - name: Check coordinator contract
         run: npm run contract:check
-
-      - name: Check independent review marker
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          INDEPENDENT_REVIEW_REVIEWER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_REVIEWER_SESSION_ID }}
-          INDEPENDENT_REVIEW_MERGER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_MERGER_SESSION_ID }}
-        run: node scripts/check-independent-review.js

@@ -58,8 +58,8 @@ afterEach(() => {
 });
 
 describe('release version integrity', () => {
-  const QUICK_TRY_PREFIX = '**すぐに試す:**';
-  const RELEASE_SETUP_HEADING = '### リリース ZIP から試す';
+  const QUICK_TRY_PREFIX = '**Try it now:**';
+  const RELEASE_SETUP_HEADING = '### Install from the release ZIP';
   const DEFAULT_REPOSITORY = {
     type: 'git',
     url: 'git+https://github.com/himiyosh/network-plus-extension.git',
@@ -69,7 +69,7 @@ describe('release version integrity', () => {
     {
       repository = DEFAULT_REPOSITORY,
       setupPrelude = [],
-      boundaryHeading = '### ソースから開発する',
+      boundaryHeading = '### Install from source',
       trailingLines = [],
     } = {},
   ) => {
@@ -77,10 +77,10 @@ describe('release version integrity', () => {
     const downloadUrl = getReleaseDownloadUrl(repository, version);
     const tagUrl = getReleaseTagUrl(repository, version);
     return [
-      `**すぐに試す:** [v${version} リリース ZIP を直接ダウンロード](${downloadUrl}) | **リリース情報:** [v${version}](${tagUrl})`,
+      `${QUICK_TRY_PREFIX} [Download the v${version} release ZIP](${downloadUrl}) · [What is in v${version}](${tagUrl})`,
       RELEASE_SETUP_HEADING,
       ...setupPrelude,
-      `1. [${archiveName}](${downloadUrl}) を直接ダウンロードする。変更内容は [v${version} リリース情報](${tagUrl}) で確認できる`,
+      `1. Download [${archiveName}](${downloadUrl}) — see the [v${version} release notes](${tagUrl}) for what changed.`,
       boundaryHeading,
       ...trailingLines,
     ].join('\n');
@@ -192,9 +192,9 @@ describe('release version integrity', () => {
 
   test('bounds the release ZIP setup at the next h2 while allowing deeper headings', () => {
     const input = createVersionInput('1.6.0', '1.6.0', {
-      setupPrelude: ['#### ダウンロードの補足'],
-      boundaryHeading: '## 開発者向け',
-      trailingLines: ['1. この手順はリリース ZIP セクションの外側にある。'],
+      setupPrelude: ['#### Download notes'],
+      boundaryHeading: '## For developers',
+      trailingLines: ['1. This step sits outside the release ZIP section.'],
     });
 
     expect(validateReleaseVersions(input)).toEqual([]);
@@ -202,8 +202,8 @@ describe('release version integrity', () => {
 
   test('bounds the release ZIP setup at the next h3 before trailing numbered steps', () => {
     const input = createVersionInput('1.6.0', '1.6.0', {
-      boundaryHeading: '### ソースから開発する',
-      trailingLines: ['1. npm ci を実行する。'],
+      boundaryHeading: '### Install from source',
+      trailingLines: ['1. Run npm ci.'],
     });
 
     expect(validateReleaseVersions(input)).toEqual([]);

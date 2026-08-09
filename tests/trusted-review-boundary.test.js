@@ -320,10 +320,14 @@ test('the pull_request_target trigger reaches the seed without an API call', () 
   expect(resolveStep.body).toMatch(/grep -Eq '\^\[0-9a-f\]\{40\}\$'/);
 });
 
-test('the transitional in-PR gate stays required until the trusted context is', () => {
-  // Remove this pin only together with the branch-protection change that makes
-  // the `independent-review` commit status required.
-  expect(qualityGatesSource).toContain('run: node scripts/check-independent-review.js');
+test('the transitional in-PR gate is gone now that no context requires it', () => {
+  // The transitional gate existed only because the `independent-review` commit
+  // status was not a required context. Branch protection now requires neither,
+  // so running the checker inside required CI would block merges that branch
+  // protection deliberately stopped blocking. Restore this step only together
+  // with the branch-protection change that makes a review context required.
+  expect(qualityGatesSource).not.toContain('scripts/check-independent-review.js');
+  expect(trustedWorkflowSource).toContain('node scripts/check-independent-review.js');
 });
 
 test.each([

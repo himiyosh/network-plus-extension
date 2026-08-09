@@ -1,168 +1,70 @@
-# 🌐 Network+ for DevTools
+<div align="center">
 
-![Edge Extension](https://img.shields.io/badge/Edge-Extension-0078d4?logo=microsoftedge)
-![Manifest V3](https://img.shields.io/badge/Manifest-V3-4caf50)
-![Vanilla JS](https://img.shields.io/badge/JavaScript-ES2020-f7df1e?logo=javascript)
-![Jest](https://img.shields.io/badge/Test-Jest-c21325?logo=jest)
-![License](https://img.shields.io/badge/License-MIT-blue)
+<img src="docs/store-assets/logo-300.png" alt="" width="88" height="88">
 
-Microsoft Edge DevTools に「**Network+**」パネルを追加する Edge 拡張機能です。標準の Network パネルの代替・補完として、強化されたフィルタリング、エクスポート、テーマ切替などの機能を提供します。
+# Network+ for DevTools
 
-**すぐに試す:** [v1.6.0 リリース ZIP を直接ダウンロード](https://github.com/himiyosh/network-plus-extension/releases/download/v1.6.0/network-plus-extension-1.6.0.zip) | **リリース情報:** [v1.6.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) | **サポート:** [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues/new/choose)
+**A power-user network panel for Microsoft Edge DevTools.**
+Multi-keyword search, per-column filters, two-request diffing, and HAR export that is sanitized by default.
 
-## ✨ 機能一覧
+[![Quality gates](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml/badge.svg)](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml)
+[![Latest release](https://img.shields.io/github/v/release/himiyosh/network-plus-extension?label=release)](https://github.com/himiyosh/network-plus-extension/releases/latest)
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-4caf50)](manifest.json)
+[![Node 22 | 24](https://img.shields.io/badge/Node-22%20%7C%2024-339933?logo=nodedotjs&logoColor=white)](package.json)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-| 機能 | 説明 |
-|------|------|
-| 📡 リアルタイムキャプチャ | `chrome.devtools.network.onRequestFinished` (Edge 拡張 API の `chrome.*` namespace) でリクエストを取得。自然な追加順では 1 フレーム内の新規行だけをまとめて追記し、ソート・フィルター・検索中は安全な全体描画へ切り替え |
-| 🧠 キャプチャ保持上限 | 既定で最新 5,000 リクエストを保持し、超過時は最古行を一括整理。`Retention` から 100〜100,000 件へ変更でき、警告を確認した明示操作時のみリクエスト行を無制限に保持。レスポンス Body は常に 1 Body あたり 1 MiB、合計 32 MiB の独立した上限を適用 |
-| 🧱 カスタムカラム (12種) | ID, Time, Method, Status, Domain, Path, Type, Duration, Size, Initiator, URL, Waterfall (既定では非表示) |
-| 👁️ カラム表示/非表示 | ツールバーの `Columns` ボタンでカラムの表示切替。設定は `localStorage` に永続化 |
-| ↔️ カラムリサイズ | ドラッグまたはフォーカスした境界の左右キー (`Shift` 併用で大きく調整) でカラム幅を変更可能。設定は永続化 |
-| 🔍 統合キーワード検索 | 複数キーワードをそれぞれ独立した入力欄で設定可能。URL/Domain/Path、リクエスト/レスポンスの Body・Headers を横断検索。各キーワードごとに 6 色のハイライトカラーを選択でき、マッチ行はキーワード色と `Match K1` バッジで対応を表示。キーワードごとの ▲▼ ナビゲーション・マッチ数表示に対応。遅延取得されたレスポンス Body もフレーム単位でまとめて検索結果へ反映し、現在の移動位置を可能な限り維持。検索できない Body がある場合は件数を明示。`Ctrl+F` で検索パネルを開閉。検索スコープ (URL/Body/Headers) は ⚙️ Scope ボタンで切替可能 |
-| 🧰 カラム別フィルタ | 右クリック時は対象カラム専用のフィルタ画面を表示。`Time` はローカル時間ベースで時刻範囲を time picker から視覚的に選択可能、`Method` は複数選択 (例: GET/POST のみ)、`Domain` / `Path` は条件を複数追加して `contains` / `notcontains` などを組み合わせ可能、`URL` は Include/Exclude の複合条件 (any/all/exclude) を設定可能。`Filters` ボタンでは全カラムを一括編集可能。ステータスバーとボタンに有効なカラムフィルタ数を表示 |
-| ↕️ カラムソート | ヘッダーのクリックまたは `Enter` / `Space` でソート切替 (昇順 → 降順 → ソート解除)。`Alt+←` / `Alt+→` でカラムを並べ替え、順序を永続化。時刻カラムは取得時のリクエスト epoch で正確に比較 |
-| 🗂️ リクエスト詳細 | Request は Headers / Body / Query / Cookies / Raw、Response は Headers / Body / Preview / Cookies / Timing / Raw のタブで表示。`✕` で詳細を閉じて一覧領域を回復でき、同じ行の再選択、別の行の選択、または上下キーの行移動で詳細を再表示。選択中レスポンスは上限付き共有 Body キャッシュから描画し、遅延完了した別リクエストによる表示上書きを防止。Body が省略・退避・取得不能の場合は理由を明示し、取得元が残る退避 Body は選択時に安全に再取得。Timing は SSL と Connect を重複させずに可視化し、フェーズ定義とブラウザー観測値の制約をその場で確認可能 |
-| 🔀 2リクエスト差分比較 | `Ctrl`/`Cmd` クリックでちょうど 2 行を複数選択し、右クリックメニューの「Compare 2 selected requests」で比較ビューを表示。URL/クエリパラメータ、Method/Status/Protocol、リクエスト/レスポンスヘッダー、レスポンス Body をセクション別に並べて比較し、一致・変更・片側のみの行を色で区別。Body は保持上限内のキャッシュ済みデータのみ表示し、省略・退避・未取得の状態を明示。比較ビューのすべてのレンダリングは XSS 安全な DOM API を使用。✕ ボタンまたは別の行をクリックすると通常の詳細ビューに戻る |
-| 📤 安全な HAR エクスポート | 通常操作では `network-plus-sanitized.har` を出力し、機密値を置換して解析不能・不透明・base64・multipart・制限超過 Body を明示的に省略。`_networkPlus` に方針、件数、Body の不完全性を記録。`network-plus-full.har` は Authorization、Cookie、query、Body の警告を確認したその 1 回だけ出力 |
-| 🎨 テーマ切替 | System / Dark / Light の3モードを循環切替。小さいステータス・補助テキストは WCAG 2.2 AA、操作境界と主要セパレーターは 3:1 以上のコントラストを全テーマで維持し、設定は `chrome.storage.local` (Edge 互換 API) に永続化 |
-| ⏯️ 録画制御 | Pause / Resume ボタン。録画中は赤、一時停止中はグレーのインジケータ表示 |
-| ⬇️ 自動スクロール | 新規リクエスト到着時に自動的にテーブル末尾へスクロール。上方向へ手動スクロールすると自動的に OFF になり、ボタン状態にも反映 |
-| 📋 安全なクリップボードコピー | Summary、URL、request/response Body、Raw request/response、cURL、fetch、PowerShell は `Copy sanitized` が既定。完全コピーは同じ警告ダイアログで操作ごとに確認し、確認前に clipboard へ書き込まない |
-| 🔗 Initiator リンク | スクリプト起因のリクエストをクリックすると DevTools でソースファイルを表示 |
-| 🪟 パネルリサイズ | テーブルと詳細パネルの境界をドラッグまたは矢印キーで調整可能。幅 700px 以下では上下配置へ切り替わり、上下キーで高さを調整。Request/Response 境界も上下キーに対応 |
-| ⌨️ キーボードナビゲーション | フォーカス行を上下キーで選択して自動スクロール。`Ctrl+L` (Windows/Linux) または `Cmd+K` (macOS) で既存の Clear 操作を実行。`Context Menu` または `Shift+F10` で行アクションを開き、メニュー内は上下キー / Home / End / Escape で操作。詳細タブは左右キー / Home / End で移動可能 |
-| ♿ アクセシブル表示 | 色だけに依存しない検索一致バッジ、読み上げ対応の状態・件数・コピー通知、`prefers-reduced-motion` による装飾モーション抑制 |
-| 📊 リクエスト統計 | ステータスバーにフィルター済み行の 2xx / 3xx / 4xx / 5xx / other 件数と、平均/最小/最大レスポンスタイムを表示。フィルター変更に連動してリアルタイム更新 |
-| 🌊 Waterfall カラム | 各リクエストの開始オフセットとタイミングフェーズ (blocked/dns/connect/ssl/send/wait/receive) を行内バーで可視化。`Columns` メニューで表示切替可能 (既定では非表示)。表示順と幅は変更できるが、視覚専用列のためソート・フィルター対象外 |
-| 🔖 フィルタープリセット | カラムフィルターの設定を名前付きで最大 20 件保存・復元・削除。キャプチャしたリクエスト情報は保存しない。`Presets` ボタンからアクセス可能 |
-| ⌨️ ショートカット一覧 | `?` キーまたはツールバーの `⌨️ ?` ボタンでキーボードショートカット一覧をダイアログ表示。`Esc` または `Close` ボタンで閉じ、開いていたボタンへフォーカスを復帰 |
+[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [Data safety](#data-safety) · [Development](#development) · [Docs](#documentation)
 
-### UI 安定表示ルール
+<img src="docs/media/network-plus-tour.gif" alt="Tour of the Network+ panel: the request grid with a tabbed request and response inspector, the response Timing breakdown with its phase guide, the local sample evidence guide, and the export dialog offering sanitized HAR as the default." width="880">
 
-- `Recording` / `Paused` の状態切替でレイアウトジャンプを発生させないため、ツールバー上部インジケータの高さは常に確保すること。
-- 実装ルール: `.topbar` に常時 `border-top` (透明可) を持たせ、`recording` 時は色のみ変更する。
-- 幅の狭い DevTools では、ツールバーだけを横スクロール可能にして、テーブルや詳細パネルの横位置を維持する。
-- 幅 700px 以下ではリクエスト一覧を詳細パネルの上へ積み、メイン境界の向き・カーソル・ARIA を水平セパレーターへ切り替える。
-- フィルター、カラム、コンテキスト、検索スコープ、検索色の各ポップアップは、画面端から 8px 以上離して内部スクロール可能にする。
+<sub>Frames captured from the built-in local sample capture. All traffic shown is synthetic <code>.test</code> data; no real request is sent.</sub>
 
-## 📁 プロジェクト構造
+</div>
 
-```
-network-plus-extension/
-  .impeccable/
-    design.json              ... DESIGN.md の拡張トークンとコンポーネント定義
-  .github/
-    agents/
-      NetworkPlusAgent.agent.md ... Primary project agent (Hallmark routing included)
-      ui-review.agent.md        ... Network+ 6-axis UI/UX review agent
-    copilot-instructions.md  ... Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針)
-    skills/hallmark/         ... Hallmark 1.1.0 design skill (pinned vendored copy)
-    workflows/quality-gates.yml ... Node.js 22/24 quality gates
-    dependabot.yml           ... npm / GitHub Actions dependency updates
-  docs/
-    DESIGN.md                ... UI トークン、コンポーネント、テーマ運用ルール
-    PRODUCT.md               ... 製品戦略、対象ユーザー、設計原則、アクセシビリティ基準
-    edge-addons-submission.md ... en-US Edge Add-ons 提出 dossier と certification notes
-    privacy.md               ... 通信情報のローカル処理と出力境界に関する公開通知
-    store-assets/            ... 300x300 ロゴ、1280x800 合成サンプル画像、inventory
-    unified-project-rules.md ... 共通プロジェクトルール (ローカル参照用, gitignore 対象)
-  scripts/
-    check-extension-package.js ... 配布ファイルの整合性検証と ZIP 作成
-    check-store-readiness.js ... Edge Add-ons 提出資料と合成アセットの回帰チェック
-    check-version-sync.js    ... 5箇所のリリースバージョンと README のリリース ZIP 導線の同期チェック
-    check-repository-integrity.js ... package-lock.json の provenance チェック
-    check-text-integrity.js  ... 変更差分の whitespace / encoding チェック
-  tests/                     ... Jest ユニットテスト
-    extension-package.test.js ... 配布 ZIP / manifest / HTML の回帰テスト
-    store-readiness.test.js ... Edge Add-ons dossier/privacy/PNG の回帰テスト
-    setup.js                 ... テスト用ブラウザ API モック
-    panel.test.js            ... 純粋関数のユニットテスト
-    ui-contract.test.js      ... テーマ、コントラスト、レスポンシブ、ARIA の静的契約テスト
-    repository-integrity.test.js ... リポジトリ整合性チェックのユニットテスト
-    text-integrity.test.js   ... 変更差分チェックのユニットテスト
-  icons/                     ... 拡張機能アイコン (16x16, 48x48, 128x128 PNG)
-  vendor/                    ... サードパーティライブラリ
-  LICENSE                    ... MIT License
-  manifest.json              ... 拡張機能マニフェスト (Manifest V3, CSP 明示設定)
-  devtools.html              ... DevTools ページ (devtools.js をロード)
-  devtools.js                ... chrome.devtools.panels.create() で Network+ パネルを生成
-  panel.html                 ... パネル UI レイアウト (ツールバー、テーブル、詳細サイドバー、ステータスバー)
-  panel.js                   ... コアロジック (15セクション分割): キャプチャ、フィルタ、レンダリング、エクスポート、テーマ
-  panel.css                  ... CSS カスタムプロパティによるライト/ダーク/システムテーマ
-  eslint.config.mjs          ... ESLint 設定 (flat config)
-  .prettierrc                ... Prettier 設定
-  .gitignore                 ... Git 除外設定
-  es-metadata.yml            ... 1ES Inventory-As-Code メタデータ
-  package.json               ... npm 設定・スクリプト・Jest 設定
-  README.md                  ... このファイル
-```
+**Try it now:** [Download the v1.6.0 release ZIP](https://github.com/himiyosh/network-plus-extension/releases/download/v1.6.0/network-plus-extension-1.6.0.zip) · [What is in v1.6.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose)
 
-## 🏗️ アーキテクチャ
+---
 
-```
-Microsoft Edge DevTools
-  +-- devtools.html        ... chrome.devtools.panels.create() でパネル登録
-       +-- panel.html       ... パネル UI
-            +-- panel.js    ... 全ロジック (IIFE, 15セクション構成)
-            +-- panel.css   ... テーマ対応スタイル
-```
+## Why Network+
 
-- **DevTools Panel Extension**: `chrome.devtools.network.onRequestFinished` でリクエストをキャプチャ
-- **ES Modules 不可**: DevTools パネルページは `<script type="module">` をサポートしないため、**IIFE 単一ファイル構成**を採用
-- **ビルドレス**: バンドラ不使用。ファイルをそのまま Edge にロードする
+The stock Network panel is great at showing you traffic. Network+ is built for the moment **after** that — when you have 4,000 requests, a customer waiting, and one failing call to find and explain.
 
-### 描画パフォーマンス
+- **Find the evidence.** Search several keywords at once across URLs, headers, and bodies, each with its own highlight color, match count, and next/previous navigation.
+- **Narrow without losing context.** Combine per-column filters (time range, method multi-select, `contains` / `notcontains` rules, include/exclude URL logic) and save them as named presets.
+- **Compare two requests directly.** Select exactly two rows and diff URL, query, method, status, headers, and body side by side.
+- **Share without leaking.** Every copy and every HAR export is sanitized by default; full output requires a per-action confirmation that is never remembered.
+- **Stay bounded.** Request retention and the response-body cache have explicit limits, visible counters, and predictable eviction — no silent unbounded growth.
+- **Work by keyboard.** Every control is reachable without a mouse, in System / Dark / Light themes that all meet WCAG 2.2 AA contrast.
+- **No build, no telemetry, no network.** Plain files loaded straight into Edge; the extension holds a single permission (`storage`) and sends nothing anywhere.
 
-- ソートなしまたは ID 昇順で、カラムフィルターと検索キーワードが未使用の場合、ライブ取得行を `requestAnimationFrame` ごとに `DocumentFragment` で一括追記します。既存の行は再生成しません。
-- フレーム確定時に条件を再確認し、ソート・フィルター・検索状態が変わった場合は全体描画へフォールバックします。別の描画が先に完了した場合も行 ID で重複を防ぎます。
-- 通常選択、矢印キー選択、Ctrl/Cmd トグルは影響行だけを差し替えます。範囲選択や削除など多数行へ影響する操作は安全な全体描画を利用します。
+<details>
+<summary><b>More screenshots</b></summary>
 
-### キャプチャ保持と Body キャッシュ
+| | |
+|---|---|
+| <img src="docs/store-assets/screenshot-request-detail-1280x800.png" alt="Request grid with the failing 503 POST selected and its response headers shown in the inspector."> | <img src="docs/store-assets/screenshot-timing-guidance-1280x800.png" alt="Response Timing tab showing a 2.45 s total dominated by 2.20 s of wait time, with the phase guide expanded."> |
+| **Request inspector** — tabbed Request and Response views for headers, body, query, cookies, timing, and raw text. | **Timing breakdown** — per-phase numbers, a bar, and an inline guide explaining what each phase does and does not prove. |
+| <img src="docs/store-assets/screenshot-sample-guide-1280x800.png" alt="Sample evidence guide dialog asking four investigation questions before revealing the answers."> | <img src="docs/store-assets/screenshot-sanitized-export-1280x800.png" alt="Export dialog with Export sanitized HAR as the primary action and a separate review step for the full HAR."> |
+| **Local sample capture** — a three-request synthetic capture with a prompt-first guide, so you can learn the panel before pointing it at real traffic. | **Sanitized export** — the safe export is the default action; the full export sits behind a warning you must read every time. |
 
-- リクエスト行は既定で最新 5,000 件を保持します。ライブキャプチャ、HAR インポート、SAZ インポートは同じ保持判定を使用し、ID は削除・Clear・Import 後も単調増加します。
-- `Clear` は表示と作業状態を即時に初期化し、10 秒間だけステータスバーの `Undo clear` で保持中の行、フィルター、検索、選択、詳細、ソート、記録状態を復元できます。退避中も同じリクエスト件数と 32 MiB Body キャッシュ上限に含まれ、新規通信で上限へ達した場合は退避中の最古行から解放します。
-- 上限超過時は最古行をまとめて削除し、フィルター結果、フォーカス、単一/複数選択、検索一致、保留中の増分描画、DOM 行、詳細ペイン、統計を同時に整理します。
-- レスポンス Body キャッシュは 1 Body あたり 1 MiB、合計 32 MiB です。合計上限では最終アクセスが古い Body から退避し、行自体は保持します。
-- 1 MiB を超える Body は部分データとして保存せず省略します。詳細、検索、HAR は省略・退避・取得不能を完全データとして表示しません。
-- 退避 Body は DevTools の取得元が利用できる間、詳細表示時に再取得できます。HAR は Body を 1 件ずつ一時取得するため、共有キャッシュを無制限に復元しません。
-- ステータスバーは現在の保持ポリシー、Body キャッシュ使用量、累積の行退避数、Body 省略数、Body 退避数、プレビュー省略数を常時表示します。
-- Import は `.har` と Fiddler SAZ (`.saz`) のみを受け付けます。入力ファイルは 32 MiB 以下、SAZ は 20,000 entry 以下、各 entry の展開後 4 MiB 以下、archive 全体の展開後合計 64 MiB 以下に制限します。SAZ は `raw/<数値>_[csm].(txt|xml)` だけを候補として扱い、HTTP session には `_c.txt` と `_s.txt` の完全な pair を要求します。
-- HAR は `log.entries` array と各 request/response object を検証し、文字列・header・post-data を安全な型へ正規化します。有界モードでは最終保持範囲だけを行オブジェクト化します。SAZ は extension CSP と互換性のある fflate streaming 展開を 16 KiB 入力 chunk・最大 4 entry ごとに event loop へ譲りながら実行し、entry ごとに上限を検査して保持対象の完全な session だけを行オブジェクト化します。
-- Import は staging 完了後にだけ現在の capture を置き換える atomic 操作です。形式不正、JSON/HTTP 解析失敗、未対応圧縮、上限超過、展開失敗では既存の行、選択、recording 状態、詳細表示を維持します。処理中は Import control を無効化して重複実行を防ぎ、完了後は同じファイルを再選択できます。
-- これらはリクエスト行数、インポート staging、レスポンス Body 共有キャッシュの上限です。保持中の各行が参照する URL、ヘッダー、requestPostData、DevTools のリクエストオブジェクトを含む拡張機能全体の絶対メモリ上限ではありません。機密データの編集・出力ポリシーは後続の data-safety 層で扱います。
-- 保存済み設定が不正または読み書き不能な場合は既定値へ戻し、その理由を保持ステータスまたは操作ステータスへ表示します。
+</details>
 
-### 外向きデータの安全性
+## Quick start
 
-Network+ は clipboard copy と HAR download を外向きデータ面として扱い、通常操作を常に sanitized output にします。確認済み full output はその操作 1 回にだけ有効で、設定や既定値として保存しません。
+### Install from the release ZIP
 
-- URL は username/password の両方と、名前に関係なく query および form-like fragment の全 value を `[REDACTED]` へ置換します。parameter 名、順序、重複、path、SPA fragment route は可能な範囲で維持し、解釈不能な fragment は全体を置換します。
-- Header は `Accept`、`Content-Type`、`Content-Length`、encoding、connection、cache directive などの小さな構造 allowlist だけ値を保持します。`Referer` / `Referrer` / `Location` / `Content-Location` / `X-Original-URL` / `X-Rewrite-URL` は URL sanitizer を通し、Cookie、custom `X-*`、auth/security/token/credential/signature/key/trace/request-ID/client-certificate header、`Link` / `Refresh` など安全に解析しない URL header は名前を保って値を置換します。
-- Cookie object の値は名前にかかわらず `[REDACTED]` へ置換します。
-- JSON Body は byte・depth・node 上限内だけ構造解析し、password の contains variant、token/secret/credential/authorization suffix、`sig` / `key` / `jwt` / SAML assertion / ticket / nonce / state / session、および email / phone / address / SSN / tax ID / national ID / birth date / name 系の PII key を防御的 heuristic で再帰置換します。false positive は sanitized mode で許容し、確認済み full output だけが原値を保持します。`application/x-www-form-urlencoded` Body は全 value を置換します。
-- invalid JSON/form、opaque/binary、multipart、base64、上限超過 Body は内容を推測せず `[OMITTED BY NETWORK+]` または HAR の `_networkPlus.status = "omitted"` で明示します。
-- Sanitizer が処理できない場合は fail closed とし、元データへ fallback しません。clipboard/download の失敗は内容を console、status、error text に含めず通知します。
-- cURL、fetch、PowerShell は置換・省略後も quote/escaping を適用し、command syntax を維持します。
-- `Keyboard Shortcuts` ダイアログの `Copy safe support summary` は、直接選択したときだけ、パッケージ版 Network+ version、Edge major、粗い OS family、theme、retention policy/limit、recording/sample state、color-scheme/reduced-motion preference の allowlist をクリップボードへ書き込みます。captured traffic、captured/visible request count、URL、header、body、検索・フィルター値、storage 内容、full user agent は読み取らず、出力しません。公開 Issue へ貼る前に必ず内容を review してください。
+1. Download [network-plus-extension-1.6.0.zip](https://github.com/himiyosh/network-plus-extension/releases/download/v1.6.0/network-plus-extension-1.6.0.zip) — see the [v1.6.0 release notes](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) for what changed.
+2. Extract it into a new folder. Edge loads the folder that contains `manifest.json`, not the ZIP itself.
+3. Open `edge://extensions/` in Microsoft Edge and turn on **Developer mode**.
+4. Choose **Load unpacked** and select the folder from step 2.
+5. Open DevTools (<kbd>F12</kbd>) — a **Network+** tab is now available.
 
-この方針は外向き copy/download の誤共有を減らすもので、DevTools 内の Request/Response 表示、ローカルキャプチャ、メモリ内データを秘匿・消去する機能ではありません。ローカル inspection では取得済みの完全値が表示される場合があります。
+> [!NOTE]
+> Network+ is not published on the Microsoft Edge Add-ons store. The steps above load an unpacked build in Developer mode. See the [privacy notice](docs/privacy.md) for how data is handled, and the [Edge Add-ons submission dossier](docs/edge-addons-submission.md) for the fields a future store submission would need.
 
-## 🚀 セットアップ
+### Install from source
 
-### リリース ZIP から試す
-
-1. [network-plus-extension-1.6.0.zip](https://github.com/himiyosh/network-plus-extension/releases/download/v1.6.0/network-plus-extension-1.6.0.zip) を直接ダウンロードする。変更内容は [v1.6.0 リリース情報](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) で確認できる
-2. ZIP を新しいフォルダへ展開する。`edge://extensions/` の「パッケージ化されていない拡張機能を読み込む」では ZIP 自体ではなく、展開後の `manifest.json` があるフォルダを選択する
-3. Microsoft Edge で `edge://extensions/` を開き、「デベロッパーモード」を有効にする
-4. 「パッケージ化されていない拡張機能を読み込む」を選び、手順 2 の展開先フォルダを指定する
-5. DevTools を開くと「**Network+**」タブが追加される
-
-このリポジトリで確認できる公開情報には、検証済みの Microsoft Edge Add-ons 掲載 URL は含まれていません。上記はリリース ZIP を展開して Developer mode で読み込む手順であり、ストア公開済みという説明ではありません。データの扱いは[プライバシー通知](docs/privacy.md)、問い合わせは [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues/new/choose)、将来の提出用フィールドと外部作業は [Edge Add-ons submission dossier](docs/edge-addons-submission.md) を参照してください。
-
-### ソースから開発する
-
-前提条件は Microsoft Edge 最新安定版と Node.js 22 または 24 LTS です。
+Requirements: current stable Microsoft Edge, and Node.js 22 or 24 LTS for the test and lint tooling.
 
 ```bash
 git clone https://github.com/himiyosh/network-plus-extension.git
@@ -170,289 +72,230 @@ cd network-plus-extension
 npm ci
 ```
 
-Microsoft Edge で `edge://extensions/` を開き、「デベロッパーモード」を有効にして「パッケージ化されていない拡張機能を読み込む」から clone したリポジトリルートを選択します。
+Then open `edge://extensions/`, turn on **Developer mode**, choose **Load unpacked**, and select the cloned repository root. There is no build step — Edge loads the source files as they are.
 
-## 📖 使い方
+### First run
 
-1. DevTools を開き (F12)、「**Network+**」タブを選択
-2. 通信前の空画面では `Explore sample capture` を選ぶと、外部通信や保存を行わず、成功 API・低速 503・304 キャッシュのローカルサンプル 3 件を表示できる。最初の行が選択されるため、そのまま詳細・Timing・検索・統計を確認できる。サンプル中だけステータスバーに表示される `Sample guide` は、失敗リクエスト、支配的な Timing フェーズ、再試行の手掛かり、ブラウザー観測値の制約を先に問い、`Reveal evidence` を選ぶまで根拠や移動アクションを表示しない。Reveal 後にだけ現れる `Inspect Timing evidence` / `Inspect Retry-After header` は、保持中の失敗サンプルを選択し、実際の Response `Timing` / `Headers` へ移動してタブへフォーカスする。対象を隠すサンプル中のカラムフィルターだけを解除し、サンプル開始前のフィルターは終了時に復元する。対象が削除済みならガイドを開いたまま利用不能を通知し、フィルター、選択、実トラフィックを変更しない。実トラフィックとの混在を防ぐためライブ記録は一時停止する。完全な 3 件が保持されている間は、ステータスバーまたはガイドの `Exit · restore prior recording state` でサンプルを明示的に終了し、開始前の記録状態とカラムフィルターへ戻れる。通常・Import・部分削除済みデータではこのアクションを表示せず、従来の `Clear` / `Undo clear` 契約も変更しない
-3. **統合キーワード検索**: `Ctrl+F` または `🔍 Search` ボタンで検索パネルを開く。複数キーワードを入力し、各キーワードの ▲▼ ボタンでマッチ間を移動。色ボタンでハイライトカラーを変更可能
-4. **カラム別フィルタ**: カラムヘッダー右クリック or ツールバーの `Column Filters` ボタンで詳細フィルタ設定
-5. **ソート/並べ替え**: カラムヘッダーのクリックまたは `Enter` / `Space` で昇順/降順/解除を切替。`Alt+←` / `Alt+→` で順序を変更
-6. **リクエスト詳細**: 行クリックで Fiddler 風のタブ付きインスペクター (Request/Response) を表示
-7. **HAR エクスポート**: Export ダイアログでは `Export sanitized HAR` を通常利用する。`Export full HAR` は警告対象を確認し、その 1 回だけ完全データを出力
-8. **テーマ切替**: Theme ボタンで System/Dark/Light を循環切替
-9. **保持設定**: `Retention` ボタンで保持件数を変更。`Keep unlimited requests` は警告表示後にのみ保存でき、Body キャッシュの 1 MiB / 32 MiB 上限は無制限モードでも維持される
-10. **キーボード操作**: 上下キーで行選択、`Context Menu` / `Shift+F10` で行メニュー、各境界の矢印キーでサイズ調整。Filter / Columns / Scope / Color は開いた後に内容へフォーカスし、`Escape` で閉じてトリガーへ戻る
-11. **安全なサポート情報**: Network+ を開ける場合は `Keyboard Shortcuts` の `Copy safe support summary` で allowlist 済みの環境概要を任意でコピーできます。captured traffic は含まれませんが、公開 Issue に貼る前の review は必須です。拡張機能を開けない場合は使用不要で、bug form の version / Edge 欄を手入力できます。
+With the panel open and no traffic captured yet, choose **Explore sample capture**. It loads three synthetic requests (a 200 API call, a slow 503, and a 304 cache hit), sends no network traffic, and pauses live recording so the sample never mixes with real requests. **Exit · restore prior recording state** puts everything back exactly as it was.
 
-### Timing フェーズの見方
+## Features
 
-Response の `Timing` タブには、数値・バー・凡例と同じ場所に `What do the timing phases mean?` のネイティブ開閉ガイドがあります。`Enter` / `Space` でも開閉でき、色やホバーだけに依存せず次の意味を確認できます。
+### Capture and retention
 
-- **Blocked**: ブラウザー内でリクエスト開始を待った時間（利用可能な接続待ちなど）
-- **DNS**: 接続前のホスト名解決に報告された時間
-- **Connect**: 接続確立に報告された時間。TLS が別途報告される場合は重複表示を避けるため TLS 分を除外
-- **TLS (SSL)**: TLS/SSL ネゴシエーションに報告された時間
-- **Send**: HTTP リクエストの送信に報告された時間
-- **Wait (TTFB)**: 送信後、レスポンス開始まで待機した時間（一般に TTFB と呼ばれる）
-- **Receive**: 最初のレスポンスバイト以降を受信した時間
+- Live capture through `chrome.devtools.network.onRequestFinished`, appended per animation frame so existing rows are never re-rendered.
+- Retention defaults to the newest 5,000 requests, configurable from 100 to 100,000. Unlimited request rows are available only after you confirm an explicit warning.
+- Response bodies are capped independently at 1 MiB per body and 32 MiB across the shared cache, with least-recently-used eviction that keeps the rows themselves.
+- Pause / Resume recording, auto-scroll that switches itself off when you scroll up, and `Clear` with a 10-second **Undo clear**.
+- Import HAR (`.har`) and Fiddler SAZ (`.saz`) archives; import is atomic and never destroys the current capture if the file is rejected.
 
-**観測上の制約**: これらはブラウザーがリクエスト単位で報告した時間です。パケット損失、ケーブルや RF の障害、またはサーバー上の決定的な根本原因を証明するものではありません。
+### Inspect
 
-定義の参照先:
+- 13 columns — ID, ClientStart, ServerDone, Method, Status, Domain, Path, Type, Duration, and Size, plus Initiator, URL, and Waterfall hidden by default. Visibility, width, and order all persist.
+- Tabbed inspector: Request (Headers / Body / Query / Cookies / Raw) and Response (Headers / Body / Preview / Cookies / Timing / Raw).
+- Timing breakdown per phase (blocked, DNS, connect, TLS, send, wait, receive) with an inline guide and an explicit statement of what browser-reported timing cannot prove.
+- **Compare 2 selected requests** — <kbd>Ctrl</kbd>/<kbd>⌘</kbd>-click exactly two rows to diff URL, query parameters, method, status, protocol, headers, and body, with matching, changed, and one-sided values color-coded.
+- Initiator links open the originating source file in DevTools.
+- Waterfall column visualizes each request's start offset and timing phases inline.
 
-- [HAR 1.2 Specification — timings](http://www.softwareishard.com/blog/har-12-spec/)
-- [W3C Resource Timing Level 2](https://www.w3.org/TR/resource-timing-2/)
-- [Chrome DevTools Network overview](https://developer.chrome.com/docs/devtools/network/overview/)
+### Find
 
-## 🛠️ 開発
+- Integrated multi-keyword search (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>): one input per keyword, six highlight colors, per-keyword match counts and ▲▼ navigation, and a scope switch for URL / Body / Headers.
+- Per-column filters: a visual local-time range picker for ClientStart and ServerDone, method multi-select, repeatable `contains` / `notcontains` rules for domain and path, and any/all/exclude logic for URLs.
+- Named filter presets — save, restore, and delete up to 20 filter configurations. Presets store filter values only, never captured traffic.
+- Status bar statistics: 2xx / 3xx / 4xx / 5xx / other counts plus average, minimum, and maximum response time, recalculated as filters change.
 
-```bash
-npm ci                  # lockfile に基づく依存関係インストール
-npm test                # Jest テスト実行 (カバレッジ付き)
-npm run lint            # 全 first-party JavaScript の ESLint 実行
-npm run version:check   # 5箇所のリリース version と README のリリース ZIP 導線の同期チェック
-npm run integrity:check # package-lock.json の provenance チェック
-npm run extension:check # manifest、権限、参照、CSP、配布 allowlist の検証
-npm run extension:package # dist/ に検証済みのリリース ZIP を作成
-npm run store:check     # Edge Add-ons 提出資料、privacy、合成 PNG の整合性チェック
-npm run text:check -- --base <base-sha> --head <head-sha> # 変更差分の whitespace / encoding チェック
-npm run format:check    # CI 対象ファイルの Prettier チェック
-npm run format          # CI 対象ファイルの Prettier フォーマット
+### Share safely
+
+- **Sanitized HAR** (`network-plus-sanitized.har`) is the normal export. **Full HAR** is a separate action gated behind a warning you confirm every single time.
+- Copy actions — Summary, URL, request/response body, raw request/response, cURL, fetch, PowerShell — are sanitized by default and keep valid command syntax after redaction.
+- `Copy safe support summary` in the Keyboard Shortcuts dialog copies an allowlisted environment snapshot (version, Edge major, coarse OS family, theme, retention, recording state, display preferences) and no captured traffic. Review it before posting it publicly.
+
+### Fit and finish
+
+- System / Dark / Light themes, persisted via `chrome.storage.local`, all meeting WCAG 2.2 AA for small text and 3:1 for control boundaries.
+- Full keyboard operation, with a shortcut reference on <kbd>?</kbd>.
+- Responsive from 320 px up; below 700 px the request list stacks above the detail panel.
+- Match badges never rely on color alone, status changes are announced to screen readers, and decorative motion respects `prefers-reduced-motion`.
+
+## Usage
+
+1. Open DevTools (<kbd>F12</kbd>) and select the **Network+** tab.
+2. Reproduce the problem. Rows stream in live; use **Pause** to freeze the working set.
+3. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> and add keywords. Each keyword gets its own color and its own ▲▼ navigation.
+4. Right-click a column header for a filter scoped to that column, or use **Column Filters** to edit them all at once. Save what worked with **Presets**.
+5. Click a row to inspect it; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>-click a second row and choose **Compare 2 selected requests** from the context menu.
+6. Export with **Export sanitized HAR**, or copy a single request as cURL / fetch / PowerShell.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| <kbd>↑</kbd> / <kbd>↓</kbd> | Navigate rows |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> | Select row / open details |
+| <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> | Toggle the search panel |
+| <kbd>Ctrl</kbd>+<kbd>L</kbd> (Windows/Linux) · <kbd>⌘</kbd>+<kbd>K</kbd> (macOS) | Clear all requests |
+| <kbd>?</kbd> | Show the keyboard shortcut reference |
+| <kbd>Esc</kbd> | Close the current panel, popup, or search |
+| <kbd>ContextMenu</kbd> / <kbd>Shift</kbd>+<kbd>F10</kbd> | Row context menu |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> on a column header | Sort ascending → descending → off |
+| <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd> | Move the focused column left / right |
+| <kbd>←</kbd> / <kbd>→</kbd> on a resizer or divider | Resize by a small step (<kbd>Shift</kbd> for a large step) |
+
+The in-app dialog on <kbd>?</kbd> lists every binding, including the vertical divider keys used below 700 px.
+
+### Reading the Timing tab
+
+The Response **Timing** tab includes a native disclosure, `What do the timing phases mean?`, next to the numbers and legend. It opens with <kbd>Enter</kbd> or <kbd>Space</kbd>, so the meaning never depends on color or hover alone.
+
+| Phase | Reported time |
+|---|---|
+| **Blocked** | Waiting inside the browser before the request could start, such as waiting for a usable connection. |
+| **DNS** | Resolving the host name before connecting. |
+| **Connect** | Establishing the connection. When TLS is reported separately, it is excluded here so the phases are not counted twice. |
+| **TLS (SSL)** | TLS/SSL negotiation. |
+| **Send** | Sending the HTTP request. |
+| **Wait (TTFB)** | Waiting after the request was sent until the response started — commonly called TTFB. |
+| **Receive** | Receiving the response from the first byte onward. |
+
+**Observability limit:** these are times the browser reported for one request. They help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause on the server.
+
+Definitions follow the [HAR 1.2 specification (timings)](http://www.softwareishard.com/blog/har-12-spec/), [W3C Resource Timing Level 2](https://www.w3.org/TR/resource-timing-2/), and the [Chrome DevTools Network overview](https://developer.chrome.com/docs/devtools/network/overview/).
+
+## Data safety
+
+Network+ treats the clipboard and HAR downloads as its only outbound surfaces, and makes the safe form the default one. A confirmed full output applies to that single action and is never stored as a preference.
+
+- **URLs** — credentials and every query and form-like fragment value are replaced with `[REDACTED]`, regardless of parameter name. Names, order, paths, and SPA fragment routes are preserved where they can be parsed.
+- **Headers** — only a small structural allowlist (`Accept`, `Content-Type`, `Content-Length`, encoding, connection, and cache directives) keeps its value. URL-bearing headers are run through the URL sanitizer; cookies, `X-*`, and anything auth-, token-, key-, or trace-shaped keeps its name and loses its value.
+- **Bodies** — JSON is parsed within byte, depth, and node limits and redacted by defensive heuristics for credential- and PII-shaped keys; form bodies have every value replaced. Anything opaque, binary, multipart, base64, or over the limit is marked `[OMITTED BY NETWORK+]` rather than guessed at.
+- **Fail closed** — if the sanitizer cannot process something, the operation fails instead of falling back to the raw data. Clipboard and download errors never echo content into the console, status text, or error messages.
+- **HAR provenance** — the sanitized archive records the policy, counts, and any body incompleteness under `_networkPlus`.
+
+This reduces accidental disclosure in what you send outward. It is not a redaction layer for what you see inside DevTools: local inspection still shows the captured values. Full details are in the [privacy notice](docs/privacy.md).
+
+## How it works
+
+```
+Microsoft Edge DevTools
+└── devtools.html          registers the panel via chrome.devtools.panels.create()
+    └── panel.html         panel UI
+        ├── panel.js       all logic (single IIFE, 15 sections)
+        └── panel.css      System / Dark / Light themes via CSS custom properties
 ```
 
-本拡張機能はビルドレス構成です。ソースを直接 Edge に読み込むため、コンパイルやバンドルを行うビルドコマンドはありません。`extension:package` は実行コードを変換せず、明示したランタイム10ファイルだけを `dist/` の ZIP へ格納します。
+- **DevTools panel extension.** Requests arrive through `chrome.devtools.network.onRequestFinished`.
+- **No ES modules.** DevTools panel pages do not support `<script type="module">`, so all logic lives in one IIFE file. This is a platform constraint, not a style choice.
+- **Buildless.** No bundler, no transpiler. `npm run extension:package` copies an explicit allowlist of 10 runtime files into a ZIP without transforming any code.
 
-`.github/workflows/quality-gates.yml` は Node.js 22 / 24 の matrix で `npm ci` を使用し、Jest、ESLint、release version sync、Prettier、lockfile provenance、変更差分の text integrity、拡張機能パッケージ整合性、Edge Add-ons 提出キット整合性を検証します。
-
-## 🤖 Copilot カスタマイズ
-
-Primary Agent は [NetworkPlusAgent](.github/agents/NetworkPlusAgent.agent.md)、UI 品質ゲートは [UI/UX Review Agent](.github/agents/ui-review.agent.md) です。UI デザインには vendored Hallmark 1.1.0 を **`/hallmark`** で呼び出し、`audit` / `redesign` / `study` verb を利用できます。
-
-Hallmark は実際の Edge DevTools パネルだけに適用します。Network+ の 3 テーマ、密度、キーボード、XSS、データ正確性、IIFE、テスト、および既存 6 軸レビューが Hallmark より優先します。固定元と更新手順は [UPSTREAM.md](.github/skills/hallmark/UPSTREAM.md) を参照してください。
-
-## 🧪 テスト
-
-| 対象 | 手法 | 場所 |
-|------|------|------|
-| **純粋関数** | Jest ユニットテスト | [tests/panel.test.js](tests/panel.test.js) |
-| **リポジトリ整合性** | Jest ユニットテスト + CI | [tests/repository-integrity.test.js](tests/repository-integrity.test.js) |
-| **拡張機能パッケージ整合性** | Jest ユニットテスト + CI | [tests/extension-package.test.js](tests/extension-package.test.js) |
-| **Edge Add-ons 提出キット整合性** | Jest ユニットテスト + CI | [tests/store-readiness.test.js](tests/store-readiness.test.js) |
-| **変更差分整合性** | Jest ユニットテスト + CI | [tests/text-integrity.test.js](tests/text-integrity.test.js) |
-| **コーディネーター契約** | Jest 静的契約テスト + CI | [tests/coordinator-contract.test.js](tests/coordinator-contract.test.js) |
-| **DOM 操作** | 手動テスト (Edge DevTools で拡張機能をロードして確認) | - |
-| **テーマ / UI 契約** | Jest 静的契約テスト + 手動テスト (System/Dark/Light 切替確認) | [tests/ui-contract.test.js](tests/ui-contract.test.js) |
-| **エクスポート** | 手動テスト (HAR ファイルの内容検証) | - |
-
-テスト環境のモック設定は [tests/setup.js](tests/setup.js) を参照。
-
-### ガイド付きサンプル手動テスト
-
-- [ ] リクエストが 0 件のときだけ `Explore sample capture` が表示され、320 / 375 / 414 / 768px 幅でツールバーを横スクロールせずに読める
-- [ ] キーボードでアクションへ移動でき、フォーカスリング、`Enter` / `Space`、スクリーンリーダー向け説明が機能する
-- [ ] リクエスト 0 件で Pause / Resume を切り替えると空画面の見出しと説明が同期し、status bar は狭幅でも 1 行の水平スクロールに留まる
-- [ ] 起動後に `.test` ドメインの 200 API、低速 503、304 asset が各 1 件だけ表示され、先頭行へフォーカスして詳細が開く
-- [ ] 起動直後の status と常時表示の `Local sample · live paused`、`Exit · restore prior recording state` が、ローカル合成データ、外部通信なし、ライブ記録一時停止、開始前の記録状態とカラムフィルターへの復帰経路を明示する
-- [ ] `Sample guide` はローカルサンプル中だけ表示され、通常キャプチャ、通信前の空画面、実リクエストがフィルターで 0 件に見える状態では表示されない
-- [ ] ステータスバーとガイドの終了アクションは完全な 3 件の既知サンプルだけで表示され、通常キャプチャ、Import、部分削除、署名不一致、保持済みでない行では hidden / disabled のまま fail closed になる
-- [ ] ガイドを開いた時点では「失敗リクエスト」「支配的な Timing フェーズ」「再試行の手掛かり」「ブラウザー Timing が証明できないこと」の 4 問だけが読み上げられ、回答値や移動アクションは DOM・アクセシビリティツリー・フォーカス順・画面のいずれにも存在しない
-- [ ] `Reveal evidence` 後だけ `POST /v1/orders/preview`、`HTTP 503`、合計 `2,450 ms`、支配的な `Wait (TTFB) · 2,200 ms`、`Retry-After: 30 seconds`、ブラウザー Timing はサーバー上の根本原因を証明しないという制約と 2 つの移動アクションが生成される
-- [ ] `Inspect Timing evidence` をキーボードまたはタッチで実行するとガイドがトリガーへフォーカスを戻さず閉じ、失敗サンプル行を選択・表示して Response `Timing` を有効化し、同タブへフォーカスした後、支配的なフェーズを status で通知する
-- [ ] `Inspect Retry-After header` をキーボードまたはタッチで実行すると同じ失敗サンプル行の Response `Headers` を有効化して同タブへフォーカスし、再試行値を raw traffic の複製なしで status に通知する
-- [ ] 対象行を隠すサンプル中のカラムフィルターがある場合は、その対象を拒否するルールだけを解除して理由を通知し、キーワード検索、他のルール、サンプル開始前の退避フィルターを変更しない。サンプル終了時は退避フィルターが復元される
-- [ ] 失敗行の削除・保持上限による除外ではガイドを開いたまま利用不能を通知し、フィルター、選択、実トラフィックを変更しない。通常・Import データや `.test` 以外の一致風データには移動しない
-- [ ] `Clear` / Undo / 明示的なサンプル終了後はガイドが閉じた未 reveal 状態へ戻り、試行・移動状態を保存しない
-- [ ] 320 / 375 / 414 / 768px の Light / Dark で prompt、reveal、2 つの移動アクション、終了アクション、Close が 24px 以上の操作領域を保ち、文書ルートの横スクロール、文字切れ、画面外ダイアログが発生しない。`Escape` / Close / backdrop はトリガーへ戻り、reveal 後は根拠見出し、移動後は有効な Response タブ、終了後は再生成された空画面アクションへフォーカスする
-- [ ] サンプルの Body / Headers / Timing / 統計 / キーワード検索 / sanitized HAR が動作し、顧客データやシークレット風の値を含まない
-- [ ] 空画面の表示後に実通信が先に到着した場合はサンプルを追加せず、既存行と混在しない
-- [ ] `Delete Selected` / `Keep Selected` で一部だけ残した場合は status のサンプル残件数が更新され、明示的な終了アクションが消え、全件削除時はサンプルモードを終了する
-- [ ] サンプル起動時だけ既存のカラムフィルターを一時退避して 3 件すべてを表示し、明示的な終了、全件削除、Import で元のフィルターと件数表示を復元する。`Clear` は従来どおりフィルターを既定値へ戻す
-- [ ] 明示的な終了は検索条件を維持したままマッチを 0 件へ再計算し、サンプルの選択・詳細・比較・ハイライトを解放し、Clear Undo snapshot を作成しない。開始前が paused なら paused のまま、recording なら live recording へ戻る
-- [ ] `Clear` 後は 3 件すべてと詳細・検索・統計が消え、フォーカスが `Clear` に戻り、ステータスバーへ `Undo clear` が 10 秒間だけ表示される
-- [ ] `Undo clear` をキーボードで 1 回だけ実行でき、サンプル 3 件、詳細、フィルター、検索条件とスコープ、選択・ハイライト、ソート、元の記録状態、予測可能な行フォーカスが戻る。ライブ通信が先に到着した場合はサンプルを復元せず、通常の Clear では保持上限内の新規通信を残して復元する
-- [ ] System / Dark / Light の各テーマでアクションの通常・hover・active・focus・disabled 状態が判別できる
-
-### キーボード手動テスト
-
-[Copilot Instructions の手動テストチェックリスト](.github/copilot-instructions.md#66-手動テストチェックリスト) と併せて、次を確認してください。
-
-- [ ] ヘッダーの `Enter` / `Space` で `aria-sort` と表示順が同期し、`Alt+←` / `Alt+→` 後も同じヘッダーへフォーカスが戻る
-- [ ] カラム、メイン分割、Request/Response 分割の各境界を矢印キーで変更でき、最小サイズを下回らない
-- [ ] 行の上下選択、`Ctrl` / `Cmd+C`、複数選択、`Context Menu` / `Shift+F10` のメニュー操作とフォーカス復帰が維持される
-- [ ] `Ctrl`/`Cmd` クリックでちょうど 2 行を選択した後、右クリックメニューに「Compare 2 selected requests」が表示される
-- [ ] 比較ビューで URL・クエリパラメータ・Method/Status・リクエスト/レスポンスヘッダー・Body のセクションが正しく表示される
-- [ ] 比較ビューの Body セクションで、省略・退避・未取得の Body が適切な状態ラベルで表示される
-- [ ] ✕ ボタンをクリックすると比較ビューが閉じて通常の詳細パネルに戻る
-- [ ] 比較ビュー表示中に別の行を単一クリックすると比較ビューが閉じて選択行の詳細に切り替わる
-- [ ] 通常の Summary / URL / Body / Raw / cURL / fetch / PowerShell copy が sanitized と表示され、完全 copy は警告確認後だけ clipboard へ書き込まれる
-- [ ] Export ダイアログの sanitized HAR と full HAR が別 filename になり、full HAR の確認状態が次の操作へ残らない
-- [ ] Filter / Columns / Scope / Color をキーボードで開閉でき、初期フォーカス、`Escape`、画面端でのクランプが機能する
-
-### 大量通信・増分描画の手動テスト
-
-- [ ] ソートなしまたは ID 昇順、フィルター・検索なしで大量通信を発生させ、既存行の DOM が維持されたまま新規行だけがフレーム単位で追加される
-- [ ] ID 降順、他カラムのソート、カラムフィルター、検索キーワードの各状態で、新規通信が正しい表示順・可視性・検索バッジを保つ
-- [ ] 新規通信のフレーム待機中にソートまたはフィルターを変更しても、重複行や古い検索状態が発生しない
-- [ ] 通常クリック、上下キー、Ctrl/Cmd トグルで DOM 順序・フォーカス・詳細・選択件数/サイズが維持される
-- [ ] 最下部にいる場合だけ自動スクロールし、上へ手動スクロールした後は新規通信でも位置が移動しない
-- [ ] Clear、HAR/SAZ Import、Columns 変更、Keep/Delete Selected の直後も件数・転送量・行 ID が一致する
-- [ ] Response の `Timing` タブでフェーズガイドを `Enter` / `Space` で開閉でき、Blocked/DNS/Connect（TLS 重複除外）/TLS/Send/Wait (TTFB)/Receive と観測上の制約が 320 / 375 / 414 / 768px 幅で読める
-
-## 🧾 バージョニングルール
-
-- **方式**: Semantic Versioning (`MAJOR.MINOR.PATCH`)
-- **同期対象**: [manifest.json](manifest.json)、[package.json](package.json)、[package-lock.json](package-lock.json) の top-level / root `version`、[panel.js](panel.js) のテスト用fallback定数を必ず同一値にする
-- **現在バージョン**: `1.6.0`
-
-| 変更種別 | 上げる番号 | 例 |
-|---|---|---|
-| 破壊的変更 (後方互換なし) | `MAJOR` | フィルタ設定フォーマット変更、既存 UI 動作の互換性破壊 |
-| 機能追加 (後方互換あり) | `MINOR` | 新しいソート機能、演算子追加 |
-| バグ修正 / ドキュメント修正 | `PATCH` | フィルタ判定バグ修正、README 修正 |
-
-運用ポリシー (重要):
-- `version` は**コミットごとに更新しない**。更新は**リリース時のみ**行う。
-- 開発中の複数コミットは同一バージョンのまま進め、リリース確定時に 1 回だけ更新する。
-- 基本方針は `PATCH` 優先。`MINOR` はユーザー影響のある機能追加をまとめてリリースする時だけ使用する。
-- 1 機能を複数回コミットした場合でも、最終リリースでは 1 回のバージョン更新に集約する。
-
-バージョン更新時チェックリスト:
-- [manifest.json](manifest.json)、[package.json](package.json)、[package-lock.json](package-lock.json) の `version` を同時更新
-- `npm run version:check` を実行して5箇所のバージョンと README のリリース ZIP 導線の同期を確認
-- 機能追加・仕様変更時は README の該当セクションも同一コミットで更新
-
-## 🧰 技術スタック
-
-- **Manifest V3** --- Microsoft Edge 拡張機能 (Chromium ベース, CSP 明示設定)
-- **Vanilla JS (ES2020)** --- フレームワーク・ビルドツール不要、`const`/`let`・アロー関数使用
-- **CSS Custom Properties** --- テーマ切替
-- **Edge 拡張 API (`chrome.devtools`)** --- ネットワークリクエストキャプチャ、パネル生成、ソースファイルオープン
-- **ESLint + Prettier** --- コード品質・フォーマット統一
-- **Jest** --- ユニットテスト
-
-## 🔒 セキュリティ
-
-- ユーザーデータ (URL、ヘッダー名/値等) の DOM 描画はすべて `textContent` または DOM API を使用 (`innerHTML` 未使用)
-- Content Security Policy を [manifest.json](manifest.json) で明示設定 (`script-src 'self'; object-src 'self'`)
-- 拡張機能の権限は `storage` のみ。テーマ設定の永続化に `chrome.storage.local` を使用する
-- HAR はローカルの Blob / Object URL と一時的な `<a download>` で保存し、`chrome.downloads` API と `downloads` 権限は使用しない
-- manifestのtop-level keyは現在使用する8項目だけを許可し、host/background/content scriptなど未使用のprivileged surfaceは存在自体を拒否する。将来追加する場合はvalidator、テスト、本セキュリティ説明を同時更新する
-- `npm run extension:check` は権限の完全一致と実使用、runtime pathのsymlink/root境界、HTML/CSS resourceのlocality、inline script禁止、CSP、配布allowlistを検証する
-- Network+ がアクセス・ローカル処理する通信情報、永続化する UI 設定、Clear/Undo、sanitized/full output の境界は[プライバシー通知](docs/privacy.md)に記載する
-
-## ⚠️ 注意事項 / 制約
-
-- **Microsoft Edge 専用** --- Chrome でも動作する可能性はあるが、テスト・サポート対象は Edge のみ
-- **DevTools パネルは ES Modules 非対応** --- IIFE 単一ファイル構成を採用しているため、`import`/`export` は使用不可
-- **ビルドレス設計** --- バンドラ不使用。`extension:package` は変換や依存解決を行わず、監査済みランタイムファイルだけをZIP化する
-- **ローカル専用** --- ネットワーク通信や外部 API とのデータ送受信は行わない
-- **Timing は診断の手掛かり** --- 表示値は HAR / ブラウザーの観測値であり、パケット損失、ケーブルや RF の障害、またはサーバー上の決定的な根本原因を証明しない
-
-## 📚 関連ドキュメント
-
-| ファイル | 説明 |
+| Limit | Value |
 |---|---|
-| [.github/copilot-instructions.md](.github/copilot-instructions.md) | Copilot 動作ルール (コーディング規約、セキュリティ、テスト方針) |
-| [.github/agents/NetworkPlusAgent.agent.md](.github/agents/NetworkPlusAgent.agent.md) | Primary project agent と Hallmark ルーティング |
-| [.github/agents/ui-review.agent.md](.github/agents/ui-review.agent.md) | Network+ 固有の 6 軸 UI/UX 品質ゲート |
-| [.github/skills/hallmark/SKILL.md](.github/skills/hallmark/SKILL.md) | Hallmark 1.1.0 (`/hallmark`) |
-| [.github/skills/hallmark/UPSTREAM.md](.github/skills/hallmark/UPSTREAM.md) | Hallmark の固定元、parity、更新手順 |
-| [docs/coordinator-topology.md](docs/coordinator-topology.md) | コーディネーターセッショントポロジー、独立レビュー、クリーンアップゲート、Host-Tool Fallback |
-| [docs/DESIGN.md](docs/DESIGN.md) | UI トークン、コンポーネント、テーマ運用ルール |
-| [docs/PRODUCT.md](docs/PRODUCT.md) | 対象ユーザー、製品目的、設計原則、WCAG 2.2 AA 基準 |
-| [docs/edge-addons-submission.md](docs/edge-addons-submission.md) | en-US Edge Add-ons 提出フィールド、privacy 宣言、certification notes、外部作業境界 |
-| [docs/privacy.md](docs/privacy.md) | 通信情報のローカル処理、保存、Clear/Undo、clipboard/HAR 出力に関する公開通知 |
-| [docs/store-assets/](docs/store-assets/) | 300x300 ロゴ、1280x800 合成サンプル画像、機械可読 inventory |
-| docs/unified-project-rules.md | JPUCSupport 共通プロジェクトルール (ローカル参照用, gitignore 対象) |
-| [scripts/check-coordinator-contract.js](scripts/check-coordinator-contract.js) | コーディネータートポロジー規約と agent `tools:` 制限リスト再導入の静的チェック |
-| [.github/workflows/trusted-independent-review.yml](.github/workflows/trusted-independent-review.yml) | PR のコードを一切実行せず default branch の checker だけで exact-head marker を検証し、`independent-review` commit status を fail closed で発行する code-trust boundary (issue #95) |
-| [scripts/check-independent-review.js](scripts/check-independent-review.js) | repository Actions variables の reviewer/merger UUID 分離、GitHub `OWNER` comment の exact-head PASS marker、`Copilot-Session` attribution との独立性、収集前後の metadata 総数安定性、および最大 250 件の commit collection 完全性を検証する required CI gate |
-| [scripts/check-extension-package.js](scripts/check-extension-package.js) | 拡張機能の参照・権限・配布内容チェックとZIP作成 |
-| [scripts/check-store-readiness.js](scripts/check-store-readiness.js) | package discovery metadata、Edge Add-ons dossier/privacy、URL、manifest同期、合成 PNG 寸法・inventory の静的チェック |
-| [scripts/check-version-sync.js](scripts/check-version-sync.js) | manifest/package/package-lock/panel fallback バージョン同期チェックスクリプト |
-| [manifest.json](manifest.json) | 拡張機能マニフェスト (Manifest V3) |
-| [LICENSE](LICENSE) | MIT License |
+| Request rows | 5,000 by default · configurable 100–100,000 · unlimited only after explicit confirmation |
+| Response body | 1 MiB per body · 32 MiB across the shared cache |
+| Import file | 32 MiB per file |
+| SAZ archive | 20,000 entries · 4 MiB per expanded entry · 64 MiB expanded in total |
 
-<details>
-<summary>📋 変更履歴 (クリックで展開)</summary>
+The status bar continuously shows the active retention policy, body cache usage, and cumulative row-eviction, body-omission, body-eviction, and preview-omission counts. See [docs/architecture.md](docs/architecture.md) for the rendering pipeline, eviction rules, import validation, and UI stability rules.
 
-### Unreleased
+## Development
 
-- independent-review 検証の code-trust boundary を追加 (issue #95)。`pull_request_target` / `issue_comment` は base repository の default branch から workflow 定義が解決されるため、PR 由来のコードを checkout も実行もしない専用 workflow が default branch の checker だけで exact-head marker を検証し、`independent-review` commit status を fail closed で発行する。checker・テスト・workflow を書き換える PR でも、その run が何を検証するかを変えられない。最小権限 (`permissions: {}` + status write のみ)、依存インストールなし、検証前の failure seed、marker 投稿・削除への追従を、step allowlist と step 本文 digest の変異テストで固定
-- 上記 pin を赤チームで 2 回検証し、実測で見つかった迂回路を塞いだ。1 回目は step 本文を 1 バイトも変えずに gate を無力化できる経路 (job 級 `container:` / `defaults.run.shell` / job 級 `env:` shadowing / 2 つ目の job / `on:` の `paths-ignore` / top-level `env:` の `GH_HOST`・`NODE_OPTIONS`)、2 回目は `on:` より上の領域がどの digest にも入らず top-level 鍵の列挙が行 regex だったため Prettier 正準形の `'defaults':` で `run.shell` を差し替えられる経路。top-level key・job id・job key の列挙、job header の digest に加え、最終 catch-all を **workflow ファイル全体の digest** とし、regex で領域を切ることに依存しない構造にした。いずれの経路も変異テストで固定
-- 上記境界が守らない範囲を実測して明記 (PR #120)。commit status の名前空間は Actions app 共通で、PR 内 workflow が `permissions: statuses: write` を宣言すれば同じ context を投稿できるため、branch protection では投稿者を区別できない。無自覚な弱体化は機械的に不可能になったが、故意の偽装は防げない。恒久解である独立所有 GitHub App の check は issue #95 に残課題として維持
-- 高優先度 audit 勧告を依存更新で解消 (brace-expansion GHSA-rgw5-rvv9-x895 は 1.1.18/2.1.4/5.0.9 へ、js-yaml GHSA-5p4m-2wfm-xmqj は `@istanbuljs/load-nyc-config` が宣言する `^3.13.1` の範囲内にある backport 3.15.1 へ)。audit がクリーンになったため、期限付き一時許可の `scripts/check-audit-policy.js` をポリシー自身の指示どおり撤去し、`audit:strict` を素の `npm audit --audit-level=high` に置換
-- independent-review gate を repository Actions variables の設定済み reviewer UUID に拘束し、reviewer/merger の missing・malformed・equal configuration、mismatched marker、空の implementation-session attribution、収集中に変化した PR metadata 総数を marker 評価前に fail closed。Network+ 固有 marker と deterministic variable rotation/recovery runbook、issue #95 の外部 trusted-check 境界も明文化
-- independent-review gate で pull request metadata の総コミット数を取得し、最大 250 件の PR commit collection と一致しない場合は marker 評価前に fail closed。250 件を超える PR は 250 件以下の複数 PR に分割して review gate を再実行
-- required Node 22/24 CI の最終 step に exact-head `independent-review` marker gate を追加し、GitHub `OWNER` comment の first non-empty unfenced line にある marker、full reviewer UUID、physical/escaped PR commit の `Copilot-Session` trailer との不一致を必須化
-- 検証済みの description、homepage、support route、7 件の search vocabulary を `package.json` に記録し、`store:check` で manifest / Edge Add-ons dossier との drift を拒否。README 冒頭から release ZIP と support へ直接移動できる導線も追加
-- 完全なローカルサンプル中だけ、ステータスバーと `Sample guide` に `Exit · restore prior recording state` を追加。3 件の provenance / method / domain / path / status を検証して fail closed に終了し、開始前の記録状態とカラムフィルターを復元
-- `Keyboard Shortcuts` ダイアログに、captured traffic を読まず、allowlist 済みの version / Edge major / coarse OS / settings のみを直接操作時にコピーする任意の `Copy safe support summary` を追加
-- ローカルサンプル中だけ使える `Sample guide` を追加。4 つの調査プロンプトを先に示し、明示的な reveal 後だけ決定論的サンプル源から失敗リクエスト、支配的 Timing、再試行ヘッダー、観測上の制約を表示
-- Timing フェーズの点検可能なガイドと、ブラウザー観測値がパケット損失・ケーブル/RF 障害・決定的な根本原因を証明しない制約を Response の `Timing` タブと README に追加
-- フィルタープリセット: `Presets` ボタンからカラムフィルター設定を名前付きで最大 20 件保存・復元・削除。キャプチャしたリクエスト情報は保存せず、localStorage のみ使用
-- キーボードショートカット一覧: `?` キーまたはツールバーの `⌨️ ?` ボタンで一覧をダイアログ表示。Esc / Close でフォーカス復帰
-- `serializeFilterState` / `deserializeFilterState` / `normalizePresetName` を純粋関数として、`loadFilterPresets` / `saveFilterPresets` をテスト可能なストレージ関数としてエクスポートし、Jest テストを追加
-- フィルタープリセットおよびショートカット機能の消失を防ぐ静的回帰テストを `tests/ui-contract.test.js` に追加
+```bash
+npm ci                    # install dependencies from the lockfile
+npm test                  # Jest with coverage
+npm run lint              # ESLint over all first-party JavaScript
+npm run format            # Prettier write (format:check for CI parity)
+npm run version:check     # 5 release version locations + README release routes
+npm run integrity:check   # package-lock.json provenance
+npm run extension:check   # manifest, permissions, references, CSP, distribution allowlist
+npm run extension:package # build the verified release ZIP into dist/
+npm run store:check       # Edge Add-ons dossier, privacy notice, and store PNG consistency
+npm run contract:check    # coordinator topology and agent tool-restriction contracts
+npm run audit:strict      # npm audit --audit-level=high
+npm run text:check -- --base <base-sha> --head <head-sha>   # whitespace / encoding of changed lines
+```
 
-### v1.6.0
+[`.github/workflows/quality-gates.yml`](.github/workflows/quality-gates.yml) runs a Node.js 22 / 24 matrix over `npm ci`, Jest, ESLint, release version sync, Prettier, lockfile provenance, changed-line text integrity, extension package integrity, Edge Add-ons submission-kit integrity, and the independent-review marker gate.
 
-- 幅700px以下の上下分割、viewport内ポップアップ、全テーマのWCAG 2.2 AAコントラストを含むresponsive/a11y hardening
-- キーボードでのソート、カラム並べ替え、行/メニュー/タブ移動、境界リサイズ、フォーカス復帰を強化
-- epoch時刻ソート、Timingの重複排除、遅延Body競合防止、保持時の選択・統計整合性を含むdata-integrity hardening
-- 自然順のライブ取得をフレーム単位のDocumentFragment追記へ切り替え、batch renderingと検索更新を安定化
-- リクエスト保持上限とレスポンスBodyの個別/合計上限、退避・省略状態、HAR/SAZ import保持ポリシーを追加
-- HAR、clipboard、cURL、fetch、PowerShellをsanitized既定にし、full outputを操作ごとの警告確認に限定
-- Node.js 22/24でJest、ESLint、format、version、text/lock/package integrity、auditを実行するCI gatesを整備
-- 未使用の`downloads`権限を削除し、実使用される`storage`だけを自動回帰チェックで固定
-- 明示allowlistの10ランタイムファイルだけを格納する再現可能なリリースZIP作成を追加
+### Tests
 
-### v1.5.0
+| Area | Method | Location |
+|---|---|---|
+| Pure functions | Jest unit tests | [tests/panel.test.js](tests/panel.test.js) |
+| Theme / UI contracts | Jest static contract tests | [tests/ui-contract.test.js](tests/ui-contract.test.js) |
+| Extension package integrity | Jest + CI | [tests/extension-package.test.js](tests/extension-package.test.js) |
+| Repository integrity | Jest + CI | [tests/repository-integrity.test.js](tests/repository-integrity.test.js) |
+| Store submission kit | Jest + CI | [tests/store-readiness.test.js](tests/store-readiness.test.js) |
+| Support intake forms | Jest + CI | [tests/support-intake.test.js](tests/support-intake.test.js) |
+| Changed-line integrity | Jest + CI | [tests/text-integrity.test.js](tests/text-integrity.test.js) |
+| Coordinator contracts | Jest static contract tests | [tests/coordinator-contract.test.js](tests/coordinator-contract.test.js) |
+| DOM behavior, export contents, theme switching | Manual, in Edge DevTools | [docs/manual-test-checklist.md](docs/manual-test-checklist.md) |
 
-- グローバルフィルタとディープサーチを統合し、複数キーワード対応の統合検索機能に刷新
-- 各キーワードに独立した入力欄・色選択・マッチ数表示・▲▼ナビゲーションを配置
-- 検索対象: URL/Domain/Path/Method/Status/Type + Request/Response Body + Headers (スコープ切替可)
-- 6 色 (Yellow/Red/Green/Blue/Purple/Orange) のキーワード別ハイライト (行背景 + テキスト)
-- カラムヘッダーの sticky 表示が機能しない問題を修正
-- フィルター設定の operator ドロップダウンが contains 以外表示されない問題を修正
-- 大量通信時の描画パフォーマンスを requestAnimationFrame によるスロットリングで改善
-- 全消去ボタンのアイコン (🗑️) とデザインを変更し、取得停止ボタンと明確に区別
-- 記録停止/再生ボタンをトップバー左端に配置
-- ブランドロゴ (📡 Network+ for DevTools) をグラデーション背景で表示
-- 検索入力中のカーソル消失問題を修正 (フォーカス・カーソル位置の保存/復元)
-- 新規リクエスト到着時に検索結果がリアルタイム更新されない問題を修正
+Browser API mocks live in [tests/setup.js](tests/setup.js).
 
-### v1.4.0
+### Project layout
 
-- カラム別フィルタ強化 (Time: time picker, Method: 複数選択, Domain/Path: 複数条件, URL: 複合条件)
-- Fiddler 風タブ付き詳細インスペクター (Request/Response 各サブタブ)
-- カラムリサイズ機能
-- Auto-scroll トグル
-- Initiator リンク (DevTools ソースファイルオープン)
+```
+network-plus-extension/
+├── manifest.json        Manifest V3 manifest with an explicit CSP
+├── devtools.html/.js    registers the Network+ panel
+├── panel.html/.js/.css  panel UI, logic, and themes
+├── icons/               16 / 48 / 128 px extension icons
+├── vendor/              third-party libraries (fflate)
+├── scripts/             repository, package, version, and store verification scripts
+├── tests/               Jest suites and browser API mocks
+├── docs/                architecture, design, product, privacy, changelog, store assets
+└── .github/             workflows, agents, Copilot instructions, issue forms
+```
 
-### v1.3.0
+## Contributing
 
-- HAR エクスポート (HAR 1.2 完全対応)
-- キーボードナビゲーション (上下キー)
+Issues and pull requests are welcome. Before opening a PR:
 
-### v1.2.0
+1. Branch from `main` — direct pushes to `main` are not allowed.
+2. Use Conventional-Commit-style messages in English: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`.
+3. Run `npm test`, `npm run lint`, and the checks relevant to your change.
+4. Update the README, `docs/`, and tests in the same commit as the behavior change.
+5. Keep a pull request at 250 commits or fewer. The independent-review gate collects at most 250 commits from the GitHub API and fails closed above that, so larger branches must be split into several PRs of 250 commits or fewer.
 
-- グローバルフィルタ (debounce 付き)
-- カラムソート (昇順/降順/解除)
+Repository conventions, the panel's section layout, XSS rules, and the review topology are documented in [.github/copilot-instructions.md](.github/copilot-instructions.md).
 
-### v1.1.0
+**Versioning** follows Semantic Versioning. `version` is bumped only at release time — not per commit — and must stay identical across [manifest.json](manifest.json), [package.json](package.json), the top-level and root entries in [package-lock.json](package-lock.json), and the test fallback constant in [panel.js](panel.js). Run `npm run version:check` to verify all five locations and the README release links. Current version: **1.6.0**.
 
-- テーマ切替 (System/Dark/Light)
-- 録画制御 (Pause/Resume)
+## Security
 
-### v1.0.0
+- Every piece of user data rendered into the DOM goes through `textContent` or DOM APIs. `innerHTML` is not used anywhere.
+- The Content Security Policy is declared explicitly in [manifest.json](manifest.json): `script-src 'self'; object-src 'self'`.
+- The extension requests exactly one permission, `storage`, used to persist the theme. HAR downloads use a local Blob URL and a temporary `<a download>` element, so the `downloads` permission is not needed.
+- The manifest allows only the 8 top-level keys currently in use; host permissions, background workers, and content scripts are rejected by the validator outright.
+- `npm run extension:check` verifies exact permission parity and real usage, runtime path symlink and root boundaries, resource locality, the inline-script ban, the CSP, and the distribution allowlist.
 
-- 初回リリース: リアルタイムキャプチャ、カスタムカラム、カラム表示切替
+## Limitations
 
-</details>
+- **Microsoft Edge only.** It may run in other Chromium browsers, but Edge is the only tested and supported target.
+- **No ES modules in DevTools panels.** `import` / `export` cannot be used in `panel.js`.
+- **Buildless by design.** Packaging performs no transformation or dependency resolution; it archives audited runtime files only.
+- **Local only.** No network requests, no external APIs, no telemetry.
+- **Timing is a lead, not proof.** Displayed values are browser-reported observations and do not establish packet loss, physical-layer faults, or a definitive server-side root cause.
 
-## 📜 ライセンス
+## Documentation
 
-[MIT License](LICENSE)
+| Document | Contents |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | Rendering pipeline, retention and body cache, import validation, UI stability rules |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Release history |
+| [docs/manual-test-checklist.md](docs/manual-test-checklist.md) | Manual verification checklists for keyboard, sample guide, and high-volume capture |
+| [docs/privacy.md](docs/privacy.md) | Public notice on local processing, storage, Clear/Undo, and clipboard/HAR output |
+| [docs/PRODUCT.md](docs/PRODUCT.md) | Target users, product purpose, design principles, WCAG 2.2 AA baseline (Japanese) |
+| [docs/DESIGN.md](docs/DESIGN.md) | UI tokens, components, theme rules (Japanese) |
+| [docs/edge-addons-submission.md](docs/edge-addons-submission.md) | en-US Edge Add-ons submission fields, privacy declarations, certification notes |
+| [docs/coordinator-topology.md](docs/coordinator-topology.md) | Coordinator session topology, independent review, cleanup gates (Japanese) |
+| [docs/store-assets/](docs/store-assets/) | 300x300 logo, 1280x800 synthetic screenshots, machine-readable inventory |
+| [.github/copilot-instructions.md](.github/copilot-instructions.md) | Coding, security, and testing rules for contributors and agents (Japanese) |
+| [.github/agents/](.github/agents/) | Primary project agent and the 6-axis UI/UX review agent |
+
+## Support
+
+Questions and bug reports go to [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues/new/choose). Issues are public: remove credentials, customer data, and real traffic before posting, and review the output of `Copy safe support summary` before pasting it.
+
+## License
+
+[MIT](LICENSE) © himiyosh

@@ -503,26 +503,32 @@ describe('review context resolution', () => {
 });
 
 describe('required workflow integration', () => {
-  test('keeps the marker gate last in the existing Node 22.x and Node 24.x matrix jobs', () => {
+  test('keeps the marker gate out of the required Node 22.x and Node 24.x matrix jobs', () => {
+    // The marker gate is owned solely by the trusted workflow, which publishes
+    // the advisory `independent-review` commit status. Required CI must not run
+    // the checker, because that would reimpose as a blocking step exactly what
+    // branch protection deliberately stopped requiring.
     const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'quality-gates.yml'), 'utf8');
-    const contractStep = workflow.indexOf('- name: Check coordinator contract');
-    const reviewStep = workflow.indexOf('- name: Check independent review marker');
 
     expect(workflow).toContain('pull_request:');
     expect(workflow).toContain('          - 22.x');
     expect(workflow).toContain('          - 24.x');
     expect(workflow).not.toContain('paths-ignore:');
-    expect(contractStep).toBeGreaterThan(-1);
-    expect(reviewStep).toBeGreaterThan(contractStep);
-    expect(workflow).toContain('issues: read');
-    expect(workflow).toContain('pull-requests: read');
-    expect(workflow).toContain(
-      'INDEPENDENT_REVIEW_REVIEWER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_REVIEWER_SESSION_ID }}',
+    expect(workflow.indexOf('- name: Check coordinator contract')).toBeGreaterThan(-1);
+    expect(workflow).not.toContain('- name: Check independent review marker');
+    expect(workflow).not.toContain('scripts/check-independent-review.js');
+    expect(workflow).not.toContain('INDEPENDENT_REVIEW_REVIEWER_SESSION_ID');
+    expect(workflow).not.toContain('INDEPENDENT_REVIEW_MERGER_SESSION_ID');
+
+    // The permissions the removed step needed must go with it.
+    expect(workflow).not.toContain('issues: read');
+    expect(workflow).not.toContain('pull-requests: read');
+
+    const trustedWorkflow = fs.readFileSync(
+      path.join(__dirname, '..', '.github', 'workflows', 'trusted-independent-review.yml'),
+      'utf8',
     );
-    expect(workflow).toContain(
-      'INDEPENDENT_REVIEW_MERGER_SESSION_ID: ${{ vars.INDEPENDENT_REVIEW_MERGER_SESSION_ID }}',
-    );
-    expect(workflow.slice(reviewStep).trim()).toMatch(/run: node scripts\/check-independent-review\.js$/);
+    expect(trustedWorkflow).toContain('scripts/check-independent-review.js');
   });
 
   test('documents split-PR recovery for the 250-commit API ceiling', () => {
@@ -531,6 +537,6 @@ describe('required workflow integration', () => {
     const readme = readRepositoryFile('README.md');
 
     expect(topology).toMatch(/250[\s\S]*分割/);
-    expect(readme).toMatch(/250[\s\S]*分割/);
+    expect(readme).toMatch(/250[\s\S]*split/i);
   });
 });

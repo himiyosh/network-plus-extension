@@ -150,7 +150,7 @@ Microsoft Edge DevTools
 
 - `manifest.json` の `permissions` は必要最小限に保つ
 - 現在の権限: `storage` (テーマ設定永続化) のみ。HAR エクスポートは Blob / Object URL と一時的な `<a download>` を使用し、`downloads` 権限は不要
-- 新しい権限を追加する場合は、README の「セキュリティ」セクションに理由を記載すること
+- 新しい権限を追加する場合は、README の `Security` セクションに理由を記載すること
 
 ---
 
@@ -184,7 +184,8 @@ Microsoft Edge DevTools
 | **コミットメッセージ** | 英語 |
 | **ブランチ名** | 英語 |
 | **コードコメント** | 英語推奨 (日本語許容) |
-| **ドキュメント本文** (README 等) | 日本語 |
+| **公開ドキュメント** (`README.md`, `docs/CHANGELOG.md`, `docs/architecture.md`, `docs/manual-test-checklist.md`, `docs/privacy.md`, `docs/edge-addons-submission.md`) | 英語 (海外の利用者・コントリビューター向けの公開面) |
+| **内部ドキュメント** (`docs/DESIGN.md`, `docs/PRODUCT.md`, `docs/coordinator-topology.md` 等) | 日本語 |
 | **Copilot Instructions / Lessons Learned** | 日本語 |
 
 ### 5.3 エンコーディング
