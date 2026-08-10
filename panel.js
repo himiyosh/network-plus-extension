@@ -49,7 +49,7 @@ const _NetworkPlus = (function () {
   const MAX_SANITIZED_BODY_BYTES = 256 * 1024;
   const MAX_SANITIZED_BODY_DEPTH = 12;
   const MAX_SANITIZED_BODY_NODES = 5000;
-  const DEFAULT_REQUEST_RETENTION_LIMIT = 5000;
+  const DEFAULT_REQUEST_RETENTION_LIMIT = 20000;
   const MIN_REQUEST_RETENTION_LIMIT = 100;
   const MAX_REQUEST_RETENTION_LIMIT = 100000;
   const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;
@@ -2496,7 +2496,7 @@ const _NetworkPlus = (function () {
       requestLimit < MIN_REQUEST_RETENTION_LIMIT ||
       requestLimit > MAX_REQUEST_RETENTION_LIMIT
     ) {
-      return { setting: fallback, warning: 'Invalid retention setting; restored the 5,000-request default.' };
+      return { setting: fallback, warning: 'Invalid retention setting; restored the 20,000-request default.' };
     }
     return { setting: { unlimited: false, requestLimit }, warning: '' };
   }
@@ -4068,7 +4068,7 @@ const _NetworkPlus = (function () {
       const saved = localStorage.getItem(RETENTION_KEY);
       if (saved) parsed = JSON.parse(saved);
     } catch (_error) {
-      parseWarning = 'Could not read the saved retention setting; restored the 5,000-request default.';
+      parseWarning = 'Could not read the saved retention setting; restored the 20,000-request default.';
     }
     const normalized = normalizeRetentionSetting(parsed);
     state.retention.requestLimit = normalized.setting.requestLimit;
@@ -6909,7 +6909,7 @@ const _NetworkPlus = (function () {
     const filterButton = $('#filterBtn');
     if (filterButton) {
       filterButton.textContent =
-        activeFilterCount > 0 ? '⚙️ Column Filters (' + activeFilterCount + ')' : '⚙️ Column Filters';
+        activeFilterCount > 0 ? '⚙️ Filters (' + activeFilterCount + ')' : '⚙️ Filters';
       filterButton.setAttribute(
         'aria-label',
         activeFilterCount > 0
@@ -8959,6 +8959,38 @@ const _NetworkPlus = (function () {
       e.preventDefault();
       openShortcutDialog(document.activeElement);
     });
+
+    // Optional support dialog. Outbound links only; no request, telemetry, or
+    // stored state. DevTools panels cannot reach chrome.tabs, so the anchor is
+    // the primary path and "Copy link" is the guaranteed fallback.
+    const supportDialog = $('#supportDialog');
+    const supportBtn = $('#supportBtn');
+    const openSupportDialog = (trigger) => {
+      if (!supportDialog) return;
+      if (supportDialog.open) return; // already open — preserve the original trigger
+      const otherModal = Array.from(document.querySelectorAll('dialog[open]')).some((d) => d !== supportDialog);
+      if (otherModal) return;
+      supportDialog._networkPlusTrigger = trigger || null;
+      supportDialog.showModal();
+      setTimeout(() => {
+        const closeButton = $('#supportCloseBtn');
+        if (supportDialog.open && closeButton) closeButton.focus();
+      }, 0);
+    };
+    if (supportDialog) {
+      supportDialog.addEventListener('cancel', (e) => { e.preventDefault(); supportDialog.close(); });
+      supportDialog.addEventListener('close', () => {
+        const trigger = supportDialog._networkPlusTrigger;
+        if (trigger && trigger.focus && trigger.isConnected !== false) trigger.focus();
+      });
+      supportDialog.addEventListener('click', (event) => {
+        if (event.target === supportDialog) supportDialog.close();
+      });
+      $('#supportCloseBtn').addEventListener('click', () => supportDialog.close());
+    }
+    if (supportBtn) {
+      supportBtn.addEventListener('click', (event) => openSupportDialog(event.currentTarget));
+    }
 
     // Tab switching for inspector panels
     initializeInspectorTabBar('req-tab-bar');

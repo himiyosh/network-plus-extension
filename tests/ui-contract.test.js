@@ -1193,7 +1193,7 @@ describe('capture retention static contracts', () => {
   });
 
   test('persists named budgets and routes live and imported rows through one policy', () => {
-    expect(js).toContain('const DEFAULT_REQUEST_RETENTION_LIMIT = 5000;');
+    expect(js).toContain('const DEFAULT_REQUEST_RETENTION_LIMIT = 20000;');
     expect(js).toContain('const AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY = 4;');
     expect(js).toContain('const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;');
     expect(js).toContain('const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;');
@@ -2436,7 +2436,7 @@ describe('shortcut help static contracts', () => {
     expect(supportButtonRule[1]).toContain('max-width:100%');
     expect(supportButtonRule[1]).toContain('white-space:nowrap');
     expect(css).toContain(
-      '@media (max-width:280px){\n  .shortcut-support-summary button{white-space:normal;text-align:center}\n}',
+      '@media (max-width:280px){\n  .shortcut-support-summary button{white-space:normal;text-align:center}\n  .support-option-cta{width:100%;justify-content:center}\n}',
     );
   });
 
@@ -2452,6 +2452,162 @@ describe('shortcut help static contracts', () => {
     expect(handler).toContain("const supportStatus = $('#shortcutSupportSummaryStatus');");
     expect(handler).not.toContain('safeSupportSummaryBtn.focus');
     expect(handler).not.toContain('shortcutDialog.close');
+  });
+});
+
+// ============================================================
+// Optional support dialog — static UI / privacy regression
+// ============================================================
+describe('optional support dialog', () => {
+  const supportLinks = [
+    { id: 'supportSponsorsLink', url: 'https://github.com/sponsors/himiyosh' },
+    { id: 'supportKofiLink', url: 'https://ko-fi.com/studio344' },
+  ];
+  const supportBlock = js.slice(
+    js.indexOf("const supportDialog = $('#supportDialog');"),
+    js.indexOf('// Tab switching for inspector panels'),
+  );
+
+  test('toolbar keeps the support trigger beside the brand and icon-only so the row still fits', () => {
+    // The toolbar has no spare width at 1280px; a text label pushes a trigger
+    // off-screen, which defeats the button. Keep it icon-only, and anchored to
+    // the brand rather than trailing the overflow-prone right cluster.
+    expect(html).toMatch(
+      /<span class="brand-sub">for DevTools<\/span>\s*<\/div>\s*<button id="supportBtn"[^>]*class="icon-btn support-btn">☕<\/button>/,
+    );
+    const trigger = html.match(/<button id="supportBtn"[^>]*>/)[0];
+    expect(trigger).toContain('aria-haspopup="dialog"');
+    expect(trigger).toContain('aria-controls="supportDialog"');
+    expect(trigger).toContain('aria-label="Support Network+ development, optional"');
+    // A modal dialog trigger must not advertise an expandable region.
+    expect(trigger).not.toContain('aria-expanded');
+  });
+
+  test('support dialog links are exact and external-safe', () => {
+    for (const { id, url } of supportLinks) {
+      const anchor = html.match(new RegExp(`<a id="${id}"[^>]*>`))[0];
+      expect(anchor).toContain(`href="${url}"`);
+      expect(anchor).toContain('target="_blank"');
+      // rel is required: _blank without noopener leaks window.opener to the payment host.
+      expect(anchor).toContain('rel="noopener noreferrer"');
+    }
+    expect(html).toMatch(/<dialog id="supportDialog"[^>]*aria-labelledby="supportDialogTitle"/);
+    // The destination stays legible next to the action so a payment link is
+    // never followed blind.
+    for (const { url } of supportLinks) {
+      expect(html).toContain(`<span class="support-option-hint">${url.replace('https://', '')} ·`);
+    }
+  });
+
+  test('support dialog states the no-transmission and no-gating boundary it must keep', () => {
+    expect(html).toContain('Contributing is optional and never unlocks, limits, or changes any feature.');
+    expect(html).toContain('Network+ sends them no captured traffic and no usage data');
+  });
+
+  test('support dialog issues no request and stores no contribution state', () => {
+    expect(supportBlock).not.toBe('');
+    for (const forbidden of [
+      'fetch(',
+      'XMLHttpRequest',
+      'sendBeacon',
+      'chrome.storage',
+      'localStorage',
+      'new Image',
+      'navigator.clipboard',
+    ]) {
+      expect(supportBlock).not.toContain(forbidden);
+    }
+    // Opening the dialog is pure UI: the links carry the navigation themselves.
+    expect(supportBlock).not.toContain('window.open');
+  });
+
+  test('support dialog keeps modal focus discipline and restores the trigger', () => {
+    expect(supportBlock).toContain('if (supportDialog.open) return;');
+    expect(supportBlock).toContain("const otherModal = Array.from(document.querySelectorAll('dialog[open]'))");
+    expect(supportBlock).toContain('if (supportDialog.open && closeButton) closeButton.focus();');
+    expect(supportBlock).toContain('if (trigger && trigger.focus && trigger.isConnected !== false) trigger.focus();');
+    expect(supportBlock).toMatch(/addEventListener\('cancel'.*supportDialog\.close\(\)/);
+  });
+
+  test('the support trigger is frameless at rest but still signals interactivity', () => {
+    const rule = css.match(/\.topbar button\.support-btn\{([^}]*)\}/)[1];
+    // Transparent, not removed: the toolbar keeps the border box so the row
+    // never reflows — the same technique the recording indicator uses.
+    expect(rule).toContain('border-color:transparent');
+    expect(rule).toContain('background:transparent');
+    expect(rule).not.toContain('border:none');
+    // A frameless control still has to expose itself on hover and keyboard focus.
+    expect(css).toMatch(/\.topbar button:hover\{[^}]*border-color:var\(--accent\)/);
+    expect(css).toMatch(/\.topbar button:focus-visible[^{]*\{[^}]*outline:2px solid var\(--accent\)/);
+  });
+
+  test('support illustration is inline, decorative, and free of remote assets', () => {
+    const hero = html.slice(html.indexOf('<div class="support-hero">'), html.indexOf('</svg>'));
+    expect(hero).toContain('aria-hidden="true"');
+    expect(hero).toContain('focusable="false"');
+    // The MV3 CSP and the package check both forbid non-local assets, so the
+    // artwork has to stay inline markup rather than an image or sprite <use>.
+    expect(hero).not.toMatch(/<img\b|<use\b|href=|url\(/);
+    for (const part of [
+      'support-steam--a',
+      'support-cup',
+      'support-brew',
+      'support-sparkle--a',
+      'support-cat-head',
+      'support-cat-tail',
+      'support-cat-eye',
+    ]) {
+      expect(hero).toContain(part);
+    }
+  });
+
+  test('each support option offers exactly one action so the ask is not diluted', () => {
+    const listStart = html.indexOf('<ul class="support-options">');
+    const list = html.slice(listStart, html.indexOf('</ul>', listStart));
+    for (const { id } of supportLinks) {
+      const anchor = html.match(new RegExp(`<a id="${id}"[^>]*>`))[0];
+      expect(anchor).toContain('class="support-option-cta"');
+      // Screen-reader users must learn the destination opens a new tab.
+      expect(anchor).toMatch(/aria-label="[^"]*opens a new browser tab"/);
+    }
+    // One anchor per option and no competing secondary button in the row.
+    expect(list.match(/<a\b/g)).toHaveLength(supportLinks.length);
+    expect(list).not.toContain('<button');
+    // The panel must not imply payment happens inside DevTools.
+    expect(html).toContain('the payment itself happens on that site, never inside DevTools');
+  });
+
+  test('every support animation is disabled under reduced motion', () => {
+    // Slice the block itself, not the rest of the stylesheet: an open-ended
+    // slice would count any later rule as "covered" and hide a real gap.
+    const reducedStart = css.indexOf('@media (prefers-reduced-motion:reduce)');
+    const reduced = css.slice(reducedStart, css.indexOf('\n}', reducedStart) + 2);
+    expect(reduced).toContain('prefers-reduced-motion');
+    const animatedSelectors = Array.from(
+      css.matchAll(/^([^{@\n][^{\n]*)\{[^}]*animation:support-[^}]*\}/gm),
+      (match) => match[1].trim(),
+    );
+    expect(animatedSelectors.length).toBeGreaterThanOrEqual(5);
+    for (const selector of animatedSelectors) {
+      expect(reduced).toContain(selector.split(',')[0].trim());
+    }
+    // Steam and sparkles animate up from opacity:0, so stopping the animation
+    // without restoring opacity would erase them instead of stilling them.
+    expect(reduced).toContain('.support-steam{opacity:.55}');
+    expect(reduced).toContain('.support-sparkle{opacity:.7}');
+  });
+
+  test('support dialog CSS uses theme tokens and stays within the viewport', () => {
+    expect(css).toContain('#supportDialog{');
+    expect(css).toContain('#supportDialog::backdrop{');
+    const dialogRule = css.match(/#supportDialog\{([^}]*)\}/);
+    expect(dialogRule[1]).toContain('dvh');
+    expect(css).toMatch(/\.support-option\{[^}]*var\(--control-border\)[^}]*var\(--content-bg\)/);
+    // The primary action is a filled CTA, so it must use the accent pair whose
+    // contrast is already asserted by the theme contract above.
+    expect(css).toMatch(/\.support-option-cta\{[^}]*var\(--accent-fill\)[^}]*var\(--on-accent\)/);
+    expect(css).toContain('.support-option-cta:focus-visible{');
+    expect(css).toMatch(/\.support-cat-body,[^{]*\{fill:var\(--cat\)\}/);
   });
 });
 

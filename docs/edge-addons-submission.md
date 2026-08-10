@@ -51,7 +51,7 @@ Network+ for DevTools adds a dedicated network-analysis panel to Microsoft Edge 
 
 The request grid captures traffic reported by the Edge DevTools network API and presents method, status, domain, path, type, duration, size, initiator, URL, and optional waterfall information. Users can sort and resize columns, choose visible columns, apply per-column filters, save filter presets, and search across URLs, headers, request bodies, and response bodies. Selecting a request opens request and response inspectors for headers, bodies, query parameters, cookies, raw data, timing phases, and supported previews. Two selected requests can be compared side by side.
 
-Network+ applies bounded local retention. The default request limit is 5,000, configurable from 100 to 100,000; an explicitly confirmed unlimited request mode is also available. Response bodies remain subject to a 1 MiB per-body limit and a 32 MiB shared cache limit. The status bar reports retention and body-cache conditions so omitted or evicted content is not presented as complete evidence. Clear removes the current working set and offers a bounded 10-second Undo action while retained data remains available.
+Network+ applies bounded local retention. The default request limit is 20,000, configurable from 100 to 100,000; an explicitly confirmed unlimited request mode is also available. Response bodies remain subject to a 1 MiB per-body limit and a 32 MiB shared cache limit. The status bar reports retention and body-cache conditions so omitted or evicted content is not presented as complete evidence. Clear removes the current working set and offers a bounded 10-second Undo action while retained data remains available.
 
 Clipboard copy and HAR export are user-initiated. Sanitized output is the default and redacts or omits sensitive fields according to the documented policy. Full output requires a warning and one-time confirmation for that action, and Network+ does not save a full-output preference. Users should still review any exported or copied data before sharing it.
 
@@ -93,6 +93,7 @@ All executable JavaScript and CSS are included in the uploaded package. The Mani
 | Purpose | Display, filter, search, compare, retain within documented limits, and export or copy network evidence only as directed by the user. |
 | Collection by the developer | None. Captured traffic is not sent to or stored in developer-controlled systems. |
 | Transmission to third parties | None by the extension. There is no telemetry, analytics, advertising, account service, or external SDK. |
+| Outbound links | The optional `☕` toolbar button opens a Support dialog listing https://github.com/sponsors/himiyosh and https://ko-fi.com/studio344. The dialog issues no network request, embeds no payment form, checkout, or third-party script, gates no functionality, and stores no state. Each link opens a normal browser tab where that site's own practices apply and where any payment is completed; no payment or account data is entered into or handled by the extension. |
 | Sale, lending, advertising, or unrelated use | None. |
 | Human access by the developer | None through the extension. A user independently choosing to post information to the public GitHub support route is outside the extension's automatic data flow and should avoid sensitive traffic. |
 | Persistent local data | UI preferences only: theme, retention setting, column order/visibility/widths, and named filter preset configuration. Filter preset values can include text entered by the user, but Network+ does not persist captured traffic records, headers, or bodies as presets. |
@@ -113,6 +114,7 @@ No account, credentials, subscription, remote service, or live customer traffic 
 5. Select `Sample guide`. Before selecting `Reveal evidence`, verify that only four investigation questions are shown. Select `Reveal evidence` and verify the failed request, HTTP 503, 2,450 ms total, `Wait (TTFB) · 2,200 ms`, `Retry-After: 30 seconds`, and the browser-evidence limitation.
 6. Select the export action, then select `Export sanitized HAR`. Verify that `network-plus-sanitized.har` is downloaded only after the user action and that the HAR records the sanitization policy. Do not select full output for routine certification evidence.
 7. Select `Clear`. Verify that the sample rows and details disappear, recording returns to its prior state, and `Undo clear` is offered for 10 seconds. Select `Undo clear` once to restore the bounded snapshot, then select `Clear` again to exit sample mode.
+8. Select the `☕` toolbar button. Verify that the Support dialog opens, lists the GitHub Sponsors and Ko-fi links, states that Network+ sends them no data, contains no payment form, and issues no network request when opened. Verify that each option exposes one action that opens its page in a browser tab, that no clipboard write occurs, and that `Esc` or `Close` returns focus to the `☕` button.
 
 ## Asset inventory
 

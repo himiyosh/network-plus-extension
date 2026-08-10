@@ -7,7 +7,11 @@ const PACKAGE_PATH = 'package.json';
 const PRIVACY_PATH = 'docs/privacy.md';
 const INVENTORY_PATH = 'docs/store-assets/inventory.json';
 const ASSET_DIRECTORY = 'docs/store-assets';
-const REVIEW_DATE = '2026-07-27';
+// The synthetic store assets and the privacy notice are reviewed independently.
+// Keep the dates separate so a privacy-text change does not imply the PNG
+// inventory was re-reviewed on the same day.
+const ASSET_REVIEW_DATE = '2026-07-27';
+const PRIVACY_REVIEW_DATE = '2026-08-10';
 const MIN_DESCRIPTION_CHARACTERS = 250;
 const MAX_DESCRIPTION_CHARACTERS = 10000;
 const MAX_SEARCH_TERMS = 7;
@@ -62,7 +66,7 @@ const REQUIRED_DOSSIER_TEXT = Object.freeze([
   'Export sanitized HAR',
 ]);
 const REQUIRED_PRIVACY_TEXT = Object.freeze([
-  `Last updated: ${REVIEW_DATE}`,
+  `Last updated: ${PRIVACY_REVIEW_DATE}`,
   'URLs, query values, request and response headers, cookies, request bodies, response bodies',
   'Network+ does not send captured traffic, usage data, or diagnostics to the developer or to third parties.',
   'Network+ stores only UI preferences locally:',
@@ -72,7 +76,10 @@ const REQUIRED_PRIVACY_TEXT = Object.freeze([
   'one-time confirmation for that action',
   EXPECTED_SUPPORT_URL,
 ]);
-const ALLOWED_URL_HOSTS = new Set(['github.com', 'learn.microsoft.com']);
+// ko-fi.com is reachable only through the optional Support dialog and the README
+// support section. Network+ sends it no data; widening this set is a deliberate,
+// reviewed decision rather than an incidental link.
+const ALLOWED_URL_HOSTS = new Set(['github.com', 'learn.microsoft.com', 'ko-fi.com']);
 const PLACEHOLDER_PATTERN =
   /\b(?:TODO|TBD|FIXME|CHANGEME|PLACEHOLDER)\b|(?:insert|replace)\s+(?:text|url|value)\s+here/i;
 const PROHIBITED_CLAIMS = Object.freeze([
@@ -280,8 +287,8 @@ const inspectAssetPath = (assetDirectory, file) => {
 const validateInventory = (root, inventory, errors) => {
   const assetDirectory = path.join(root, ASSET_DIRECTORY);
   if (inventory.schemaVersion !== 1) errors.push('asset inventory schemaVersion must be 1');
-  if (inventory.reviewedOn !== REVIEW_DATE) {
-    errors.push(`asset inventory reviewedOn must be ${REVIEW_DATE}`);
+  if (inventory.reviewedOn !== ASSET_REVIEW_DATE) {
+    errors.push(`asset inventory reviewedOn must be ${ASSET_REVIEW_DATE}`);
   }
   if (!Array.isArray(inventory.assets)) {
     errors.push('asset inventory must contain an assets array');
