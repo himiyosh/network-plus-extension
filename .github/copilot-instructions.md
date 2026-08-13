@@ -295,15 +295,10 @@ npm run version:check      # package.json と manifest.json の version 同期�
 
 コンテキスト使用率が既知の API 上限の約 70%、または出力が著しく長大・断片化した場合、またはターン数が約 100 を超えた場合。ロールオーバー状態はセッション artifact または durable issue/git リファレンスに記録する。リポジトリへの追跡ファイルのコミットは行わない。
 
-### 7.4 独立レビューゲート
+### 7.4 Pull Request レビュー
 
-- 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿してはならない。
-- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、`INDEPENDENT_REVIEW_REVIEWER_SESSION_ID` と `INDEPENDENT_REVIEW_MERGER_SESSION_ID` の repository Actions variables が意図した full UUID (full lowercase UUID) で相互に異なることを確認してから exact-head review を委譲する。marker は `author_association: OWNER` の issue comment の first non-empty unfenced line とし、実際にレビューした設定済み reviewer session 自身だけが投稿する。
-- Network+ のコピー用 marker は `independent-review head=<40hex> verdict=pass by=<full lowercase UUID>` のみ。HTML comment wrapper、末尾の `at=`、fenced example、他リポジトリの incompatible marker format、別セッション ID の proxy posting、merger self-review はすべて拒否する。
-- CI は marker の `by=` と設定済み reviewer UUID の一致を必須化し、PR コミット内の `Copilot-Session` trailer と reviewer UUID が一致する実装セッション自己レビュー、空の implementation-session attribution、`OWNER` 以外の drive-by comment を機械的に拒否する。同じ GitHub account を共有するセッション間では `author_association` は reviewer session identity を証明しない。
-- CI は GitHub REST の上限 250 件まで PR commit collection の完全性を metadata 総数との一致で証明し、収集後に metadata を再取得して総数が安定していることも marker 評価前に確認する。250 件超、metadata の欠落または不正、収集件数不一致、収集中の総数変更では fail closed とし、oversized PR は 250 件以下の複数 PR に分割して再実行する。
-- Actions variables は非 secret の reviewer/merger attribution を PR 外から供給する近接防御であり、PR-editable checker code の trust boundary 自体を解決したと表現してはならない。外部所有の trusted required check は issue #95 の移行対象として維持し、variable rotation と recovery は `docs/coordinator-topology.md` の手順に従う。
-- 導入 PR は通常の全ゲート通過後、global owner の marker がない final marker step だけが失敗する。global owner が exact head を独立レビューして marker を投稿後、同じ required workflow を rerun する。既にマージ済みの PR 履歴には遡及適用しない。
+- コードレビューとセキュリティレビューは、必要に応じて通常の GitHub Pull Request review として任意に実施する。
+- merge 可否は branch protection と通常の CI quality gates で判定する。review comment marker や reviewer session UUID は要求しない。
 
 ### 7.5 Host-Tool Fallback
 

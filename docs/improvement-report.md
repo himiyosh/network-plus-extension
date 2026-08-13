@@ -332,6 +332,8 @@ PR #30 では version、repository/text/package integrity、audit、coordinator 
 
 ## Cycle 8: 依存監査・フィルター正当性・CI 安定性・レビュー信頼境界 (PR #116 / #117 / #118 / #119, 2026-08-07)
 
+> **履歴記録**: この cycle で導入した mandatory review mechanism は 2026-08-13 の repository owner 指示で廃止された。以下は当時の検証結果であり、現在の運用手順ではない。
+
 中断していた継続改善を利用者指示で再開したバッチ。1 本ずつ独立レビュー (fresh context, adversarial) を通し、exact-head marker を得てから merge した。
 
 ### 実施した修正
@@ -374,9 +376,9 @@ PR #120: repository default workflow permission = read でも、
          -> ELEVATION_ALLOWED
 ```
 
-commit status は required checks と同じ Actions app の名前空間にあるため branch protection では投稿者を区別できない。したがってこの境界が拘束するのは**検証ロジックであって結果の名前空間ではない**。checker / テスト / workflow の書き換えによる無自覚な弱体化は機械的に不可能になったが、`independent-review` を投稿する workflow を意図的に追加する偽装は防げない。恒久解である独立所有 GitHub App の check は issue #95 に残課題として維持する。
+commit status は required checks と同じ Actions app の名前空間にあるため branch protection では投稿者を区別できなかった。当時、この境界が拘束したのは**検証ロジックであって結果の名前空間ではない**。checker / テスト / workflow の書き換えによる無自覚な弱体化は機械的に不可能になった一方、`independent-review` を投稿する workflow を意図的に追加する偽装は防げず、独立所有 GitHub App の check を issue #95 に残課題として記録した。
 
-また `tests/trusted-review-boundary.test.js` は PR 側で編集可能な tree にあり PR 側で編集可能な Jest 設定から実行されるため、enforcement ではなく **merge レビューを効かせるための review aid** である。強制力は base-resolved な workflow 側にある。
+また `tests/trusted-review-boundary.test.js` は PR 側で編集可能な tree にあり PR 側で編集可能な Jest 設定から実行されるため、enforcement ではなく **merge レビューを効かせるための review aid** だった。強制力は base-resolved な workflow 側にあった。
 
 ### 品質ゲート
 
