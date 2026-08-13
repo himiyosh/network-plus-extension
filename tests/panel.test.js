@@ -1555,7 +1555,7 @@ describe('capture retention helpers', () => {
   const rows = (count) => Array.from({ length: count }, (_, index) => ({ id: index + 1 }));
 
   test('publishes the safe default and exact response budgets', () => {
-    expect(np.DEFAULT_REQUEST_RETENTION_LIMIT).toBe(5000);
+    expect(np.DEFAULT_REQUEST_RETENTION_LIMIT).toBe(20000);
     expect(np.AUTOMATIC_RESPONSE_PREFETCH_QUEUE_COMPACT_THRESHOLD).toBe(512);
     expect(np.MAX_RESPONSE_BODY_BYTES).toBe(1024 * 1024);
     expect(np.MAX_RESPONSE_CACHE_BYTES).toBe(32 * 1024 * 1024);
@@ -1567,11 +1567,11 @@ describe('capture retention helpers', () => {
       warning: '',
     });
     expect(np.normalizeRetentionSetting({ requestLimit: 0, unlimited: true })).toEqual({
-      setting: { requestLimit: 5000, unlimited: true },
+      setting: { requestLimit: 20000, unlimited: true },
       warning: '',
     });
     const invalid = np.normalizeRetentionSetting({ requestLimit: 99, unlimited: false });
-    expect(invalid.setting).toEqual({ requestLimit: 5000, unlimited: false });
+    expect(invalid.setting).toEqual({ requestLimit: 20000, unlimited: false });
     expect(invalid.warning).toContain('restored');
   });
 

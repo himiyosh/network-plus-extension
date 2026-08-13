@@ -1,6 +1,6 @@
 # Privacy notice for Network+ for DevTools
 
-Last updated: 2026-07-27
+Last updated: 2026-08-10
 
 ## Scope
 
@@ -30,7 +30,7 @@ Search results, selected rows, captured request records, headers, and bodies are
 
 ## Retention and user controls
 
-Captured and imported traffic is held in the DevTools panel's memory while that panel session remains open. The default request limit is 5,000 rows and can be configured from 100 to 100,000; an explicitly confirmed unlimited request-row mode is available. Response bodies always remain limited to 1 MiB per body and 32 MiB across the shared cache. Old requests or bodies can be evicted when limits are reached.
+Captured and imported traffic is held in the DevTools panel's memory while that panel session remains open. The default request limit is 20,000 rows and can be configured from 100 to 100,000; an explicitly confirmed unlimited request-row mode is available. Response bodies always remain limited to 1 MiB per body and 32 MiB across the shared cache. Old requests or bodies can be evicted when limits are reached.
 
 `Clear` removes the current working set from the panel and keeps one bounded Undo snapshot for up to 10 seconds. Retention pressure can release some or all of that snapshot earlier. After the Undo window expires, Network+ releases the retained snapshot. Closing DevTools ends the in-memory panel session. Clear and closing DevTools do not delete files the user already downloaded or text the user already placed on the system clipboard.
 
@@ -43,6 +43,12 @@ Full output can include URLs, headers, cookies, request bodies, response bodies,
 The Keyboard Shortcuts dialog also provides `Copy safe support summary`. Network+ builds this summary only after that button is selected and copies only the packaged Network+ version, Microsoft Edge major version, coarse OS family, normalized theme and retention settings, recording and local-sample state, and color-scheme and reduced-motion preferences. It does not inspect or include captured traffic, captured or visible request counts, URLs, headers, cookies, bodies, search or filter values, storage contents, logs, the full user agent, identifiers, credentials, or file paths. The summary states that it excludes captured traffic and must be reviewed before posting.
 
 Imported HAR or SAZ files are processed locally and become part of the same bounded in-memory working set. Network+ does not upload imported files.
+
+## Optional support links
+
+The panel toolbar includes an optional `☕` button that opens a Support dialog. The dialog contains no payment form, no third-party script or frame, and no embedded checkout, and it performs no network request. It offers two outbound links, https://github.com/sponsors/himiyosh and https://ko-fi.com/studio344, each as a button that opens that page in a browser tab. The dialog writes nothing to the clipboard and stores no state about itself. Any payment is completed on the destination site under that site's own terms and processing; no payment, account, or card data is entered into, handled by, or visible to Network+.
+
+Following a link opens the destination in a normal browser tab, where that site's own privacy practices and payment processing apply. Network+ sends those sites no captured traffic, no usage data, and no identifier, and it receives nothing back from them. It cannot determine whether a user opened a link or contributed, and it stores no state about the dialog. Every Network+ feature remains available regardless of whether a user contributes.
 
 ## Support
 

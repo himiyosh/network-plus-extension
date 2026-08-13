@@ -16,6 +16,7 @@
         <span class="brand-text">Network<span class="brand-plus">+</span></span>
         <span class="brand-sub">for DevTools</span>
       </div>
+      <button id="supportBtn" title="Support Network+ development (optional)" aria-label="Support Network+ development, optional" aria-haspopup="dialog" aria-controls="supportDialog" class="icon-btn support-btn">☕</button>
       <div class="separator"></div>
       <button id="searchToggleBtn" title="Toggle search panel (Ctrl+F)" aria-keyshortcuts="Control+F Meta+F" aria-controls="searchPanel" aria-expanded="false">🔍 Search</button>
       <span id="searchCount" class="search-count" aria-hidden="true"></span><span id="searchCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
@@ -27,11 +28,11 @@
       <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
     </div>
     <div class="right">
-      <button id="filterBtn" aria-label="Column Filters, no active filters" aria-haspopup="dialog" aria-controls="columnFilterPopup" aria-expanded="false">⚙️ Column Filters</button>
+      <button id="filterBtn" aria-label="Column Filters, no active filters" aria-haspopup="dialog" aria-controls="columnFilterPopup" aria-expanded="false">⚙️ Filters</button>
       <button id="presetsBtn" aria-label="Filter presets" aria-haspopup="dialog" aria-controls="presetsMenu" aria-expanded="false">🔖 Presets</button>
       <button id="columnsBtn" aria-haspopup="menu" aria-controls="columnsMenu" aria-expanded="false">🗂️ Columns</button>
       <div class="separator"></div>
-      <button id="retentionBtn" aria-haspopup="dialog" aria-controls="retentionDialog" aria-expanded="false">Retention: 5,000</button>
+      <button id="retentionBtn" aria-haspopup="dialog" aria-controls="retentionDialog" aria-expanded="false">Retention: 20,000</button>
       <button id="themeBtn">🌗 System</button>
       <button id="shortcutBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutDialog">⌨️ ?</button>
     </div>
@@ -99,7 +100,7 @@
       </div>
     </aside>
   </main>
-  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" hidden disabled>Exit · restore prior recording state</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus">Retention: 5,000 requests · body cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 / 0 requests · 0 active column filters</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
+  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" hidden disabled>Exit · restore prior recording state</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus">Retention: 20,000 requests · body cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 / 0 requests · 0 active column filters</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
   <dialog id="retentionDialog" aria-labelledby="retentionDialogTitle" aria-describedby="retentionHelp">
     <form method="dialog" class="retention-form">
       <h2 id="retentionDialogTitle">Capture retention</h2>
@@ -208,6 +209,67 @@
         <button id="sampleGuideCloseBtn" type="button">Close</button>
         <button id="sampleGuideExitBtn" type="button" class="sample-guide-exit-btn" aria-describedby="sampleGuideExitHelp" hidden disabled>Exit · restore prior recording state</button>
         <button id="sampleGuideRevealBtn" type="button" class="sample-guide-primary">Reveal evidence</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="supportDialog" aria-labelledby="supportDialogTitle" aria-describedby="supportDialogIntro">
+    <form method="dialog" class="support-form">
+      <div class="support-hero">
+        <svg class="support-hero-art" viewBox="0 0 168 108" aria-hidden="true" focusable="false">
+          <g class="support-steam-group">
+            <path class="support-steam support-steam--a" d="M97 34 C92 26 100 22 95 14 C93 10 96 7 97 5"/>
+            <path class="support-steam support-steam--b" d="M112 36 C107 27 115 23 110 14 C108 9 111 6 112 4"/>
+            <path class="support-steam support-steam--c" d="M127 34 C122 26 130 22 125 14 C123 10 126 7 127 5"/>
+          </g>
+          <g class="support-cat">
+            <path class="support-cat-tail" d="M30 95 C15 93 12 79 21 72"/>
+            <path class="support-cat-body" d="M28 97 C26 79 34 70 44 70 C54 70 62 79 60 97 Z"/>
+            <ellipse class="support-cat-paw" cx="36" cy="95" rx="5.4" ry="3.6"/>
+            <ellipse class="support-cat-paw" cx="52" cy="95" rx="5.4" ry="3.6"/>
+            <circle class="support-cat-head" cx="44" cy="56" r="19"/>
+            <path class="support-cat-ear support-cat-ear--left" d="M30 44 L31 25 L46 38 Z"/>
+            <path class="support-cat-ear support-cat-ear--right" d="M58 44 L57 25 L42 38 Z"/>
+            <path class="support-cat-ear-inner" d="M34 41 L35 30 L42.5 37 Z"/>
+            <path class="support-cat-ear-inner" d="M54 41 L53 30 L45.5 37 Z"/>
+            <ellipse class="support-cat-eye support-cat-eye--left" cx="37" cy="55" rx="2.8" ry="3.6"/>
+            <ellipse class="support-cat-eye support-cat-eye--right" cx="51" cy="55" rx="2.8" ry="3.6"/>
+            <path class="support-cat-nose" d="M44 62 l3 -2.8 h-6 z"/>
+            <path class="support-cat-whisker" d="M36 64 h-8 M37 67.5 h-7 M52 64 h8 M51 67.5 h7"/>
+          </g>
+          <g class="support-cup-group">
+            <ellipse class="support-saucer" cx="112" cy="93" rx="38" ry="7"/>
+            <path class="support-handle" d="M145 55 a13 13 0 0 1 0 21"/>
+            <path class="support-cup" d="M78 46 h68 v20 a34 26 0 0 1 -68 0 z"/>
+            <ellipse class="support-brew" cx="112" cy="46.5" rx="33.5" ry="5.5"/>
+            <circle class="support-sparkle support-sparkle--a" cx="152" cy="30" r="2.6"/>
+            <circle class="support-sparkle support-sparkle--b" cx="72" cy="32" r="2"/>
+            <circle class="support-sparkle support-sparkle--c" cx="159" cy="52" r="1.6"/>
+          </g>
+        </svg>
+      </div>
+      <h2 id="supportDialogTitle">Buy the developer a coffee</h2>
+      <p id="supportDialogIntro">Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or paid tier. If it saved you a debugging session, a coffee helps keep it maintained. Contributing is optional and never unlocks, limits, or changes any feature.</p>
+      <ul class="support-options">
+        <li class="support-option">
+          <span class="support-option-badge" aria-hidden="true">💜</span>
+          <span class="support-option-body">
+            <span class="support-option-name">GitHub Sponsors</span>
+            <span class="support-option-hint">github.com/sponsors/himiyosh · one-time or monthly · no platform fee</span>
+          </span>
+          <a id="supportSponsorsLink" class="support-option-cta" href="https://github.com/sponsors/himiyosh" target="_blank" rel="noopener noreferrer" aria-label="Sponsor on GitHub Sponsors, opens a new browser tab">Sponsor</a>
+        </li>
+        <li class="support-option">
+          <span class="support-option-badge" aria-hidden="true">☕</span>
+          <span class="support-option-body">
+            <span class="support-option-name">Ko-fi</span>
+            <span class="support-option-hint">ko-fi.com/studio344 · one-time · no account needed</span>
+          </span>
+          <a id="supportKofiLink" class="support-option-cta" href="https://ko-fi.com/studio344" target="_blank" rel="noopener noreferrer" aria-label="Buy a coffee on Ko-fi, opens a new browser tab">Buy a coffee</a>
+        </li>
+      </ul>
+      <p class="support-note">The buttons open the payment page in a browser tab; the payment itself happens on that site, never inside DevTools. Network+ sends them no captured traffic and no usage data, and cannot tell whether you visited or contributed.</p>
+      <div class="support-actions">
+        <button id="supportCloseBtn" type="button">Close</button>
       </div>
     </form>
   </dialog>

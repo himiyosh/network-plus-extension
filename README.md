@@ -4,7 +4,7 @@
 
 # Network+ for DevTools
 
-**A power-user network panel for Microsoft Edge DevTools.**
+**A power-user network panel for Microsoft Edge and Google Chrome DevTools.**
 Multi-keyword search, per-column filters, two-request diffing, and HAR export that is sanitized by default.
 
 [![Quality gates](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml/badge.svg)](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml)
@@ -12,8 +12,9 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-4caf50)](manifest.json)
 [![Node 22 | 24](https://img.shields.io/badge/Node-22%20%7C%2024-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/himiyosh)
 
-[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [Data safety](#data-safety) · [Development](#development) · [Docs](#documentation)
+[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [Data safety](#data-safety) · [Development](#development) · [Docs](#documentation) · [Sponsor](#sponsor)
 
 <img src="docs/media/network-plus-tour.gif" alt="Tour of the Network+ panel: the request grid with a tabbed request and response inspector, the response Timing breakdown with its phase guide, the local sample evidence guide, and the export dialog offering sanitized HAR as the default." width="880">
 
@@ -21,7 +22,7 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 
 </div>
 
-**Try it now:** [Download the v1.6.0 release ZIP](https://github.com/himiyosh/network-plus-extension/releases/download/v1.6.0/network-plus-extension-1.6.0.zip) · [What is in v1.6.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose)
+**Try it now:** [Download the v1.6.0 release ZIP](https://github.com/himiyosh/network-plus-extension/releases/download/v1.6.0/network-plus-extension-1.6.0.zip) · [What is in v1.6.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
 
 ---
 
@@ -35,7 +36,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 - **Share without leaking.** Every copy and every HAR export is sanitized by default; full output requires a per-action confirmation that is never remembered.
 - **Stay bounded.** Request retention and the response-body cache have explicit limits, visible counters, and predictable eviction — no silent unbounded growth.
 - **Work by keyboard.** Every control is reachable without a mouse, in System / Dark / Light themes that all meet WCAG 2.2 AA contrast.
-- **No build, no telemetry, no network.** Plain files loaded straight into Edge; the extension holds a single permission (`storage`) and sends nothing anywhere.
+- **No build, no telemetry, no network.** Plain files loaded straight into Edge or Chrome; the extension holds a single permission (`storage`) and sends nothing anywhere.
 
 <details>
 <summary><b>More screenshots</b></summary>
@@ -54,8 +55,8 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 ### Install from the release ZIP
 
 1. Download [network-plus-extension-1.6.0.zip](https://github.com/himiyosh/network-plus-extension/releases/download/v1.6.0/network-plus-extension-1.6.0.zip) — see the [v1.6.0 release notes](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) for what changed.
-2. Extract it into a new folder. Edge loads the folder that contains `manifest.json`, not the ZIP itself.
-3. Open `edge://extensions/` in Microsoft Edge and turn on **Developer mode**.
+2. Extract it into a new folder. The browser loads the folder that contains `manifest.json`, not the ZIP itself.
+3. Open `edge://extensions/` in Microsoft Edge, or `chrome://extensions/` in Google Chrome, and turn on **Developer mode**.
 4. Choose **Load unpacked** and select the folder from step 2.
 5. Open DevTools (<kbd>F12</kbd>) — a **Network+** tab is now available.
 
@@ -64,7 +65,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 
 ### Install from source
 
-Requirements: current stable Microsoft Edge, and Node.js 22 or 24 LTS for the test and lint tooling.
+Requirements: current stable Microsoft Edge or Google Chrome, and Node.js 22 or 24 LTS for the test and lint tooling.
 
 ```bash
 git clone https://github.com/himiyosh/network-plus-extension.git
@@ -72,7 +73,23 @@ cd network-plus-extension
 npm ci
 ```
 
-Then open `edge://extensions/`, turn on **Developer mode**, choose **Load unpacked**, and select the cloned repository root. There is no build step — Edge loads the source files as they are.
+Then open `edge://extensions/` or `chrome://extensions/`, turn on **Developer mode**, choose **Load unpacked**, and select the cloned repository root. There is no build step — the browser loads the source files as they are.
+
+### Browser support
+
+| Browser | Status | Notes |
+|---|---|---|
+| Microsoft Edge | Primary | Reference environment for development and release verification; the store dossier targets Edge Add-ons |
+| Google Chrome | Supported | See the verification below |
+| Firefox / Safari | Not supported | Different DevTools extension APIs and Manifest V3 implementations |
+
+There is no browser-specific branch in the source. The only extension APIs used are `chrome.devtools.network`, `chrome.devtools.panels`, `chrome.storage.local`, and `chrome.runtime` — all Chromium standard.
+
+Verified for Chrome:
+
+- Chrome 151 loads `manifest.json` with no extension errors.
+- All 98 real-browser regression tests pass under Chrome 151 (`CHROME_BIN=<path> npx jest tests/status-summary-browser.test.js tests/browser-availability-policy.test.js`).
+- The `Network+` tab appearing in a real Chrome DevTools window was confirmed manually. Only this last step sits outside automated coverage: DevTools extension panels do not load reliably under automation — no probe could enumerate even the built-in panels — so CI cannot assert it.
 
 ### First run
 
@@ -83,7 +100,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 ### Capture and retention
 
 - Live capture through `chrome.devtools.network.onRequestFinished`, appended per animation frame so existing rows are never re-rendered.
-- Retention defaults to the newest 5,000 requests, configurable from 100 to 100,000. Unlimited request rows are available only after you confirm an explicit warning.
+- Retention defaults to the newest 20,000 requests, configurable from 100 to 100,000. Unlimited request rows are available only after you confirm an explicit warning.
 - Response bodies are capped independently at 1 MiB per body and 32 MiB across the shared cache, with least-recently-used eviction that keeps the rows themselves.
 - Pause / Resume recording, auto-scroll that switches itself off when you scroll up, and `Clear` with a 10-second **Undo clear**.
 - Import HAR (`.har`) and Fiddler SAZ (`.saz`) archives; import is atomic and never destroys the current capture if the file is rejected.
@@ -122,7 +139,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 1. Open DevTools (<kbd>F12</kbd>) and select the **Network+** tab.
 2. Reproduce the problem. Rows stream in live; use **Pause** to freeze the working set.
 3. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> and add keywords. Each keyword gets its own color and its own ▲▼ navigation.
-4. Right-click a column header for a filter scoped to that column, or use **Column Filters** to edit them all at once. Save what worked with **Presets**.
+4. Right-click a column header for a filter scoped to that column, or use **Filters** to edit them all at once. Save what worked with **Presets**.
 5. Click a row to inspect it; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>-click a second row and choose **Compare 2 selected requests** from the context menu.
 6. Export with **Export sanitized HAR**, or copy a single request as cURL / fetch / PowerShell.
 
@@ -176,7 +193,7 @@ This reduces accidental disclosure in what you send outward. It is not a redacti
 ## How it works
 
 ```
-Microsoft Edge DevTools
+Edge / Chrome DevTools
 └── devtools.html          registers the panel via chrome.devtools.panels.create()
     └── panel.html         panel UI
         ├── panel.js       all logic (single IIFE, 15 sections)
@@ -189,7 +206,7 @@ Microsoft Edge DevTools
 
 | Limit | Value |
 |---|---|
-| Request rows | 5,000 by default · configurable 100–100,000 · unlimited only after explicit confirmation |
+| Request rows | 20,000 by default · configurable 100–100,000 · unlimited only after explicit confirmation |
 | Response body | 1 MiB per body · 32 MiB across the shared cache |
 | Import file | 32 MiB per file |
 | SAZ archive | 20,000 entries · 4 MiB per expanded entry · 64 MiB expanded in total |
@@ -244,7 +261,7 @@ network-plus-extension/
 ├── scripts/             repository, package, version, and store verification scripts
 ├── tests/               Jest suites and browser API mocks
 ├── docs/                architecture, design, product, privacy, changelog, store assets
-└── .github/             workflows, agents, Copilot instructions, issue forms
+└── .github/             workflows, agents, Copilot instructions, issue forms, funding config
 ```
 
 ## Contributing
@@ -271,7 +288,7 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 
 ## Limitations
 
-- **Microsoft Edge only.** It may run in other Chromium browsers, but Edge is the only tested and supported target.
+- **Chromium browsers only.** Edge and Chrome are supported; Firefox and Safari implement DevTools extensions differently and are out of scope. See [Browser support](#browser-support).
 - **No ES modules in DevTools panels.** `import` / `export` cannot be used in `panel.js`.
 - **Buildless by design.** Packaging performs no transformation or dependency resolution; it archives audited runtime files only.
 - **Local only.** No network requests, no external APIs, no telemetry.
@@ -296,6 +313,19 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 ## Support
 
 Questions and bug reports go to [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues/new/choose). Issues are public: remove credentials, customer data, and real traffic before posting, and review the output of `Copy safe support summary` before pasting it.
+
+## Sponsor
+
+Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or paid tier. **Every feature is free, and contributing never unlocks, limits, or changes any of them.**
+
+| Where | Link | Notes |
+|---|---|---|
+| GitHub Sponsors | [github.com/sponsors/himiyosh](https://github.com/sponsors/himiyosh) | One-time or monthly · no platform fee |
+| Ko-fi | [ko-fi.com/studio344](https://ko-fi.com/studio344) | One-time · no account needed |
+
+The same links live in the panel, behind the ☕ button next to the Network+ brand in the toolbar. Network+ sends those sites no captured traffic and no usage data, and cannot tell whether you visited or contributed.
+
+Non-financial help counts just as much: [report a bug or suggest an improvement](https://github.com/himiyosh/network-plus-extension/issues/new/choose), star the repository, or pass it on to a colleague.
 
 ## License
 

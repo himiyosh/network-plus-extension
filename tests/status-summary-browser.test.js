@@ -934,6 +934,14 @@ browserTest(
             }
           };
 
+          // Pin the eviction boundary for this scenario instead of inheriting
+          // DEFAULT_REQUEST_RETENTION_LIMIT, so the burst numbers below keep
+          // exercising eviction when the shipped default changes.
+          document.querySelector('#retentionBtn').click();
+          document.querySelector('#retentionUnlimited').checked = false;
+          document.querySelector('#retentionLimit').value = '5000';
+          document.querySelector('#retentionSaveBtn').click();
+
           emitRange(1, 5000);
           await settleFrames();
           if (window.__networkPlusPrefetchStarted.length !== 5000) {
@@ -1086,6 +1094,12 @@ browserTest(
             }
             return originalQuerySelectorAll.call(this, selector);
           };
+
+          // Pin the bounded limit for this scenario instead of inheriting
+          // DEFAULT_REQUEST_RETENTION_LIMIT, so the 20,000-row high-water burst
+          // keeps crossing the eviction boundary when the shipped default moves.
+          state.retention.requestLimit = 5000;
+          state.retention.unlimited = false;
 
           const limitedHighWater = emitRange(1, 20000);
           const limitedScheduler = window.__networkPlusSchedulerSnapshot();
@@ -2694,6 +2708,7 @@ browserTest(
 
       const expectedActionOrder = [
         'pauseBtn',
+        'supportBtn',
         'searchToggleBtn',
         'clearBtn',
         'importBtn',
@@ -2709,7 +2724,7 @@ browserTest(
       for (const measurement of viewportMeasurements) {
         expect(measurement.documentOverflow).toBe(0);
         expect(measurement.toolbarOverflowX).toBe('auto');
-        expect(measurement.actions).toHaveLength(12);
+        expect(measurement.actions).toHaveLength(13);
         expect(measurement.actions.map((action) => action.id)).toEqual(expectedActionOrder);
       }
       expect(viewportMeasurements.slice(0, 3).every((measurement) => measurement.toolbarOverflow > 0)).toBe(true);
@@ -2738,6 +2753,7 @@ browserTest(
       }
 
       const expectedTabOrder = [
+        'supportBtn',
         'searchToggleBtn',
         'clearBtn',
         'importBtn',
@@ -3051,7 +3067,7 @@ browserTest(
       ).toThrow(REVERSE_TOOLBAR_FOCUS_CONTRACT);
 
       const pointerCases = [
-        { caseId: 'exportHarBtn@500', width: 500, actionId: 'exportHarBtn' },
+        { caseId: 'exportHarBtn@545', width: 545, actionId: 'exportHarBtn' },
         { caseId: 'presetsBtn@800', width: 800, actionId: 'presetsBtn' },
         {
           caseId: 'exportHarBtn@500-sub-4px',
@@ -3185,8 +3201,8 @@ browserTest(
         })),
       ).toEqual([
         {
-          caseId: 'exportHarBtn@500',
-          width: 500,
+          caseId: 'exportHarBtn@545',
+          width: 545,
           actionId: 'exportHarBtn',
           clickTargets: ['exportHarBtn'],
           actionDeliveries: 1,
@@ -3272,6 +3288,7 @@ browserTest(
       );
 
       const toolbarTabOrder = [
+        'supportBtn',
         'searchToggleBtn',
         'clearBtn',
         'importBtn',
