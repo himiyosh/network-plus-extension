@@ -146,7 +146,7 @@ const _NetworkPlus = (function () {
    }),
   });
   const TIMING_EVIDENCE_LIMITATION = 'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause on the server.';
-  const TEST_EXTENSION_VERSION_FALLBACK = '1.6.0';
+  const TEST_EXTENSION_VERSION_FALLBACK = '1.7.0';
   const SAFE_SUPPORT_UNKNOWN = 'unknown';
   const SAFE_SUPPORT_OTHER_OS = 'Other/unknown';
   const SAFE_SUPPORT_REVIEW_NOTICE = 'This summary intentionally excludes captured traffic. Review it before posting to a public issue.';

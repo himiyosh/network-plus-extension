@@ -4,6 +4,10 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- No changes have been recorded since v1.7.0.
+
+## v1.7.0 - 2026-08-14
+
 - Added a CI-enforced changelog policy: user-facing runtime, UI, icon, funding, privacy, store-asset, or README changes must include a new bullet in this `Unreleased` section.
 - Added GitHub Sponsors and Ko-fi support routes, including an animated in-panel support dialog with an optional coffee CTA.
 - Raised the default request retention limit from 5,000 to 20,000 requests.

@@ -3611,15 +3611,15 @@ describe('outbound sensitive-data policy', () => {
 
   test('reads HAR creator versions from the extension runtime with a Node-test fallback', () => {
     expect(np.getExtensionVersion({ getManifest: () => ({ version: '9.8.7' }) })).toBe('9.8.7');
-    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.6.0');
-    expect(np.getExtensionVersion(null)).toBe('1.6.0');
+    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.7.0');
+    expect(np.getExtensionVersion(null)).toBe('1.7.0');
   });
 
   test('uses the current extension version for full and sanitized HAR creators', () => {
     const row = makeSensitiveRow();
     const fullHar = np.buildHarLogFromRows([row], new Map([[row, np.buildHarResponseContent(row)]]));
-    expect(fullHar.log.creator.version).toBe('1.6.0');
-    expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.6.0');
+    expect(fullHar.log.creator.version).toBe('1.7.0');
+    expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.7.0');
   });
 });
 
