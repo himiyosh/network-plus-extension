@@ -1,6 +1,6 @@
 # Microsoft Edge Add-ons submission dossier (en-US)
 
-Last reviewed: 2026-07-28
+Last reviewed: 2026-08-14
 
 ## Submission status and evidence boundary
 
@@ -8,7 +8,7 @@ This dossier is a repository-local recommendation for a future Partner Center su
 
 ### Observed repository facts
 
-- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.6.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
+- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.7.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The checked-in package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
 - GitHub release `v1.6.0` and `network-plus-extension-1.6.0.zip` were publicly observable on 2026-07-27. The asset download count was 0 at that observation time; this point-in-time repository statistic is not an adoption or store-distribution claim.
 - A read-only GitHub query still returned an empty live repository description, homepage, and topic list on 2026-07-28. This point-in-time observation describes external state; the repository-local kit does not change those settings.
@@ -107,7 +107,7 @@ The policy URL must be checked from a signed-out browser after this document is 
 
 No account, credentials, subscription, remote service, or live customer traffic is required.
 
-1. Use the exact ZIP uploaded for certification. For repository-side reproduction, run `npm run extension:package`, extract `dist/network-plus-extension-1.6.0.zip` into a new folder, open `edge://extensions/`, enable Developer mode, choose `Load unpacked`, and select the extracted folder. A ZIP file itself is not selected by `Load unpacked`.
+1. Use the exact ZIP uploaded for certification. For repository-side reproduction, run `npm run extension:package`, extract `dist/network-plus-extension-1.7.0.zip` into a new folder, open `edge://extensions/`, enable Developer mode, choose `Load unpacked`, and select the extracted folder. A ZIP file itself is not selected by `Load unpacked`.
 2. Open a local blank page such as `data:text/html,<title>Network%2B%20certification</title>`, open Microsoft Edge DevTools, and select the `Network+` panel.
 3. With no captured requests, select `Explore sample capture`. Verify that exactly three synthetic requests appear: a 200 GET to `api.network-plus.test`, a 503 POST to `checkout.network-plus.test`, and a 304 GET to `static.network-plus.test`. The status must state `No network traffic was sent.` and that live recording is paused.
 4. Select the 503 `POST /v1/orders/preview` request. Open the Response `Timing` tab and verify a total duration of 2,450 ms, with `Wait (TTFB)` at 2,200 ms as the dominant phase. Open `What do the timing phases mean?` and verify that the guidance says browser timing does not prove packet loss, cabling or RF faults, or a definitive server root cause.
