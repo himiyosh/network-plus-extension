@@ -15,6 +15,7 @@ const fixtureFiles = [
   'manifest.json',
   'package.json',
   'docs/edge-addons-submission.md',
+  'docs/chrome-web-store-submission.md',
   'docs/privacy.md',
   'docs/store-assets/inventory.json',
   ...Object.keys(EXPECTED_ASSETS).map((file) => `docs/store-assets/${file}`),
@@ -41,13 +42,15 @@ afterEach(() => {
   }
 });
 
-describe('Edge Add-ons submission kit', () => {
-  test('accepts the checked-in dossier, privacy notice, and synthetic assets', () => {
+describe('browser store submission kits', () => {
+  test('accepts the checked-in Edge and Chrome dossiers, privacy notice, and synthetic assets', () => {
     const result = validateStoreReadiness(repositoryRoot);
 
     expect(result.errors).toEqual([]);
     expect(result.summary.descriptionCharacters).toBeGreaterThanOrEqual(250);
     expect(result.summary.descriptionCharacters).toBeLessThanOrEqual(10000);
+    expect(result.summary.chromeDescriptionCharacters).toBeGreaterThanOrEqual(250);
+    expect(result.summary.chromeDescriptionCharacters).toBeLessThanOrEqual(10000);
     expect(result.summary.searchTerms).toBe(EXPECTED_SEARCH_TERMS.length);
     expect(result.summary.searchWordCount).toBeLessThanOrEqual(21);
     expect(result.summary.assets).toBe(Object.keys(EXPECTED_ASSETS).length);
@@ -136,6 +139,29 @@ describe('Edge Add-ons submission kit', () => {
       expect.arrayContaining([
         'submission dossier is missing required section: Certification testing notes',
         'dossier storage permission justification must match the reviewed least-privilege statement',
+      ]),
+    );
+  });
+
+  test('rejects Chrome listing, privacy, checksum, and test-instruction drift', () => {
+    const root = createFixture();
+    const dossierPath = 'docs/chrome-web-store-submission.md';
+    const dossier = read(root, dossierPath)
+      .replace('**Summary:** `Network analysis', '**Summary:** `Different network analysis')
+      .replace('**Category recommendation:** `Developer Tools`', '**Category recommendation:** `Shopping`')
+      .replace('## Test instructions', '### Test instructions')
+      .replace(
+        'd0f2c0d02cae90156a3d3bda8bbeba0ff70531f02f36f4256aeb885560c8cd77',
+        '0000000000000000000000000000000000000000000000000000000000000000',
+      );
+    write(root, dossierPath, dossier);
+
+    expect(validate(root)).toEqual(
+      expect.arrayContaining([
+        'Chrome submission dossier is missing required section: Test instructions',
+        'Chrome submission dossier is missing required disclosure: d0f2c0d02cae90156a3d3bda8bbeba0ff70531f02f36f4256aeb885560c8cd77',
+        'Chrome dossier summary must match manifest description',
+        'Chrome dossier category recommendation must be `Developer Tools`',
       ]),
     );
   });

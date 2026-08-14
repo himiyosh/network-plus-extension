@@ -2,7 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { TextDecoder } = require('util');
 
-const DOSSIER_PATH = 'docs/edge-addons-submission.md';
+const EDGE_DOSSIER_PATH = 'docs/edge-addons-submission.md';
+const CHROME_DOSSIER_PATH = 'docs/chrome-web-store-submission.md';
 const PACKAGE_PATH = 'package.json';
 const PRIVACY_PATH = 'docs/privacy.md';
 const INVENTORY_PATH = 'docs/store-assets/inventory.json';
@@ -10,8 +11,8 @@ const ASSET_DIRECTORY = 'docs/store-assets';
 // The synthetic store assets and the privacy notice are reviewed independently.
 // Keep the dates separate so a privacy-text change does not imply the PNG
 // inventory was re-reviewed on the same day.
-const ASSET_REVIEW_DATE = '2026-07-27';
-const PRIVACY_REVIEW_DATE = '2026-08-10';
+const ASSET_REVIEW_DATE = '2026-08-14';
+const PRIVACY_REVIEW_DATE = '2026-08-14';
 const MIN_DESCRIPTION_CHARACTERS = 250;
 const MAX_DESCRIPTION_CHARACTERS = 10000;
 const MAX_SEARCH_TERMS = 7;
@@ -22,6 +23,7 @@ const EXPECTED_SUPPORT_URL = 'https://github.com/himiyosh/network-plus-extension
 const EXPECTED_PRIVACY_URL = 'https://github.com/himiyosh/network-plus-extension/blob/main/docs/privacy.md';
 const EXPECTED_REPOSITORY_URL = 'git+https://github.com/himiyosh/network-plus-extension.git';
 const EXPECTED_CSP = "script-src 'self'; object-src 'self'";
+const EXPECTED_RELEASE_SHA256 = 'd0f2c0d02cae90156a3d3bda8bbeba0ff70531f02f36f4256aeb885560c8cd77';
 const EXPECTED_PERMISSION_JUSTIFICATION =
   'Stores the user-selected System, Dark, or Light theme in `chrome.storage.local` so the visual preference persists between DevTools sessions. This permission is not used to store captured URLs, headers, request bodies, response bodies, cookies, or request records.';
 const EXPECTED_SEARCH_TERMS = Object.freeze([
@@ -33,8 +35,9 @@ const EXPECTED_SEARCH_TERMS = Object.freeze([
   'response timing',
   'Edge DevTools',
 ]);
-const REQUIRED_DOSSIER_SECTIONS = Object.freeze([
+const REQUIRED_EDGE_DOSSIER_SECTIONS = Object.freeze([
   'Submission status and evidence boundary',
+  'Developer account prerequisites',
   'Store properties',
   'Store listing (en-US)',
   'Privacy declarations',
@@ -42,17 +45,29 @@ const REQUIRED_DOSSIER_SECTIONS = Object.freeze([
   'Asset inventory',
   'Source record',
 ]);
+const REQUIRED_CHROME_DOSSIER_SECTIONS = Object.freeze([
+  'Submission status and evidence boundary',
+  'Developer account prerequisites',
+  'Store listing (en-US)',
+  'Graphic assets',
+  'Privacy practices',
+  'Distribution recommendation',
+  'Test instructions',
+  'Final operator checklist',
+  'Source record',
+]);
 const REQUIRED_PRIVACY_SECTIONS = Object.freeze([
   'Scope',
   'Data Network+ can access',
   'Collection and transmission',
+  'Chrome Web Store limited use',
   'Local preferences',
   'Retention and user controls',
   'Clipboard and HAR output',
   'Support',
   'Policy changes',
 ]);
-const REQUIRED_DOSSIER_TEXT = Object.freeze([
+const REQUIRED_EDGE_DOSSIER_TEXT = Object.freeze([
   'This dossier is a repository-local recommendation for a future Partner Center submission.',
   'No verifiable Microsoft Edge Add-ons listing URL was found in repository evidence.',
   '**Single-purpose statement:**',
@@ -64,11 +79,30 @@ const REQUIRED_DOSSIER_TEXT = Object.freeze([
   'No network traffic was sent',
   'Undo clear',
   'Export sanitized HAR',
+  EXPECTED_RELEASE_SHA256,
+]);
+const REQUIRED_CHROME_DOSSIER_TEXT = Object.freeze([
+  'This dossier is a repository-local recommendation for a future Chrome Web Store submission.',
+  'The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature',
+  '**Single-purpose description:**',
+  '**Remote code answer:** `No, I am not using remote code.`',
+  'Do not select a no-data answer merely because processing remains on the device.',
+  'Captured traffic is not sent to or stored in developer-controlled systems.',
+  'Clipboard payloads and HAR files are created only after a user action.',
+  'No account, credentials, subscription, remote service, or live customer traffic is required.',
+  'chrome-small-promo-440x280.png',
+  'No network traffic was sent.',
+  'Undo clear',
+  'Export sanitized HAR',
+  EXPECTED_RELEASE_SHA256,
 ]);
 const REQUIRED_PRIVACY_TEXT = Object.freeze([
   `Last updated: ${PRIVACY_REVIEW_DATE}`,
+  'Microsoft Edge and Google Chrome DevTools extension',
   'URLs, query values, request and response headers, cookies, request bodies, response bodies',
   'Network+ does not send captured traffic, usage data, or diagnostics to the developer or to third parties.',
+  'It does not use this data for advertising, profiling, creditworthiness, or any unrelated purpose.',
+  'Network+ does not sell or transfer inspected traffic to the developer or to third parties',
   'Network+ stores only UI preferences locally:',
   'Search results, selected rows, captured request records, headers, and bodies are not written to persistent storage by Network+.',
   'one bounded Undo snapshot for up to 10 seconds',
@@ -79,7 +113,7 @@ const REQUIRED_PRIVACY_TEXT = Object.freeze([
 // ko-fi.com is reachable only through the optional Support dialog and the README
 // support section. Network+ sends it no data; widening this set is a deliberate,
 // reviewed decision rather than an incidental link.
-const ALLOWED_URL_HOSTS = new Set(['github.com', 'learn.microsoft.com', 'ko-fi.com']);
+const ALLOWED_URL_HOSTS = new Set(['developer.chrome.com', 'github.com', 'learn.microsoft.com', 'ko-fi.com']);
 const PLACEHOLDER_PATTERN =
   /\b(?:TODO|TBD|FIXME|CHANGEME|PLACEHOLDER)\b|(?:insert|replace)\s+(?:text|url|value)\s+here/i;
 const PROHIBITED_CLAIMS = Object.freeze([
@@ -89,6 +123,10 @@ const PROHIBITED_CLAIMS = Object.freeze([
   'approved by Microsoft',
   'Partner Center approved',
   'publication complete',
+  'now available on the Chrome Web Store',
+  'published in the Chrome Web Store',
+  'certified by Google',
+  'approved by Google',
 ]);
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const EXPECTED_ASSETS = Object.freeze({
@@ -97,6 +135,13 @@ const EXPECTED_ASSETS = Object.freeze({
     width: 300,
     height: 300,
     source: 'icons/icon128.png',
+    domains: Object.freeze([]),
+  }),
+  'chrome-small-promo-440x280.png': Object.freeze({
+    kind: 'promotional-tile',
+    width: 440,
+    height: 280,
+    source: 'Image generation using the Network+ logo and synthetic request-detail screenshot as references',
     domains: Object.freeze([]),
   }),
   'screenshot-request-detail-1280x800.png': Object.freeze({
@@ -366,9 +411,9 @@ const validateInventory = (root, inventory, errors) => {
   }
 };
 
-const validateDossier = (dossier, manifest, errors) => {
-  validateRequiredSections(dossier, REQUIRED_DOSSIER_SECTIONS, 'submission dossier', errors);
-  validateRequiredText(dossier, REQUIRED_DOSSIER_TEXT, 'submission dossier', errors);
+const validateEdgeDossier = (dossier, manifest, errors) => {
+  validateRequiredSections(dossier, REQUIRED_EDGE_DOSSIER_SECTIONS, 'submission dossier', errors);
+  validateRequiredText(dossier, REQUIRED_EDGE_DOSSIER_TEXT, 'submission dossier', errors);
   validateNoPlaceholdersOrClaims(dossier, 'submission dossier', errors);
   validatePublicUrls(dossier, 'submission dossier', errors);
 
@@ -426,6 +471,55 @@ const validateDossier = (dossier, manifest, errors) => {
   const searchTerms = parseSearchTerms(searchBlock);
   const searchWordCount = validateSearchTerms(searchTerms, errors);
   return { descriptionCharacters: detailedDescription.length, searchTerms: searchTerms.length, searchWordCount };
+};
+
+const validateChromeDossier = (dossier, manifest, errors) => {
+  const label = 'Chrome submission dossier';
+  validateRequiredSections(dossier, REQUIRED_CHROME_DOSSIER_SECTIONS, label, errors);
+  validateRequiredText(dossier, REQUIRED_CHROME_DOSSIER_TEXT, label, errors);
+  validateNoPlaceholdersOrClaims(dossier, label, errors);
+  validatePublicUrls(dossier, label, errors);
+
+  const name = getBoldField(dossier, 'Extension name');
+  const summary = getBoldField(dossier, 'Summary');
+  if (name !== `\`${manifest.name}\``) errors.push('Chrome dossier extension name must match manifest name');
+  if (summary !== `\`${manifest.description}\``) {
+    errors.push('Chrome dossier summary must match manifest description');
+  }
+  if (getBoldField(dossier, 'Homepage URL') !== EXPECTED_WEBSITE_URL) {
+    errors.push(`Chrome dossier Homepage URL must be ${EXPECTED_WEBSITE_URL}`);
+  }
+  if (getBoldField(dossier, 'Support URL') !== EXPECTED_SUPPORT_URL) {
+    errors.push(`Chrome dossier Support URL must be ${EXPECTED_SUPPORT_URL}`);
+  }
+  if (getBoldField(dossier, 'Privacy policy URL') !== EXPECTED_PRIVACY_URL) {
+    errors.push(`Chrome dossier Privacy policy URL must be ${EXPECTED_PRIVACY_URL}`);
+  }
+  if (getBoldField(dossier, 'Category recommendation') !== '`Developer Tools`') {
+    errors.push('Chrome dossier category recommendation must be `Developer Tools`');
+  }
+  const permission = getBoldField(dossier, 'Permission justification (`storage`)');
+  if (permission !== EXPECTED_PERMISSION_JUSTIFICATION) {
+    errors.push('Chrome dossier storage permission justification must match the reviewed least-privilege statement');
+  }
+
+  const detailedBlock = extractMarkedBlock(
+    dossier,
+    '<!-- chrome-store-description:start -->',
+    '<!-- chrome-store-description:end -->',
+    label,
+    errors,
+  );
+  const detailedDescription = normalizeProse(detailedBlock);
+  if (
+    detailedDescription.length < MIN_DESCRIPTION_CHARACTERS ||
+    detailedDescription.length > MAX_DESCRIPTION_CHARACTERS
+  ) {
+    errors.push(
+      `Chrome detailed description must contain ${MIN_DESCRIPTION_CHARACTERS} to ${MAX_DESCRIPTION_CHARACTERS} characters; found ${detailedDescription.length}`,
+    );
+  }
+  return { chromeDescriptionCharacters: detailedDescription.length };
 };
 
 const validatePrivacy = (privacy, errors) => {
@@ -491,13 +585,15 @@ const validateStoreReadiness = (root) => {
   const errors = [];
   const manifest = readJson(path.join(root, 'manifest.json'), 'manifest.json', errors);
   const packageJson = readJson(path.join(root, PACKAGE_PATH), PACKAGE_PATH, errors);
-  const dossier = readMarkdown(path.join(root, DOSSIER_PATH), DOSSIER_PATH, errors);
+  const edgeDossier = readMarkdown(path.join(root, EDGE_DOSSIER_PATH), EDGE_DOSSIER_PATH, errors);
+  const chromeDossier = readMarkdown(path.join(root, CHROME_DOSSIER_PATH), CHROME_DOSSIER_PATH, errors);
   const privacy = readMarkdown(path.join(root, PRIVACY_PATH), PRIVACY_PATH, errors);
   const inventory = readJson(path.join(root, INVENTORY_PATH), INVENTORY_PATH, errors);
 
   validateManifest(manifest, errors);
   validateDiscoveryMetadata(packageJson, manifest, errors);
-  const summary = validateDossier(dossier, manifest, errors);
+  const summary = validateEdgeDossier(edgeDossier, manifest, errors);
+  const chromeSummary = validateChromeDossier(chromeDossier, manifest, errors);
   validatePrivacy(privacy, errors);
   validateInventory(root, inventory, errors);
 
@@ -505,6 +601,7 @@ const validateStoreReadiness = (root) => {
     errors,
     summary: {
       ...summary,
+      ...chromeSummary,
       assets: Array.isArray(inventory.assets) ? inventory.assets.length : 0,
     },
   };
@@ -518,7 +615,7 @@ const main = () => {
     return;
   }
   console.log(
-    `OK: Edge Add-ons kit valid (${result.summary.descriptionCharacters} description characters, ${result.summary.searchTerms} search terms / ${result.summary.searchWordCount} words, ${result.summary.assets} assets)`,
+    `OK: browser store kits valid (${result.summary.descriptionCharacters} Edge description characters, ${result.summary.chromeDescriptionCharacters} Chrome description characters, ${result.summary.searchTerms} Edge search terms / ${result.summary.searchWordCount} words, ${result.summary.assets} assets)`,
   );
 };
 

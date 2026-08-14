@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewedOn": "2026-07-27",
+  "reviewedOn": "2026-08-14",
   "assets": [
     {
       "file": "logo-300.png",
@@ -11,6 +11,17 @@
       "syntheticOnly": true,
       "containsSensitiveData": false,
       "state": "Network+ extension mark; no traffic data"
+    },
+    {
+      "file": "chrome-small-promo-440x280.png",
+      "kind": "promotional-tile",
+      "width": 440,
+      "height": 280,
+      "source": "Image generation using the Network+ logo and synthetic request-detail screenshot as references",
+      "syntheticOnly": true,
+      "containsSensitiveData": false,
+      "domains": [],
+      "state": "Text-free Network+ promotional tile with an otter investigator and abstract request and timing motifs"
     },
     {
       "file": "screenshot-request-detail-1280x800.png",

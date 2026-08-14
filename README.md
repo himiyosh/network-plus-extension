@@ -61,7 +61,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 5. Open DevTools (<kbd>F12</kbd>) — a **Network+** tab is now available.
 
 > [!NOTE]
-> Network+ is not published on the Microsoft Edge Add-ons store. The steps above load an unpacked build in Developer mode. See the [privacy notice](docs/privacy.md) for how data is handled, and the [Edge Add-ons submission dossier](docs/edge-addons-submission.md) for the fields a future store submission would need.
+> Network+ is not yet published on Microsoft Edge Add-ons or the Chrome Web Store. The steps above load an unpacked build in Developer mode. See the [privacy notice](docs/privacy.md), [Edge Add-ons submission dossier](docs/edge-addons-submission.md), and [Chrome Web Store submission dossier](docs/chrome-web-store-submission.md) for the reviewed data-handling and submission fields.
 
 ### Install from source
 
@@ -79,8 +79,8 @@ Then open `edge://extensions/` or `chrome://extensions/`, turn on **Developer mo
 
 | Browser | Status | Notes |
 |---|---|---|
-| Microsoft Edge | Primary | Reference environment for development and release verification; the store dossier targets Edge Add-ons |
-| Google Chrome | Supported | See the verification below |
+| Microsoft Edge | Primary | Reference environment for development and release verification; an Edge Add-ons submission dossier is prepared |
+| Google Chrome | Supported | Verified below; a Chrome Web Store submission dossier and required promotional tile are prepared |
 | Firefox / Safari | Not supported | Different DevTools extension APIs and Manifest V3 implementations |
 
 There is no browser-specific branch in the source. The only extension APIs used are `chrome.devtools.network`, `chrome.devtools.panels`, `chrome.storage.local`, and `chrome.runtime` — all Chromium standard.
@@ -224,13 +224,13 @@ npm run version:check     # 5 release version locations + README release routes
 npm run integrity:check   # package-lock.json provenance
 npm run extension:check   # manifest, permissions, references, CSP, distribution allowlist
 npm run extension:package # build the verified release ZIP into dist/
-npm run store:check       # Edge Add-ons dossier, privacy notice, and store PNG consistency
+npm run store:check       # Edge/Chrome dossiers, privacy notice, and store PNG consistency
 npm run contract:check    # coordinator topology and agent tool-restriction contracts
 npm run audit:strict      # npm audit --audit-level=high
 npm run text:check -- --base <base-sha> --head <head-sha>   # whitespace / encoding of changed lines
 ```
 
-[`.github/workflows/quality-gates.yml`](.github/workflows/quality-gates.yml) runs a Node.js 22 / 24 matrix over `npm ci`, Jest, ESLint, release version sync, Prettier, lockfile provenance, changed-line text integrity, extension package integrity, Edge Add-ons submission-kit integrity, dependency audit, and coordinator contracts.
+[`.github/workflows/quality-gates.yml`](.github/workflows/quality-gates.yml) runs a Node.js 22 / 24 matrix over `npm ci`, Jest, ESLint, release version sync, Prettier, lockfile provenance, changed-line text integrity, extension package integrity, Edge/Chrome submission-kit integrity, dependency audit, and coordinator contracts.
 
 ### Tests
 
@@ -305,8 +305,9 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 | [docs/PRODUCT.md](docs/PRODUCT.md) | Target users, product purpose, design principles, WCAG 2.2 AA baseline (Japanese) |
 | [docs/DESIGN.md](docs/DESIGN.md) | UI tokens, components, theme rules (Japanese) |
 | [docs/edge-addons-submission.md](docs/edge-addons-submission.md) | en-US Edge Add-ons submission fields, privacy declarations, certification notes |
+| [docs/chrome-web-store-submission.md](docs/chrome-web-store-submission.md) | en-US Chrome Web Store listing, privacy declarations, assets, test instructions, and operator checklist |
 | [docs/coordinator-topology.md](docs/coordinator-topology.md) | Coordinator session topology, optional PR review, cleanup gates (Japanese) |
-| [docs/store-assets/](docs/store-assets/) | 300x300 logo, 1280x800 synthetic screenshots, machine-readable inventory |
+| [docs/store-assets/](docs/store-assets/) | 300x300 logo, 440x280 promotional tile, 1280x800 synthetic screenshots, machine-readable inventory |
 | [.github/copilot-instructions.md](.github/copilot-instructions.md) | Coding, security, and testing rules for contributors and agents (Japanese) |
 | [.github/agents/](.github/agents/) | Primary project agent and the 6-axis UI/UX review agent |
 

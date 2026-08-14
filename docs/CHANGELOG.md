@@ -4,7 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- No changes have been recorded since v1.7.0.
+- Prepared Microsoft Edge Add-ons and Chrome Web Store submission materials: an exact v1.7.0 upload checksum, browser-neutral privacy wording, a Chrome-required 440 x 280 promotional tile, reviewer test instructions, and automated cross-store consistency checks.
 
 ## v1.7.0 - 2026-08-14
 
