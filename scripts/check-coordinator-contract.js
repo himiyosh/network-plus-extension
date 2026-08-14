@@ -18,8 +18,7 @@
  *  3. .github/copilot-instructions.md retains all required coordinator
  *     contracts (dated title, size limits, rollover threshold, fallback,
  *     no-repository-manifest, no-sensitive-data).
- *  4. NetworkPlusAgent.agent.md retains its Host-Tool Fallback and
- *     independent-review governance rules.
+ *  4. NetworkPlusAgent.agent.md retains its Host-Tool Fallback rules.
  */
 
 'use strict';
@@ -44,7 +43,7 @@ const REQUIRED_TOPOLOGY_SECTIONS = [
   '## セッションサイズ制限',
   '## ロールオーバー条件',
   '## クリーンアップゲート',
-  '## 独立レビューゲート',
+  '## Pull Request レビュー',
   '## Host-Tool Fallback',
   '## データ安全性',
 ];
@@ -61,24 +60,8 @@ const REQUIRED_TOPOLOGY_CONCEPTS = [
   '70%', // rollover context threshold
   'BLOCKERS', // fallback reporting requirement
   'データ安全性', // data-safety section exists
-  'independent-review', // exact-head review marker
-  'continuous-improvement-watchdog.md', // current global-owner source
-  'full UUID', // durable reviewer attribution
-  '所有または adopt', // coordinator self-clearance prohibition
-  'Copilot-Session', // mechanically enforced implementation identity
-  '遡及適用しない', // merged history is out of scope
-  'independent-review head=<40hex> verdict=pass by=<full lowercase UUID>',
-  'HTML comment',
-  'at=',
-  'fenced',
-  'incompatible',
-  'proxy',
-  'merger self-review',
-  'issue #95',
-  'INDEPENDENT_REVIEW_REVIEWER_SESSION_ID',
-  'INDEPENDENT_REVIEW_MERGER_SESSION_ID',
-  'gh variable set',
-  'gh variable get',
+  '通常の GitHub Pull Request review', // ordinary optional review remains available
+  'review comment marker や reviewer session UUID は要求しない', // no custom review gate
 ];
 
 /**
@@ -97,20 +80,8 @@ const REQUIRED_INSTRUCTIONS_CONCEPTS = [
   ['BLOCKERS', 'BLOCKERS fallback reporting requirement'],
   ['追跡ファイルのコミットは行わない', 'no-repository-manifest rule'],
   ['PII', 'no-sensitive-data rule'],
-  ['independent-review', 'exact-head review marker'],
-  ['continuous-improvement-watchdog.md', 'current global-owner source'],
-  ['full UUID', 'durable reviewer attribution'],
-  ['所有または adopt', 'coordinator self-clearance prohibition'],
-  ['Copilot-Session', 'mechanically enforced implementation identity'],
-  ['遡及適用しない', 'no retroactive merged-history enforcement'],
-  ['independent-review head=<40hex> verdict=pass by=<full lowercase UUID>', 'repository-specific marker template'],
-  ['HTML comment', 'HTML-comment marker rejection'],
-  ['at=', 'trailing marker field rejection'],
-  ['fenced', 'fenced marker rejection'],
-  ['incompatible', 'other-repository marker rejection'],
-  ['proxy', 'proxy marker prohibition'],
-  ['merger self-review', 'merger self-review prohibition'],
-  ['issue #95', 'external trusted-check boundary'],
+  ['通常の GitHub Pull Request review', 'ordinary optional pull-request review'],
+  ['review comment marker や reviewer session UUID は要求しない', 'no custom review gate'],
 ];
 
 /**
@@ -118,21 +89,6 @@ const REQUIRED_INSTRUCTIONS_CONCEPTS = [
  * Host-Tool Fallback section has not been removed.
  */
 const AGENT_HOST_TOOL_FALLBACK_CONCEPT = 'Host-Tool Fallback';
-const AGENT_REVIEW_GOVERNANCE_CONCEPTS = [
-  'independent-review',
-  'continuous-improvement-watchdog.md',
-  'full UUID',
-  '所有または adopt',
-  'Copilot-Session',
-  'independent-review head=<40hex> verdict=pass by=<full lowercase UUID>',
-  'HTML comment',
-  'at=',
-  'fenced',
-  'incompatible',
-  'proxy',
-  'merger self-review',
-  'issue #95',
-];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -253,18 +209,6 @@ const validateAgentHostToolFallback = (content) => {
   return errors;
 };
 
-const validateAgentReviewGovernance = (content) => {
-  const errors = [];
-
-  for (const concept of AGENT_REVIEW_GOVERNANCE_CONCEPTS) {
-    if (!content.includes(concept)) {
-      errors.push(`${AGENT_FILE} is missing independent-review governance concept: "${concept}"`);
-    }
-  }
-
-  return errors;
-};
-
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -297,7 +241,6 @@ const main = () => {
   if (agentContent !== null) {
     errors.push(...validateAgentNoRestrictiveTools(agentContent));
     errors.push(...validateAgentHostToolFallback(agentContent));
-    errors.push(...validateAgentReviewGovernance(agentContent));
   }
 
   // 3. Copilot instructions surface
@@ -334,7 +277,6 @@ module.exports = {
   REQUIRED_TOPOLOGY_CONCEPTS,
   REQUIRED_INSTRUCTIONS_CONCEPTS,
   AGENT_HOST_TOOL_FALLBACK_CONCEPT,
-  AGENT_REVIEW_GOVERNANCE_CONCEPTS,
   TOPOLOGY_DOC,
   AGENT_FILE,
   COPILOT_INSTRUCTIONS_FILE,
@@ -344,5 +286,4 @@ module.exports = {
   validateAgentNoRestrictiveTools,
   validateCopilotInstructions,
   validateAgentHostToolFallback,
-  validateAgentReviewGovernance,
 };

@@ -230,7 +230,7 @@ npm run audit:strict      # npm audit --audit-level=high
 npm run text:check -- --base <base-sha> --head <head-sha>   # whitespace / encoding of changed lines
 ```
 
-[`.github/workflows/quality-gates.yml`](.github/workflows/quality-gates.yml) runs a Node.js 22 / 24 matrix over `npm ci`, Jest, ESLint, release version sync, Prettier, lockfile provenance, changed-line text integrity, extension package integrity, Edge Add-ons submission-kit integrity, and the independent-review marker gate.
+[`.github/workflows/quality-gates.yml`](.github/workflows/quality-gates.yml) runs a Node.js 22 / 24 matrix over `npm ci`, Jest, ESLint, release version sync, Prettier, lockfile provenance, changed-line text integrity, extension package integrity, Edge Add-ons submission-kit integrity, dependency audit, and coordinator contracts.
 
 ### Tests
 
@@ -243,6 +243,7 @@ npm run text:check -- --base <base-sha> --head <head-sha>   # whitespace / encod
 | Store submission kit | Jest + CI | [tests/store-readiness.test.js](tests/store-readiness.test.js) |
 | Support intake forms | Jest + CI | [tests/support-intake.test.js](tests/support-intake.test.js) |
 | Changed-line integrity | Jest + CI | [tests/text-integrity.test.js](tests/text-integrity.test.js) |
+| CI governance | Jest static regression | [tests/ci-governance.test.js](tests/ci-governance.test.js) |
 | Coordinator contracts | Jest static contract tests | [tests/coordinator-contract.test.js](tests/coordinator-contract.test.js) |
 | DOM behavior, export contents, theme switching | Manual, in Edge DevTools | [docs/manual-test-checklist.md](docs/manual-test-checklist.md) |
 
@@ -270,8 +271,8 @@ Issues and pull requests are welcome. Before opening a PR:
 1. Branch from `main` — direct pushes to `main` are not allowed.
 2. Use Conventional-Commit-style messages in English: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`.
 3. Run `npm test`, `npm run lint`, and the checks relevant to your change.
-4. Update the README, `docs/`, and tests in the same commit as the behavior change.
-5. Keep a pull request at 250 commits or fewer. The independent-review gate collects at most 250 commits from the GitHub API and fails closed above that, so larger branches must be split into several PRs of 250 commits or fewer.
+4. Update the README, relevant `docs/`, and tests in the same pull request as the behavior change. Any user-facing runtime, UI, icon, funding, privacy, store-asset, or README change must add a bullet under `docs/CHANGELOG.md` → `Unreleased`; `npm run changelog:check` enforces this across the complete PR diff.
+5. Use ordinary pull-request review and optional code or security review when useful. CI does not require a review-comment marker or reviewer-session UUID.
 
 Repository conventions, the panel's section layout, XSS rules, and the review topology are documented in [.github/copilot-instructions.md](.github/copilot-instructions.md).
 
@@ -304,7 +305,7 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 | [docs/PRODUCT.md](docs/PRODUCT.md) | Target users, product purpose, design principles, WCAG 2.2 AA baseline (Japanese) |
 | [docs/DESIGN.md](docs/DESIGN.md) | UI tokens, components, theme rules (Japanese) |
 | [docs/edge-addons-submission.md](docs/edge-addons-submission.md) | en-US Edge Add-ons submission fields, privacy declarations, certification notes |
-| [docs/coordinator-topology.md](docs/coordinator-topology.md) | Coordinator session topology, independent review, cleanup gates (Japanese) |
+| [docs/coordinator-topology.md](docs/coordinator-topology.md) | Coordinator session topology, optional PR review, cleanup gates (Japanese) |
 | [docs/store-assets/](docs/store-assets/) | 300x300 logo, 1280x800 synthetic screenshots, machine-readable inventory |
 | [.github/copilot-instructions.md](.github/copilot-instructions.md) | Coding, security, and testing rules for contributors and agents (Japanese) |
 | [.github/agents/](.github/agents/) | Primary project agent and the 6-axis UI/UX review agent |
