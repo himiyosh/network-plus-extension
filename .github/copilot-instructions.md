@@ -218,11 +218,13 @@ Microsoft Edge DevTools
 npm test                   # Jest テスト実行 (カバレッジ付き)
 npm run lint               # ESLint 実行
 npm run version:check      # package.json と manifest.json の version 同期チェック
+npm run changelog:check -- --base <base-sha> --head <head-sha>  # user-facing 変更の Unreleased 記載チェック
 ```
 
 ### 6.3 品質ゲート
 
 - **コミット前に必ず実行**: `npm test` / `npm run lint` / `npm run version:check` がすべて PASS であること
+- user-facing な runtime / UI / icon / funding / privacy / store asset / README の変更では、同じ PR で `docs/CHANGELOG.md` の `Unreleased` に bullet を追加すること。CI の `npm run changelog:check` が PR 全体の差分で強制する
 - ESLint: **0 errors, 0 warnings** を維持 (未使用の catch 変数は `_` プレフィックスでマーク)
 - Jest: **全テスト PASS** を維持
 - 新しい純粋関数を追加した場合は、対応するテストも同一コミットで追加すること

@@ -4,6 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- Added a CI-enforced changelog policy: user-facing runtime, UI, icon, funding, privacy, store-asset, or README changes must include a new bullet in this `Unreleased` section.
 - Added GitHub Sponsors and Ko-fi support routes, including an animated in-panel support dialog with an optional coffee CTA.
 - Raised the default request retention limit from 5,000 to 20,000 requests.
 - Documented verified Google Chrome support alongside Microsoft Edge.

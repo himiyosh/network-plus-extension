@@ -14,6 +14,7 @@ const RETIRED_FILES = [
 ];
 const REQUIRED_QUALITY_COMMANDS = [
   'npm run text:check',
+  'npm run changelog:check',
   'npm ci',
   'npx jest tests/browser-availability-policy.test.js',
   'npm test -- --runInBand',

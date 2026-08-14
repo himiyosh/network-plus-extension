@@ -271,7 +271,7 @@ Issues and pull requests are welcome. Before opening a PR:
 1. Branch from `main` — direct pushes to `main` are not allowed.
 2. Use Conventional-Commit-style messages in English: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`.
 3. Run `npm test`, `npm run lint`, and the checks relevant to your change.
-4. Update the README, `docs/`, and tests in the same commit as the behavior change.
+4. Update the README, relevant `docs/`, and tests in the same pull request as the behavior change. Any user-facing runtime, UI, icon, funding, privacy, store-asset, or README change must add a bullet under `docs/CHANGELOG.md` → `Unreleased`; `npm run changelog:check` enforces this across the complete PR diff.
 5. Use ordinary pull-request review and optional code or security review when useful. CI does not require a review-comment marker or reviewer-session UUID.
 
 Repository conventions, the panel's section layout, XSS rules, and the review topology are documented in [.github/copilot-instructions.md](.github/copilot-instructions.md).
