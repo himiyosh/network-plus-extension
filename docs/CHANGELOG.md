@@ -4,6 +4,10 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- Added GitHub Sponsors and Ko-fi support routes, including an animated in-panel support dialog with an optional coffee CTA.
+- Raised the default request retention limit from 5,000 to 20,000 requests.
+- Documented verified Google Chrome support alongside Microsoft Edge.
+- Refreshed the extension icon artwork with a brighter, more legible color treatment at small sizes.
 - Retired the mandatory independent-review and exact-head marker mechanism under explicit repository-owner authorization. The trusted workflow, checker, marker fixtures/tests, reviewer/merger repository variables, status context, and current operating instructions were removed while Node.js 22/24 CI, dependency audit, release packaging, security checks, and ordinary optional reviews remain.
 - Rewrote the README in English for an international audience, with a hero tour animation, a screenshot gallery, and a task-oriented structure. Long-form internal material moved to `docs/architecture.md`, `docs/manual-test-checklist.md`, and this changelog; the release-route landmarks checked by `npm run version:check` were renamed to match.
 - Added a code-trust boundary for independent-review verification (issue #95). Because `pull_request_target` and `issue_comment` resolve the workflow definition from the base repository's default branch, a dedicated workflow that never checks out or executes PR code verifies the exact-head marker using only the checker on the default branch, and publishes the `independent-review` commit status fail-closed. A pull request that rewrites the checker, its tests, or the workflow still cannot change what its own run verifies. Least privilege (`permissions: {}` plus status write), no dependency installation, a pre-verification failure seed, and follow-through on marker posting and deletion are pinned by mutation tests over a step allowlist and step-body digest.
