@@ -10,8 +10,8 @@ This dossier is a repository-local recommendation for a future Partner Center su
 
 - `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.7.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The checked-in package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
-- GitHub release `v1.6.0` and `network-plus-extension-1.6.0.zip` were publicly observable on 2026-07-27. The asset download count was 0 at that observation time; this point-in-time repository statistic is not an adoption or store-distribution claim.
-- A read-only GitHub query still returned an empty live repository description, homepage, and topic list on 2026-07-28. This point-in-time observation describes external state; the repository-local kit does not change those settings.
+- GitHub release `v1.7.0` and `network-plus-extension-1.7.0.zip` were publicly observable and re-downloaded on 2026-08-14. The ZIP is 140249 bytes and its SHA-256 is `d0f2c0d02cae90156a3d3bda8bbeba0ff70531f02f36f4256aeb885560c8cd77`.
+- The SHA-256 is safe to publish and useful for integrity checking, but it is not a publisher signature. The operator must obtain the ZIP from the trusted release route and compare the complete digest before upload.
 
 ### Checked-in discovery intent
 
@@ -23,6 +23,14 @@ This dossier is a repository-local recommendation for a future Partner Center su
 - Partner Center account, product identity, ownership verification, availability, markets, and certification state are unknown and are not claimed.
 - No verifiable Microsoft Edge Add-ons listing URL was found in repository evidence. Website and support links therefore use existing public GitHub routes rather than an unverified store route.
 - The operator must confirm current Partner Center field labels and category vocabulary before submission because the portal can change independently of this repository.
+
+## Developer account prerequisites
+
+- Register for the Microsoft Edge program in Partner Center using a Microsoft account (MSA) as the Primary Owner. The current Microsoft guide states that Microsoft Edge extension registration has no fee.
+- Choose the account country or region, `Individual` or `Company` account type, and publisher display name carefully; the current registration guide states that country/region and account type cannot be changed after enrollment.
+- Complete contact details, accept the current developer agreement, and wait for account verification. Company verification can require additional evidence and may take longer.
+
+These are external identity, agreement, and account actions. They are intentionally not performed by repository automation.
 
 ## Store properties
 
@@ -123,6 +131,7 @@ All screenshots are 1280 x 800 PNG files and depict only deterministic data prod
 | File | Depicted state | Synthetic evidence |
 |---|---|---|
 | `docs/store-assets/logo-300.png` | 300 x 300 Network+ logo derived from the checked-in extension mark | No traffic data |
+| `docs/store-assets/chrome-small-promo-440x280.png` | 440 x 280 text-free Network+ promotional tile with an otter investigator and abstract request/timing motifs | No traffic data; also satisfies the Chrome Web Store required small-promo size |
 | `docs/store-assets/screenshot-request-detail-1280x800.png` | Request grid with the synthetic 503 row selected and response headers visible | `checkout.network-plus.test`, `Retry-After: 30`, local sample status |
 | `docs/store-assets/screenshot-timing-guidance-1280x800.png` | Response Timing view and timing interpretation guidance | 2,450 ms total, 2,200 ms Wait (TTFB), browser-evidence limitation |
 | `docs/store-assets/screenshot-sample-guide-1280x800.png` | Prompt-first Sample evidence guide before reveal | Four questions only; no answer is revealed in this capture |
@@ -134,8 +143,9 @@ Machine-readable provenance and expected dimensions are recorded in `docs/store-
 
 | Source | Observed document metadata | Accessed | Use in this dossier |
 |---|---|---|---|
-| [Publish a Microsoft Edge extension](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension) | Microsoft Learn page updated 2026-06-12; page metadata date 2026-05-05 | 2026-07-27 | Required listing fields, 250-10,000 character description, 300 x 300 recommended logo, allowed screenshot dimensions, privacy declarations, search-term limits, and certification notes |
-| [Developer policies for the Microsoft Edge Add-ons store](https://learn.microsoft.com/en-us/legal/microsoft-edge/extensions/developer-policies) | Microsoft Learn page updated 2026-07-24 | 2026-07-27 | Accurate representation, single purpose, testability, permission minimization, screenshot clarity, and personal-information disclosure |
-| [Public repository](https://github.com/himiyosh/network-plus-extension) | Public GitHub repository; live description, homepage, and topics empty when queried read-only | 2026-07-28 | External-state observation, website route, and repository evidence |
-| [Public support route](https://github.com/himiyosh/network-plus-extension/issues/new/choose) | Existing GitHub Issues chooser route | 2026-07-27 | Support contact route |
-| [Public v1.6.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.6.0) | Release published 2026-07-24 with one 87,775-byte ZIP asset | 2026-07-27 | Existing release-ZIP onboarding evidence only; not store-listing evidence |
+| [Register as a Microsoft Edge extension developer](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/create-dev-account) | Current Microsoft Edge program registration guide | 2026-08-14 | No-fee registration, account type, publisher identity, agreement, and verification prerequisites |
+| [Publish a Microsoft Edge extension](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension) | Current Microsoft Edge publication guide | 2026-08-14 | Required listing fields, 250-10,000 character description, 300 x 300 recommended logo, optional 440 x 280 small tile, allowed screenshot dimensions, privacy declarations, search-term limits, and certification notes |
+| [Developer policies for the Microsoft Edge Add-ons store](https://learn.microsoft.com/en-us/legal/microsoft-edge/extensions/developer-policies) | Microsoft Edge Add-ons developer policies | 2026-08-14 | Accurate representation, single purpose, testability, permission minimization, screenshot clarity, and personal-information disclosure |
+| [Public repository](https://github.com/himiyosh/network-plus-extension) | Public GitHub repository | 2026-08-14 | Website route and repository evidence |
+| [Public support route](https://github.com/himiyosh/network-plus-extension/issues/new/choose) | Existing GitHub Issues chooser route | 2026-08-14 | Support contact route |
+| [Public v1.7.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.7.0) | Release published 2026-08-14 with one 140249-byte ZIP asset; SHA-256 re-verified from a fresh download | 2026-08-14 | Exact upload-artifact identity; not store-listing evidence |
