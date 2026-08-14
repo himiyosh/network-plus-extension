@@ -44,6 +44,12 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: npm run text:check -- --base "$BASE_SHA" --head "$HEAD_SHA"
 
+      - name: Check changelog policy
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: npm run changelog:check -- --base "$BASE_SHA" --head "$HEAD_SHA"
+
       - name: Install dependencies
         run: npm ci
 

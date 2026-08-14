@@ -217,14 +217,9 @@ description: "Network+ for DevTools 統合エキスパートエージェント�
 - **README 同期**: ファイル追加/削除、機能変更時は必ず README を同一コミットで更新
 - **Lessons Learned**: 障害・問題発生時は `copilot-instructions.md` の LL セクションに追記
 
-### Independent-review governance
+### Pull request review
 
-- 実装チャイルドと、そのチャイルドを所有または adopt したコーディネーターは、その PR の `independent-review` clearance marker を投稿しない。
-- コーディネーターは `continuous-improvement-watchdog.md` から現在の global owner を解決し、`INDEPENDENT_REVIEW_REVIEWER_SESSION_ID` と `INDEPENDENT_REVIEW_MERGER_SESSION_ID` が full UUID (full lowercase UUID) で相互に異なることを `docs/coordinator-topology.md` の rotation runbook どおりに確認してから exact-head review を委譲する。
-- reviewer が投稿できる Network+ marker は `independent-review head=<40hex> verdict=pass by=<full lowercase UUID>` のみで、`author_association: OWNER` comment の first non-empty unfenced line に置く。HTML comment wrapper、末尾の `at=`、fenced example、他リポジトリの incompatible marker format、proxy posting、merger self-review を使用しない。
-- 実際にレビューした設定済み reviewer session 自身だけが marker を投稿する。実装セッションとその owner/adopter は投稿せず、別セッション ID を代理投稿しない。CI は設定済み reviewer 以外の `by=`、PR コミットの `Copilot-Session` trailer と一致する identity、空の implementation-session attribution、`OWNER` 以外の drive-by comment を拒否する。
-- CI は GitHub REST の最大 250 件の commit collection と収集前後の metadata 総数を marker 評価前に照合する。250 件超、metadata 不正、件数不一致、収集中の総数変更は fail closed とする。
-- repository Actions variables は PR-editable checker code の trust boundary を解決しない近接防御であり、外部所有の trusted required check は issue #95 の対象として残る。
+- コードレビューとセキュリティレビューは、必要に応じて通常の GitHub Pull Request review として任意に実施する。CI は review comment marker や reviewer session UUID を要求しない。
 
 ---
 
