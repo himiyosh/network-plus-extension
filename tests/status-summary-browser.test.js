@@ -1373,8 +1373,8 @@ browserTest(
         expect.objectContaining({
           rowCount: 1,
           rowIds: [1],
-          counter: '1 / 1 requests · 0 active column filters',
-          totalSize: '42 B transferred',
+          counter: '1 / 1 requests',
+          totalSize: '42 B',
           tabStopIds: ['1'],
         }),
       );
@@ -1384,8 +1384,8 @@ browserTest(
         expect.objectContaining({
           rowCount: 2,
           rowIds: [1, 2],
-          counter: '2 / 2 requests · 0 active column filters',
-          totalSize: '84 B transferred',
+          counter: '2 / 2 requests',
+          totalSize: '84 B',
           tabStopIds: ['1'],
         }),
       );
@@ -1395,7 +1395,7 @@ browserTest(
         expect.objectContaining({
           rowCount: 100,
           rowIds: Array.from({ length: 100 }, (_, index) => 101 + index),
-          counter: '100 / 100 requests · 0 active column filters',
+          counter: '100 / 100 requests',
           tabStopIds: ['101'],
           undoWasAvailable: true,
         }),
@@ -2059,8 +2059,8 @@ browserTest(
       expect(initialState).toMatchObject({
         activeResponseTabId: 'res-tab-timing',
         pauseDisabled: true,
-        requestCount: '3 / 3 requests · 0 active column filters',
-        requestCountAnnouncement: '3 / 3 requests · 0 active column filters',
+        requestCount: '3 / 3 requests',
+        requestCountAnnouncement: '3 / 3 requests',
         searchPanelDisplay: 'block',
         searchQuery: '503',
       });
@@ -2592,7 +2592,7 @@ browserTest(
       expect(exitedState).toEqual({
         pauseDisabled: false,
         pauseLabel: 'Pause recording',
-        requestCount: '0 / 0 requests · 0 active column filters',
+        requestCount: '0 / 0 requests',
         sampleStatusHidden: true,
       });
     } finally {
@@ -2698,7 +2698,7 @@ browserTest(
                 brandPaddingLeft: brandStyle.paddingLeft,
                 brandPaddingRight: brandStyle.paddingRight,
                 brandSubtitleDisplay: getComputedStyle(
-                  document.querySelector('.brand-sub'),
+                  document.querySelector('.brand-sub-text'),
                 ).display,
               };
             })()`,
@@ -2715,7 +2715,6 @@ browserTest(
         'exportHarBtn',
         'autoScrollBtn',
         'filterBtn',
-        'presetsBtn',
         'columnsBtn',
         'retentionBtn',
         'themeBtn',
@@ -2724,7 +2723,7 @@ browserTest(
       for (const measurement of viewportMeasurements) {
         expect(measurement.documentOverflow).toBe(0);
         expect(measurement.toolbarOverflowX).toBe('auto');
-        expect(measurement.actions).toHaveLength(13);
+        expect(measurement.actions).toHaveLength(12);
         expect(measurement.actions.map((action) => action.id)).toEqual(expectedActionOrder);
       }
       expect(viewportMeasurements.slice(0, 3).every((measurement) => measurement.toolbarOverflow > 0)).toBe(true);
@@ -2735,6 +2734,8 @@ browserTest(
       expect(desktopMeasurement.brandDisplay).not.toBe('none');
       expect(desktopMeasurement.brandSubtitleDisplay).toBe('none');
       expect(desktopMeasurement.brandWidth).toBeLessThan(150);
+      // Compact mode drops only the sub-label words; the cat keeps a fixed
+      // 22px perch between the wordmark and the cup, inside symmetric paddings.
       expect(desktopMeasurement.brandPaddingLeft).toBe('8px');
       expect(desktopMeasurement.brandPaddingRight).toBe('8px');
 
@@ -2760,7 +2761,6 @@ browserTest(
         'exportHarBtn',
         'autoScrollBtn',
         'filterBtn',
-        'presetsBtn',
         'columnsBtn',
         'retentionBtn',
         'themeBtn',
@@ -3067,8 +3067,11 @@ browserTest(
       ).toThrow(REVERSE_TOOLBAR_FOCUS_CONTRACT);
 
       const pointerCases = [
-        { caseId: 'exportHarBtn@545', width: 545, actionId: 'exportHarBtn' },
-        { caseId: 'presetsBtn@800', width: 800, actionId: 'presetsBtn' },
+        // Natural partial-visibility cases derive their viewport width from the
+        // button's own measured midpoint, so brand or font metric changes can
+        // never silently push the cut line off the button.
+        { caseId: 'exportHarBtn@mid', actionId: 'exportHarBtn' },
+        { caseId: 'columnsBtn@mid', actionId: 'columnsBtn' },
         {
           caseId: 'exportHarBtn@500-sub-4px',
           width: 500,
@@ -3078,15 +3081,40 @@ browserTest(
       ];
       const pointerMeasurements = [];
       for (const pointerCase of pointerCases) {
+        let pointerWidth = pointerCase.width;
+        if (pointerWidth == null) {
+          // Measure at a width where the toolbar overflows: packed positions
+          // are width-independent, unlike the space-between spread layout.
+          await cdp.send('Emulation.setDeviceMetricsOverride', {
+            width: 375,
+            height: 800,
+            deviceScaleFactor: 1,
+            mobile: false,
+          });
+          const midpointExpression = `(async () => {
+              document.body.focus();
+              await document.fonts.ready;
+              document.querySelector('.topbar').scrollLeft = 0;
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const rect = document.querySelector('#${pointerCase.actionId}').getBoundingClientRect();
+              return Math.round((rect.left + rect.right) / 2);
+            })()`;
+          pointerWidth = await evaluate(cdp, midpointExpression, true);
+          for (let settleAttempt = 0; settleAttempt < 10; settleAttempt++) {
+            await delay(120);
+            const nextWidth = await evaluate(cdp, midpointExpression, true);
+            const settled = nextWidth === pointerWidth;
+            pointerWidth = nextWidth;
+            if (settled) break;
+          }
+        }
         await cdp.send('Emulation.setDeviceMetricsOverride', {
-          width: pointerCase.width,
+          width: pointerWidth,
           height: 800,
           deviceScaleFactor: 1,
           mobile: false,
         });
-        const point = await evaluate(
-          cdp,
-          `(async () => {
+        const pointExpression = `(async () => {
             document.body.focus();
             const toolbar = document.querySelector('.topbar');
             toolbar.scrollLeft = 0;
@@ -3138,9 +3166,18 @@ browserTest(
               visibleWidth: Math.round(Math.max(0, visibleRight - visibleLeft)),
               actionWidth: Math.round(actionRect.width),
             };
-          })()`,
-          true,
-        );
+          })()`;
+        // Async settle work (font loads, deferred renders) can shift the row
+        // between measuring and clicking; re-measure until two consecutive
+        // reads agree so the dispatch coordinates match the final layout.
+        let point = await evaluate(cdp, pointExpression, true);
+        for (let settleAttempt = 0; settleAttempt < 10; settleAttempt++) {
+          await delay(120);
+          const nextPoint = await evaluate(cdp, pointExpression, true);
+          const settled = nextPoint.x === point.x && nextPoint.y === point.y;
+          point = nextPoint;
+          if (settled) break;
+        }
         await cdp.send('Input.dispatchMouseEvent', {
           type: 'mousePressed',
           x: point.x,
@@ -3163,7 +3200,7 @@ browserTest(
               await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
               const measurement = {
                 caseId: '${pointerCase.caseId}',
-                width: ${pointerCase.width},
+                width: ${pointerWidth},
                 actionId: '${pointerCase.actionId}',
                 visibleWidth: ${point.visibleWidth},
                 actionWidth: ${point.actionWidth},
@@ -3193,7 +3230,6 @@ browserTest(
       expect(
         pointerMeasurements.map((measurement) => ({
           caseId: measurement.caseId,
-          width: measurement.width,
           actionId: measurement.actionId,
           clickTargets: measurement.clickTargets,
           actionDeliveries: measurement.actionDeliveries,
@@ -3201,24 +3237,21 @@ browserTest(
         })),
       ).toEqual([
         {
-          caseId: 'exportHarBtn@545',
-          width: 545,
+          caseId: 'exportHarBtn@mid',
           actionId: 'exportHarBtn',
           clickTargets: ['exportHarBtn'],
           actionDeliveries: 1,
           toolbarScrollLeft: 0,
         },
         {
-          caseId: 'presetsBtn@800',
-          width: 800,
-          actionId: 'presetsBtn',
-          clickTargets: ['presetsBtn'],
+          caseId: 'columnsBtn@mid',
+          actionId: 'columnsBtn',
+          clickTargets: ['columnsBtn'],
           actionDeliveries: 1,
           toolbarScrollLeft: 0,
         },
         {
           caseId: 'exportHarBtn@500-sub-4px',
-          width: 500,
           actionId: 'exportHarBtn',
           clickTargets: ['exportHarBtn'],
           actionDeliveries: 1,
@@ -3295,7 +3328,6 @@ browserTest(
         'exportHarBtn',
         'autoScrollBtn',
         'filterBtn',
-        'presetsBtn',
         'columnsBtn',
         'retentionBtn',
         'themeBtn',

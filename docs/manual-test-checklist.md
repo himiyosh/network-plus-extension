@@ -32,7 +32,7 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 
 ## Search and detail-pane search
 
-- [ ] In the dark theme, rows matching a search keyword are clearly distinguishable at a glance for every keyword color: a visible tint plus a keyword-colored leading edge and underline. The ID column shows no K-badge, while screen readers still announce "Matches search keyword N".
+- [ ] In the dark theme, rows matching a search keyword are clearly distinguishable at a glance for every keyword color via their tint alone (no outline). Selecting any row — hit or not — draws a 2px accent outline around it that reads instantly as selection. The ID column shows no K-badge, while screen readers still announce "Matches search keyword N".
 - [ ] During live capture with a body-scope keyword active, the top bar shows only the match count; "N bodies not searched" and "Showing matches only" appear inside the search panel's notice area and no top-bar button shifts or flickers as bodies load.
 - [ ] `Matches only` in the search panel hides non-matching rows, updates the visible count and status line, and pressing it again restores all rows with highlights intact. With no active keyword the toggle changes nothing.
 - [ ] With `Matches only` on, a sanitized HAR export contains exactly the displayed rows.
@@ -41,11 +41,19 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] The in-pane query is kept when switching rows or tabs and re-applies to the new content; Escape clears the field without closing the panel.
 - [ ] Searching a JSON body with more than 100 array items or a preview truncated at 2,000 characters reports "(+N collapsed)" when hits are hidden, and `Expand all` opens the truncated content and includes those hits in the count and navigation.
 - [ ] An HTML response with no `charset` in its `Content-Type` header but a `<meta charset=...>` declaration (e.g. Shift_JIS) renders readable text in Body, Preview, and Raw.
-- [ ] Rows highlighted from the context menu (★) show the same colored leading edge and underline as search hits in both themes.
+- [ ] Rows highlighted from the context menu (★) show the same tint treatment as search hits in both themes, and the selection outline stays visible on top of them.
+- [ ] During live capture the top-bar match counter changes number without moving the trash, import, or export buttons, and the `Aa` / `\b` / `.*` segmented group sits beside `Scope` without crowding the `Matches only` switch.
 - [ ] The `Aa` / `\b` / `.*` match options change the request-list matches, the cell marks, and the in-pane search identically; an invalid regular expression turns the input red with the error in its tooltip and matches nothing.
 - [ ] Scope, match options, and Matches only survive closing and reopening DevTools; search keyword text does not.
 - [ ] <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> focuses the pane search field when focus is inside a Body/Raw view, and toggles the request search panel elsewhere.
 - [ ] A response declaring `Content-Type: text/html; charset=Shift_JIS` (or another non-UTF-8 charset) renders readable text — not mojibake — in the Body, Preview, and Raw views, including after a SAZ import.
+
+## Toolbar popups and the status bar
+
+- [ ] The `Columns` menu ends with a `Preset` section: `Update` saves the current columns + filters, `Apply` restores them (or the default view before anything is saved), `Forget saved preset` removes the saved state, and `Filters (N)` reflects the applied rules.
+- [ ] The `Filters` popup opens with every column section expanded; Method / Status / URL rules read as single rows without stray wrapping, and a section header click collapses and re-expands it.
+- [ ] The `Filters` popup lists every filterable column as a collapsed row; clicking a row expands only that column's rule editor, editing a rule shows an `Active` chip and updates the header count live, and reopening the popup keeps active columns expanded.
+- [ ] The status bar shows only `Retention <limit> · cache <n>/<max>`, the status chips, `avg <t>`, the transferred size, and `N / M requests` (plus `· K active column filter(s)` only when K > 0); hovering retention, latency, and size reveals the full details in tooltips.
 
 ## Keyboard
 

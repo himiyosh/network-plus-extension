@@ -556,7 +556,7 @@ describe('guided sample capture static contracts', () => {
   test('recovers filtered requests through the shared reset path without clearing search keywords', () => {
     const clearFiltersBlock = js.slice(
       js.indexOf('function clearColumnFilters'),
-      js.indexOf('function loadFilterPresets'),
+      js.indexOf('function saveViewPreset'),
     );
     expect(clearFiltersBlock).toContain('state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();');
     expect(clearFiltersBlock).toContain('renderBody();');
@@ -570,13 +570,6 @@ describe('guided sample capture static contracts', () => {
     );
     expect(renderBodyBlock).toContain('const restoreEmptyStateFocus = isFocusInsideEmptyState();');
     expect(renderBodyBlock).toContain('restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);');
-
-    const presetResetBlock = js.slice(
-      js.indexOf('const renderPresetsMenu = () => {'),
-      js.indexOf('if (presetsBtn)'),
-    );
-    expect(presetResetBlock).toContain('clearColumnFilters();');
-    expect(presetResetBlock).not.toContain('state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();');
   });
 
   test('exposes one native heading per rendered empty state without changing its layout', () => {
@@ -703,7 +696,7 @@ describe('guided sample capture static contracts', () => {
 
     const filterTransitionBlock = js.slice(
       js.indexOf('function planSampleCaptureFilterTransition'),
-      js.indexOf('function normalizePresetName'),
+      js.indexOf('function normalizeViewPreset'),
     );
     expect(filterTransitionBlock).toContain('deserializeFilterState(serializeFilterState(currentRules))');
     expect(filterTransitionBlock).toContain('deserializeFilterState(serializeFilterState(previousRules))');
@@ -1190,7 +1183,7 @@ describe('capture retention static contracts', () => {
     expect(html).toMatch(/<label for="retentionLimit">Maximum retained requests<\/label>/);
     expect(html).toMatch(/id="retentionUnlimited"[^>]*aria-describedby="retentionWarning"/);
     expect(html).toMatch(/id="retentionWarning"[^>]*role="alert"[^>]*hidden/);
-    expect(html).toMatch(/id="retentionStatus">Retention:/);
+    expect(html).toMatch(/id="retentionStatus"[^>]*>Retention /);
     expect(html).not.toMatch(/id="retentionStatus"[^>]*(?:role|aria-live)=/);
     expect(html).toMatch(/id="retentionAnnouncement"[^>]*class="sr-only"[^>]*role="status"[^>]*aria-live="polite"/);
     expect(css).toMatch(/#retentionDialog\{[^}]*width:min\(420px,calc\(100vw - 16px\)\)[^}]*overflow:auto/);
@@ -1335,9 +1328,11 @@ describe('release trust static contracts', () => {
     expect(js).toContain("input.setAttribute('aria-label', 'Search keyword ' + (i + 1));");
     expect(js).toContain("startInput.setAttribute('aria-label', columnLabel + ' filter start time');");
     expect(js).toContain("endInput.setAttribute('aria-label', columnLabel + ' filter end time');");
-    expect(js).toContain("inclAnyInput.setAttribute('aria-label', 'URL filter Include any');");
-    expect(js).toContain("inclAllInput.setAttribute('aria-label', 'URL filter Include all');");
-    expect(js).toContain("exclInput.setAttribute('aria-label', 'URL filter Exclude any');");
+    // URL advanced fields route their accessible names through the shared field builder.
+    expect(js).toContain("input.setAttribute('aria-label', ariaLabel);");
+    expect(js).toContain("'URL filter Include any',");
+    expect(js).toContain("'URL filter Include all',");
+    expect(js).toContain("'URL filter Exclude any',");
     expect(js).toContain("opSelect.setAttribute('aria-label', columnLabel + ' filter condition ' + (idx + 1) + ' operator');");
     expect(js).toContain("input.setAttribute('aria-label', columnLabel + ' filter condition ' + (idx + 1) + ' value');");
     expect(js).toContain("removeBtn.setAttribute('aria-label', 'Remove ' + columnLabel + ' filter condition ' + (idx + 1));");
@@ -1988,7 +1983,7 @@ describe('waterfall and stats topology', () => {
     expect(renderer).toContain(
       'updateStatusSummaryChip(structure, indicator, onInspectStatusClass)',
     );
-    expect(renderer).toContain("structure.duration.textContent = '| ' + durationText");
+    expect(renderer).toContain("structure.duration.textContent = '| avg ' + fmtTime(stats.avgDuration)");
     expect(renderer).not.toContain("statsElement.textContent = ''");
     expect(renderer).not.toContain('innerHTML');
   });
@@ -2069,7 +2064,6 @@ describe('visual-state dark-mode parity', () => {
     'hl-secondary-pct',
     'hl-row-primary-pct',
     'hl-row-secondary-pct',
-    'hl-row-ring-pct',
     'multi-selected-pct',
     'danger-tint',
     'shadow-context-menu',
@@ -2104,8 +2098,8 @@ describe('visual-state dark-mode parity', () => {
     expect(componentCss).not.toMatch(/rgba\(/);
   });
 
-  test('keeps dark-mode search row highlights legible (issue: hits were hard to spot)', () => {
-    // Dark rows sit on very dark surfaces; a mix percentage below ~20% is
+  test('hit rows stay tint-only and the selected row carries the outline', () => {
+    // Dark rows sit on very dark surfaces; a mix percentage below ~15% is
     // visually indistinguishable from the plain row background.
     for (const [themeName, theme] of [
       ['system dark', systemDark],
@@ -2117,20 +2111,18 @@ describe('visual-state dark-mode parity', () => {
       expect(parseInt(theme['hl-row-primary-pct'], 10)).toBeGreaterThanOrEqual(18);
       expect(parseInt(theme['hl-row-secondary-pct'], 10)).toBeGreaterThanOrEqual(15);
       expect(parseInt(theme['hl-primary-pct'], 10)).toBeGreaterThanOrEqual(30);
-      // The colored edge ring is the primary affordance on dark surfaces.
-      expect(parseInt(theme['hl-row-ring-pct'], 10)).toBeGreaterThanOrEqual(60);
     }
+    // A hit alone draws no outline — outlines mean selection, nothing else —
+    // so the selected-row ring is never masked by search styling.
     for (const selector of [0, 1, 2, 3, 4, 5]) {
-      expect(css).toMatch(
-        new RegExp(`\\.search-row-${selector}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
-      );
+      const rule = css.match(new RegExp(`\\.search-row-${selector}\\{([^}]*)\\}`))[1];
+      expect(rule).not.toContain('box-shadow');
     }
-    // Manually highlighted rows (context menu) carry the same edge ring.
     for (const color of ['yellow', 'red', 'green', 'blue', 'purple', 'orange']) {
-      expect(css).toMatch(
-        new RegExp(`\\.hl-${color}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
-      );
+      const rule = css.match(new RegExp(`\\.hl-${color}\\{([^}]*)\\}`))[1];
+      expect(rule).not.toContain('box-shadow');
     }
+    expect(css).toContain('.grid tbody tr.selected{background:var(--selected);box-shadow:inset 0 0 0 2px var(--accent)}');
   });
 
   test('visual-state highlight rules do not use dark-only selector overrides', () => {
@@ -2171,36 +2163,45 @@ describe('column filter value-less operator contracts', () => {
   });
 });
 
-describe('filter preset static contracts', () => {
-  test('FILTER_PRESET_KEY constant is defined in panel.js and bounded to MAX_FILTER_PRESETS', () => {
-    expect(js).toContain("const FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1';");
-    expect(js).toContain('const MAX_FILTER_PRESETS = 20;');
-    expect(js).toContain('const MAX_PRESET_NAME_LENGTH = 40;');
+describe('view preset static contracts', () => {
+  const columnsMenuBlock = () =>
+    js.slice(
+      js.indexOf('const renderColumnsContextMenu'),
+      js.indexOf("$('#thead').addEventListener('contextmenu'"),
+    );
+
+  test('view preset storage keys and size bound are defined in panel.js', () => {
+    expect(js).toContain("const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';");
+    expect(js).toContain("const LEGACY_FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1';");
     expect(js).toContain('const MAX_PRESET_TOTAL_BYTES =');
-    // Limit must be enforced when saving a new preset
-    expect(js).toContain('if (presetList.length >= MAX_FILTER_PRESETS)');
   });
 
-  test('serializeFilterState and deserializeFilterState are exported', () => {
+  test('view preset helpers are exported for unit tests', () => {
     const np = require('../panel.js');
     expect(typeof np.serializeFilterState).toBe('function');
     expect(typeof np.deserializeFilterState).toBe('function');
-    expect(typeof np.normalizePresetName).toBe('function');
-    expect(typeof np.loadFilterPresets).toBe('function');
-    expect(typeof np.saveFilterPresets).toBe('function');
+    expect(typeof np.normalizeViewPreset).toBe('function');
+    expect(typeof np.loadViewPreset).toBe('function');
+    expect(typeof np.saveViewPreset).toBe('function');
+    expect(typeof np.clearViewPreset).toBe('function');
   });
 
-  test('presetsBtn is in HTML with correct aria attributes and controls presetsMenu', () => {
-    expect(html).toMatch(/id="presetsBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="presetsMenu"/);
+  test('the standalone Presets toolbar button is fully retired', () => {
+    expect(html).not.toContain('presetsBtn');
+    expect(js).not.toContain('presetsBtn');
+    expect(js).not.toContain('presetsMenu');
+    expect(js).not.toContain('createPresetDropdownContent');
   });
 
-  test('presets dropdown is created dynamically and uses safe DOM API (no innerHTML)', () => {
-    // Preset popup content must be built with createElement, not innerHTML
-    const presetBlock = js.slice(js.indexOf('createPresetDropdownContent'), js.indexOf('function toggleSort'));
-    expect(presetBlock).not.toContain('.innerHTML =');
-    expect(presetBlock).toContain('createElement');
-    expect(presetBlock).toContain('textContent');
-    expect(presetBlock).toContain('appendChild');
+  test('Columns menu hosts the single preset section built with safe DOM APIs', () => {
+    const menuBlock = columnsMenuBlock();
+    expect(menuBlock).toContain("presetSection.className = 'columns-preset-section';");
+    expect(menuBlock).toContain('columns-preset-apply');
+    expect(menuBlock).toContain('columns-preset-update');
+    expect(menuBlock).toContain('columns-preset-reset');
+    expect(menuBlock).not.toContain('.innerHTML =');
+    expect(css).toContain('.columns-preset-section{');
+    expect(css).toContain('.columns-preset-actions{');
   });
 
   test('filter preset save never persists captured network traffic', () => {
@@ -2211,86 +2212,79 @@ describe('filter preset static contracts', () => {
     expect(serBlock).not.toContain('.body');
     expect(serBlock).not.toContain('request');
     expect(serBlock).not.toContain('response');
+    // The preset snapshot itself carries only column visibility booleans + filter rules.
+    const buildBlock = js.slice(js.indexOf('function buildViewPresetFromState'), js.indexOf('function applyViewPreset'));
+    expect(buildBlock).toContain('!!column.visible');
+    expect(buildBlock).toContain('serializeFilterState(state.columnFilterRules)');
+    expect(buildBlock).not.toContain('state.rows');
   });
 
-  test('applyFilterPreset calls filterRows and renderBody to refresh UI without re-loading rows', () => {
-    expect(js).toContain('state.columnFilterRules = deserializeFilterState(preset.filterRules);');
-    expect(js).toContain('filterRows();');
-    expect(js).toContain('renderBody();');
+  test('applying the preset refreshes columns, filters, table, and search UI', () => {
+    const menuBlock = columnsMenuBlock();
+    expect(menuBlock).toContain('applyViewPreset(preset);');
+    expect(menuBlock).toContain('saveColumnPrefs();');
+    expect(menuBlock).toContain('filterRows();');
+    expect(menuBlock).toContain('syncSearchUIAfterRender();');
+    expect(menuBlock).toContain('updateTableSummary(state.filteredRows.length);');
   });
 
-  test('loadFilterPresets and saveFilterPresets use the FILTER_PRESET_KEY', () => {
-    const loadBlock = js.slice(js.indexOf('function loadFilterPresets'), js.indexOf('function saveFilterPresets'));
-    expect(loadBlock).toContain('FILTER_PRESET_KEY');
-    const saveBlock = js.slice(js.indexOf('function saveFilterPresets'), js.indexOf('// Section 8'));
-    expect(saveBlock).toContain('FILTER_PRESET_KEY');
+  test('a null preset applies the factory default view instead of failing', () => {
+    const applyBlock = js.slice(js.indexOf('function applyViewPreset'), js.indexOf('// Section 8'));
+    expect(applyBlock).toContain('DEFAULT_COLUMNS.find');
+    expect(applyBlock).toContain("deserializeFilterState(preset ? preset.filterRules : {})");
   });
 
-  test('focus is restored to presetsBtn after closing the preset popup', () => {
-    // closeAccessiblePopup restores focus to _networkPlusTrigger; the presetsBtn must be passed as trigger
-    expect(js).toContain('showAccessiblePopupAt(presetsMenu, rect.left, rect.bottom, presetsBtn)');
+  test('load, save, and clear all target VIEW_PRESET_KEY', () => {
+    const loadBlock = js.slice(js.indexOf('function loadViewPreset'), js.indexOf('function clearViewPreset'));
+    expect(loadBlock).toContain('localStorage.getItem(VIEW_PRESET_KEY)');
+    const saveBlock = js.slice(js.indexOf('function saveViewPreset'), js.indexOf('function migrateLegacyFilterPresets'));
+    expect(saveBlock).toContain('localStorage.setItem(VIEW_PRESET_KEY, serialized);');
+    const clearBlock = js.slice(js.indexOf('function clearViewPreset'), js.indexOf('function hasStoredViewPreset'));
+    expect(clearBlock).toContain('localStorage.removeItem(VIEW_PRESET_KEY);');
   });
 
-  test('presetsMenu is non-modal: must not carry aria-modal', () => {
-    // Regression: presetsMenu is a floating popup, not a true modal dialog
-    const menuBlock = js.slice(js.indexOf("presetsMenu.id = 'presetsMenu'"), js.indexOf('const renderPresetsMenu'));
-    expect(menuBlock).not.toContain("aria-modal");
+  test('legacy multi-preset store migrates once and is removed', () => {
+    const migrateBlock = js.slice(js.indexOf('function migrateLegacyFilterPresets'), js.indexOf('function loadViewPreset'));
+    expect(migrateBlock).toContain('localStorage.removeItem(LEGACY_FILTER_PRESET_KEY);');
+    expect(migrateBlock).toContain('saveViewPreset(preset);');
   });
 
-  test('preset dropdown buttons must not carry role=menuitem inside a dialog container', () => {
-    const presetBlock = js.slice(js.indexOf('function createPresetDropdownContent'), js.indexOf('function toggleSort'));
-    // Buttons inside a role=dialog must not have role=menuitem
-    expect(presetBlock).not.toContain("setAttribute('role', 'menuitem')");
-  });
-
-  test('preset-name input has a visible label element, not only placeholder/aria-label', () => {
-    const presetBlock = js.slice(js.indexOf('function createPresetDropdownContent'), js.indexOf('function toggleSort'));
-    // A <label> element must be created and associated with the input via htmlFor
-    expect(presetBlock).toContain("'label'");
-    expect(presetBlock).toContain('.htmlFor =');
-    // CSS must style the visible label
-    expect(css).toContain('.preset-name-label{');
-  });
-
-  test('saveFilterPresets normalizes filterRules through serializer/deserializer before writing', () => {
-    // saveFilterPresets must run filterRules through deserializeFilterState so unknown top-level
-    // payload fields cannot be persisted.
-    const saveBlock = js.slice(js.indexOf('function saveFilterPresets'), js.indexOf('// Section 8'));
-    expect(saveBlock).toContain('deserializeFilterState');
-    expect(saveBlock).toContain('serializeFilterState');
-  });
-
-  test('loadFilterPresets returns { presets, error } shape', () => {
-    const loadBlock = js.slice(js.indexOf('function loadFilterPresets'), js.indexOf('function saveFilterPresets'));
-    // Must return an object with presets and error fields
-    expect(loadBlock).toContain('{ presets:');
-    expect(loadBlock).toContain('error:');
-  });
-
-  test('loadFilterPresets signals corruption via error field surfaced by renderPresetsMenu', () => {
-    // renderPresetsMenu must destructure { presets, error } and call setStatus when error is non-null
-    const renderBlock = js.slice(js.indexOf('const renderPresetsMenu'), js.indexOf('if (presetsBtn)'));
-    expect(renderBlock).toMatch(/const \{[^}]*error[^}]*\}\s*=\s*loadFilterPresets\(\)/);
-    expect(renderBlock).toContain('if (loadError) setStatus(loadError)');
-  });
-
-  test('saveFilterPresets enforces total serialized-size limit using actual byte count', () => {
-    // Returns false for oversize data so callers can surface a storage error.
-    // Must use real UTF-8 byte count (TextEncoder), not JS string .length.
-    const saveBlock = js.slice(js.indexOf('function saveFilterPresets'), js.indexOf('// Section 8'));
+  test('saveViewPreset normalizes input and enforces the byte limit with real UTF-8 counts', () => {
+    const saveBlock = js.slice(js.indexOf('function saveViewPreset'), js.indexOf('function migrateLegacyFilterPresets'));
+    expect(saveBlock).toContain('normalizeViewPreset(preset)');
     expect(saveBlock).toContain('MAX_PRESET_TOTAL_BYTES');
     expect(saveBlock).toContain('TextEncoder');
     expect(saveBlock).toContain('return false;');
+    const normBlock = js.slice(js.indexOf('function normalizeViewPreset'), js.indexOf('function getExtensionVersion'));
+    expect(normBlock).toContain('serializeFilterState(deserializeFilterState(');
   });
 
-  test('save and delete handlers check saveFilterPresets return value and surface errors', () => {
-    const renderBlock = js.slice(js.indexOf('const renderPresetsMenu'), js.indexOf('if (presetsBtn)'));
-    // Handlers must check `ok` return value from saveFilterPresets
-    expect(renderBlock).toContain('const ok = saveFilterPresets(');
-    expect(renderBlock).toContain('if (!ok)');
-    // Must not silently swallow errors — must call setStatus on failure
-    const failureMatches = [...renderBlock.matchAll(/if \(!ok\)\s*\{[^}]+setStatus\(/g)];
-    expect(failureMatches.length).toBeGreaterThanOrEqual(2); // save + delete
+  test('loadViewPreset returns { preset, error } and the apply handler surfaces errors', () => {
+    const loadBlock = js.slice(js.indexOf('function loadViewPreset'), js.indexOf('function clearViewPreset'));
+    expect(loadBlock).toContain('{ preset:');
+    expect(loadBlock).toContain('error:');
+    const menuBlock = columnsMenuBlock();
+    expect(menuBlock).toContain('const { preset, error: presetError } = loadViewPreset();');
+    expect(menuBlock).toContain('setStatus(presetError);');
+  });
+
+  test('update and reset handlers check return values and surface storage errors', () => {
+    const menuBlock = columnsMenuBlock();
+    expect(menuBlock).toContain('const ok = saveViewPreset(buildViewPresetFromState());');
+    expect(menuBlock).toContain("setStatus('Could not save preset. Storage unavailable or data too large.');");
+    expect(menuBlock).toContain('if (!clearViewPreset())');
+    expect(menuBlock).toContain("setStatus('Could not reset preset. Storage unavailable.');");
+  });
+
+  test('clicks on controls a handler re-rendered away never dismiss the hosting popup', () => {
+    // Select All, preset Update/Apply, and add/remove-condition all rebuild popup
+    // content inside their own click handlers, detaching the clicked button before
+    // the window-level dismisser runs. A detached target must be ignored.
+    const dismissBlock = js.slice(
+      js.indexOf('// Outside pointer actions dismiss transient surfaces'),
+      js.indexOf('// Auto-scroll button'),
+    );
+    expect(dismissBlock).toContain('if (!event.target.isConnected) return;');
   });
 });
 
@@ -2502,19 +2496,37 @@ describe('optional support dialog', () => {
     js.indexOf('// Tab switching for inspector panels'),
   );
 
-  test('toolbar keeps the support trigger beside the brand and icon-only so the row still fits', () => {
-    // The toolbar has no spare width at 1280px; a text label pushes a trigger
-    // off-screen, which defeats the button. Keep it icon-only, and anchored to
-    // the brand rather than trailing the overflow-prone right cluster.
-    expect(html).toMatch(
-      /<span class="brand-sub">for DevTools<\/span>\s*<\/div>\s*<button id="supportBtn"[^>]*class="icon-btn support-btn">☕<\/button>/,
-    );
+  test('the brand pill itself is the support trigger, with the cat and cup inline', () => {
+    // The brand and the support trigger are one control: the pill carries the
+    // dialog trigger role, the peeking cat, the steaming cup, and a hover-only
+    // hint — no separate ☕ button that would spend toolbar width.
     const trigger = html.match(/<button id="supportBtn"[^>]*>/)[0];
+    expect(trigger).toContain('class="brand support-btn"');
     expect(trigger).toContain('aria-haspopup="dialog"');
     expect(trigger).toContain('aria-controls="supportDialog"');
-    expect(trigger).toContain('aria-label="Support Network+ development, optional"');
+    expect(trigger).toContain('aria-label="Network+ for DevTools — support development, optional"');
     // A modal dialog trigger must not advertise an expandable region.
     expect(trigger).not.toContain('aria-expanded');
+    const brandBlock = html.slice(html.indexOf('<button id="supportBtn"'), html.indexOf('</button>', html.indexOf('<button id="supportBtn"')));
+    for (const part of [
+      'brand-cat-window',
+      'brand-cat-motion',
+      'brand-cat',
+      'brand-cat-eye',
+      'brand-cat-paw',
+      'brand-heart',
+      'brand-cup',
+      'brand-steam',
+      'brand-support-hint',
+      'brand-sub',
+    ]) {
+      expect(brandBlock).toContain(part);
+    }
+    // Decorative art stays out of the accessibility tree and inline (CSP).
+    expect(brandBlock).toMatch(/<span class="brand-cat-window" aria-hidden="true">/);
+    expect(brandBlock).not.toMatch(/<img\b|<use\b|href=|url\(/);
+    // Exactly one toolbar support trigger remains.
+    expect(html.match(/id="supportBtn"/g)).toHaveLength(1);
   });
 
   test('support dialog links are exact and external-safe', () => {
@@ -2563,20 +2575,47 @@ describe('optional support dialog', () => {
     expect(supportBlock).toMatch(/addEventListener\('cancel'.*supportDialog\.close\(\)/);
   });
 
-  test('the support trigger is frameless at rest but still signals interactivity', () => {
-    const rule = css.match(/\.topbar button\.support-btn\{([^}]*)\}/)[1];
-    // Transparent, not removed: the toolbar keeps the border box so the row
-    // never reflows — the same technique the recording indicator uses.
+  test('the brand trigger keeps a reflow-free border box and visible focus', () => {
+    const rule = css.match(/\.topbar button\.brand\{([^}]*)\}/)[1];
+    // Transparent border, not removed: the toolbar keeps the border box so the
+    // row never reflows when the generic hover border appears.
     expect(rule).toContain('border-color:transparent');
-    expect(rule).toContain('background:transparent');
     expect(rule).not.toContain('border:none');
-    // A frameless control still has to expose itself on hover and keyboard focus.
     expect(css).toMatch(/\.topbar button:hover\{[^}]*border-color:var\(--accent\)/);
     expect(css).toMatch(/\.topbar button:focus-visible[^{]*\{[^}]*outline:2px solid var\(--accent\)/);
+    // The peeking cat hovers above the low, bottom-aligned "for DevTools"
+    // sub-label — the roomiest spot in the pill — with a deliberate 2px air
+    // gap so no paw ever touches the letters. The art grazes at most ~4.5px
+    // above the pill (~5.5px with the 1px hover rise), inside the topbar's
+    // 6px clip budget. The overflow window enables the duck-and-hide beat,
+    // and compact widths keep a fixed 22px perch when the words are hidden.
+    expect(css).toContain('.brand-cat-window{position:absolute;bottom:calc(100% + 2px);');
+    expect(css).toMatch(/\.brand-sub\{position:relative;display:inline-flex/);
+    expect(css).toContain('.brand-sub-text{display:none}');
+    expect(css).toContain('.brand-sub{width:22px;height:11px}');
+    expect(css).toMatch(/\.brand-cat-window\{[^}]*overflow:hidden/);
+    // The cup is white porcelain with a brew-toned edge so it reads against
+    // both the light and dark pill fills (an unedged accent-colored cup sank
+    // into the background).
+    expect(css).toMatch(/\.brand-cup-body\{fill:var\(--cup\);stroke:var\(--brew\)/);
+    expect(css).toMatch(/\.brand-cup-handle\{fill:none;stroke:var\(--cup\)/);
+    expect(css).toMatch(/\.brand-cat[^}]*\{transform:translateY\(-1px\)\}/);
+    // Sparse life beats: an occasional duck below the rim and a floating heart.
+    expect(css).toMatch(/\.brand-cat-motion\{[^}]*animation:brand-cat-duck 28s/);
+    expect(css).toMatch(/\.brand-heart\{[^}]*animation:brand-heart-float 19s/);
+    // Idle life is calm (blink + faint steam); the invitation appears on hover.
+    expect(css).toContain('.brand-steam-group{opacity:.5;');
+    expect(css).toMatch(/\.topbar button\.brand:hover \.brand-steam-group[^{]*\{opacity:1\}/);
+    // Reduced motion freezes every brand animation.
+    const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
+    for (const part of ['.brand-cat', '.brand-cat-motion', '.brand-heart', '.brand-cat-eye', '.brand-steam', '.brand-support-hint']) {
+      expect(reducedMotion).toContain(part);
+    }
   });
 
   test('support illustration is inline, decorative, and free of remote assets', () => {
-    const hero = html.slice(html.indexOf('<div class="support-hero">'), html.indexOf('</svg>'));
+    const heroStart = html.indexOf('<div class="support-hero">');
+    const hero = html.slice(heroStart, html.indexOf('</svg>', heroStart));
     expect(hero).toContain('aria-hidden="true"');
     expect(hero).toContain('focusable="false"');
     // The MV3 CSP and the package check both forbid non-local assets, so the
@@ -2820,6 +2859,9 @@ describe('search matches-only toggle contracts', () => {
     // The top-bar count must not carry the variable-width body-progress text.
     expect(js).not.toMatch(/searchCount\.textContent \+= ' · ' \+ unsearchedBodies/);
     expect(js).toContain("noticeParts.push(unsearchedBodies + ' bodies not searched')");
+    // The count box itself is fixed-width, so the trash/import/export icons
+    // after it never move as match counts change during capture.
+    expect(css).toMatch(/\.search-count\{[^}]*flex:0 0 70px[^}]*width:70px[^}]*overflow:hidden/);
   });
 
   test('renders and exports through the shared matches-only visibility planner', () => {

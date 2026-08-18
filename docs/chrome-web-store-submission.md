@@ -51,7 +51,7 @@ These are external account, payment, identity, and agreement actions. They are i
 <!-- chrome-store-description:start -->
 Network+ for DevTools adds a dedicated network-analysis panel to Google Chrome DevTools. It is designed for web developers, QA engineers, and support engineers who need to inspect HTTP evidence without leaving the DevTools workflow.
 
-The request grid captures traffic reported by the Chrome DevTools network API and presents method, status, domain, path, type, duration, size, initiator, URL, and optional waterfall information. Users can sort and resize columns, choose visible columns, apply per-column filters, save filter presets, and search across URLs, headers, request bodies, and response bodies. Selecting a request opens request and response inspectors for headers, bodies, query parameters, cookies, raw data, timing phases, and supported previews. Two selected requests can be compared side by side.
+The request grid captures traffic reported by the Chrome DevTools network API and presents method, status, domain, path, type, duration, size, initiator, URL, and optional waterfall information. Users can sort and resize columns, choose visible columns, apply per-column filters, save the column-and-filter setup as a view preset, and search across URLs, headers, request bodies, and response bodies. Selecting a request opens request and response inspectors for headers, bodies, query parameters, cookies, raw data, timing phases, and supported previews. Two selected requests can be compared side by side.
 
 Network+ applies bounded local retention. The default request limit is 20,000, configurable from 100 to 100,000; an explicitly confirmed unlimited request mode is also available. Response bodies remain subject to a 1 MiB per-body limit and a 32 MiB shared cache limit. The status bar reports retention and body-cache conditions so omitted or evicted content is not presented as complete evidence. Clear removes the current working set and offers a bounded 10-second Undo action while retained data remains available.
 
@@ -115,7 +115,7 @@ The policy URL must be opened in a signed-out browser after these changes are me
 
 ### Optional support links and payments
 
-The `☕` toolbar button opens a local Support dialog with user-activated links to https://github.com/sponsors/himiyosh and https://ko-fi.com/studio344. It does not embed a payment form, add affiliate codes, gate functionality, transmit captured traffic, or receive payment, card, or account data. Every feature remains free. Record these facts in reviewer notes so the optional donation routes are not mistaken for paid extension functionality. Final policy acceptance is determined by Chrome Web Store review.
+The Network+ brand button in the toolbar (the mark with the cat and coffee cup) opens a local Support dialog with user-activated links to https://github.com/sponsors/himiyosh and https://ko-fi.com/studio344. It does not embed a payment form, add affiliate codes, gate functionality, transmit captured traffic, or receive payment, card, or account data. Every feature remains free. Record these facts in reviewer notes so the optional donation routes are not mistaken for paid extension functionality. Final policy acceptance is determined by Chrome Web Store review.
 
 ## Distribution recommendation
 
@@ -137,7 +137,7 @@ No account, credentials, subscription, remote service, or live customer traffic 
 5. Select `Sample guide`. Before selecting `Reveal evidence`, verify that only four investigation questions are shown. Select `Reveal evidence` and verify the failed request, HTTP 503, 2,450 ms total, `Wait (TTFB) · 2,200 ms`, `Retry-After: 30 seconds`, and the browser-evidence limitation.
 6. Select the export action, then select `Export sanitized HAR`. Verify that `network-plus-sanitized.har` is downloaded only after the user action and that the HAR records the sanitization policy. Do not select full output for routine review evidence.
 7. Select `Clear`. Verify that the sample rows and details disappear, recording returns to its prior state, and `Undo clear` is offered for 10 seconds. Select `Undo clear` once to restore the bounded snapshot, then select `Clear` again to exit sample mode.
-8. Select the `☕` toolbar button. Verify that the Support dialog opens, lists the GitHub Sponsors and Ko-fi links, states that Network+ sends them no data, contains no payment form, and issues no network request when opened. Verify that each option exposes one user-activated action that opens its page in a browser tab, that no clipboard write occurs, and that `Esc` or `Close` returns focus to the `☕` button.
+8. Select the Network+ brand button in the toolbar (the mark with the cat and coffee cup). Verify that the Support dialog opens, lists the GitHub Sponsors and Ko-fi links, states that Network+ sends them no data, contains no payment form, and issues no network request when opened. Verify that each option exposes one user-activated action that opens its page in a browser tab, that no clipboard write occurs, and that `Esc` or `Close` returns focus to the brand button.
 
 ## Final operator checklist
 
