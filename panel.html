@@ -12,26 +12,30 @@
       <button id="pauseBtn" title="Pause recording" aria-label="Pause recording" class="icon-btn">⏸️</button>
       <div class="separator"></div>
       <button id="supportBtn" title="Support Network+ development (optional)" aria-label="Network+ for DevTools — support development, optional" aria-haspopup="dialog" aria-controls="supportDialog" class="brand support-btn">
-        <span class="brand-cat-window" aria-hidden="true">
-          <span class="brand-cat-motion">
-            <svg class="brand-cat" viewBox="0 0 24 19" focusable="false">
-              <path class="brand-cat-fur brand-cat-ear--left" d="M3.6 10.5 Q3.4 2.6 6 2.2 Q8.8 3 10.4 6.6 Z"/>
-              <path class="brand-cat-fur" d="M20.4 10.5 Q20.6 2.6 18 2.2 Q15.2 3 13.6 6.6 Z"/>
-              <path class="brand-cat-inner" d="M5.2 8.8 Q5.3 4.6 6.4 4.3 Q7.9 5 8.9 7 Z"/>
-              <path class="brand-cat-inner" d="M18.8 8.8 Q18.7 4.6 17.6 4.3 Q16.1 5 15.1 7 Z"/>
-              <path class="brand-cat-fur" d="M1.5 19 a10.5 9.4 0 0 1 21 0 Z"/>
-              <circle class="brand-cat-eye" cx="8.1" cy="14.4" r="1.9"/>
-              <circle class="brand-cat-eye" cx="15.9" cy="14.4" r="1.9"/>
-              <circle class="brand-cat-blush" cx="4.6" cy="16.4" r="1.35"/>
-              <circle class="brand-cat-blush" cx="19.4" cy="16.4" r="1.35"/>
-              <path class="brand-cat-mouth" d="M11 16.6 q1 1 2 0"/>
-              <ellipse class="brand-cat-paw" cx="6.2" cy="18.5" rx="2.3" ry="1.5"/>
-              <ellipse class="brand-cat-paw" cx="17.8" cy="18.5" rx="2.3" ry="1.5"/>
-            </svg>
+        <span class="brand-text">
+          <span class="brand-cat-window" aria-hidden="true">
+            <span class="brand-cat-motion">
+              <svg class="brand-cat" viewBox="0 0 24 17" focusable="false">
+                <path class="brand-cat-fur brand-cat-ear--left" d="M4.2 9.5 Q3.9 3 6.6 2.5 Q9.2 3.3 10.3 6.2 Z"/>
+                <path class="brand-cat-fur" d="M19.8 9.5 Q20.1 3 17.4 2.5 Q14.8 3.3 13.7 6.2 Z"/>
+                <path class="brand-cat-inner" d="M5.7 7.8 Q5.7 4.6 6.9 4.3 Q8.2 5 9 6.6 Z"/>
+                <path class="brand-cat-inner" d="M18.3 7.8 Q18.3 4.6 17.1 4.3 Q15.8 5 15 6.6 Z"/>
+                <path class="brand-cat-fur" d="M1.8 17 a10.2 8.6 0 0 1 20.4 0 Z"/>
+                <circle class="brand-cat-eye" cx="8" cy="12.4" r="2.1"/>
+                <circle class="brand-cat-eye" cx="16" cy="12.4" r="2.1"/>
+                <circle class="brand-cat-glint" cx="8.8" cy="11.6" r="0.75"/>
+                <circle class="brand-cat-glint" cx="16.8" cy="11.6" r="0.75"/>
+                <circle class="brand-cat-blush" cx="4.3" cy="14.4" r="1.5"/>
+                <circle class="brand-cat-blush" cx="19.7" cy="14.4" r="1.5"/>
+                <path class="brand-cat-mouth" d="M10.9 14.1 q1.1 1 2.2 0"/>
+                <ellipse class="brand-cat-paw" cx="6.3" cy="16.1" rx="2.4" ry="1.35"/>
+                <ellipse class="brand-cat-paw" cx="17.7" cy="16.1" rx="2.4" ry="1.35"/>
+                <path class="brand-cat-toes" d="M5.5 15.5 v1.1 M7.1 15.5 v1.1 M16.9 15.5 v1.1 M18.5 15.5 v1.1"/>
+              </svg>
+            </span>
+            <span class="brand-heart">♥</span>
           </span>
-          <span class="brand-heart">♥</span>
-        </span>
-        <span class="brand-text">Network<span class="brand-plus">+</span></span>
+          Network<span class="brand-plus">+</span></span>
         <span class="brand-sub">for DevTools</span>
         <svg class="brand-cup" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
           <g class="brand-steam-group">
@@ -39,6 +43,7 @@
             <path class="brand-steam brand-steam--b" d="M11 7 C10 5.5 12 4.5 11 2.5"/>
           </g>
           <path class="brand-cup-body" d="M3.5 9 h11 v4.2 a4 4 0 0 1 -4 4 h-3 a4 4 0 0 1 -4 -4 Z"/>
+          <ellipse class="brand-cup-brew" cx="9" cy="9.6" rx="4.4" ry="1.05"/>
           <path class="brand-cup-handle" d="M14.5 10.5 a2.7 2.7 0 0 1 0 5"/>
         </svg>
         <span class="brand-support-hint" aria-hidden="true">Support&nbsp;♥</span>
@@ -68,12 +73,12 @@
     <div class="search-panel-footer">
       <button id="searchAddBtn" class="search-add-btn">+ Add keyword</button>
       <label class="search-matches-only" title="Show only requests that match search keywords. When off, all requests stay visible with highlights."><input type="checkbox" id="searchMatchesOnlyToggle" role="switch" aria-label="Show only matching requests"><span class="search-toggle-track" aria-hidden="true"></span><span class="search-matches-only-label">Matches only</span></label>
+      <span id="searchPanelNotice" class="search-panel-notice"></span>
       <span class="search-opt-group" role="group" aria-label="Match options">
         <button id="searchOptCaseBtn" class="search-opt-btn" aria-pressed="false" title="Match case">Aa</button>
         <button id="searchOptWordBtn" class="search-opt-btn" aria-pressed="false" title="Match whole word">\b</button>
         <button id="searchOptRegexBtn" class="search-opt-btn" aria-pressed="false" title="Use regular expression">.*</button>
       </span>
-      <span id="searchPanelNotice" class="search-panel-notice"></span>
       <button id="searchScopeBtn" class="search-scope-btn" title="Search scope settings" aria-haspopup="dialog" aria-controls="searchScopePopup" aria-expanded="false">⚙️ Scope</button>
     </div>
   </div>

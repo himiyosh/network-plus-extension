@@ -2069,7 +2069,6 @@ describe('visual-state dark-mode parity', () => {
     'hl-secondary-pct',
     'hl-row-primary-pct',
     'hl-row-secondary-pct',
-    'hl-row-ring-pct',
     'multi-selected-pct',
     'danger-tint',
     'shadow-context-menu',
@@ -2104,8 +2103,8 @@ describe('visual-state dark-mode parity', () => {
     expect(componentCss).not.toMatch(/rgba\(/);
   });
 
-  test('keeps dark-mode search row highlights legible (issue: hits were hard to spot)', () => {
-    // Dark rows sit on very dark surfaces; a mix percentage below ~20% is
+  test('hit rows stay tint-only and the selected row carries the outline', () => {
+    // Dark rows sit on very dark surfaces; a mix percentage below ~15% is
     // visually indistinguishable from the plain row background.
     for (const [themeName, theme] of [
       ['system dark', systemDark],
@@ -2117,20 +2116,18 @@ describe('visual-state dark-mode parity', () => {
       expect(parseInt(theme['hl-row-primary-pct'], 10)).toBeGreaterThanOrEqual(18);
       expect(parseInt(theme['hl-row-secondary-pct'], 10)).toBeGreaterThanOrEqual(15);
       expect(parseInt(theme['hl-primary-pct'], 10)).toBeGreaterThanOrEqual(30);
-      // The colored edge ring is the primary affordance on dark surfaces.
-      expect(parseInt(theme['hl-row-ring-pct'], 10)).toBeGreaterThanOrEqual(60);
     }
+    // A hit alone draws no outline — outlines mean selection, nothing else —
+    // so the selected-row ring is never masked by search styling.
     for (const selector of [0, 1, 2, 3, 4, 5]) {
-      expect(css).toMatch(
-        new RegExp(`\\.search-row-${selector}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
-      );
+      const rule = css.match(new RegExp(`\\.search-row-${selector}\\{([^}]*)\\}`))[1];
+      expect(rule).not.toContain('box-shadow');
     }
-    // Manually highlighted rows (context menu) carry the same edge ring.
     for (const color of ['yellow', 'red', 'green', 'blue', 'purple', 'orange']) {
-      expect(css).toMatch(
-        new RegExp(`\\.hl-${color}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
-      );
+      const rule = css.match(new RegExp(`\\.hl-${color}\\{([^}]*)\\}`))[1];
+      expect(rule).not.toContain('box-shadow');
     }
+    expect(css).toContain('.grid tbody tr.selected{background:var(--selected);box-shadow:inset 0 0 0 2px var(--accent)}');
   });
 
   test('visual-state highlight rules do not use dark-only selector overrides', () => {
@@ -2593,7 +2590,9 @@ describe('optional support dialog', () => {
     // budget (.topbar clips vertically): the clip window tops out at -6px and
     // the idle art sits 2px lower, leaving room for the 2px hover rise. The
     // window also enables the duck-and-hide beat without bleeding over text.
-    expect(css).toContain('.brand-cat-window{position:absolute;top:-6px;');
+    // The window hangs from the wordmark itself (paws rest on the letters),
+    // so no left slot spends toolbar width and ducking hides behind the text.
+    expect(css).toContain('.brand-cat-window{position:absolute;bottom:calc(100% - 2px);');
     expect(css).toMatch(/\.brand-cat-window\{[^}]*overflow:hidden/);
     expect(css).toMatch(/\.brand-cat[^}]*\{transform:translateY\(-2px\)\}/);
     // Sparse life beats: an occasional duck below the rim and a floating heart.
@@ -2855,6 +2854,9 @@ describe('search matches-only toggle contracts', () => {
     // The top-bar count must not carry the variable-width body-progress text.
     expect(js).not.toMatch(/searchCount\.textContent \+= ' · ' \+ unsearchedBodies/);
     expect(js).toContain("noticeParts.push(unsearchedBodies + ' bodies not searched')");
+    // The count box itself is fixed-width, so the trash/import/export icons
+    // after it never move as match counts change during capture.
+    expect(css).toMatch(/\.search-count\{[^}]*flex:0 0 70px[^}]*width:70px[^}]*overflow:hidden/);
   });
 
   test('renders and exports through the shared matches-only visibility planner', () => {

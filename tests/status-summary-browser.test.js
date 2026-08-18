@@ -2735,21 +2735,21 @@ browserTest(
       expect(desktopMeasurement.brandDisplay).not.toBe('none');
       expect(desktopMeasurement.brandSubtitleDisplay).toBe('none');
       expect(desktopMeasurement.brandWidth).toBeLessThan(150);
-      // The peeking-cat slot reserves 29px on the left in compact mode
-      // (cat at 6px + 22px art + 1px breathing room); the right stays 8px.
-      expect(desktopMeasurement.brandPaddingLeft).toBe('29px');
+      // The cat hangs above the wordmark, so the pill needs no reserved slot
+      // and keeps the original symmetric paddings.
+      expect(desktopMeasurement.brandPaddingLeft).toBe('8px');
       expect(desktopMeasurement.brandPaddingRight).toBe('8px');
 
       const compactBoundaryMeasurement = measurementsByWidth.get(1366);
       expect(compactBoundaryMeasurement.brandSubtitleDisplay).toBe('none');
-      expect(compactBoundaryMeasurement.brandPaddingLeft).toBe('29px');
+      expect(compactBoundaryMeasurement.brandPaddingLeft).toBe('8px');
       expect(compactBoundaryMeasurement.brandPaddingRight).toBe('8px');
 
       const wideBoundaryMeasurement = measurementsByWidth.get(1367);
       const wideMeasurement = measurementsByWidth.get(1500);
       for (const measurement of [wideBoundaryMeasurement, wideMeasurement]) {
         expect(measurement.brandSubtitleDisplay).not.toBe('none');
-        expect(measurement.brandPaddingLeft).toBe('35px');
+        expect(measurement.brandPaddingLeft).toBe('14px');
         expect(measurement.brandPaddingRight).toBe('14px');
         expect(measurement.brandWidth).toBeGreaterThan(compactBoundaryMeasurement.brandWidth);
       }
@@ -3069,8 +3069,11 @@ browserTest(
       ).toThrow(REVERSE_TOOLBAR_FOCUS_CONTRACT);
 
       const pointerCases = [
-        { caseId: 'exportHarBtn@519', width: 519, actionId: 'exportHarBtn' },
-        { caseId: 'presetsBtn@800', width: 800, actionId: 'presetsBtn' },
+        // Natural partial-visibility cases derive their viewport width from the
+        // button's own measured midpoint, so brand or font metric changes can
+        // never silently push the cut line off the button.
+        { caseId: 'exportHarBtn@mid', actionId: 'exportHarBtn' },
+        { caseId: 'presetsBtn@mid', actionId: 'presetsBtn' },
         {
           caseId: 'exportHarBtn@500-sub-4px',
           width: 500,
@@ -3080,15 +3083,40 @@ browserTest(
       ];
       const pointerMeasurements = [];
       for (const pointerCase of pointerCases) {
+        let pointerWidth = pointerCase.width;
+        if (pointerWidth == null) {
+          // Measure at a width where the toolbar overflows: packed positions
+          // are width-independent, unlike the space-between spread layout.
+          await cdp.send('Emulation.setDeviceMetricsOverride', {
+            width: 375,
+            height: 800,
+            deviceScaleFactor: 1,
+            mobile: false,
+          });
+          const midpointExpression = `(async () => {
+              document.body.focus();
+              await document.fonts.ready;
+              document.querySelector('.topbar').scrollLeft = 0;
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const rect = document.querySelector('#${pointerCase.actionId}').getBoundingClientRect();
+              return Math.round((rect.left + rect.right) / 2);
+            })()`;
+          pointerWidth = await evaluate(cdp, midpointExpression, true);
+          for (let settleAttempt = 0; settleAttempt < 10; settleAttempt++) {
+            await delay(120);
+            const nextWidth = await evaluate(cdp, midpointExpression, true);
+            const settled = nextWidth === pointerWidth;
+            pointerWidth = nextWidth;
+            if (settled) break;
+          }
+        }
         await cdp.send('Emulation.setDeviceMetricsOverride', {
-          width: pointerCase.width,
+          width: pointerWidth,
           height: 800,
           deviceScaleFactor: 1,
           mobile: false,
         });
-        const point = await evaluate(
-          cdp,
-          `(async () => {
+        const pointExpression = `(async () => {
             document.body.focus();
             const toolbar = document.querySelector('.topbar');
             toolbar.scrollLeft = 0;
@@ -3140,9 +3168,18 @@ browserTest(
               visibleWidth: Math.round(Math.max(0, visibleRight - visibleLeft)),
               actionWidth: Math.round(actionRect.width),
             };
-          })()`,
-          true,
-        );
+          })()`;
+        // Async settle work (font loads, deferred renders) can shift the row
+        // between measuring and clicking; re-measure until two consecutive
+        // reads agree so the dispatch coordinates match the final layout.
+        let point = await evaluate(cdp, pointExpression, true);
+        for (let settleAttempt = 0; settleAttempt < 10; settleAttempt++) {
+          await delay(120);
+          const nextPoint = await evaluate(cdp, pointExpression, true);
+          const settled = nextPoint.x === point.x && nextPoint.y === point.y;
+          point = nextPoint;
+          if (settled) break;
+        }
         await cdp.send('Input.dispatchMouseEvent', {
           type: 'mousePressed',
           x: point.x,
@@ -3165,7 +3202,7 @@ browserTest(
               await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
               const measurement = {
                 caseId: '${pointerCase.caseId}',
-                width: ${pointerCase.width},
+                width: ${pointerWidth},
                 actionId: '${pointerCase.actionId}',
                 visibleWidth: ${point.visibleWidth},
                 actionWidth: ${point.actionWidth},
@@ -3195,7 +3232,6 @@ browserTest(
       expect(
         pointerMeasurements.map((measurement) => ({
           caseId: measurement.caseId,
-          width: measurement.width,
           actionId: measurement.actionId,
           clickTargets: measurement.clickTargets,
           actionDeliveries: measurement.actionDeliveries,
@@ -3203,16 +3239,14 @@ browserTest(
         })),
       ).toEqual([
         {
-          caseId: 'exportHarBtn@519',
-          width: 519,
+          caseId: 'exportHarBtn@mid',
           actionId: 'exportHarBtn',
           clickTargets: ['exportHarBtn'],
           actionDeliveries: 1,
           toolbarScrollLeft: 0,
         },
         {
-          caseId: 'presetsBtn@800',
-          width: 800,
+          caseId: 'presetsBtn@mid',
           actionId: 'presetsBtn',
           clickTargets: ['presetsBtn'],
           actionDeliveries: 1,
@@ -3220,7 +3254,6 @@ browserTest(
         },
         {
           caseId: 'exportHarBtn@500-sub-4px',
-          width: 500,
           actionId: 'exportHarBtn',
           clickTargets: ['exportHarBtn'],
           actionDeliveries: 1,
