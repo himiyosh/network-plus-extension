@@ -623,6 +623,7 @@ if (require.main === module) main();
 
 module.exports = {
   EXPECTED_ASSETS,
+  EXPECTED_RELEASE_SHA256,
   EXPECTED_SEARCH_TERMS,
   extractMarkedBlock,
   extractPublicUrls,

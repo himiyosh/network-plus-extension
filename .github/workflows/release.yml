@@ -1,0 +1,93 @@
+name: Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Creating the release and uploading its archive is the only write this
+      # workflow performs; every other job in the repository stays read-only.
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check that the tag matches the released version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$TAG_NAME" != "v$version" ]; then
+            echo "tag $TAG_NAME does not match package.json version $version"
+            exit 1
+          fi
+          echo "tag matches version $version"
+
+      - name: Check package versions
+        run: npm run version:check
+
+      - name: Check extension package
+        run: npm run extension:check
+
+      - name: Build extension package
+        run: npm run extension:package
+
+      - name: Check store submission kits
+        run: npm run store:check
+
+      - name: Check that the archive matches the digest published in the store kits
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          archive="dist/network-plus-extension-$version.zip"
+          expected="$(node -p "require('./scripts/check-store-readiness.js').EXPECTED_RELEASE_SHA256")"
+          actual="$(sha256sum "$archive" | cut -d' ' -f1)"
+          if [ "$actual" != "$expected" ]; then
+            echo "archive digest $actual does not match the digest recorded in the submission dossiers ($expected)"
+            exit 1
+          fi
+          echo "archive digest verified: $actual"
+
+      - name: Build release notes
+        run: node scripts/build-release-notes.js > release-notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          archive="dist/network-plus-extension-$version.zip"
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "release $TAG_NAME already exists; refusing to overwrite a published release"
+            exit 1
+          fi
+          gh release create "$TAG_NAME" \
+            "$archive#Network+ $TAG_NAME extension ZIP" \
+            --title "Network+ $TAG_NAME" \
+            --notes-file release-notes.md

@@ -278,6 +278,8 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 
 **Versioning** follows Semantic Versioning. `version` is bumped only at release time — not per commit — and must stay identical across [manifest.json](manifest.json), [package.json](package.json), the top-level and root entries in [package-lock.json](package-lock.json), and the test fallback constant in [panel.js](panel.js). Run `npm run version:check` to verify all five locations and the README release links. Current version: **1.8.0**.
 
+**Releasing** is one tag push. After the release commit is on `main`, push the matching `vX.Y.Z` tag; the [Publish Release workflow](.github/workflows/release.yml) rebuilds the package, checks that the tag matches `package.json`, re-runs the version, package, and store-kit gates, verifies that the archive digest equals the value recorded in the submission dossiers, and publishes the GitHub release with the ZIP attached and notes generated from this version's changelog section. The workflow refuses to overwrite a release that already exists.
+
 ## Security
 
 - Every piece of user data rendered into the DOM goes through `textContent` or DOM APIs. `innerHTML` is not used anywhere.
