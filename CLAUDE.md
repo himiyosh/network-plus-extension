@@ -33,3 +33,4 @@ profile によっては配布されないファイルがある。存在しない
 
 - 導入元 ref: `v0.6.1` (`5792d8bb3ea23d3812e10c5b7f4ced214ac73753`)
 - 導入 profile: `core`（platform: `claude-code`）
+- ローカル逸脱: `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` §6.10 から、レビューコメント marker・レビュアー session UUID・repository variables による merge ゲート手続きの bullet 3 件を削除している（#129 で本リポジトリでは廃止済み。merge 可否は branch protection と通常の CI quality gates で判定する）。bundle 更新時は再取得後に同じ削除を再適用すること。
