@@ -1,6 +1,6 @@
 # Microsoft Edge Add-ons submission dossier (en-US)
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-18
 
 ## Submission status and evidence boundary
 
@@ -8,9 +8,9 @@ This dossier is a repository-local recommendation for a future Partner Center su
 
 ### Observed repository facts
 
-- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.7.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
+- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.8.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The checked-in package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
-- GitHub release `v1.7.0` and `network-plus-extension-1.7.0.zip` were publicly observable and re-downloaded on 2026-08-14. The ZIP is 140249 bytes and its SHA-256 is `d0f2c0d02cae90156a3d3bda8bbeba0ff70531f02f36f4256aeb885560c8cd77`.
+- The v1.8.0 upload artifact is `network-plus-extension-1.8.0.zip`, produced on 2026-08-18 by `npm run extension:package` from the v1.8.0 release commit. The ZIP is 150672 bytes and its SHA-256 is `6dfd5cf599f6adf50ddf70103b48a5b9006655065e9887ec7a5c434e6a4c8623`. Archive entries carry fixed timestamps, so the same commit rebuilds byte-identically and the digest is reproducible. Publishing the `v1.8.0` GitHub release, attaching this ZIP, and re-verifying the digest from a fresh download remain pending operator steps; the previous `v1.7.0` release stays the last publicly observed one.
 - The SHA-256 is safe to publish and useful for integrity checking, but it is not a publisher signature. The operator must obtain the ZIP from the trusted release route and compare the complete digest before upload.
 
 ### Checked-in discovery intent
@@ -57,7 +57,9 @@ These are external identity, agreement, and account actions. They are intentiona
 <!-- store-description:start -->
 Network+ for DevTools adds a dedicated network-analysis panel to Microsoft Edge DevTools. It is designed for web developers, QA engineers, and support engineers who need to inspect HTTP evidence without leaving the DevTools workflow.
 
-The request grid captures traffic reported by the Edge DevTools network API and presents method, status, domain, path, type, duration, size, initiator, URL, and optional waterfall information. Users can sort and resize columns, choose visible columns, apply per-column filters, save the column-and-filter setup as a view preset, and search across URLs, headers, request bodies, and response bodies. Selecting a request opens request and response inspectors for headers, bodies, query parameters, cookies, raw data, timing phases, and supported previews. Two selected requests can be compared side by side.
+The request grid captures traffic reported by the Edge DevTools network API and presents method, status, domain, path, type, duration, size, initiator, URL, and optional waterfall information. Users can sort and resize columns, choose visible columns, apply per-column filters, save the column-and-filter setup as a view preset, and run a multi-keyword search across URLs, headers, request bodies, and response bodies with match-case, whole-word, and regular-expression options, optionally narrowing the grid to matching rows only. Selecting a request opens request and response inspectors for headers, bodies, query parameters, cookies, raw data, timing phases, and supported previews. Two selected requests can be compared side by side.
+
+The Body and Raw inspector views carry their own keyword search with hit counting, next/previous navigation, and an expand-all action that reveals matches hidden inside collapsed JSON nodes or truncated previews. Response bodies are decoded with the charset declared by the Content-Type header, falling back to a scan of the HTML meta charset, so non-UTF-8 payloads read correctly in both live capture and imported HAR or SAZ files. Scope and match options persist between sessions; search keywords themselves are never stored.
 
 Network+ applies bounded local retention. The default request limit is 20,000, configurable from 100 to 100,000; an explicitly confirmed unlimited request mode is also available. Response bodies remain subject to a 1 MiB per-body limit and a 32 MiB shared cache limit. The status bar reports retention and body-cache conditions so omitted or evicted content is not presented as complete evidence. Clear removes the current working set and offers a bounded 10-second Undo action while retained data remains available.
 
@@ -115,7 +117,7 @@ The policy URL must be checked from a signed-out browser after this document is 
 
 No account, credentials, subscription, remote service, or live customer traffic is required.
 
-1. Use the exact ZIP uploaded for certification. For repository-side reproduction, run `npm run extension:package`, extract `dist/network-plus-extension-1.7.0.zip` into a new folder, open `edge://extensions/`, enable Developer mode, choose `Load unpacked`, and select the extracted folder. A ZIP file itself is not selected by `Load unpacked`.
+1. Use the exact ZIP uploaded for certification. For repository-side reproduction, run `npm run extension:package`, extract `dist/network-plus-extension-1.8.0.zip` into a new folder, open `edge://extensions/`, enable Developer mode, choose `Load unpacked`, and select the extracted folder. A ZIP file itself is not selected by `Load unpacked`.
 2. Open a local blank page such as `data:text/html,<title>Network%2B%20certification</title>`, open Microsoft Edge DevTools, and select the `Network+` panel.
 3. With no captured requests, select `Explore sample capture`. Verify that exactly three synthetic requests appear: a 200 GET to `api.network-plus.test`, a 503 POST to `checkout.network-plus.test`, and a 304 GET to `static.network-plus.test`. The status must state `No network traffic was sent.` and that live recording is paused.
 4. Select the 503 `POST /v1/orders/preview` request. Open the Response `Timing` tab and verify a total duration of 2,450 ms, with `Wait (TTFB)` at 2,200 ms as the dominant phase. Open `What do the timing phases mean?` and verify that the guidance says browser timing does not prove packet loss, cabling or RF faults, or a definitive server root cause.
@@ -148,4 +150,5 @@ Machine-readable provenance and expected dimensions are recorded in `docs/store-
 | [Developer policies for the Microsoft Edge Add-ons store](https://learn.microsoft.com/en-us/legal/microsoft-edge/extensions/developer-policies) | Microsoft Edge Add-ons developer policies | 2026-08-14 | Accurate representation, single purpose, testability, permission minimization, screenshot clarity, and personal-information disclosure |
 | [Public repository](https://github.com/himiyosh/network-plus-extension) | Public GitHub repository | 2026-08-14 | Website route and repository evidence |
 | [Public support route](https://github.com/himiyosh/network-plus-extension/issues/new/choose) | Existing GitHub Issues chooser route | 2026-08-14 | Support contact route |
-| [Public v1.7.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.7.0) | Release published 2026-08-14 with one 140249-byte ZIP asset; SHA-256 re-verified from a fresh download | 2026-08-14 | Exact upload-artifact identity; not store-listing evidence |
+| [Public v1.7.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.7.0) | Release published 2026-08-14 with one 140249-byte ZIP asset; SHA-256 re-verified from a fresh download | 2026-08-14 | Last publicly observed release; superseded as the upload source by v1.8.0 |
+| Local v1.8.0 package build (`npm run extension:package`) | Deterministic 150672-byte ZIP written to `dist/` from the v1.8.0 release commit; SHA-256 computed from that file | 2026-08-18 | Exact upload-artifact identity for this submission; the matching GitHub release is not yet published |

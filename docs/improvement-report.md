@@ -2,16 +2,16 @@
 
 > 初回生成日: 2026-03-09
 > 初回分析対象バージョン: 1.4.0
-> 現在のリリース: 1.7.0
+> 現在のリリース: 1.8.0
 > 初回分析対象スナップショット: 2026-03-09 時点の v1.4.0 (`panel.js` 2400+ 行・15 セクション、`panel.css`、`panel.html`、`manifest.json`)
 
 ---
 
-## Current state (2026-08-14, v1.7.0)
+## Current state (2026-08-18, v1.8.0)
 
-`package.json`、`manifest.json`、README、`panel.js`、`package-lock.json` のリリースメタデータは v1.7.0 で同期している。GitHub Release には、同じ確定コミットから生成した `network-plus-extension-1.7.0.zip` を添付する。
+`package.json`、`manifest.json`、README、`panel.js`、`package-lock.json` のリリースメタデータは v1.8.0 で同期している。GitHub Release には、同じ確定コミットから生成した `network-plus-extension-1.8.0.zip` を添付する（公開は未実施）。
 
-Cycle 1 で提案したコマンドコピー、フィルタープリセット、統計、Waterfall、ショートカット一覧、2 リクエスト比較、レスポンス Body 検索、カラム並べ替えは Cycle 2 以降で実装され、その後の回帰修復とハードニングも Cycle 3〜7 に記録している。現行 README は保持上限、sanitized outbound data、アクセシビリティ、HAR/SAZ import、Edge / Chrome 対応、サポート導線を含む v1.7.0 の機能と制約を正としている。
+Cycle 1 で提案したコマンドコピー、フィルタープリセット、統計、Waterfall、ショートカット一覧、2 リクエスト比較、レスポンス Body 検索、カラム並べ替えは Cycle 2 以降で実装され、その後の回帰修復とハードニングも Cycle 3〜7 に記録している。現行 README は保持上限、sanitized outbound data、アクセシビリティ、HAR/SAZ import、Edge / Chrome 対応、サポート導線を含む v1.8.0 の機能と制約を正としている。
 
 現行の品質ゲートは Jest、ESLint、version sync、Prettier、text/lock/package integrity、audit、coordinator contract で構成され、CI は Node.js 22/24 で実行する。本レポート内の `43/43` や `54/54` などの正確な件数は 2026-03-09 の履歴値であり、現在のテスト総数を表さない。
 
