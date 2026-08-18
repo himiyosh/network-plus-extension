@@ -29,6 +29,7 @@ Microsoft Edge DevTools
 - When a limit is exceeded, the oldest rows are removed as a batch, and filter results, focus, single and multiple selection, search matches, pending incremental renders, DOM rows, the detail pane, and statistics are reconciled at the same time.
 - The response body cache holds 1 MiB per body and 32 MiB in total. At the total limit, the least recently accessed bodies are evicted while their rows are kept.
 - Bodies larger than 1 MiB are omitted rather than stored partially. Detail views, search, and HAR never present omitted, evicted, or unavailable bodies as complete data.
+- Base64 bodies are decoded with the charset declared by the response's `Content-Type` header (unknown labels fall back to UTF-8), and SAZ imports split header from body at byte level before decoding, so non-UTF-8 bodies render without mojibake.
 - An evicted body can be fetched again when the detail view is opened, as long as the DevTools source is still available. HAR export fetches bodies one at a time so it does not restore the shared cache without bound.
 - The status bar continuously shows the active retention policy, body cache usage, and the cumulative counts of evicted rows, omitted bodies, evicted bodies, and omitted previews.
 - If stored settings are invalid or cannot be read or written, Network+ falls back to defaults and reports the reason in the retention or operation status.

@@ -30,6 +30,16 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] `Undo clear` can be run exactly once by keyboard and restores the three samples, details, filters, search terms and scope, selection and highlights, sort order, the original recording state, and a predictable row focus. If live traffic arrived first the sample is not restored, and a normal Clear restores while keeping new traffic within the retention limit.
 - [ ] In System / Dark / Light, the default, hover, active, focus, and disabled states of the action are all distinguishable.
 
+## Search and detail-pane search
+
+- [ ] In the dark theme, rows matching a search keyword are clearly distinguishable from non-matching rows at a glance, for every keyword color, without relying on the K-badge.
+- [ ] `Matches only` in the search panel hides non-matching rows, updates the visible count and status line, and pressing it again restores all rows with highlights intact. With no active keyword the toggle changes nothing.
+- [ ] With `Matches only` on, a sanitized HAR export contains exactly the displayed rows.
+- [ ] `Matches only` survives `Clear` → `Undo clear` together with the search terms and scope.
+- [ ] The Request/Response `Body` and `Raw` views each show their own search field; typing highlights hits with a counter, Enter / Shift+Enter and the ▲▼ buttons cycle through hits (wrapping), and jumping to a hit inside a collapsed JSON-tree node expands it.
+- [ ] The in-pane query is kept when switching rows or tabs and re-applies to the new content; Escape clears the field without closing the panel.
+- [ ] A response declaring `Content-Type: text/html; charset=Shift_JIS` (or another non-UTF-8 charset) renders readable text — not mojibake — in the Body, Preview, and Raw views, including after a SAZ import.
+
 ## Keyboard
 
 - [ ] <kbd>Enter</kbd> / <kbd>Space</kbd> on a header keeps `aria-sort` and the displayed order in sync, and focus returns to the same header after <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd>.

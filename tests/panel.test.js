@@ -889,6 +889,34 @@ describe('response content helpers', () => {
     expect(np.decodeResponseContent(null, 'base64')).toBe('');
   });
 
+  test('decodes base64 bodies with the declared charset instead of assuming UTF-8', () => {
+    // "こんにちは" encoded as Shift_JIS bytes, then base64.
+    const shiftJisBase64 = 'grGC8YLJgr+CzQ==';
+    expect(np.decodeResponseContent(shiftJisBase64, 'base64', 'shift_jis')).toBe('こんにちは');
+    // Without a charset the bytes are not valid UTF-8 and must not round-trip.
+    expect(np.decodeResponseContent(shiftJisBase64, 'base64')).not.toBe('こんにちは');
+    // Unknown labels fall back to UTF-8 without throwing.
+    const utf8Base64 = Buffer.from('café', 'utf8').toString('base64');
+    expect(np.decodeResponseContent(utf8Base64, 'base64', 'not-a-real-charset')).toBe('café');
+    expect(np.decodeResponseContent(utf8Base64, 'base64', '')).toBe('café');
+  });
+
+  test('extractCharsetFromContentType parses charset parameters defensively', () => {
+    expect(np.extractCharsetFromContentType('text/html; charset=Shift_JIS')).toBe('shift_jis');
+    expect(np.extractCharsetFromContentType('application/json;charset=UTF-8')).toBe('utf-8');
+    expect(np.extractCharsetFromContentType('text/html; charset="EUC-JP"')).toBe('euc-jp');
+    expect(np.extractCharsetFromContentType('text/plain')).toBe('');
+    expect(np.extractCharsetFromContentType('')).toBe('');
+    expect(np.extractCharsetFromContentType(null)).toBe('');
+    expect(np.extractCharsetFromContentType('text/html; charset = iso-2022-jp')).toBe('iso-2022-jp');
+  });
+
+  test('measureResponsePayload threads the charset into the decoded text', () => {
+    const payload = np.measureResponsePayload('grGC8YLJgr+CzQ==', 'base64', 'shift_jis');
+    expect(payload.text).toBe('こんにちは');
+    expect(payload.encoding).toBe('base64');
+  });
+
   test('handles base64 decode failures without exposing binary garbage', () => {
     const atobSpy = jest.spyOn(global, 'atob').mockImplementationOnce(() => {
       throw new Error('invalid base64');
@@ -4820,5 +4848,75 @@ describe('truncateUrlLabel', () => {
   test('returns truncated string for invalid URL', () => {
     const label = np.truncateUrlLabel('not-a-valid-url');
     expect(label).toBe('not-a-valid-url');
+  });
+});
+
+describe('planVisibleSearchRows', () => {
+  const rowA = { id: 1 };
+  const rowB = { id: 2 };
+  const rowC = { id: 3 };
+  const sorted = [rowA, rowB, rowC];
+  const matched = new Map([[rowB, new Set([0])]]);
+
+  test('returns all rows while the toggle is off or no search is active', () => {
+    expect(np.planVisibleSearchRows(sorted, matched, false, true)).toEqual(sorted);
+    expect(np.planVisibleSearchRows(sorted, matched, true, false)).toEqual(sorted);
+  });
+
+  test('returns only matching rows when the toggle is on with an active search', () => {
+    expect(np.planVisibleSearchRows(sorted, matched, true, true)).toEqual([rowB]);
+    expect(np.planVisibleSearchRows(sorted, new Map(), true, true)).toEqual([]);
+  });
+
+  test('is defensive about malformed inputs', () => {
+    expect(np.planVisibleSearchRows(null, matched, true, true)).toEqual([]);
+    expect(np.planVisibleSearchRows(sorted, null, true, true)).toEqual(sorted);
+  });
+});
+
+describe('getWrappedMatchIndex', () => {
+  test('returns -1 when there are no matches', () => {
+    expect(np.getWrappedMatchIndex(0, -1, 'next')).toBe(-1);
+    expect(np.getWrappedMatchIndex(-5, 2, 'prev')).toBe(-1);
+  });
+
+  test('starts from the first or last match when nothing is current', () => {
+    expect(np.getWrappedMatchIndex(3, -1, 'next')).toBe(0);
+    expect(np.getWrappedMatchIndex(3, -1, 'prev')).toBe(2);
+  });
+
+  test('steps and wraps in both directions', () => {
+    expect(np.getWrappedMatchIndex(3, 0, 'next')).toBe(1);
+    expect(np.getWrappedMatchIndex(3, 2, 'next')).toBe(0);
+    expect(np.getWrappedMatchIndex(3, 0, 'prev')).toBe(2);
+    expect(np.getWrappedMatchIndex(3, 1, 'prev')).toBe(0);
+  });
+});
+
+describe('SAZ body charset decoding', () => {
+  const buildMessageBytes = (headerText, bodyBytes) =>
+    new Uint8Array([...Buffer.from(headerText, 'latin1'), ...bodyBytes]);
+
+  test('findHttpHeaderBodySplit locates the CRLFCRLF boundary at byte level', () => {
+    const bytes = buildMessageBytes('HTTP/1.1 200 OK\r\nA: b\r\n\r\n', [0x82, 0xb1]);
+    expect(np.findHttpHeaderBodySplit(bytes)).toBe(21);
+    expect(np.findHttpHeaderBodySplit(new Uint8Array([1, 2, 3]))).toBe(-1);
+  });
+
+  test('decodes a Shift_JIS SAZ body with the charset its headers declare', () => {
+    const shiftJisBody = [0x82, 0xb1, 0x82, 0xf1, 0x82, 0xc9, 0x82, 0xbf, 0x82, 0xcd];
+    const bytes = buildMessageBytes(
+      'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=Shift_JIS\r\n\r\n',
+      shiftJisBody,
+    );
+    const message = np.parseSazHttpMessage(bytes);
+    expect(message.startLine).toBe('HTTP/1.1 200 OK');
+    expect(message.body).toBe('こんにちは');
+  });
+
+  test('still decodes UTF-8 SAZ bodies without a charset declaration', () => {
+    const utf8Body = Array.from(Buffer.from('日本語ボディ', 'utf8'));
+    const bytes = buildMessageBytes('HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n', utf8Body);
+    expect(np.parseSazHttpMessage(bytes).body).toBe('日本語ボディ');
   });
 });
