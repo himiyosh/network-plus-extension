@@ -4966,3 +4966,98 @@ describe('SAZ body charset decoding', () => {
     expect(np.parseSazHttpMessage(bytes).body).toBe('日本語ボディ');
   });
 });
+
+describe('search options (case / regex / whole word)', () => {
+  const OPTS = (overrides) => ({ caseSensitive: false, regex: false, wholeWord: false, ...overrides });
+
+  test('compileSearchQuery escapes literals and honors flags', () => {
+    const literal = np.compileSearchQuery('a.b(', OPTS());
+    expect(literal.error).toBeNull();
+    expect(literal.regex.test('xa.b(y')).toBe(true);
+    literal.regex.lastIndex = 0;
+    expect(literal.regex.test('aXb(')).toBe(false);
+
+    const cased = np.compileSearchQuery('Token', OPTS({ caseSensitive: true }));
+    cased.regex.lastIndex = 0;
+    expect(cased.regex.test('token')).toBe(false);
+    cased.regex.lastIndex = 0;
+    expect(cased.regex.test('Token')).toBe(true);
+
+    const invalid = np.compileSearchQuery('a(', OPTS({ regex: true }));
+    expect(invalid.regex).toBeNull();
+    expect(typeof invalid.error).toBe('string');
+  });
+
+  test('planKeywordHighlights applies options and guards zero-length regex matches', () => {
+    const kws = [{ query: 'ab+', colorIdx: 2 }];
+    const literalPlan = np.planKeywordHighlights('ab+ abb', kws, OPTS());
+    expect(literalPlan).toHaveLength(1); // literal "ab+"
+    const regexPlan = np.planKeywordHighlights('ab+ abb', kws, OPTS({ regex: true }));
+    expect(regexPlan.map((h) => [h.start, h.end])).toEqual([[0, 2], [4, 7]]);
+
+    // Zero-length-capable pattern must not hang and must skip empty matches.
+    const zeroPlan = np.planKeywordHighlights('axb', [{ query: 'x*', colorIdx: 0 }], OPTS({ regex: true }));
+    expect(zeroPlan).toEqual([{ start: 1, end: 2, colorIdx: 0, keywordIndex: 0 }]);
+
+    const wordPlan = np.planKeywordHighlights('id ids hid id', [{ query: 'id', colorIdx: 1 }], OPTS({ wholeWord: true }));
+    expect(wordPlan.map((h) => h.start)).toEqual([0, 11]);
+
+    const casedPlan = np.planKeywordHighlights('Ab ab', [{ query: 'Ab', colorIdx: 0 }], OPTS({ caseSensitive: true }));
+    expect(casedPlan).toHaveLength(1);
+
+    // Invalid regex keyword contributes nothing instead of throwing.
+    expect(np.planKeywordHighlights('abc', [{ query: '(', colorIdx: 0 }], OPTS({ regex: true }))).toEqual([]);
+  });
+
+  test('deepSearchMatch honors the options across scopes', () => {
+    const row = {
+      url: 'https://api.example/v1/Items?id=42',
+      domain: 'api.example',
+      path: '/v1/Items',
+      method: 'GET',
+      status: 200,
+      type: 'application/json',
+      requestHeaders: [{ name: 'X-Trace', value: 'abc-123' }],
+      responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+      requestPostData: null,
+      responseContentText: '{"total": 7}',
+    };
+    const scope = { url: true, reqBody: true, resBody: true, reqHeaders: true, resHeaders: true };
+    expect(np.deepSearchMatch(row, 'items', scope, OPTS({ caseSensitive: true }))).toBe(false);
+    expect(np.deepSearchMatch(row, 'Items', scope, OPTS({ caseSensitive: true }))).toBe(true);
+    expect(np.deepSearchMatch(row, 'abc-\\d+', scope, OPTS({ regex: true }))).toBe(true);
+    expect(np.deepSearchMatch(row, 'total', scope, OPTS({ wholeWord: true }))).toBe(true);
+    expect(np.deepSearchMatch(row, 'tota', scope, OPTS({ wholeWord: true }))).toBe(false);
+    // Invalid regex matches nothing rather than throwing.
+    expect(np.deepSearchMatch(row, '(', scope, OPTS({ regex: true }))).toBe(false);
+    // Legacy call without options keeps the literal behavior.
+    expect(np.deepSearchMatch(row, 'ITEMS', scope)).toBe(true);
+  });
+});
+
+describe('normalizeSearchPrefs', () => {
+  test('returns defaults for missing or malformed input', () => {
+    const defaults = np.normalizeSearchPrefs(null);
+    expect(defaults.scope).toEqual({ url: true, reqBody: true, resBody: true, reqHeaders: true, resHeaders: true });
+    expect(defaults.options).toEqual(np.DEFAULT_SEARCH_OPTIONS());
+    expect(defaults.matchesOnly).toBe(false);
+    expect(np.normalizeSearchPrefs('junk')).toEqual(defaults);
+    expect(np.normalizeSearchPrefs({ scope: 5, options: [], matchesOnly: 'yes' })).toEqual(defaults);
+  });
+
+  test('keeps only known boolean fields', () => {
+    const prefs = np.normalizeSearchPrefs({
+      scope: { url: false, bogus: true, resBody: false },
+      options: { regex: true, bogus: true },
+      matchesOnly: true,
+      keywords: ['secret'],
+    });
+    expect(prefs.scope.url).toBe(false);
+    expect(prefs.scope.resBody).toBe(false);
+    expect(prefs.scope.reqBody).toBe(true);
+    expect(prefs.scope.bogus).toBeUndefined();
+    expect(prefs.options).toEqual({ caseSensitive: false, regex: true, wholeWord: false });
+    expect(prefs.matchesOnly).toBe(true);
+    expect(prefs.keywords).toBeUndefined();
+  });
+});

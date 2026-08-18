@@ -25,7 +25,7 @@ const EXPECTED_REPOSITORY_URL = 'git+https://github.com/himiyosh/network-plus-ex
 const EXPECTED_CSP = "script-src 'self'; object-src 'self'";
 const EXPECTED_RELEASE_SHA256 = 'd0f2c0d02cae90156a3d3bda8bbeba0ff70531f02f36f4256aeb885560c8cd77';
 const EXPECTED_PERMISSION_JUSTIFICATION =
-  'Stores the user-selected System, Dark, or Light theme in `chrome.storage.local` so the visual preference persists between DevTools sessions. This permission is not used to store captured URLs, headers, request bodies, response bodies, cookies, or request records.';
+  'Stores the user-selected System, Dark, or Light theme and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.';
 const EXPECTED_SEARCH_TERMS = Object.freeze([
   'network debugging',
   'developer tools',

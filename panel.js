@@ -100,6 +100,7 @@ const _NetworkPlus = (function () {
   const JSON_TREE_PREVIEW_KEYS = 3;
 
   const THEME_KEY = 'networkPlus.theme';
+  const SEARCH_PREFS_KEY = 'networkPlus.searchPrefs';
   const RETENTION_KEY = 'networkPlus.retention.v1';
   const THEMES = ['system', 'dark', 'light'];
   const COL_PREF_KEY = 'networkPlus.cols';
@@ -329,6 +330,12 @@ const _NetworkPlus = (function () {
     resBody: true,
     reqHeaders: true,
     resHeaders: true,
+  });
+
+  const DEFAULT_SEARCH_OPTIONS = () => ({
+    caseSensitive: false,
+    regex: false,
+    wholeWord: false,
   });
 
   const PLAY_ICON_SVG =
@@ -2445,44 +2452,110 @@ const _NetworkPlus = (function () {
     return null;
   }
 
-  function planKeywordHighlights(text, keywords) {
+  // Persisted search preferences: booleans only (scope flags, match options,
+  // matches-only). Keyword texts are never persisted — they can contain
+  // sensitive values, and the storage permission is documented as
+  // settings-only.
+  function normalizeSearchPrefs(raw) {
+    const scope = DEFAULT_SEARCH_SCOPE();
+    const opt = DEFAULT_SEARCH_OPTIONS();
+    const prefs = { scope, options: opt, matchesOnly: false };
+    if (!raw || typeof raw !== 'object') return prefs;
+    if (raw.scope && typeof raw.scope === 'object') {
+      for (const key of Object.keys(scope)) {
+        if (typeof raw.scope[key] === 'boolean') scope[key] = raw.scope[key];
+      }
+    }
+    if (raw.options && typeof raw.options === 'object') {
+      for (const key of Object.keys(opt)) {
+        if (typeof raw.options[key] === 'boolean') opt[key] = raw.options[key];
+      }
+    }
+    if (typeof raw.matchesOnly === 'boolean') prefs.matchesOnly = raw.matchesOnly;
+    return prefs;
+  }
+
+  // Compile one keyword under the search options into a global RegExp.
+  // Literal mode escapes metacharacters; regex mode uses the query verbatim
+  // and reports a syntax error instead of throwing. Compiles are memoized —
+  // deepSearchMatch runs per row, so per-call compilation would be O(rows).
+  const searchQueryCompileCache = new Map();
+  function compileSearchQuery(query, options) {
+    const opts = options || {};
+    const flags = opts.caseSensitive ? 'g' : 'gi';
+    const cacheKey =
+      (opts.regex ? 'r' : 'l') + (opts.wholeWord ? 'w' : '-') + flags + '\u0000' + query;
+    const cached = searchQueryCompileCache.get(cacheKey);
+    if (cached) return cached;
+    let source = opts.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (opts.wholeWord) source = '\\b(?:' + source + ')\\b';
+    let result;
+    try {
+      result = { regex: new RegExp(source, flags), error: null };
+    } catch (error) {
+      result = { regex: null, error: error.message };
+    }
+    if (searchQueryCompileCache.size > 128) searchQueryCompileCache.clear();
+    searchQueryCompileCache.set(cacheKey, result);
+    return result;
+  }
+
+  function planKeywordHighlights(text, keywords, options) {
     const source = text == null ? '' : String(text);
     if (!source || !Array.isArray(keywords) || keywords.length === 0) return [];
+    const opts = options || {};
 
+    // One candidate per distinct query (first keyword with a query wins its
+    // attribution, matching the previous alternation behavior).
     const candidates = [];
-    const earliestByLiteral = new Map();
+    const seenQueries = new Set();
     for (let keywordIndex = 0; keywordIndex < keywords.length; keywordIndex++) {
       const keyword = keywords[keywordIndex];
       const query = keyword && keyword.query != null ? String(keyword.query) : '';
       if (!query.trim()) continue;
-      const literal = query.toLowerCase();
-      if (earliestByLiteral.has(literal)) continue;
-      const candidate = {
-        query,
-        literal,
-        colorIdx: keyword.colorIdx,
-        keywordIndex,
-      };
-      earliestByLiteral.set(literal, candidate);
-      candidates.push(candidate);
+      const dedupeKey = opts.caseSensitive || opts.regex ? query : query.toLowerCase();
+      if (seenQueries.has(dedupeKey)) continue;
+      seenQueries.add(dedupeKey);
+      candidates.push({ query, colorIdx: keyword.colorIdx, keywordIndex });
     }
     if (candidates.length === 0) return [];
 
-    candidates.sort((a, b) => b.query.length - a.query.length || a.keywordIndex - b.keywordIndex);
-    const escapedParts = candidates.map((candidate) =>
-      candidate.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    const collected = [];
+    for (const candidate of candidates) {
+      const compiled = compileSearchQuery(candidate.query, opts);
+      if (compiled.error || !compiled.regex) continue;
+      const regex = compiled.regex;
+      regex.lastIndex = 0;
+      let match;
+      while ((match = regex.exec(source)) !== null) {
+        if (match[0].length === 0) {
+          // Zero-length regex matches (e.g. `a*`) would loop forever and
+          // highlight nothing useful — skip and advance.
+          regex.lastIndex += 1;
+          continue;
+        }
+        collected.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          colorIdx: candidate.colorIdx,
+          keywordIndex: candidate.keywordIndex,
+        });
+      }
+    }
+    if (collected.length === 0) return [];
+
+    // Earliest start wins; on a tie the longest match, then the earliest
+    // keyword. Overlapping later matches are dropped, like a single
+    // longest-first alternation scan would.
+    collected.sort(
+      (a, b) => a.start - b.start || b.end - a.end || a.keywordIndex - b.keywordIndex,
     );
-    const regex = new RegExp(escapedParts.join('|'), 'gi');
     const highlights = [];
-    let match;
-    while ((match = regex.exec(source)) !== null) {
-      const winner = earliestByLiteral.get(match[0].toLowerCase());
-      highlights.push({
-        start: match.index,
-        end: regex.lastIndex,
-        colorIdx: winner ? winner.colorIdx : 0,
-        keywordIndex: winner ? winner.keywordIndex : -1,
-      });
+    let lastEnd = -1;
+    for (const entry of collected) {
+      if (entry.start < lastEnd) continue;
+      highlights.push(entry);
+      lastEnd = entry.end;
     }
     return highlights;
   }
@@ -2691,6 +2764,15 @@ const _NetworkPlus = (function () {
         : null,
       searchPanelVisible: context.searchPanelVisible === true,
       searchMatchesOnly: context.searchMatchesOnly === true,
+      searchOptions: (() => {
+        const options = DEFAULT_SEARCH_OPTIONS();
+        if (context.searchOptions && typeof context.searchOptions === 'object') {
+          for (const key of Object.keys(options)) {
+            if (typeof context.searchOptions[key] === 'boolean') options[key] = context.searchOptions[key];
+          }
+        }
+        return options;
+      })(),
     };
   }
 
@@ -3373,10 +3455,10 @@ const _NetworkPlus = (function () {
    * @param {Array<{query: string, colorIdx: number}>} keywords
    * @returns {DocumentFragment}
    */
-  function highlightTextMulti(text, keywords) {
+  function highlightTextMulti(text, keywords, options) {
     const fragment = document.createDocumentFragment();
     const source = text == null ? '' : String(text);
-    const highlights = planKeywordHighlights(source, keywords);
+    const highlights = planKeywordHighlights(source, keywords, options);
     let lastIndex = 0;
     for (const highlight of highlights) {
       if (highlight.start > lastIndex) {
@@ -3402,34 +3484,46 @@ const _NetworkPlus = (function () {
    * @param {object} scope - { reqBody, resBody, reqHeaders, resHeaders }
    * @returns {boolean}
    */
-  function deepSearchMatch(row, query, scope) {
+  function deepSearchMatch(row, query, scope, options) {
     if (!query) return false;
-    const lcq = query.toLowerCase();
+    const opts = options || {};
+    let matchesValue;
+    if (opts.regex || opts.wholeWord || opts.caseSensitive) {
+      const compiled = compileSearchQuery(query, opts);
+      if (compiled.error || !compiled.regex) return false;
+      const regex = compiled.regex;
+      matchesValue = (value) => {
+        regex.lastIndex = 0; // shared global regex from the compile cache
+        return regex.test(value);
+      };
+    } else {
+      const lcq = query.toLowerCase();
+      matchesValue = (value) => value.toLowerCase().indexOf(lcq) > -1;
+    }
 
     // URL / Domain / Path search
     if (scope.url !== false) {
       const urlFields = [row.url, row.domain, row.path, row.method, String(row.status || ''), row.type];
       for (let i = 0; i < urlFields.length; i++) {
-        if (urlFields[i] && urlFields[i].toLowerCase().indexOf(lcq) > -1) return true;
+        if (urlFields[i] && matchesValue(urlFields[i])) return true;
       }
     }
 
     if (scope.reqBody) {
       const postText = row.requestPostData && row.requestPostData.text ? row.requestPostData.text : '';
-      if (postText && postText.toLowerCase().indexOf(lcq) > -1) return true;
+      if (postText && matchesValue(postText)) return true;
     }
 
     if (scope.resBody) {
       const resText = row.responseContentText != null ? row.responseContentText : row.responseContent || '';
-      if (resText && resText.toLowerCase().indexOf(lcq) > -1) return true;
+      if (resText && matchesValue(resText)) return true;
     }
 
     if (scope.reqHeaders) {
       const reqH = row.requestHeaders || [];
       for (let i = 0; i < reqH.length; i++) {
         const h = reqH[i];
-        if ((h.name && h.name.toLowerCase().indexOf(lcq) > -1) ||
-            (h.value && h.value.toLowerCase().indexOf(lcq) > -1)) return true;
+        if ((h.name && matchesValue(h.name)) || (h.value && matchesValue(h.value))) return true;
       }
     }
 
@@ -3437,8 +3531,7 @@ const _NetworkPlus = (function () {
       const resH = row.responseHeaders || [];
       for (let i = 0; i < resH.length; i++) {
         const h = resH[i];
-        if ((h.name && h.name.toLowerCase().indexOf(lcq) > -1) ||
-            (h.value && h.value.toLowerCase().indexOf(lcq) > -1)) return true;
+        if ((h.name && matchesValue(h.name)) || (h.value && matchesValue(h.value))) return true;
       }
     }
 
@@ -3800,6 +3893,8 @@ const _NetworkPlus = (function () {
       currentIndex: -1,   // index into matches[] for navigation
       matchesOnly: false, // true = render only rows that match a search keyword
       scope: DEFAULT_SEARCH_SCOPE(),
+      options: DEFAULT_SEARCH_OPTIONS(), // caseSensitive / regex / wholeWord
+
       // Per-row match maps keep color and keyword correspondence lookup linear.
       rowColors: new Map(),
       rowKeywords: new Map(),
@@ -4500,6 +4595,7 @@ const _NetworkPlus = (function () {
           : null,
         searchPanelVisible: searchPanelVisible === true,
         searchMatchesOnly: state.search.matchesOnly === true,
+        searchOptions: { ...state.search.options },
       },
     };
   }
@@ -4636,6 +4732,41 @@ const _NetworkPlus = (function () {
         done('system', 'Theme preference could not be loaded.');
       }
     }
+  }
+
+  // Search preferences persist like the theme: booleans only, never keyword
+  // text (see normalizeSearchPrefs). Failures fall back to defaults silently —
+  // preferences are a convenience, not data.
+  function loadSearchPrefs(cb) {
+    // Deliver asynchronously even if the storage backend calls back
+    // synchronously, so init-order assumptions cannot break.
+    const deliver = (value) => queueMicrotask(() => cb(normalizeSearchPrefs(value)));
+    try {
+      chrome.storage.local.get([SEARCH_PREFS_KEY], (obj) => {
+        const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+        deliver(runtimeErr ? null : obj && obj[SEARCH_PREFS_KEY]);
+      });
+    } catch (_e) {
+      deliver(null);
+    }
+  }
+
+  function saveSearchPrefs(prefs) {
+    try {
+      chrome.storage.local.set({ [SEARCH_PREFS_KEY]: normalizeSearchPrefs(prefs) }, () => {
+        void (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError);
+      });
+    } catch (_e) {
+      // Storage may be unavailable outside the extension context; prefs are optional.
+    }
+  }
+
+  function currentSearchPrefs() {
+    return {
+      scope: { ...state.search.scope },
+      options: { ...state.search.options },
+      matchesOnly: state.search.matchesOnly === true,
+    };
   }
 
   function saveThemePref(v) {
@@ -5447,7 +5578,7 @@ const _NetworkPlus = (function () {
             chrome.devtools.panels.openResource(initiator.url, initiator.lineNumber, () => {});
           });
           if (srch.keywords.length > 0) {
-            link.appendChild(highlightTextMulti(initiator.text, srch.keywords));
+            link.appendChild(highlightTextMulti(initiator.text, srch.keywords, srch.options));
           } else {
             link.textContent = initiator.text;
           }
@@ -5455,7 +5586,7 @@ const _NetworkPlus = (function () {
         } else {
           const txt = initiator ? initiator.text : '';
           if (srch.keywords.length > 0) {
-            td.appendChild(highlightTextMulti(txt, srch.keywords));
+            td.appendChild(highlightTextMulti(txt, srch.keywords, srch.options));
           } else {
             td.textContent = txt;
           }
@@ -5505,7 +5636,7 @@ const _NetworkPlus = (function () {
         }
         const text = v == null ? '' : String(v);
         if (srch.keywords.length > 0 && text) {
-          td.appendChild(highlightTextMulti(text, srch.keywords));
+          td.appendChild(highlightTextMulti(text, srch.keywords, srch.options));
         } else {
           td.textContent = text;
         }
@@ -6743,9 +6874,13 @@ const _NetworkPlus = (function () {
         srch.perKeyword.set(ki, { matches: [], currentIndex: -1 });
         continue;
       }
+      if (srch.options.regex && compileSearchQuery(kw.query, srch.options).error) {
+        srch.perKeyword.set(ki, { matches: [], currentIndex: -1 });
+        continue;
+      }
       const kwMatches = [];
       for (const row of sorted) {
-        if (deepSearchMatch(row, kw.query, srch.scope)) {
+        if (deepSearchMatch(row, kw.query, srch.scope, srch.options)) {
           matchSet.add(row);
           if (!srch.rowColors.has(row)) srch.rowColors.set(row, new Set());
           if (!srch.rowKeywords.has(row)) srch.rowKeywords.set(row, new Set());
@@ -7359,7 +7494,7 @@ const _NetworkPlus = (function () {
     for (const parent of parents) parent.normalize();
   }
 
-  function applyPaneSearchHits(pane, query) {
+  function applyPaneSearchHits(pane, query, options) {
     const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
@@ -7381,7 +7516,7 @@ const _NetworkPlus = (function () {
         truncated = true;
         break;
       }
-      const ranges = planKeywordHighlights(textNode.nodeValue, keywords);
+      const ranges = planKeywordHighlights(textNode.nodeValue, keywords, options);
       if (ranges.length === 0) continue;
       const source = textNode.nodeValue;
       const fragment = document.createDocumentFragment();
@@ -7529,8 +7664,14 @@ const _NetworkPlus = (function () {
       truncated = false;
       collapsedHits = 0;
       const query = input.value;
-      if (query.trim()) {
-        const result = applyPaneSearchHits(pane, query);
+      const searchOptions = state.search.options;
+      const compiledError = query.trim() && searchOptions.regex
+        ? compileSearchQuery(query, searchOptions).error
+        : null;
+      input.classList.toggle('pane-search-input-error', !!compiledError);
+      input.title = compiledError ? 'Invalid regular expression: ' + compiledError : '';
+      if (query.trim() && !compiledError) {
+        const result = applyPaneSearchHits(pane, query, searchOptions);
         marks = result.marks;
         truncated = result.truncated;
         // Hits hiding inside not-yet-rendered content: compare against the
@@ -7542,7 +7683,7 @@ const _NetworkPlus = (function () {
           !truncated &&
           hasCollapsedPaneContent(pane, bar)
         ) {
-          const totalHits = planKeywordHighlights(fullText, [{ query, colorIdx: 0 }]).length;
+          const totalHits = planKeywordHighlights(fullText, [{ query, colorIdx: 0 }], searchOptions).length;
           collapsedHits = Math.max(0, totalHits - marks.length);
         }
       }
@@ -8934,6 +9075,7 @@ const _NetworkPlus = (function () {
       state.search.keywords = restorePlan.searchKeywords;
       state.search.scope = restorePlan.searchScope;
       state.search.matchesOnly = restorePlan.searchMatchesOnly;
+      state.search.options = restorePlan.searchOptions;
       state.search.matches = [];
       state.search.currentIndex = -1;
       state.search.rowColors.clear();
@@ -9832,6 +9974,11 @@ const _NetworkPlus = (function () {
     const searchAddBtn = $('#searchAddBtn');
     const searchScopeBtn = $('#searchScopeBtn');
     const searchMatchesOnlyToggle = $('#searchMatchesOnlyToggle');
+    const searchOptionButtons = [
+      { id: '#searchOptCaseBtn', key: 'caseSensitive', label: 'Match case' },
+      { id: '#searchOptWordBtn', key: 'wholeWord', label: 'Match whole word' },
+      { id: '#searchOptRegexBtn', key: 'regex', label: 'Regular expression' },
+    ].map((entry) => ({ ...entry, el: $(entry.id) }));
     // Track search panel visibility
     let searchPanelVisible = false;
 
@@ -9887,6 +10034,7 @@ const _NetworkPlus = (function () {
       cb.addEventListener('change', () => {
         state.search.scope[sl.key] = cb.checked;
         executeSearch();
+        saveSearchPrefs(currentSearchPrefs());
       });
     }
 
@@ -9900,12 +10048,25 @@ const _NetworkPlus = (function () {
       state.search.matchesOnly = searchMatchesOnlyToggle.checked;
       renderBody();
       updateSearchUI();
+      saveSearchPrefs(currentSearchPrefs());
       setStatus(
         state.search.matchesOnly
           ? 'Showing only requests that match search keywords'
           : 'Showing all requests with search highlights',
       );
     });
+
+    for (const optionButton of searchOptionButtons) {
+      optionButton.el.addEventListener('click', () => {
+        state.search.options[optionButton.key] = !state.search.options[optionButton.key];
+        executeSearch();
+        updateSearchUI();
+        saveSearchPrefs(currentSearchPrefs());
+        setStatus(
+          optionButton.label + (state.search.options[optionButton.key] ? ' on' : ' off'),
+        );
+      });
+    }
 
     searchScopeBtn.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -10016,6 +10177,14 @@ const _NetworkPlus = (function () {
         input.placeholder = 'Enter search keyword...';
         input.value = kw.query;
         input.setAttribute('aria-label', 'Search keyword ' + (i + 1));
+        const keywordRegexError =
+          state.search.options.regex && kw.query.trim()
+            ? compileSearchQuery(kw.query, state.search.options).error
+            : null;
+        if (keywordRegexError) {
+          input.classList.add('search-keyword-input-error');
+          input.title = 'Invalid regular expression: ' + keywordRegexError;
+        }
         input.addEventListener('input', () => {
           state.search.keywords[i].query = input.value;
           debouncedSearch();
@@ -10140,6 +10309,9 @@ const _NetworkPlus = (function () {
         searchCount.style.color = '';
       }
       searchMatchesOnlyToggle.checked = srch.matchesOnly === true;
+      for (const optionButton of searchOptionButtons) {
+        optionButton.el.setAttribute('aria-pressed', String(srch.options[optionButton.key] === true));
+      }
       // Body-search progress and mode notes live inside the search panel where
       // they have reserved space; putting them in the top bar resized the count
       // span continuously during capture and made the buttons jitter.
@@ -10157,6 +10329,15 @@ const _NetworkPlus = (function () {
       renderSearchRows();
     }
     state.syncSearchUI = updateSearchUI;
+
+    loadSearchPrefs((prefs) => {
+      state.search.scope = prefs.scope;
+      state.search.options = prefs.options;
+      state.search.matchesOnly = prefs.matchesOnly;
+      syncSearchScopeControls();
+      updateSearchUI();
+      renderBody();
+    });
 
     function scrollToSearchMatch(matchRow) {
       if (!matchRow) return;
@@ -10188,11 +10369,22 @@ const _NetworkPlus = (function () {
 
     searchToggleBtn.addEventListener('click', () => toggleSearchPanel());
 
-    // Ctrl+F toggles search panel
+    // Ctrl+F toggles the search panel — unless focus is inside a detail pane
+    // that carries its own search bar, which then takes the shortcut.
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        const activePane =
+          document.activeElement && document.activeElement.closest
+            ? document.activeElement.closest('.tab-pane')
+            : null;
+        const paneSearchInput = activePane ? activePane.querySelector('.pane-search-input') : null;
         e.preventDefault();
         e.stopPropagation();
+        if (paneSearchInput) {
+          paneSearchInput.focus();
+          paneSearchInput.select();
+          return;
+        }
         toggleSearchPanel(true);
       }
     }, true);
@@ -10553,6 +10745,9 @@ const _NetworkPlus = (function () {
     countActiveColumnFilters,
     isVisualOnlyColumn,
     hasActiveSearchKeywords,
+    compileSearchQuery,
+    normalizeSearchPrefs,
+    DEFAULT_SEARCH_OPTIONS,
     extractCharsetFromContentType,
     extractHtmlMetaCharset,
     isHtmlLikeMime,
@@ -10669,6 +10864,8 @@ const _NetworkPlus = (function () {
     computeWaterfallRange,
     loadThemePref,
     saveThemePref,
+    loadSearchPrefs,
+    saveSearchPrefs,
     serializeFilterState,
     deserializeFilterState,
     normalizePresetName,

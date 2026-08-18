@@ -42,6 +42,11 @@
     <div class="search-panel-footer">
       <button id="searchAddBtn" class="search-add-btn">+ Add keyword</button>
       <label class="search-matches-only" title="Show only requests that match search keywords. When off, all requests stay visible with highlights."><input type="checkbox" id="searchMatchesOnlyToggle" role="switch" aria-label="Show only matching requests"><span class="search-toggle-track" aria-hidden="true"></span><span class="search-matches-only-label">Matches only</span></label>
+      <span class="search-opt-group" role="group" aria-label="Match options">
+        <button id="searchOptCaseBtn" class="search-opt-btn" aria-pressed="false" title="Match case">Aa</button>
+        <button id="searchOptWordBtn" class="search-opt-btn" aria-pressed="false" title="Match whole word">\b</button>
+        <button id="searchOptRegexBtn" class="search-opt-btn" aria-pressed="false" title="Use regular expression">.*</button>
+      </span>
       <span id="searchPanelNotice" class="search-panel-notice"></span>
       <button id="searchScopeBtn" class="search-scope-btn" title="Search scope settings" aria-haspopup="dialog" aria-controls="searchScopePopup" aria-expanded="false">⚙️ Scope</button>
     </div>
