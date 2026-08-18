@@ -5388,7 +5388,7 @@ const _NetworkPlus = (function () {
         keywordNumbers.length > 1 ? 'K' + keywordNumbers[0] + '+' + (keywordNumbers.length - 1) : 'K' + keywordNumbers[0];
       const searchMatchLabel = 'Matches search ' +
         (keywordNumbers.length === 1 ? 'keyword ' : 'keywords ') + keywordNumbers.join(', ');
-      visibleStateBadges.push({ text: searchMatchBadge, label: searchMatchLabel });
+      visibleStateBadges.push({ text: searchMatchBadge, label: searchMatchLabel, srOnly: true });
       if (srch.currentIndex >= 0 && srch.matches[srch.currentIndex] === row) {
         tr.classList.add('search-match-current');
       }
@@ -5492,10 +5492,17 @@ const _NetworkPlus = (function () {
       if (firstCell) {
         const badgeGroup = document.createElement('span');
         badgeGroup.className = 'row-state-badges';
+        // A group holding only screen-reader badges must not reserve visual space.
+        if (visibleStateBadges.every((stateBadge) => stateBadge.srOnly)) {
+          badgeGroup.classList.add('sr-only');
+        }
         for (let i = 0; i < visibleStateBadges.length; i++) {
           const stateBadge = visibleStateBadges[i];
           const badge = document.createElement('span');
-          badge.className = 'row-state-badge';
+          // Search-match badges stay in the accessibility tree but are visually
+          // hidden: the row tint, edge ring, and mark colors already show the
+          // match, and inline badges crowded the ID column.
+          badge.className = stateBadge.srOnly ? 'row-state-badge sr-only' : 'row-state-badge';
           badge.textContent = stateBadge.text;
           badge.title = stateBadge.label;
           badge.setAttribute('aria-label', stateBadge.label);
@@ -10047,16 +10054,19 @@ const _NetworkPlus = (function () {
         searchCount.style.color = '';
       }
       searchMatchesOnlyBtn.setAttribute('aria-pressed', String(srch.matchesOnly === true));
-      if (srch.matchesOnly && activeKws.length > 0) {
-        searchCount.textContent += ' · matches only';
-      }
+      // Body-search progress and mode notes live inside the search panel where
+      // they have reserved space; putting them in the top bar resized the count
+      // span continuously during capture and made the buttons jitter.
       const unsearchedBodies = srch.scope.resBody && activeKws.length > 0
         ? countUnsearchedResponseBodies(state.filteredRows)
         : 0;
-      if (unsearchedBodies > 0) {
-        searchCount.textContent += ' · ' + unsearchedBodies + ' bodies not searched';
-      }
-      queueSearchCountAnnouncement(searchCount.textContent);
+      const noticeParts = [];
+      if (srch.matchesOnly && activeKws.length > 0) noticeParts.push('Showing matches only');
+      if (unsearchedBodies > 0) noticeParts.push(unsearchedBodies + ' bodies not searched');
+      const notice = $('#searchPanelNotice');
+      if (notice) notice.textContent = noticeParts.join(' · ');
+      const announcement = [searchCount.textContent, ...noticeParts].filter(Boolean).join(' · ');
+      queueSearchCountAnnouncement(announcement);
       // Update per-keyword counts in search rows
       renderSearchRows();
     }

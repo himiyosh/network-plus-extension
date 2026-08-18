@@ -32,7 +32,8 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 
 ## Search and detail-pane search
 
-- [ ] In the dark theme, rows matching a search keyword are clearly distinguishable from non-matching rows at a glance, for every keyword color, without relying on the K-badge.
+- [ ] In the dark theme, rows matching a search keyword are clearly distinguishable at a glance for every keyword color: a visible tint plus a keyword-colored leading edge and underline. The ID column shows no K-badge, while screen readers still announce "Matches search keyword N".
+- [ ] During live capture with a body-scope keyword active, the top bar shows only the match count; "N bodies not searched" and "Showing matches only" appear inside the search panel's notice area and no top-bar button shifts or flickers as bodies load.
 - [ ] `Matches only` in the search panel hides non-matching rows, updates the visible count and status line, and pressing it again restores all rows with highlights intact. With no active keyword the toggle changes nothing.
 - [ ] With `Matches only` on, a sanitized HAR export contains exactly the displayed rows.
 - [ ] `Matches only` survives `Clear` → `Undo clear` together with the search terms and scope.

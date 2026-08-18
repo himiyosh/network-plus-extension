@@ -381,6 +381,10 @@ describe('accessible workbench static contracts', () => {
     }
     expect(css).toContain('.row-state-badge');
     expect(js).toContain('Matches search ');
+    // The search-match badge must stay out of the ID column visually while
+    // remaining in the accessibility tree.
+    expect(js).toContain('label: searchMatchLabel, srOnly: true');
+    expect(js).toContain("stateBadge.srOnly ? 'row-state-badge sr-only' : 'row-state-badge'");
     expect(js).toContain('aria-label');
     expect(js).not.toContain("tr.setAttribute('aria-label'");
   });
@@ -2065,6 +2069,7 @@ describe('visual-state dark-mode parity', () => {
     'hl-secondary-pct',
     'hl-row-primary-pct',
     'hl-row-secondary-pct',
+    'hl-row-ring-pct',
     'multi-selected-pct',
     'danger-tint',
     'shadow-context-menu',
@@ -2109,9 +2114,16 @@ describe('visual-state dark-mode parity', () => {
       expect({ themeName, value: parseInt(theme['hl-row-primary-pct'], 10) }).toMatchObject({
         value: expect.any(Number),
       });
-      expect(parseInt(theme['hl-row-primary-pct'], 10)).toBeGreaterThanOrEqual(20);
-      expect(parseInt(theme['hl-row-secondary-pct'], 10)).toBeGreaterThanOrEqual(20);
-      expect(parseInt(theme['hl-primary-pct'], 10)).toBeGreaterThanOrEqual(30);
+      expect(parseInt(theme['hl-row-primary-pct'], 10)).toBeGreaterThanOrEqual(30);
+      expect(parseInt(theme['hl-row-secondary-pct'], 10)).toBeGreaterThanOrEqual(25);
+      expect(parseInt(theme['hl-primary-pct'], 10)).toBeGreaterThanOrEqual(35);
+      // The colored edge ring is the primary affordance on dark surfaces.
+      expect(parseInt(theme['hl-row-ring-pct'], 10)).toBeGreaterThanOrEqual(60);
+    }
+    for (const selector of [0, 1, 2, 3, 4, 5]) {
+      expect(css).toMatch(
+        new RegExp(`\\.search-row-${selector}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
+      );
     }
   });
 
@@ -2788,6 +2800,18 @@ describe('search matches-only toggle contracts', () => {
     expect(html).toContain('id="searchMatchesOnlyBtn"');
     expect(html).toMatch(/id="searchMatchesOnlyBtn"[^>]*aria-pressed="false"/);
     expect(css).toContain('.search-scope-btn[aria-pressed="true"]');
+    // The toggle sits directly after "+ Add keyword" so it is visible even in
+    // narrow panels, and the footer wraps instead of clipping.
+    expect(html).toMatch(/id="searchAddBtn"[^>]*>[^<]*<\/button>\s*<button id="searchMatchesOnlyBtn"/);
+    expect(css).toMatch(/\.search-panel-footer\{[^}]*flex-wrap:wrap/);
+  });
+
+  test('keeps capture-time search notices out of the top bar so buttons do not jitter', () => {
+    expect(html).toContain('id="searchPanelNotice"');
+    expect(css).toMatch(/\.search-panel-notice\{[^}]*overflow:hidden[^}]*text-overflow:ellipsis/);
+    // The top-bar count must not carry the variable-width body-progress text.
+    expect(js).not.toMatch(/searchCount\.textContent \+= ' · ' \+ unsearchedBodies/);
+    expect(js).toContain("noticeParts.push(unsearchedBodies + ' bodies not searched')");
   });
 
   test('renders and exports through the shared matches-only visibility planner', () => {
