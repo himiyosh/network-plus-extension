@@ -2287,6 +2287,19 @@ const _NetworkPlus = (function () {
     return match ? match[1].trim().toLowerCase() : '';
   }
 
+  // Charset declared inside an HTML document head (<meta charset=...> or the
+  // http-equiv Content-Type form). Only the ASCII prefix is inspected, so this
+  // is safe to run on bytes whose real encoding is still unknown.
+  function extractHtmlMetaCharset(prefixText) {
+    if (typeof prefixText !== 'string') return '';
+    const match = prefixText.match(/<meta[^>]+charset\s*=\s*["']?\s*([a-z0-9._-]+)/i);
+    return match ? match[1].trim().toLowerCase() : '';
+  }
+
+  function isHtmlLikeMime(mime) {
+    return typeof mime === 'string' && mime.toLowerCase().indexOf('html') > -1;
+  }
+
   // Returns a TextDecoder for the declared charset, falling back to UTF-8 on
   // unknown labels so decoding never throws for a malformed Content-Type.
   function createBodyTextDecoder(charset) {
@@ -2300,13 +2313,19 @@ const _NetworkPlus = (function () {
     return new TextDecoder();
   }
 
-  function decodeResponseContent(content, encoding, charset) {
+  function decodeResponseContent(content, encoding, charset, sniffHtmlMeta) {
     const text = typeof content === 'string' ? content : '';
     if (encoding !== 'base64') return text;
     try {
       const binary = atob(text);
       const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-      return createBodyTextDecoder(charset).decode(bytes);
+      let resolvedCharset = charset;
+      if (!resolvedCharset && sniffHtmlMeta) {
+        // Old HTML pages often declare the charset only in <meta>; the binary
+        // string is the latin-1 view of the bytes, which is ASCII-transparent.
+        resolvedCharset = extractHtmlMetaCharset(binary.slice(0, 1024));
+      }
+      return createBodyTextDecoder(resolvedCharset).decode(bytes);
     } catch (_e) {
       return '';
     }
@@ -3139,7 +3158,15 @@ const _NetworkPlus = (function () {
   // non-UTF-8 bodies (e.g. Shift_JIS) do not appear garbled.
   function decodeSazMessageBody(bodyBytes, headers) {
     if (!(bodyBytes instanceof Uint8Array) || bodyBytes.length === 0) return '';
-    const charset = extractCharsetFromContentType(getNormalizedHeaderValue(headers, 'content-type'));
+    const contentType = getNormalizedHeaderValue(headers, 'content-type');
+    let charset = extractCharsetFromContentType(contentType);
+    if (!charset && isHtmlLikeMime(contentType)) {
+      let asciiPrefix = '';
+      for (let index = 0; index < Math.min(bodyBytes.length, 1024); index++) {
+        asciiPrefix += String.fromCharCode(bodyBytes[index]);
+      }
+      charset = extractHtmlMetaCharset(asciiPrefix);
+    }
     return createBodyTextDecoder(charset).decode(bodyBytes);
   }
 
@@ -3251,9 +3278,9 @@ const _NetworkPlus = (function () {
     return extractCharsetFromContentType(getNormalizedHeaderValue(headers, 'content-type'));
   }
 
-  function measureResponsePayload(content, encoding, charset) {
+  function measureResponsePayload(content, encoding, charset, sniffHtmlMeta) {
     const rawContent = typeof content === 'string' ? content : '';
-    const text = decodeResponseContent(rawContent, encoding, charset);
+    const text = decodeResponseContent(rawContent, encoding, charset, sniffHtmlMeta);
     const rawBytes = getUtf8ByteLength(rawContent);
     const decodedBytes = text === rawContent ? 0 : getUtf8ByteLength(text);
     return {
@@ -4348,7 +4375,7 @@ const _NetworkPlus = (function () {
     for (const row of rows) {
       if (!isRetainedRow(row, state.retainedRows)) continue;
       if (typeof row.responseContent === 'string') {
-        const payload = measureResponsePayload(row.responseContent, row.responseContentEncoding, resolveRowResponseCharset(row));
+        const payload = measureResponsePayload(row.responseContent, row.responseContentEncoding, resolveRowResponseCharset(row), isHtmlLikeMime(row.type));
         releaseResponseContent(row, 'loading', false);
         try {
           admitResponsePayload(row, payload);
@@ -5063,7 +5090,7 @@ const _NetworkPlus = (function () {
           }
           let payload;
           try {
-            payload = measureResponsePayload(content, encoding, resolveRowResponseCharset(row));
+            payload = measureResponsePayload(content, encoding, resolveRowResponseCharset(row), isHtmlLikeMime(row.type));
           } catch (error) {
             fail('Failed to process response content for ' + requestLabel + ': ' + error.message);
             return;
@@ -7392,9 +7419,34 @@ const _NetworkPlus = (function () {
     mark.scrollIntoView({ block: 'nearest' });
   }
 
-  // (Re)build the search bar at the top of a detail pane. Renderers wipe pane
-  // children on every row selection, so this runs after each content render.
-  function attachPaneSearch(pane) {
+  // Click every unexpanded truncation control ("Show all ...", "Show full
+  // cached body ...") inside the pane, breadth-first, so collapsed search hits
+  // become part of the DOM. Buttons are marked so ones that stay in the DOM
+  // after their click (the show-full button) are not clicked twice.
+  function expandPaneTruncations(pane, bar) {
+    for (let round = 0; round < 60; round++) {
+      const expanders = Array.from(pane.querySelectorAll('button.link-btn')).filter(
+        (button) => !bar.contains(button) && !button.dataset.paneSearchExpanded,
+      );
+      if (expanders.length === 0) return;
+      for (const button of expanders) {
+        button.dataset.paneSearchExpanded = 'true';
+        button.click();
+      }
+    }
+  }
+
+  function hasCollapsedPaneContent(pane, bar) {
+    return Array.from(pane.querySelectorAll('button.link-btn')).some(
+      (button) => !bar.contains(button) && !button.dataset.paneSearchExpanded,
+    );
+  }
+
+  // (Re)build the search bar of a detail pane. Renderers wipe pane children on
+  // every row selection, so this runs after each content render. fullText is
+  // the pane's complete source text; when provided, hits inside collapsed or
+  // truncated content are counted and an "Expand all" action surfaces them.
+  function attachPaneSearch(pane, fullText) {
     if (!pane) return;
     const paneId = pane.id;
     const paneLabel = PANE_SEARCH_LABELS[paneId] || 'this view';
@@ -7420,14 +7472,23 @@ const _NetworkPlus = (function () {
     nextBtn.textContent = '↓';
     nextBtn.title = 'Next match (Enter)';
     nextBtn.setAttribute('aria-label', 'Next match in the ' + paneLabel + ' view');
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'pane-search-nav pane-search-expand';
+    expandBtn.textContent = 'Expand all';
+    expandBtn.title = 'Some matches are inside collapsed or truncated content. Expand everything to include them.';
+    expandBtn.setAttribute('aria-label', 'Expand collapsed content in the ' + paneLabel + ' view to reveal all matches');
+    expandBtn.hidden = true;
     bar.appendChild(input);
     bar.appendChild(count);
+    bar.appendChild(expandBtn);
     bar.appendChild(prevBtn);
     bar.appendChild(nextBtn);
 
     let marks = [];
     let currentIndex = -1;
     let truncated = false;
+
+    let collapsedHits = 0;
 
     const updateCount = () => {
       const query = input.value.trim();
@@ -7438,6 +7499,10 @@ const _NetworkPlus = (function () {
           : query
             ? 'No matches'
             : '';
+      if (collapsedHits > 0) {
+        count.textContent += ' (+' + collapsedHits + ' collapsed)';
+      }
+      expandBtn.hidden = collapsedHits === 0;
       const disabled = marks.length === 0;
       prevBtn.disabled = disabled;
       nextBtn.disabled = disabled;
@@ -7462,11 +7527,24 @@ const _NetworkPlus = (function () {
       marks = [];
       currentIndex = -1;
       truncated = false;
+      collapsedHits = 0;
       const query = input.value;
       if (query.trim()) {
         const result = applyPaneSearchHits(pane, query);
         marks = result.marks;
         truncated = result.truncated;
+        // Hits hiding inside not-yet-rendered content: compare against the
+        // full source text, but only while unexpanded truncation controls
+        // remain (formatting differences make the raw count approximate).
+        if (
+          typeof fullText === 'string' &&
+          fullText &&
+          !truncated &&
+          hasCollapsedPaneContent(pane, bar)
+        ) {
+          const totalHits = planKeywordHighlights(fullText, [{ query, colorIdx: 0 }]).length;
+          collapsedHits = Math.max(0, totalHits - marks.length);
+        }
       }
       if (marks.length > 0) {
         setCurrent(0, false);
@@ -7498,6 +7576,10 @@ const _NetworkPlus = (function () {
     });
     prevBtn.addEventListener('click', () => navigate('prev'));
     nextBtn.addEventListener('click', () => navigate('next'));
+    expandBtn.addEventListener('click', () => {
+      expandPaneTruncations(pane, bar);
+      runHighlight();
+    });
 
     // Expansion buttons ("Show all ...", "Show full cached body ...") replace
     // pane content after render; re-apply the highlights once they finish.
@@ -7884,7 +7966,7 @@ const _NetworkPlus = (function () {
     const encoding = row.responseContentEncoding === 'base64' ? 'base64' : '';
     let text = row.responseContentText != null
       ? row.responseContentText
-      : decodeResponseContent(rawContent, encoding, resolveRowResponseCharset(row));
+      : decodeResponseContent(rawContent, encoding, resolveRowResponseCharset(row), isHtmlLikeMime(row.type));
     if (encoding === 'base64' && rawContent && !text) text = '(could not decode base64 response)';
 
     // Body tab — formatted text
@@ -7967,7 +8049,7 @@ const _NetworkPlus = (function () {
       },
     ]);
     resRawPane.appendChild(rawResPre);
-    attachPaneSearch(resBodyPane);
+    attachPaneSearch(resBodyPane, text);
     attachPaneSearch(resRawPane);
   }
 
@@ -8068,7 +8150,7 @@ const _NetworkPlus = (function () {
           onClick: (button) => requestFullClipboardAction('requestBody', row, '', button, 'request body'),
         },
       ]);
-      attachPaneSearch(reqBodyPane);
+      attachPaneSearch(reqBodyPane, text);
     } else {
       reqBodyPane.textContent = '(no request body)';
     }
@@ -9749,7 +9831,7 @@ const _NetworkPlus = (function () {
     const searchToggleBtn = $('#searchToggleBtn');
     const searchAddBtn = $('#searchAddBtn');
     const searchScopeBtn = $('#searchScopeBtn');
-    const searchMatchesOnlyBtn = $('#searchMatchesOnlyBtn');
+    const searchMatchesOnlyToggle = $('#searchMatchesOnlyToggle');
     // Track search panel visibility
     let searchPanelVisible = false;
 
@@ -9814,8 +9896,8 @@ const _NetworkPlus = (function () {
       }
     }
 
-    searchMatchesOnlyBtn.addEventListener('click', () => {
-      state.search.matchesOnly = !state.search.matchesOnly;
+    searchMatchesOnlyToggle.addEventListener('change', () => {
+      state.search.matchesOnly = searchMatchesOnlyToggle.checked;
       renderBody();
       updateSearchUI();
       setStatus(
@@ -10057,7 +10139,7 @@ const _NetworkPlus = (function () {
         searchCount.textContent = '';
         searchCount.style.color = '';
       }
-      searchMatchesOnlyBtn.setAttribute('aria-pressed', String(srch.matchesOnly === true));
+      searchMatchesOnlyToggle.checked = srch.matchesOnly === true;
       // Body-search progress and mode notes live inside the search panel where
       // they have reserved space; putting them in the top bar resized the count
       // span continuously during capture and made the buttons jitter.
@@ -10472,6 +10554,8 @@ const _NetworkPlus = (function () {
     isVisualOnlyColumn,
     hasActiveSearchKeywords,
     extractCharsetFromContentType,
+    extractHtmlMetaCharset,
+    isHtmlLikeMime,
     planVisibleSearchRows,
     getWrappedMatchIndex,
     findHttpHeaderBodySplit,

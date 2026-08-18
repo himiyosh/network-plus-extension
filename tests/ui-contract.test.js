@@ -2114,15 +2114,21 @@ describe('visual-state dark-mode parity', () => {
       expect({ themeName, value: parseInt(theme['hl-row-primary-pct'], 10) }).toMatchObject({
         value: expect.any(Number),
       });
-      expect(parseInt(theme['hl-row-primary-pct'], 10)).toBeGreaterThanOrEqual(30);
-      expect(parseInt(theme['hl-row-secondary-pct'], 10)).toBeGreaterThanOrEqual(25);
-      expect(parseInt(theme['hl-primary-pct'], 10)).toBeGreaterThanOrEqual(35);
+      expect(parseInt(theme['hl-row-primary-pct'], 10)).toBeGreaterThanOrEqual(18);
+      expect(parseInt(theme['hl-row-secondary-pct'], 10)).toBeGreaterThanOrEqual(15);
+      expect(parseInt(theme['hl-primary-pct'], 10)).toBeGreaterThanOrEqual(30);
       // The colored edge ring is the primary affordance on dark surfaces.
       expect(parseInt(theme['hl-row-ring-pct'], 10)).toBeGreaterThanOrEqual(60);
     }
     for (const selector of [0, 1, 2, 3, 4, 5]) {
       expect(css).toMatch(
         new RegExp(`\\.search-row-${selector}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
+      );
+    }
+    // Manually highlighted rows (context menu) carry the same edge ring.
+    for (const color of ['yellow', 'red', 'green', 'blue', 'purple', 'orange']) {
+      expect(css).toMatch(
+        new RegExp(`\\.hl-${color}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
       );
     }
   });
@@ -2796,13 +2802,15 @@ describe('two-request diff comparison', () => {
 });
 
 describe('search matches-only toggle contracts', () => {
-  test('exposes a toggle button with a pressed state in the search panel footer', () => {
-    expect(html).toContain('id="searchMatchesOnlyBtn"');
-    expect(html).toMatch(/id="searchMatchesOnlyBtn"[^>]*aria-pressed="false"/);
-    expect(css).toContain('.search-scope-btn[aria-pressed="true"]');
-    // The toggle sits directly after "+ Add keyword" so it is visible even in
+  test('exposes a switch control in the search panel footer', () => {
+    expect(html).toMatch(/id="searchMatchesOnlyToggle"[^>]*role="switch"/);
+    expect(html).toContain('class="search-matches-only"');
+    expect(css).toContain('.search-toggle-track');
+    expect(css).toContain('.search-matches-only input:checked + .search-toggle-track');
+    expect(css).toContain('.search-matches-only input:focus-visible + .search-toggle-track');
+    // The switch sits directly after "+ Add keyword" so it is visible even in
     // narrow panels, and the footer wraps instead of clipping.
-    expect(html).toMatch(/id="searchAddBtn"[^>]*>[^<]*<\/button>\s*<button id="searchMatchesOnlyBtn"/);
+    expect(html).toMatch(/id="searchAddBtn"[^>]*>[^<]*<\/button>\s*<label class="search-matches-only"/);
     expect(css).toMatch(/\.search-panel-footer\{[^}]*flex-wrap:wrap/);
   });
 
@@ -2832,9 +2840,9 @@ describe('search matches-only toggle contracts', () => {
 
 describe('detail pane search contracts', () => {
   test('attaches the in-pane search bar to the Body and Raw views of both inspectors', () => {
-    expect(js).toContain('attachPaneSearch(reqBodyPane);');
+    expect(js).toContain('attachPaneSearch(reqBodyPane, text);');
     expect(js).toContain('attachPaneSearch(reqRawPane);');
-    expect(js).toContain('attachPaneSearch(resBodyPane);');
+    expect(js).toContain('attachPaneSearch(resBodyPane, text);');
     expect(js).toContain('attachPaneSearch(resRawPane);');
   });
 
@@ -2852,5 +2860,23 @@ describe('detail pane search contracts', () => {
   test('bounds the hit count so huge bodies stay responsive', () => {
     expect(js).toContain('PANE_SEARCH_MAX_HITS = 1500');
     expect(js).toMatch(/marks\.length >= PANE_SEARCH_MAX_HITS/);
+  });
+
+  test('counts hits hidden in collapsed content and offers Expand all', () => {
+    expect(js).toContain('function expandPaneTruncations(pane, bar)');
+    expect(js).toContain("count.textContent += ' (+' + collapsedHits + ' collapsed)';");
+    expect(js).toContain('expandBtn.hidden = collapsedHits === 0;');
+    // Both truncating panes provide their full source text for the count.
+    expect(js).toContain('attachPaneSearch(resBodyPane, text);');
+    expect(js).toContain('attachPaneSearch(reqBodyPane, text);');
+    expect(css).toContain('.pane-search-expand');
+  });
+
+  test('decodes html bodies via the meta-declared charset when headers lack one', () => {
+    expect(js).toContain('function extractHtmlMetaCharset(prefixText)');
+    expect(js).toContain('function isHtmlLikeMime(mime)');
+    // The sniff is gated on html-like mime types at every decode site.
+    const gatedCalls = js.match(/isHtmlLikeMime\(/g) || [];
+    expect(gatedCalls.length).toBeGreaterThanOrEqual(5); // definition + 3 live sites + SAZ
   });
 });

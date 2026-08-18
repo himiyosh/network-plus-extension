@@ -4851,6 +4851,52 @@ describe('truncateUrlLabel', () => {
   });
 });
 
+describe('extractHtmlMetaCharset / meta-charset sniffing', () => {
+  test('parses both meta forms and normalizes the label', () => {
+    expect(np.extractHtmlMetaCharset('<html><head><meta charset="Shift_JIS"></head>')).toBe('shift_jis');
+    expect(np.extractHtmlMetaCharset("<meta charset='EUC-JP'>")).toBe('euc-jp');
+    expect(
+      np.extractHtmlMetaCharset('<meta http-equiv="Content-Type" content="text/html; charset=windows-31j">'),
+    ).toBe('windows-31j');
+    expect(np.extractHtmlMetaCharset('<html><head><title>x</title></head>')).toBe('');
+    expect(np.extractHtmlMetaCharset(null)).toBe('');
+  });
+
+  test('isHtmlLikeMime gates on html-like mime types only', () => {
+    expect(np.isHtmlLikeMime('text/html')).toBe(true);
+    expect(np.isHtmlLikeMime('application/xhtml+xml')).toBe(true);
+    expect(np.isHtmlLikeMime('text/html; charset=utf-8')).toBe(true);
+    expect(np.isHtmlLikeMime('application/json')).toBe(false);
+    expect(np.isHtmlLikeMime(undefined)).toBe(false);
+  });
+
+  test('decodes html bodies via the meta charset when headers declare none', () => {
+    // <meta charset=shift_jis> page whose body text is Shift_JIS "こんにちは".
+    const head = Buffer.from('<html><head><meta charset=shift_jis></head><body>', 'latin1');
+    const sjis = Buffer.from([0x82, 0xb1, 0x82, 0xf1, 0x82, 0xc9, 0x82, 0xbf, 0x82, 0xcd]);
+    const tail = Buffer.from('</body></html>', 'latin1');
+    const base64 = Buffer.concat([head, sjis, tail]).toString('base64');
+    const sniffed = np.decodeResponseContent(base64, 'base64', '', true);
+    expect(sniffed).toContain('こんにちは');
+    // Without the html gate the same bytes stay UTF-8-decoded (mojibake).
+    expect(np.decodeResponseContent(base64, 'base64', '', false)).not.toContain('こんにちは');
+    // An explicit header charset always wins over the sniff path.
+    expect(np.decodeResponseContent(base64, 'base64', 'shift_jis', false)).toContain('こんにちは');
+  });
+
+  test('SAZ html messages without a header charset use the meta declaration', () => {
+    const headerText = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n';
+    const htmlHead = '<html><head><meta charset=shift_jis></head><body>';
+    const bytes = new Uint8Array([
+      ...Buffer.from(headerText, 'latin1'),
+      ...Buffer.from(htmlHead, 'latin1'),
+      0x82, 0xb1, 0x82, 0xf1, 0x82, 0xc9, 0x82, 0xbf, 0x82, 0xcd,
+      ...Buffer.from('</body></html>', 'latin1'),
+    ]);
+    expect(np.parseSazHttpMessage(bytes).body).toContain('こんにちは');
+  });
+});
+
 describe('planVisibleSearchRows', () => {
   const rowA = { id: 1 };
   const rowB = { id: 2 };
