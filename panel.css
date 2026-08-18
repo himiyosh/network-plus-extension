@@ -111,14 +111,22 @@ html[data-theme="light"]{
 .brand-cat-motion{display:block;width:22px;height:15px;animation:brand-cat-duck 28s ease-in-out infinite}
 .brand-cat{display:block;width:22px;height:15px;overflow:visible;transition:transform .25s cubic-bezier(.2,.8,.3,1)}
 .topbar button.brand:hover .brand-cat,.topbar button.brand:focus-visible .brand-cat{transform:translateY(-2px)}
-.brand-cat-fur,.brand-cat-paw{fill:var(--cat)}
-.brand-cat-inner,.brand-cat-blush{fill:var(--cat-blush)}
-.brand-cat-blush{opacity:.8}
+.brand-cat-figure{transform-box:fill-box;transform-origin:50% 100%;animation:brand-cat-tilt 23s ease-in-out infinite}
+.brand-cat-fur,.brand-cat-paw{fill:var(--cat);stroke:var(--brew);stroke-width:.45;stroke-opacity:.35;stroke-linejoin:round}
+.brand-cat-inner{fill:var(--cat-blush);opacity:.9}
+.brand-cat-muzzle{fill:color-mix(in srgb,var(--cat) 40%,var(--on-accent))}
+.brand-cat-stripe{fill:none;stroke:color-mix(in srgb,var(--cat) 72%,var(--brew));stroke-width:1.1;stroke-linecap:round;opacity:.85}
+.brand-cat-blush{fill:var(--cat-blush);opacity:.65}
 .brand-cat-glint{fill:var(--on-accent);opacity:.95}
-.brand-cat-toes{fill:none;stroke:var(--brew);stroke-width:.6;stroke-linecap:round;opacity:.45}
-.brand-cat-mouth{fill:none;stroke:var(--brew);stroke-width:.9;stroke-linecap:round;opacity:.8}
+.brand-cat-nose{fill:var(--cat-blush)}
+.brand-cat-toes{fill:none;stroke:var(--brew);stroke-width:.5;stroke-linecap:round;opacity:.4}
+.brand-cat-whisker{fill:none;stroke:var(--brew);stroke-width:.55;stroke-linecap:round;opacity:.4}
+.brand-cat-mouth{fill:none;stroke:var(--brew);stroke-width:.75;stroke-linecap:round;opacity:.85}
 .brand-cat-eye{fill:var(--brew);transform-box:fill-box;transform-origin:50% 50%;animation:support-cat-blink 5.2s ease-in-out infinite}
-.brand-cat-ear--left{transform-box:fill-box;transform-origin:50% 100%;animation:support-cat-ear 8s ease-in-out infinite}
+@keyframes brand-cat-tilt{
+  0%,52%,60%,100%{transform:rotate(0deg)}
+  55%,57%{transform:rotate(-3.5deg)}
+}
 .brand-heart{position:absolute;left:15px;top:6px;font-size:9px;line-height:1;color:var(--cat-blush);opacity:0;animation:brand-heart-float 19s ease-in-out infinite;animation-delay:7s}
 @keyframes brand-cat-duck{
   0%,88%,100%{transform:translateY(0)}
@@ -715,7 +723,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .search-color-btn,.search-color-swatch,.hl-swatch,.timing-bar-seg,.json-tree-summary::before,.copy-toast,.sample-guide-btn,.sample-exit-btn,.status-details-toggle{transition:none}
   .search-color-btn:hover,.search-color-swatch:hover,.hl-swatch:hover{transform:none}
   .copy-toast,.copy-toast.show{transform:translateX(-50%)}
-  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-cat-tail,.support-cat-eye,.support-cat-ear--left,.brand-cat,.brand-cat-motion,.brand-heart,.brand-cat-eye,.brand-cat-ear--left,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
+  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-cat-tail,.support-cat-eye,.support-cat-ear--left,.brand-cat,.brand-cat-motion,.brand-cat-figure,.brand-heart,.brand-cat-eye,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
   .topbar button.brand:hover .brand-cat,.topbar button.brand:focus-visible .brand-cat{transform:none}
   .support-option-cta:hover{transform:none;filter:none}
   #supportDialog[open],#supportDialog[open]::backdrop{animation:none}
