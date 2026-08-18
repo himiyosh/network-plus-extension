@@ -2514,11 +2514,22 @@ describe('optional support dialog', () => {
     // A modal dialog trigger must not advertise an expandable region.
     expect(trigger).not.toContain('aria-expanded');
     const brandBlock = html.slice(html.indexOf('<button id="supportBtn"'), html.indexOf('</button>', html.indexOf('<button id="supportBtn"')));
-    for (const part of ['brand-cat', 'brand-cat-eye', 'brand-cup', 'brand-steam', 'brand-support-hint', 'brand-sub']) {
+    for (const part of [
+      'brand-cat-window',
+      'brand-cat-motion',
+      'brand-cat',
+      'brand-cat-eye',
+      'brand-cat-paw',
+      'brand-heart',
+      'brand-cup',
+      'brand-steam',
+      'brand-support-hint',
+      'brand-sub',
+    ]) {
       expect(brandBlock).toContain(part);
     }
-    // Decorative SVGs stay out of the accessibility tree and inline (CSP).
-    expect(brandBlock).toMatch(/<svg class="brand-cat"[^>]*aria-hidden="true"[^>]*focusable="false"/);
+    // Decorative art stays out of the accessibility tree and inline (CSP).
+    expect(brandBlock).toMatch(/<span class="brand-cat-window" aria-hidden="true">/);
     expect(brandBlock).not.toMatch(/<img\b|<use\b|href=|url\(/);
     // Exactly one toolbar support trigger remains.
     expect(html.match(/id="supportBtn"/g)).toHaveLength(1);
@@ -2579,15 +2590,21 @@ describe('optional support dialog', () => {
     expect(css).toMatch(/\.topbar button:hover\{[^}]*border-color:var\(--accent\)/);
     expect(css).toMatch(/\.topbar button:focus-visible[^{]*\{[^}]*outline:2px solid var\(--accent\)/);
     // The peeking cat must stay inside the topbar's 6px padding overflow
-    // budget (.topbar clips vertically): 4px at rest plus a 2px hover rise.
-    expect(css).toContain('.brand-cat{position:absolute;top:-4px;');
+    // budget (.topbar clips vertically): the clip window tops out at -6px and
+    // the idle art sits 2px lower, leaving room for the 2px hover rise. The
+    // window also enables the duck-and-hide beat without bleeding over text.
+    expect(css).toContain('.brand-cat-window{position:absolute;top:-6px;');
+    expect(css).toMatch(/\.brand-cat-window\{[^}]*overflow:hidden/);
     expect(css).toMatch(/\.brand-cat[^}]*\{transform:translateY\(-2px\)\}/);
+    // Sparse life beats: an occasional duck below the rim and a floating heart.
+    expect(css).toMatch(/\.brand-cat-motion\{[^}]*animation:brand-cat-duck 28s/);
+    expect(css).toMatch(/\.brand-heart\{[^}]*animation:brand-heart-float 19s/);
     // Idle life is calm (blink + faint steam); the invitation appears on hover.
     expect(css).toContain('.brand-steam-group{opacity:.5;');
     expect(css).toMatch(/\.topbar button\.brand:hover \.brand-steam-group[^{]*\{opacity:1\}/);
     // Reduced motion freezes every brand animation.
     const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
-    for (const part of ['.brand-cat', '.brand-cat-eye', '.brand-steam', '.brand-support-hint']) {
+    for (const part of ['.brand-cat', '.brand-cat-motion', '.brand-heart', '.brand-cat-eye', '.brand-steam', '.brand-support-hint']) {
       expect(reducedMotion).toContain(part);
     }
   });
