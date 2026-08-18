@@ -1190,7 +1190,7 @@ describe('capture retention static contracts', () => {
     expect(html).toMatch(/<label for="retentionLimit">Maximum retained requests<\/label>/);
     expect(html).toMatch(/id="retentionUnlimited"[^>]*aria-describedby="retentionWarning"/);
     expect(html).toMatch(/id="retentionWarning"[^>]*role="alert"[^>]*hidden/);
-    expect(html).toMatch(/id="retentionStatus">Retention:/);
+    expect(html).toMatch(/id="retentionStatus"[^>]*>Retention /);
     expect(html).not.toMatch(/id="retentionStatus"[^>]*(?:role|aria-live)=/);
     expect(html).toMatch(/id="retentionAnnouncement"[^>]*class="sr-only"[^>]*role="status"[^>]*aria-live="polite"/);
     expect(css).toMatch(/#retentionDialog\{[^}]*width:min\(420px,calc\(100vw - 16px\)\)[^}]*overflow:auto/);
@@ -1988,7 +1988,7 @@ describe('waterfall and stats topology', () => {
     expect(renderer).toContain(
       'updateStatusSummaryChip(structure, indicator, onInspectStatusClass)',
     );
-    expect(renderer).toContain("structure.duration.textContent = '| ' + durationText");
+    expect(renderer).toContain("structure.duration.textContent = '| avg ' + fmtTime(stats.avgDuration)");
     expect(renderer).not.toContain("statsElement.textContent = ''");
     expect(renderer).not.toContain('innerHTML');
   });

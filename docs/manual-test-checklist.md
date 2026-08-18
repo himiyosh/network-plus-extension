@@ -48,6 +48,12 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> focuses the pane search field when focus is inside a Body/Raw view, and toggles the request search panel elsewhere.
 - [ ] A response declaring `Content-Type: text/html; charset=Shift_JIS` (or another non-UTF-8 charset) renders readable text — not mojibake — in the Body, Preview, and Raw views, including after a SAZ import.
 
+## Toolbar popups and the status bar
+
+- [ ] The `Presets` button opens its popup on first click (no flicker-close); a preset can be named and saved from inside the popup, applied, and deleted, and `Filters (N)` reflects the applied rules.
+- [ ] The `Filters` popup lists every filterable column as a collapsed row; clicking a row expands only that column's rule editor, editing a rule shows an `Active` chip and updates the header count live, and reopening the popup keeps active columns expanded.
+- [ ] The status bar shows only `Retention <limit> · cache <n>/<max>`, the status chips, `avg <t>`, the transferred size, and `N / M requests` (plus `· K active column filter(s)` only when K > 0); hovering retention, latency, and size reveals the full details in tooltips.
+
 ## Keyboard
 
 - [ ] <kbd>Enter</kbd> / <kbd>Space</kbd> on a header keeps `aria-sort` and the displayed order in sync, and focus returns to the same header after <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd>.

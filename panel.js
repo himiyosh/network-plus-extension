@@ -5469,7 +5469,8 @@ const _NetworkPlus = (function () {
     for (const indicator of indicators) {
       updateStatusSummaryChip(structure, indicator, onInspectStatusClass);
     }
-    structure.duration.textContent = '| ' + durationText;
+    structure.duration.textContent = '| avg ' + fmtTime(stats.avgDuration);
+    structure.duration.title = durationText;
   }
 
   function createTimingPhaseGuide() {
@@ -6072,24 +6073,71 @@ const _NetworkPlus = (function () {
     header.textContent = `Column Filters (${getActiveFilterCount()} active)`;
     root.appendChild(header);
 
+    const hint = document.createElement('div');
+    hint.className = 'filter-popup-hint';
+    hint.textContent = 'Click a column to edit its rule. Active rules stay expanded.';
+    root.appendChild(hint);
+
     const list = document.createElement('div');
     list.className = 'filter-popup-list';
 
+    const refreshHeader = () => {
+      header.textContent = `Column Filters (${getActiveFilterCount()} active)`;
+    };
     const debouncedOnChange = debounce(onChange, FILTER_DEBOUNCE_MS);
     for (const col of state.columns) {
       if (isVisualOnlyColumn(col.id)) continue;
-      const row = document.createElement('div');
-      row.className = 'filter-popup-row';
-      if (focusColId && focusColId === col.id) row.classList.add('focus-target');
+      const section = document.createElement('div');
+      section.className = 'filter-section';
 
-      const label = document.createElement('div');
-      label.className = 'filter-popup-label';
-      label.textContent = col.label;
-      row.appendChild(label);
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'filter-section-toggle';
+      const caret = document.createElement('span');
+      caret.className = 'filter-section-caret';
+      caret.textContent = '▸';
+      caret.setAttribute('aria-hidden', 'true');
+      const name = document.createElement('span');
+      name.className = 'filter-section-name';
+      name.textContent = col.label;
+      const activeBadge = document.createElement('span');
+      activeBadge.className = 'filter-section-state';
+      toggle.appendChild(caret);
+      toggle.appendChild(name);
+      toggle.appendChild(activeBadge);
 
-      const control = createColumnFilterControl(col.id, debouncedOnChange);
-      row.appendChild(control);
-      list.appendChild(row);
+      const body = document.createElement('div');
+      body.className = 'filter-section-body';
+
+      const refreshBadge = () => {
+        activeBadge.textContent = isRuleActive(state.columnFilterRules[col.id]) ? 'Active' : '';
+      };
+      refreshBadge();
+
+      const control = createColumnFilterControl(col.id, () => {
+        refreshBadge();
+        refreshHeader();
+        debouncedOnChange();
+      });
+      body.appendChild(control);
+
+      const setExpanded = (expanded) => {
+        section.classList.toggle('open', expanded);
+        toggle.setAttribute('aria-expanded', String(expanded));
+        body.hidden = !expanded;
+      };
+      // A column being inspected or already filtering starts expanded; the
+      // rest stay collapsed so the popup reads as a short scannable list.
+      setExpanded(
+        (focusColId && focusColId === col.id) || isRuleActive(state.columnFilterRules[col.id]),
+      );
+      toggle.addEventListener('click', () => {
+        setExpanded(body.hidden);
+      });
+
+      section.appendChild(toggle);
+      section.appendChild(body);
+      list.appendChild(section);
     }
 
     root.appendChild(list);
@@ -7116,7 +7164,7 @@ const _NetworkPlus = (function () {
   function updateRetentionStatus() {
     const retention = state.retention;
     const presentation = getRetentionPresentation(retention.requestLimit, retention.unlimited);
-    const statusParts = [
+    const detailParts = [
       'Retention: ' + presentation.policyLabel,
       'body cache ' + fmtBytes(retention.responseCacheBytes) + ' / ' + fmtBytes(MAX_RESPONSE_CACHE_BYTES),
       'evicted requests ' + retention.evictedRequests,
@@ -7124,11 +7172,18 @@ const _NetworkPlus = (function () {
       'bodies evicted ' + retention.evictedBodies,
       'preview-truncated ' + retention.truncatedBodies,
     ];
-    if (retention.settingWarning) statusParts.push(retention.settingWarning);
+    if (retention.settingWarning) detailParts.push(retention.settingWarning);
+    // Visible text stays short; the full bookkeeping lives in the tooltip.
+    // Retention events themselves are announced via queueRetentionSummary.
+    const visibleParts = [
+      'Retention ' + presentation.policyLabel.replace(' requests', ''),
+      'cache ' + fmtBytes(retention.responseCacheBytes) + ' / ' + fmtBytes(MAX_RESPONSE_CACHE_BYTES),
+    ];
+    if (retention.settingWarning) visibleParts.push(retention.settingWarning);
     const status = $('#retentionStatus');
     if (status) {
-      status.textContent = statusParts.join(' · ');
-      status.title = statusParts.join('. ');
+      status.textContent = visibleParts.join(' · ');
+      status.title = detailParts.join('. ');
     }
     const button = $('#retentionBtn');
     if (button) {
@@ -7144,10 +7199,10 @@ const _NetworkPlus = (function () {
       visibleRowCount +
       ' / ' +
       state.rows.length +
-      ' requests · ' +
-      activeFilterCount +
-      ' active column ' +
-      (activeFilterCount === 1 ? 'filter' : 'filters');
+      ' requests' +
+      (activeFilterCount > 0
+        ? ' · ' + activeFilterCount + ' active column ' + (activeFilterCount === 1 ? 'filter' : 'filters')
+        : '');
     const counter = $('#counter');
     if (counter) counter.textContent = requestCountText;
     queueRequestCountAnnouncement(requestCountText);
@@ -7164,7 +7219,9 @@ const _NetworkPlus = (function () {
     }
     const totalSizeEl = $('#totalSize');
     if (totalSizeEl) {
-      totalSizeEl.textContent = state.visibleBytes > 0 ? fmtBytes(state.visibleBytes) + ' transferred' : '';
+      totalSizeEl.textContent = state.visibleBytes > 0 ? fmtBytes(state.visibleBytes) : '';
+      totalSizeEl.title =
+        state.visibleBytes > 0 ? fmtBytes(state.visibleBytes) + ' transferred across visible requests' : '';
     }
     const selectedSizeEl = $('#selectedSize');
     if (selectedSizeEl) {
@@ -9546,6 +9603,7 @@ const _NetworkPlus = (function () {
       if (
         event.target.closest('#filterBtn') ||
         event.target.closest('#columnsBtn') ||
+        event.target.closest('#presetsBtn') ||
         event.target.closest('#searchScopeBtn') ||
         event.target.closest('.search-color-btn') ||
         event.target.closest('.filter-btn') ||
