@@ -4,6 +4,11 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- No changes have been recorded since v1.8.0.
+
+## v1.8.0 - 2026-08-18
+
+- Refreshed the release media for the current panel: the four 1280x800 store screenshots and the README tour GIF were re-captured from the local synthetic sample, so the toolbar, Filters and Columns menus, and status bar in the listing match what ships. The coffee cup in the brand mark also gained a stronger outline so it stays legible at 1x.
 - Retired the separate Presets toolbar button (it had also shipped broken — its popup closed in the same click that opened it) and folded presets into the **Columns** menu as a single view preset: **Update** saves the current column visibility + filter rules, **Apply** restores them — or the factory default view before anything was saved — and **Forget saved preset** returns Apply to the default. The first entry of the old multi-preset store is migrated automatically. Preset data stays in `localStorage` and never contains captured traffic.
 - Redesigned the Column Filters popup: every column is a collapsible section that now starts **expanded** (collapsing is optional, not a hurdle), columns with active rules show an “Active” chip, and the header keeps a live active-rule count. Controls were compacted onto single rows — Method's All/None sits inline with its checkboxes, each Status class shares a row with its codes, URL fields are label-beside-input, and time ranges keep From/To on one line — with smaller checkboxes and a slightly wider popup so nothing wraps mid-rule.
 - Decluttered the status bar: retention now reads “Retention 20,000 · cache 21 MB / 32 MB” with the full bookkeeping (evicted/omitted/truncated counts) in its tooltip, latency shows only the average (min/max in the tooltip), the transferred size drops the word “transferred” (tooltip explains it), and “0 active column filters” is no longer shown when no filter is active.

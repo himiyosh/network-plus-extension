@@ -1,6 +1,6 @@
 # Privacy notice for Network+ for DevTools
 
-Last updated: 2026-08-14
+Last updated: 2026-08-18
 
 ## Scope
 

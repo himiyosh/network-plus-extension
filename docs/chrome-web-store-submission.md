@@ -1,6 +1,6 @@
 # Chrome Web Store submission dossier (en-US)
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-18
 
 ## Submission status and evidence boundary
 
@@ -8,20 +8,20 @@ This dossier is a repository-local recommendation for a future Chrome Web Store 
 
 ### Upload artifact
 
-- **Release:** `v1.7.0`
-- **ZIP:** `network-plus-extension-1.7.0.zip`
-- **Size:** `140249 bytes`
-- **SHA-256:** `d0f2c0d02cae90156a3d3bda8bbeba0ff70531f02f36f4256aeb885560c8cd77`
-- **Download:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.7.0/network-plus-extension-1.7.0.zip
+- **Release:** `v1.8.0` (tag not yet published)
+- **ZIP:** `network-plus-extension-1.8.0.zip`
+- **Size:** `150672 bytes`
+- **SHA-256:** `6dfd5cf599f6adf50ddf70103b48a5b9006655065e9887ec7a5c434e6a4c8623`
+- **Download (after the release is published):** https://github.com/himiyosh/network-plus-extension/releases/download/v1.8.0/network-plus-extension-1.8.0.zip
 
-The ZIP was downloaded from the public GitHub release and its size and SHA-256 were re-verified on 2026-08-14. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
+The ZIP was produced on 2026-08-18 by `npm run extension:package` from the v1.8.0 release commit, and its size and SHA-256 were read from that build; archive entries carry fixed timestamps, so the same commit rebuilds byte-identically. The `v1.8.0` GitHub release is not published yet, so an operator must publish it, attach this exact ZIP, and re-verify the digest from a fresh download before upload. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
 
 ### Observed repository facts
 
-- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.7.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
+- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.8.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
 - The same runtime uses Chromium extension APIs without an Edge-only code path. Chrome 151 loaded the manifest without extension errors, all 98 real-browser regression scenarios passed, and the Network+ DevTools panel was confirmed manually.
-- The public `v1.7.0` GitHub release is the current repository-backed upload source. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
+- The v1.8.0 package built from this commit is the current repository-backed upload source; the public `v1.7.0` release is the last one observed on GitHub. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
 
 ## Developer account prerequisites
 
@@ -51,7 +51,9 @@ These are external account, payment, identity, and agreement actions. They are i
 <!-- chrome-store-description:start -->
 Network+ for DevTools adds a dedicated network-analysis panel to Google Chrome DevTools. It is designed for web developers, QA engineers, and support engineers who need to inspect HTTP evidence without leaving the DevTools workflow.
 
-The request grid captures traffic reported by the Chrome DevTools network API and presents method, status, domain, path, type, duration, size, initiator, URL, and optional waterfall information. Users can sort and resize columns, choose visible columns, apply per-column filters, save the column-and-filter setup as a view preset, and search across URLs, headers, request bodies, and response bodies. Selecting a request opens request and response inspectors for headers, bodies, query parameters, cookies, raw data, timing phases, and supported previews. Two selected requests can be compared side by side.
+The request grid captures traffic reported by the Chrome DevTools network API and presents method, status, domain, path, type, duration, size, initiator, URL, and optional waterfall information. Users can sort and resize columns, choose visible columns, apply per-column filters, save the column-and-filter setup as a view preset, and run a multi-keyword search across URLs, headers, request bodies, and response bodies with match-case, whole-word, and regular-expression options, optionally narrowing the grid to matching rows only. Selecting a request opens request and response inspectors for headers, bodies, query parameters, cookies, raw data, timing phases, and supported previews. Two selected requests can be compared side by side.
+
+The Body and Raw inspector views carry their own keyword search with hit counting, next/previous navigation, and an expand-all action that reveals matches hidden inside collapsed JSON nodes or truncated previews. Response bodies are decoded with the charset declared by the Content-Type header, falling back to a scan of the HTML meta charset, so non-UTF-8 payloads read correctly in both live capture and imported HAR or SAZ files. Scope and match options persist between sessions; search keywords themselves are never stored.
 
 Network+ applies bounded local retention. The default request limit is 20,000, configurable from 100 to 100,000; an explicitly confirmed unlimited request mode is also available. Response bodies remain subject to a 1 MiB per-body limit and a 32 MiB shared cache limit. The status bar reports retention and body-cache conditions so omitted or evicted content is not presented as complete evidence. Clear removes the current working set and offers a bounded 10-second Undo action while retained data remains available.
 

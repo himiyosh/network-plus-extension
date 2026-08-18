@@ -127,10 +127,10 @@ html[data-theme="light"]{
   97.5%{opacity:0;transform:translate(4px,-6px) scale(.85)}
 }
 .brand-cup{width:17px;height:17px;overflow:visible;flex-shrink:0}
-.brand-cup-body{fill:var(--cup);stroke:var(--brew);stroke-width:.9;stroke-opacity:.5;stroke-linejoin:round}
-.brand-cup-handle-back{fill:none;stroke:var(--brew);stroke-width:3.4;stroke-linecap:round;opacity:.5}
+.brand-cup-body{fill:var(--cup);stroke:var(--brew);stroke-width:1.1;stroke-opacity:.72;stroke-linejoin:round}
+.brand-cup-handle-back{fill:none;stroke:var(--brew);stroke-width:3.6;stroke-linecap:round;opacity:.72}
 .brand-cup-handle{fill:none;stroke:var(--cup);stroke-width:1.9;stroke-linecap:round}
-.brand-cup-brew{fill:var(--brew);opacity:.9}
+.brand-cup-brew{fill:var(--brew);opacity:1}
 .brand-steam-group{opacity:.5;transition:opacity .2s}
 .brand-steam{fill:none;stroke:var(--text-accent);stroke-width:1.8;stroke-linecap:round;opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:support-steam-rise 5.6s ease-in-out infinite}
 .brand-steam--b{animation-delay:1.2s}

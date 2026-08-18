@@ -11,8 +11,8 @@ const ASSET_DIRECTORY = 'docs/store-assets';
 // The synthetic store assets and the privacy notice are reviewed independently.
 // Keep the dates separate so a privacy-text change does not imply the PNG
 // inventory was re-reviewed on the same day.
-const ASSET_REVIEW_DATE = '2026-08-14';
-const PRIVACY_REVIEW_DATE = '2026-08-14';
+const ASSET_REVIEW_DATE = '2026-08-18';
+const PRIVACY_REVIEW_DATE = '2026-08-18';
 const MIN_DESCRIPTION_CHARACTERS = 250;
 const MAX_DESCRIPTION_CHARACTERS = 10000;
 const MAX_SEARCH_TERMS = 7;
@@ -23,7 +23,7 @@ const EXPECTED_SUPPORT_URL = 'https://github.com/himiyosh/network-plus-extension
 const EXPECTED_PRIVACY_URL = 'https://github.com/himiyosh/network-plus-extension/blob/main/docs/privacy.md';
 const EXPECTED_REPOSITORY_URL = 'git+https://github.com/himiyosh/network-plus-extension.git';
 const EXPECTED_CSP = "script-src 'self'; object-src 'self'";
-const EXPECTED_RELEASE_SHA256 = 'd0f2c0d02cae90156a3d3bda8bbeba0ff70531f02f36f4256aeb885560c8cd77';
+const EXPECTED_RELEASE_SHA256 = '6dfd5cf599f6adf50ddf70103b48a5b9006655065e9887ec7a5c434e6a4c8623';
 const EXPECTED_PERMISSION_JUSTIFICATION =
   'Stores the user-selected System, Dark, or Light theme and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.';
 const EXPECTED_SEARCH_TERMS = Object.freeze([
