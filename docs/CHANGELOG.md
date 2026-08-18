@@ -4,6 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- Recorded the published v1.8.0 release in the Microsoft Edge and Chrome submission dossiers: the ZIP was re-downloaded from the public release and its 150672-byte size and SHA-256 digest were verified against the value the store kits pin.
 - Release publishing is now automated: when a version bump reaches `main` (or a `vX.Y.Z` tag is pushed), CI rebuilds the extension package, verifies that the version, the tag, and the archive digest recorded in the store submission dossiers all agree, and publishes the GitHub release with the ZIP attached and notes generated from that version's changelog section. A version that is already published is skipped rather than republished.
 
 ## v1.8.0 - 2026-08-18

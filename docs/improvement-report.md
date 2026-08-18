@@ -9,7 +9,7 @@
 
 ## Current state (2026-08-18, v1.8.0)
 
-`package.json`、`manifest.json`、README、`panel.js`、`package-lock.json` のリリースメタデータは v1.8.0 で同期している。GitHub Release には、同じ確定コミットから生成した `network-plus-extension-1.8.0.zip` を添付する（公開は未実施）。
+`package.json`、`manifest.json`、README、`panel.js`、`package-lock.json` のリリースメタデータは v1.8.0 で同期している。GitHub Release には、同じ確定コミットから生成した `network-plus-extension-1.8.0.zip` を添付する。v1.8.0 の Release は tag/main 連動の publish workflow が自動公開した。
 
 Cycle 1 で提案したコマンドコピー、フィルタープリセット、統計、Waterfall、ショートカット一覧、2 リクエスト比較、レスポンス Body 検索、カラム並べ替えは Cycle 2 以降で実装され、その後の回帰修復とハードニングも Cycle 3〜7 に記録している。現行 README は保持上限、sanitized outbound data、アクセシビリティ、HAR/SAZ import、Edge / Chrome 対応、サポート導線を含む v1.8.0 の機能と制約を正としている。
 
