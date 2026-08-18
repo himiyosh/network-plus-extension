@@ -124,7 +124,7 @@ html[data-theme="light"]{
 }
 
 /* === Unified Search Area === */
-.search-count{font-size:11px;color:var(--text-muted);white-space:nowrap;min-width:70px}
+.search-count{font-size:11px;color:var(--text-muted);white-space:nowrap;min-width:50px}
 
 /* === Search Panel (collapsible below topbar) === */
 .search-panel{padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface);z-index:3;flex:0 0 auto}
