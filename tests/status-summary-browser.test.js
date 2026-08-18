@@ -2698,7 +2698,7 @@ browserTest(
                 brandPaddingLeft: brandStyle.paddingLeft,
                 brandPaddingRight: brandStyle.paddingRight,
                 brandSubtitleDisplay: getComputedStyle(
-                  document.querySelector('.brand-sub'),
+                  document.querySelector('.brand-sub-text'),
                 ).display,
               };
             })()`,
@@ -2734,8 +2734,8 @@ browserTest(
       expect(desktopMeasurement.brandDisplay).not.toBe('none');
       expect(desktopMeasurement.brandSubtitleDisplay).toBe('none');
       expect(desktopMeasurement.brandWidth).toBeLessThan(150);
-      // The cat hangs above the wordmark, so the pill needs no reserved slot
-      // and keeps the original symmetric paddings.
+      // Compact mode drops only the sub-label words; the cat keeps a fixed
+      // 22px perch between the wordmark and the cup, inside symmetric paddings.
       expect(desktopMeasurement.brandPaddingLeft).toBe('8px');
       expect(desktopMeasurement.brandPaddingRight).toBe('8px');
 

@@ -2583,14 +2583,22 @@ describe('optional support dialog', () => {
     expect(rule).not.toContain('border:none');
     expect(css).toMatch(/\.topbar button:hover\{[^}]*border-color:var\(--accent\)/);
     expect(css).toMatch(/\.topbar button:focus-visible[^{]*\{[^}]*outline:2px solid var\(--accent\)/);
-    // The peeking cat must stay inside the topbar's 6px padding overflow
-    // budget (.topbar clips vertically): the clip window tops out at -6px and
-    // the idle art sits 2px lower, leaving room for the 2px hover rise. The
-    // window also enables the duck-and-hide beat without bleeding over text.
-    // The window hangs from the wordmark itself (paws rest on the letters),
-    // so no left slot spends toolbar width and ducking hides behind the text.
+    // The peeking cat perches above the low, bottom-aligned "for DevTools"
+    // sub-label — the roomiest spot in the pill — so the art stays inside the
+    // button instead of spending the topbar's 6px vertical clip budget, with
+    // room for the 2px hover rise. The overflow window enables the
+    // duck-and-hide beat (paws rest on the sub-label's letters), and compact
+    // widths keep a fixed 22px perch when the words are hidden.
     expect(css).toContain('.brand-cat-window{position:absolute;bottom:calc(100% - 2px);');
+    expect(css).toMatch(/\.brand-sub\{position:relative;display:inline-flex/);
+    expect(css).toContain('.brand-sub-text{display:none}');
+    expect(css).toContain('.brand-sub{width:22px;height:11px}');
     expect(css).toMatch(/\.brand-cat-window\{[^}]*overflow:hidden/);
+    // The cup is white porcelain with a brew-toned edge so it reads against
+    // both the light and dark pill fills (an unedged accent-colored cup sank
+    // into the background).
+    expect(css).toMatch(/\.brand-cup-body\{fill:var\(--cup\);stroke:var\(--brew\)/);
+    expect(css).toMatch(/\.brand-cup-handle\{fill:none;stroke:var\(--cup\)/);
     expect(css).toMatch(/\.brand-cat[^}]*\{transform:translateY\(-2px\)\}/);
     // Sparse life beats: an occasional duck below the rim and a floating heart.
     expect(css).toMatch(/\.brand-cat-motion\{[^}]*animation:brand-cat-duck 28s/);
