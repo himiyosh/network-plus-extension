@@ -79,8 +79,20 @@ describe('release notes builder', () => {
 describe('release publishing workflow', () => {
   const workflow = readRepoFile(RELEASE_WORKFLOW);
 
-  test('publishes only for version tags', () => {
-    expect(workflow).toMatch(/on:\s*\n\s*push:\s*\n\s*tags:\s*\n\s*- 'v\*'/);
+  test('publishes from a reviewed version bump on main or from an explicit version tag', () => {
+    // Tag pushes are rejected by some environments, so reaching main with a
+    // bumped version is the primary trigger and the tag push is the fallback.
+    expect(workflow).toMatch(/on:\s*\n\s*push:\s*\n\s*branches:\s*\n\s*- main\s*\n\s*tags:\s*\n\s*- 'v\*'/);
+    expect(workflow).toContain('tag="v$version"');
+    expect(workflow).toContain('does not match package.json version');
+  });
+
+  test('skips a version that is already published instead of republishing it', () => {
+    expect(workflow).toContain('refusing to overwrite a published release');
+    expect(workflow).toContain('published=true');
+    // Every step that builds or publishes is gated on the skip decision.
+    const gated = workflow.match(/if: steps\.existing\.outputs\.published == 'false'/g) || [];
+    expect(gated.length).toBeGreaterThanOrEqual(7);
   });
 
   test('keeps the default token read-only and grants write only to the publishing job', () => {
@@ -98,7 +110,6 @@ describe('release publishing workflow', () => {
   });
 
   test('verifies the tag, the package, and the published digest before releasing', () => {
-    expect(workflow).toContain('does not match package.json version');
     expect(workflow).toContain('npm run version:check');
     expect(workflow).toContain('npm run extension:check');
     expect(workflow).toContain('npm run extension:package');
@@ -107,10 +118,6 @@ describe('release publishing workflow', () => {
     expect(workflow).toContain('does not match the digest recorded in the submission dossiers');
     // The publish step must run after the digest guard, never before it.
     expect(workflow.indexOf('archive digest verified')).toBeLessThan(workflow.indexOf('gh release create'));
-  });
-
-  test('never overwrites an existing published release', () => {
-    expect(workflow).toContain('refusing to overwrite a published release');
   });
 
   test('exposes the digest constant the workflow reads', () => {

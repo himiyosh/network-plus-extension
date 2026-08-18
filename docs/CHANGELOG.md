@@ -4,7 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- Release publishing is now automated: pushing a `vX.Y.Z` tag rebuilds the extension package, verifies that the tag, the synchronized versions, and the archive digest recorded in the store submission dossiers all agree, and publishes the GitHub release with the ZIP attached and notes generated from that version's changelog section.
+- Release publishing is now automated: when a version bump reaches `main` (or a `vX.Y.Z` tag is pushed), CI rebuilds the extension package, verifies that the version, the tag, and the archive digest recorded in the store submission dossiers all agree, and publishes the GitHub release with the ZIP attached and notes generated from that version's changelog section. A version that is already published is skipped rather than republished.
 
 ## v1.8.0 - 2026-08-18
 
