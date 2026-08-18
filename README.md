@@ -108,7 +108,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 ### Inspect
 
 - 13 columns — ID, ClientStart, ServerDone, Method, Status, Domain, Path, Type, Duration, and Size, plus Initiator, URL, and Waterfall hidden by default. Visibility, width, and order all persist.
-- Tabbed inspector: Request (Headers / Body / Query / Cookies / Raw) and Response (Headers / Body / Preview / Cookies / Timing / Raw). The Body and Raw views each carry their own keyword search with hit highlighting and Enter / Shift+Enter navigation, and response bodies are decoded with the charset their `Content-Type` declares (Shift_JIS, EUC-JP, and friends render correctly).
+- Tabbed inspector: Request (Headers / Body / Query / Cookies / Raw) and Response (Headers / Body / Preview / Cookies / Timing / Raw). The Body and Raw views each carry their own keyword search in a bar pinned to the bottom of the pane, with hit highlighting and Enter / Shift+Enter navigation, and response bodies are decoded with the charset their `Content-Type` declares (Shift_JIS, EUC-JP, and friends render correctly).
 - Timing breakdown per phase (blocked, DNS, connect, TLS, send, wait, receive) with an inline guide and an explicit statement of what browser-reported timing cannot prove.
 - **Compare 2 selected requests** — <kbd>Ctrl</kbd>/<kbd>⌘</kbd>-click exactly two rows to diff URL, query parameters, method, status, protocol, headers, and body, with matching, changed, and one-sided values color-coded.
 - Initiator links open the originating source file in DevTools.

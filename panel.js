@@ -7514,7 +7514,11 @@ const _NetworkPlus = (function () {
       });
     }
 
-    pane.insertBefore(bar, pane.firstChild);
+    // The bar is a bottom-pinned footer: it sticks to the pane's lower edge
+    // while long content scrolls, and margin-top:auto keeps it at the bottom
+    // for short content (the pane becomes a min-height flex column).
+    pane.classList.add('pane-search-host');
+    pane.appendChild(bar);
     const storedQuery = paneSearchQueries.get(paneId) || '';
     if (storedQuery) {
       input.value = storedQuery;

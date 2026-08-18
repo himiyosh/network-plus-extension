@@ -2843,7 +2843,10 @@ describe('detail pane search contracts', () => {
     expect(js).toMatch(/mark\.className = 'pane-search-hit';\s*\n\s*mark\.textContent =/);
     expect(css).toContain('mark.pane-search-hit{background:color-mix(in srgb,var(--search-yellow) var(--hl-primary-pct),transparent)');
     expect(css).toContain('mark.pane-search-hit-current');
-    expect(css).toContain('.pane-search-bar');
+    // The bar is pinned to the bottom of the pane, flush with its edges.
+    expect(css).toMatch(/\.pane-search-bar\{[^}]*position:sticky[^}]*bottom:0/);
+    expect(css).toMatch(/\.tab-pane\.pane-search-host\.active\{[^}]*flex-direction:column[^}]*min-height:100%/);
+    expect(js).toContain('pane.appendChild(bar);');
   });
 
   test('bounds the hit count so huge bodies stay responsive', () => {

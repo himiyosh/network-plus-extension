@@ -196,6 +196,8 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .tab-content-area{flex:1;overflow:auto;position:relative}
 .tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:break-all;font-size:13px}
 .tab-pane.active{display:block}
+.tab-pane.pane-search-host.active{display:flex;flex-direction:column;min-height:100%}
+.tab-pane.pane-search-host.active[hidden]{display:none}
 .tab-pane[hidden]{display:none}
 
 /* === Code Blocks & Syntax === */
@@ -506,7 +508,7 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 
 /* === Buttons === */
 .copy-actions{display:flex;justify-content:flex-end;gap:6px;margin-bottom:6px;flex-wrap:wrap}
-.pane-search-bar{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:4px 6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;position:sticky;top:0;z-index:2}
+.pane-search-bar{display:flex;align-items:center;gap:6px;margin:auto -10px -10px;padding:4px 8px;background:var(--surface);border-top:1px solid var(--border);position:sticky;bottom:0;z-index:2}
 .pane-search-input{flex:1 1 auto;min-width:60px;background:var(--content-bg);color:var(--fg);border:1px solid var(--control-border);border-radius:4px;padding:3px 6px;font:inherit;font-size:12px}
 .pane-search-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .pane-search-count{font-size:11px;color:var(--text-muted);white-space:nowrap}
