@@ -106,10 +106,10 @@ html[data-theme="light"]{
 .brand{position:relative;display:inline-flex;align-items:center;gap:6px;padding:3px 14px;white-space:nowrap;border-radius:8px;background:var(--accent-dim);min-height:32px;overflow:visible;cursor:pointer}
 .topbar button.brand{border-color:transparent;background:var(--accent-dim);padding:3px 14px;font-size:14px}
 .topbar button.brand:hover{background:var(--accent-dim);color:var(--fg)}
-.brand-cat-window{position:absolute;bottom:calc(100% - 2px);left:50%;margin-left:-11px;width:22px;height:15px;overflow:hidden;pointer-events:none}
+.brand-cat-window{position:absolute;bottom:calc(100% + 2px);left:50%;margin-left:-11px;width:22px;height:15px;overflow:hidden;pointer-events:none}
 .brand-cat-motion{display:block;width:22px;height:15px;animation:brand-cat-duck 28s ease-in-out infinite}
 .brand-cat{display:block;width:22px;height:15px;overflow:visible;transition:transform .25s cubic-bezier(.2,.8,.3,1)}
-.topbar button.brand:hover .brand-cat,.topbar button.brand:focus-visible .brand-cat{transform:translateY(-2px)}
+.topbar button.brand:hover .brand-cat,.topbar button.brand:focus-visible .brand-cat{transform:translateY(-1px)}
 .brand-cat-fur,.brand-cat-paw{fill:var(--cat);stroke:var(--brew);stroke-width:.9;stroke-opacity:.55;stroke-linejoin:round}
 .brand-cat-inner{fill:var(--cat-blush);opacity:.9}
 .brand-cat-glint{fill:var(--on-accent);opacity:.95}

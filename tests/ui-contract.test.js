@@ -2583,13 +2583,13 @@ describe('optional support dialog', () => {
     expect(rule).not.toContain('border:none');
     expect(css).toMatch(/\.topbar button:hover\{[^}]*border-color:var\(--accent\)/);
     expect(css).toMatch(/\.topbar button:focus-visible[^{]*\{[^}]*outline:2px solid var\(--accent\)/);
-    // The peeking cat perches above the low, bottom-aligned "for DevTools"
-    // sub-label — the roomiest spot in the pill — so the art stays inside the
-    // button instead of spending the topbar's 6px vertical clip budget, with
-    // room for the 2px hover rise. The overflow window enables the
-    // duck-and-hide beat (paws rest on the sub-label's letters), and compact
-    // widths keep a fixed 22px perch when the words are hidden.
-    expect(css).toContain('.brand-cat-window{position:absolute;bottom:calc(100% - 2px);');
+    // The peeking cat hovers above the low, bottom-aligned "for DevTools"
+    // sub-label — the roomiest spot in the pill — with a deliberate 2px air
+    // gap so no paw ever touches the letters. The art grazes at most ~4.5px
+    // above the pill (~5.5px with the 1px hover rise), inside the topbar's
+    // 6px clip budget. The overflow window enables the duck-and-hide beat,
+    // and compact widths keep a fixed 22px perch when the words are hidden.
+    expect(css).toContain('.brand-cat-window{position:absolute;bottom:calc(100% + 2px);');
     expect(css).toMatch(/\.brand-sub\{position:relative;display:inline-flex/);
     expect(css).toContain('.brand-sub-text{display:none}');
     expect(css).toContain('.brand-sub{width:22px;height:11px}');
@@ -2599,7 +2599,7 @@ describe('optional support dialog', () => {
     // into the background).
     expect(css).toMatch(/\.brand-cup-body\{fill:var\(--cup\);stroke:var\(--brew\)/);
     expect(css).toMatch(/\.brand-cup-handle\{fill:none;stroke:var\(--cup\)/);
-    expect(css).toMatch(/\.brand-cat[^}]*\{transform:translateY\(-2px\)\}/);
+    expect(css).toMatch(/\.brand-cat[^}]*\{transform:translateY\(-1px\)\}/);
     // Sparse life beats: an occasional duck below the rim and a floating heart.
     expect(css).toMatch(/\.brand-cat-motion\{[^}]*animation:brand-cat-duck 28s/);
     expect(css).toMatch(/\.brand-heart\{[^}]*animation:brand-heart-float 19s/);
