@@ -31,7 +31,7 @@ Network+ stores only UI preferences locally:
 - The selected System, Dark, or Light theme is stored through `chrome.storage.local`, with panel local storage used as a fallback.
 - Search preferences — the search scope checkboxes, the case / whole-word / regular-expression match options, and the Matches only state — are stored through `chrome.storage.local` as booleans. Search keyword text is never stored.
 - The retention setting and column order, visibility, and widths are stored in panel local storage.
-- Named filter presets store preset names and filter-rule values entered by the user. They do not store captured request or response records, headers, or bodies, but a user-entered filter value can itself contain text such as a domain or path.
+- The saved view preset stores column visibility and filter-rule values entered by the user. It does not store captured request or response records, headers, or bodies, but a user-entered filter value can itself contain text such as a domain or path.
 
 Search results, selected rows, captured request records, headers, and bodies are not written to persistent storage by Network+.
 

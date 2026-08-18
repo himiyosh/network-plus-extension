@@ -2715,7 +2715,6 @@ browserTest(
         'exportHarBtn',
         'autoScrollBtn',
         'filterBtn',
-        'presetsBtn',
         'columnsBtn',
         'retentionBtn',
         'themeBtn',
@@ -2724,7 +2723,7 @@ browserTest(
       for (const measurement of viewportMeasurements) {
         expect(measurement.documentOverflow).toBe(0);
         expect(measurement.toolbarOverflowX).toBe('auto');
-        expect(measurement.actions).toHaveLength(13);
+        expect(measurement.actions).toHaveLength(12);
         expect(measurement.actions.map((action) => action.id)).toEqual(expectedActionOrder);
       }
       expect(viewportMeasurements.slice(0, 3).every((measurement) => measurement.toolbarOverflow > 0)).toBe(true);
@@ -2762,7 +2761,6 @@ browserTest(
         'exportHarBtn',
         'autoScrollBtn',
         'filterBtn',
-        'presetsBtn',
         'columnsBtn',
         'retentionBtn',
         'themeBtn',
@@ -3073,7 +3071,7 @@ browserTest(
         // button's own measured midpoint, so brand or font metric changes can
         // never silently push the cut line off the button.
         { caseId: 'exportHarBtn@mid', actionId: 'exportHarBtn' },
-        { caseId: 'presetsBtn@mid', actionId: 'presetsBtn' },
+        { caseId: 'columnsBtn@mid', actionId: 'columnsBtn' },
         {
           caseId: 'exportHarBtn@500-sub-4px',
           width: 500,
@@ -3246,9 +3244,9 @@ browserTest(
           toolbarScrollLeft: 0,
         },
         {
-          caseId: 'presetsBtn@mid',
-          actionId: 'presetsBtn',
-          clickTargets: ['presetsBtn'],
+          caseId: 'columnsBtn@mid',
+          actionId: 'columnsBtn',
+          clickTargets: ['columnsBtn'],
           actionDeliveries: 1,
           toolbarScrollLeft: 0,
         },
@@ -3330,7 +3328,6 @@ browserTest(
         'exportHarBtn',
         'autoScrollBtn',
         'filterBtn',
-        'presetsBtn',
         'columnsBtn',
         'retentionBtn',
         'themeBtn',

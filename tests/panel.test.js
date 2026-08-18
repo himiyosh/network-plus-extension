@@ -4351,183 +4351,180 @@ describe('deserializeFilterState', () => {
   });
 });
 
-describe('normalizePresetName', () => {
-  test('trims whitespace', () => {
-    expect(np.normalizePresetName('  API only  ')).toBe('API only');
+describe('normalizeViewPreset', () => {
+  test('returns null for non-object input', () => {
+    expect(np.normalizeViewPreset(null)).toBeNull();
+    expect(np.normalizeViewPreset(undefined)).toBeNull();
+    expect(np.normalizeViewPreset('text')).toBeNull();
+    expect(np.normalizeViewPreset([1, 2])).toBeNull();
   });
 
-  test('truncates to MAX_PRESET_NAME_LENGTH', () => {
-    const long = 'a'.repeat(100);
-    expect(np.normalizePresetName(long).length).toBe(np.MAX_PRESET_NAME_LENGTH);
+  test('keeps only known column ids with boolean visibility', () => {
+    const preset = np.normalizeViewPreset({
+      columns: { url: true, method: false, bogusColumn: true, id: 'yes' },
+      filterRules: {},
+    });
+    expect(preset.columns).toEqual({ url: true, method: false });
   });
 
-  test('returns empty string for null/undefined', () => {
-    expect(np.normalizePresetName(null)).toBe('');
-    expect(np.normalizePresetName(undefined)).toBe('');
-    expect(np.normalizePresetName('')).toBe('');
+  test('missing columns/filterRules become an empty map and default rules', () => {
+    const preset = np.normalizeViewPreset({});
+    expect(preset.columns).toEqual({});
+    expect(preset.filterRules).toHaveProperty('url');
+    expect(preset.filterRules).not.toHaveProperty('_extra');
+  });
+
+  test('strips unknown filterRules keys through the known serializer path', () => {
+    const preset = np.normalizeViewPreset({
+      filterRules: { url: { op: 'contains', value: 'api', __unknown: true }, _extra: 'drop' },
+    });
+    expect(preset.filterRules).not.toHaveProperty('_extra');
+    expect(preset.filterRules.url).toEqual({ op: 'contains', value: 'api', __unknown: true });
   });
 });
 
-describe('loadFilterPresets / saveFilterPresets', () => {
+describe('loadViewPreset / saveViewPreset / clearViewPreset', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     localStorage.getItem.mockReturnValue(null);
   });
 
-  // --- loadFilterPresets ---
+  // --- loadViewPreset ---
 
-  test('returns { presets: [], error: null } when nothing is stored', () => {
-    const result = np.loadFilterPresets();
-    expect(result).toEqual({ presets: [], error: null });
+  test('returns { preset: null, error: null } when nothing is stored', () => {
+    expect(np.loadViewPreset()).toEqual({ preset: null, error: null });
   });
 
   test('returns error string for malformed JSON', () => {
     localStorage.getItem.mockReturnValue('not-json{{{');
-    const { presets, error } = np.loadFilterPresets();
-    expect(presets).toEqual([]);
+    const { preset, error } = np.loadViewPreset();
+    expect(preset).toBeNull();
     expect(typeof error).toBe('string');
     expect(error.length).toBeGreaterThan(0);
   });
 
-  test('returns error string when stored value is not an array', () => {
-    localStorage.getItem.mockReturnValue(JSON.stringify({ name: 'x', filterRules: {} }));
-    const { presets, error } = np.loadFilterPresets();
-    expect(presets).toEqual([]);
+  test('returns error string when stored value is not an object', () => {
+    localStorage.getItem.mockReturnValue(JSON.stringify([{ columns: {} }]));
+    const { preset, error } = np.loadViewPreset();
+    expect(preset).toBeNull();
     expect(typeof error).toBe('string');
   });
 
   test('returns error string when stored blob is oversized (ASCII)', () => {
-    // Simulate a stored blob larger than 2 * MAX_PRESET_TOTAL_BYTES (ASCII chars, 1 byte each)
     localStorage.getItem.mockReturnValue('x'.repeat(np.MAX_PRESET_TOTAL_BYTES * 2 + 1));
-    const { presets, error } = np.loadFilterPresets();
-    expect(presets).toEqual([]);
+    const { preset, error } = np.loadViewPreset();
+    expect(preset).toBeNull();
     expect(typeof error).toBe('string');
-    expect(error.length).toBeGreaterThan(0);
   });
 
   test('returns error string when stored blob exceeds 2×MAX_PRESET_TOTAL_BYTES in UTF-8 bytes (multibyte regression)', () => {
     // Each '日' encodes to 3 UTF-8 bytes but 1 JS char.
-    // (MAX_PRESET_TOTAL_BYTES * 2 / 3) + 1 chars × 3 bytes/char > MAX_PRESET_TOTAL_BYTES * 2 bytes.
     const multibyteCount = Math.floor((np.MAX_PRESET_TOTAL_BYTES * 2) / 3) + 1;
     localStorage.getItem.mockReturnValue('日'.repeat(multibyteCount));
-    const { presets, error } = np.loadFilterPresets();
-    expect(presets).toEqual([]);
+    const { preset, error } = np.loadViewPreset();
+    expect(preset).toBeNull();
     expect(typeof error).toBe('string');
-    expect(error.length).toBeGreaterThan(0);
   });
 
-  test('returns error: null and no-sensitive message on localStorage read failure', () => {
+  test('returns generic error on localStorage read failure without echoing the exception', () => {
     localStorage.getItem.mockImplementation(() => { throw new Error('SecurityError'); });
-    const { presets, error } = np.loadFilterPresets();
-    expect(presets).toEqual([]);
+    const { preset, error } = np.loadViewPreset();
+    expect(preset).toBeNull();
     expect(typeof error).toBe('string');
-    // Error message must not echo the internal exception message
     expect(error).not.toContain('SecurityError');
   });
 
-  test('filters out entries missing name or filterRules', () => {
-    const data = [
-      { name: 'Valid', filterRules: { url: { op: 'contains', value: '' } } },
-      { name: '', filterRules: {} },
-      { filterRules: {} },
-      null,
+  test('round-trips a stored preset, dropping unknown fields', () => {
+    localStorage.getItem.mockImplementation((key) =>
+      key === np.VIEW_PRESET_KEY
+        ? JSON.stringify({
+            columns: { url: true, ghost: false },
+            filterRules: { status: { op: 'gte', value: '400' }, _extra: 'drop' },
+            _junk: 1,
+          })
+        : null,
+    );
+    const { preset, error } = np.loadViewPreset();
+    expect(error).toBeNull();
+    expect(preset.columns).toEqual({ url: true });
+    expect(preset.filterRules.status).toEqual({ op: 'gte', value: '400' });
+    expect(preset.filterRules).not.toHaveProperty('_extra');
+    expect(preset).not.toHaveProperty('_junk');
+  });
+
+  // --- legacy multi-preset migration ---
+
+  test('adopts the first legacy filter preset when no view preset is stored', () => {
+    const legacy = [
+      { name: 'Errors only', filterRules: { status: { op: 'gte', value: '400' } } },
+      { name: 'Second', filterRules: { url: { op: 'contains', value: 'api' } } },
     ];
-    localStorage.getItem.mockReturnValue(JSON.stringify(data));
-    const { presets, error } = np.loadFilterPresets();
+    localStorage.getItem.mockImplementation((key) =>
+      key === np.LEGACY_FILTER_PRESET_KEY ? JSON.stringify(legacy) : null,
+    );
+    const { preset, error } = np.loadViewPreset();
     expect(error).toBeNull();
-    expect(presets).toHaveLength(1);
-    expect(presets[0].name).toBe('Valid');
-  });
-
-  test('enforces MAX_FILTER_PRESETS limit on load', () => {
-    const data = Array.from({ length: np.MAX_FILTER_PRESETS + 5 }, (_, i) => ({
-      name: 'Preset ' + i,
-      filterRules: {},
-    }));
-    localStorage.getItem.mockReturnValue(JSON.stringify(data));
-    const { presets, error } = np.loadFilterPresets();
-    expect(error).toBeNull();
-    expect(presets).toHaveLength(np.MAX_FILTER_PRESETS);
-  });
-
-  test('loadFilterPresets normalizes names and strips unknown filterRules fields on load', () => {
-    const data = [
-      { name: '  padded  ', filterRules: { url: { op: 'contains', value: 'api', __unknown: true }, _extra: 'drop' } },
-    ];
-    localStorage.getItem.mockReturnValue(JSON.stringify(data));
-    const { presets, error } = np.loadFilterPresets();
-    expect(error).toBeNull();
-    expect(presets[0].name).toBe('padded');
-    expect(presets[0].filterRules).not.toHaveProperty('_extra');
-  });
-
-  // --- saveFilterPresets ---
-
-  test('saveFilterPresets writes to localStorage', () => {
-    const presets = [{ name: 'Errors only', filterRules: { status: { op: 'gte', value: '400' } } }];
-    np.saveFilterPresets(presets);
+    expect(preset.filterRules.status).toEqual({ op: 'gte', value: '400' });
+    expect(preset.columns).toEqual({});
+    // Legacy store is removed and the migrated preset is written to the new key.
+    expect(localStorage.removeItem).toHaveBeenCalledWith(np.LEGACY_FILTER_PRESET_KEY);
     expect(localStorage.setItem).toHaveBeenCalledWith(
-      np.FILTER_PRESET_KEY,
-      expect.stringContaining('"Errors only"'),
+      np.VIEW_PRESET_KEY,
+      expect.stringContaining('"gte"'),
     );
   });
 
-  test('saveFilterPresets returns true on success', () => {
-    expect(np.saveFilterPresets([])).toBe(true);
+  test('invalid legacy store yields null preset without an error', () => {
+    localStorage.getItem.mockImplementation((key) =>
+      key === np.LEGACY_FILTER_PRESET_KEY ? 'broken{{{' : null,
+    );
+    expect(np.loadViewPreset()).toEqual({ preset: null, error: null });
+    expect(localStorage.removeItem).toHaveBeenCalledWith(np.LEGACY_FILTER_PRESET_KEY);
   });
 
-  test('saveFilterPresets returns false and does not throw when localStorage throws', () => {
-    localStorage.setItem.mockImplementation(() => { throw new Error('QuotaExceededError'); });
-    expect(np.saveFilterPresets([])).toBe(false);
-  });
+  // --- saveViewPreset ---
 
-  test('saveFilterPresets silently caps to MAX_FILTER_PRESETS when given more', () => {
-    const tooMany = Array.from({ length: np.MAX_FILTER_PRESETS + 5 }, (_, i) => ({
-      name: 'P' + i,
-      filterRules: {},
-    }));
-    const ok = np.saveFilterPresets(tooMany);
+  test('writes the normalized preset to the view-preset key', () => {
+    const ok = np.saveViewPreset({
+      columns: { url: true, bogus: true },
+      filterRules: { status: { op: 'gte', value: '400' } },
+    });
     expect(ok).toBe(true);
-    const stored = JSON.parse(localStorage.setItem.mock.calls[0][1]);
-    expect(stored).toHaveLength(np.MAX_FILTER_PRESETS);
+    const [key, value] = localStorage.setItem.mock.calls[0];
+    expect(key).toBe(np.VIEW_PRESET_KEY);
+    const stored = JSON.parse(value);
+    expect(stored.columns).toEqual({ url: true });
+    expect(stored.filterRules.status).toEqual({ op: 'gte', value: '400' });
   });
 
-  test('saveFilterPresets returns false when serialized data exceeds MAX_PRESET_TOTAL_BYTES', () => {
-    // Build a preset with a filterRules payload large enough to exceed 64 KiB in UTF-8 bytes
-    const bigValue = 'x'.repeat(70 * 1024);
-    const oversized = [{ name: 'Big', filterRules: { url: { op: 'contains', value: bigValue } } }];
-    expect(np.saveFilterPresets(oversized)).toBe(false);
+  test('returns false for invalid preset input without writing', () => {
+    expect(np.saveViewPreset(null)).toBe(false);
+    expect(np.saveViewPreset('nope')).toBe(false);
     expect(localStorage.setItem).not.toHaveBeenCalled();
   });
 
-  test('saveFilterPresets normalizes names before writing', () => {
-    const presets = [{ name: '  trailing  ', filterRules: {} }];
-    np.saveFilterPresets(presets);
-    const stored = JSON.parse(localStorage.setItem.mock.calls[0][1]);
-    expect(stored[0].name).toBe('trailing');
+  test('returns false and does not throw when localStorage throws', () => {
+    localStorage.setItem.mockImplementation(() => { throw new Error('QuotaExceededError'); });
+    expect(np.saveViewPreset({ columns: {}, filterRules: {} })).toBe(false);
   });
 
-  test('saveFilterPresets drops entries without a name', () => {
-    const presets = [
-      { name: 'OK', filterRules: {} },
-      { name: '', filterRules: {} },
-      { name: '   ', filterRules: {} },
-    ];
-    np.saveFilterPresets(presets);
-    const stored = JSON.parse(localStorage.setItem.mock.calls[0][1]);
-    expect(stored).toHaveLength(1);
-    expect(stored[0].name).toBe('OK');
+  test('returns false when serialized data exceeds MAX_PRESET_TOTAL_BYTES', () => {
+    const bigValue = 'x'.repeat(70 * 1024);
+    const oversized = { columns: {}, filterRules: { url: { op: 'contains', value: bigValue } } };
+    expect(np.saveViewPreset(oversized)).toBe(false);
+    expect(localStorage.setItem).not.toHaveBeenCalled();
   });
 
-  test('saveFilterPresets normalizes filterRules through serializer/deserializer stripping unknown fields', () => {
-    const presets = [{
-      name: 'Clean',
-      filterRules: { url: { op: 'contains', value: 'api', __unknown: true }, _extra: 'drop' },
-    }];
-    np.saveFilterPresets(presets);
-    const stored = JSON.parse(localStorage.setItem.mock.calls[0][1]);
-    // The top-level _extra key should not be in the stored filterRules (only known column keys survive)
-    expect(stored[0].filterRules).not.toHaveProperty('_extra');
+  // --- clearViewPreset ---
+
+  test('clearViewPreset removes the stored preset and reports success', () => {
+    expect(np.clearViewPreset()).toBe(true);
+    expect(localStorage.removeItem).toHaveBeenCalledWith(np.VIEW_PRESET_KEY);
+  });
+
+  test('clearViewPreset returns false when localStorage throws', () => {
+    localStorage.removeItem.mockImplementation(() => { throw new Error('SecurityError'); });
+    expect(np.clearViewPreset()).toBe(false);
   });
 });
 

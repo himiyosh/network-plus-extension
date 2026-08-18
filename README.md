@@ -31,7 +31,7 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 The stock Network panel is great at showing you traffic. Network+ is built for the moment **after** that — when you have 4,000 requests, a customer waiting, and one failing call to find and explain.
 
 - **Find the evidence.** Search several keywords at once across URLs, headers, and bodies, each with its own highlight color, match count, and next/previous navigation.
-- **Narrow without losing context.** Combine per-column filters (time range, method multi-select, `contains` / `notcontains` rules, include/exclude URL logic) and save them as named presets.
+- **Narrow without losing context.** Combine per-column filters (time range, method multi-select, `contains` / `notcontains` rules, include/exclude URL logic) and keep your standard setup one click away as a saved view preset.
 - **Compare two requests directly.** Select exactly two rows and diff URL, query, method, status, headers, and body side by side.
 - **Share without leaking.** Every copy and every HAR export is sanitized by default; full output requires a per-action confirmation that is never remembered.
 - **Stay bounded.** Request retention and the response-body cache have explicit limits, visible counters, and predictable eviction — no silent unbounded growth.
@@ -118,7 +118,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 
 - Integrated multi-keyword search (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>): one input per keyword, six highlight colors, per-keyword match counts and ▲▼ navigation, a scope switch for URL / Body / Headers, match options (case / whole word / regex), and a **Matches only** toggle that hides non-matching rows (HAR export follows the displayed set). Scope, match options, and the toggle persist between sessions; keyword text does not.
 - Per-column filters: a visual local-time range picker for ClientStart and ServerDone, method multi-select, repeatable `contains` / `notcontains` rules for domain and path, and any/all/exclude logic for URLs.
-- Named filter presets — save, restore, and delete up to 20 filter configurations. Presets store filter values only, never captured traffic.
+- View preset — the Columns menu keeps one saved view (column visibility + filter rules). Apply restores it (or the factory default before anything is saved) and Update overwrites it with the current view. Presets store column/filter configuration only, never captured traffic.
 - Status bar statistics: 2xx / 3xx / 4xx / 5xx / other counts plus average, minimum, and maximum response time, recalculated as filters change.
 
 ### Share safely
@@ -139,7 +139,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 1. Open DevTools (<kbd>F12</kbd>) and select the **Network+** tab.
 2. Reproduce the problem. Rows stream in live; use **Pause** to freeze the working set.
 3. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> and add keywords. Each keyword gets its own color and its own ▲▼ navigation.
-4. Right-click a column header for a filter scoped to that column, or use **Filters** to edit them all at once. Save what worked with **Presets**.
+4. Right-click a column header for a filter scoped to that column, or use **Filters** to edit them all at once. Save what worked with **Update** in the **Columns** menu's preset section.
 5. Click a row to inspect it; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>-click a second row and choose **Compare 2 selected requests** from the context menu.
 6. Export with **Export sanitized HAR**, or copy a single request as cURL / fetch / PowerShell.
 

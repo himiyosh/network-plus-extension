@@ -106,10 +106,9 @@ const _NetworkPlus = (function () {
   const COL_PREF_KEY = 'networkPlus.cols';
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
-  const FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1';
-  const MAX_FILTER_PRESETS = 20;
-  const MAX_PRESET_NAME_LENGTH = 40;
-  const MAX_PRESET_TOTAL_BYTES = 64 * 1024; // 64 KiB — filter-config only, no traffic data
+  const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';
+  const LEGACY_FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1'; // retired multi-preset store
+  const MAX_PRESET_TOTAL_BYTES = 64 * 1024; // 64 KiB — column/filter config only, no traffic data
 
   const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
   const STATUS_CLASS_KEYS = Object.freeze(['2xx', '3xx', '4xx', '5xx', 'other']);
@@ -1251,8 +1250,21 @@ const _NetworkPlus = (function () {
     };
   }
 
-  function normalizePresetName(name) {
-    return String(name || '').trim().slice(0, MAX_PRESET_NAME_LENGTH);
+  function normalizeViewPreset(raw) {
+    // Validate a stored view preset into { columns: {id: boolean}, filterRules }.
+    // Unknown column ids and non-boolean visibility values are dropped; filter
+    // rules pass through the known serializer/deserializer to strip foreign keys.
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const columns = {};
+    if (raw.columns && typeof raw.columns === 'object' && !Array.isArray(raw.columns)) {
+      for (const def of DEFAULT_COLUMNS) {
+        if (typeof raw.columns[def.id] === 'boolean') columns[def.id] = raw.columns[def.id];
+      }
+    }
+    return {
+      columns,
+      filterRules: serializeFilterState(deserializeFilterState(raw.filterRules ?? {})),
+    };
   }
 
   function getExtensionVersion(runtimeApi) {
@@ -5054,60 +5066,102 @@ const _NetworkPlus = (function () {
     setStatus('Column filters cleared');
   }
 
-  function loadFilterPresets() {
-    // Returns { presets: Array, error: string|null }.
-    // error is non-null when stored data is present but unreadable (corruption/oversize).
-    // A missing key (first use) returns { presets: [], error: null }.
+  function saveViewPreset(preset) {
     try {
-      const saved = localStorage.getItem(FILTER_PRESET_KEY);
-      if (!saved) return { presets: [], error: null };
+      const normalized = normalizeViewPreset(preset);
+      if (!normalized) return false;
+      const serialized = JSON.stringify(normalized);
+      // Guard against exceeding the storage limit using actual UTF-8 byte count.
+      const byteLength = new TextEncoder().encode(serialized).length;
+      if (byteLength > MAX_PRESET_TOTAL_BYTES) return false;
+      localStorage.setItem(VIEW_PRESET_KEY, serialized);
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function migrateLegacyFilterPresets() {
+    // One-time: the retired multi-preset store's first entry seeds the single
+    // view preset's filters so a previously saved setup survives the redesign.
+    try {
+      const saved = localStorage.getItem(LEGACY_FILTER_PRESET_KEY);
+      if (!saved) return null;
+      localStorage.removeItem(LEGACY_FILTER_PRESET_KEY);
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return null;
+      const first = parsed.find((p) => p && p.filterRules != null);
+      if (!first) return null;
+      const preset = normalizeViewPreset({ filterRules: first.filterRules });
+      if (preset) saveViewPreset(preset);
+      return preset;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function loadViewPreset() {
+    // Returns { preset: object|null, error: string|null }.
+    // error is non-null when stored data is present but unreadable (corruption/oversize).
+    // A missing key returns { preset: null, error: null } — applying a null preset
+    // restores the factory default view, so Apply is meaningful before any Update.
+    try {
+      const saved = localStorage.getItem(VIEW_PRESET_KEY);
+      if (!saved) return { preset: migrateLegacyFilterPresets(), error: null };
       // Pre-parse size guard: reject oversize blobs before JSON.parse using actual UTF-8 byte count.
       if (new TextEncoder().encode(saved).length > MAX_PRESET_TOTAL_BYTES * 2) {
-        return { presets: [], error: 'Preset store is oversized and could not be loaded.' };
+        return { preset: null, error: 'Preset store is oversized and could not be loaded.' };
       }
       let parsed;
       try {
         parsed = JSON.parse(saved);
       } catch (_e) {
-        return { presets: [], error: 'Preset store is corrupted and could not be loaded.' };
+        return { preset: null, error: 'Preset store is corrupted and could not be loaded.' };
       }
-      if (!Array.isArray(parsed)) {
-        return { presets: [], error: 'Preset store is corrupted and could not be loaded.' };
-      }
-      // Normalize names and filter rules through the same known-state path as saveFilterPresets.
-      const presets = parsed
-        .filter((p) => p && typeof p.name === 'string' && p.name.trim() && p.filterRules != null)
-        .slice(0, MAX_FILTER_PRESETS)
-        .map((p) => ({
-          name: normalizePresetName(p.name),
-          filterRules: serializeFilterState(deserializeFilterState(p.filterRules ?? {})),
-        }));
-      return { presets, error: null };
+      const preset = normalizeViewPreset(parsed);
+      if (!preset) return { preset: null, error: 'Preset store is corrupted and could not be loaded.' };
+      return { preset, error: null };
     } catch (_e) {
-      return { presets: [], error: 'Preset store could not be read.' };
+      return { preset: null, error: 'Preset store could not be read.' };
     }
   }
 
-  function saveFilterPresets(presets) {
+  function clearViewPreset() {
     try {
-      // Normalize names, run rules through the known serializer/deserializer to strip
-      // unknown fields, and cap to MAX_FILTER_PRESETS before writing.
-      const normalized = presets
-        .filter((p) => p && typeof p.name === 'string' && p.name.trim())
-        .slice(0, MAX_FILTER_PRESETS)
-        .map((p) => ({
-          name: normalizePresetName(p.name),
-          filterRules: serializeFilterState(deserializeFilterState(p.filterRules ?? {})),
-        }));
-      const serialized = JSON.stringify(normalized);
-      // Guard against exceeding the storage limit using actual UTF-8 byte count.
-      const byteLength = new TextEncoder().encode(serialized).length;
-      if (byteLength > MAX_PRESET_TOTAL_BYTES) return false;
-      localStorage.setItem(FILTER_PRESET_KEY, serialized);
+      localStorage.removeItem(VIEW_PRESET_KEY);
       return true;
     } catch (_e) {
       return false;
     }
+  }
+
+  function hasStoredViewPreset() {
+    try {
+      return localStorage.getItem(VIEW_PRESET_KEY) != null;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function buildViewPresetFromState() {
+    const columns = {};
+    for (const column of state.columns) columns[column.id] = !!column.visible;
+    return { columns, filterRules: serializeFilterState(state.columnFilterRules) };
+  }
+
+  function applyViewPreset(preset) {
+    // A null preset (never saved) restores the factory default view.
+    for (const column of state.columns) {
+      const def = DEFAULT_COLUMNS.find((d) => d.id === column.id);
+      const stored =
+        preset && Object.prototype.hasOwnProperty.call(preset.columns, column.id)
+          ? preset.columns[column.id]
+          : def
+            ? def.visible
+            : column.visible;
+      column.visible = stored;
+    }
+    state.columnFilterRules = deserializeFilterState(preset ? preset.filterRules : {});
   }
 
   // ============================================================
@@ -5729,12 +5783,14 @@ const _NetworkPlus = (function () {
       const startVal = isTimeRange && rule.start ? rule.start : autoStart;
       const endVal = isTimeRange && rule.end ? rule.end : autoEnd;
 
+      // Dedicated width class: the generic .filter-value 52% width would force
+      // the From/To pair onto separate lines inside the popup.
       const startLabel = document.createElement('span');
       startLabel.textContent = 'From ';
       const startInput = document.createElement('input');
       startInput.type = 'time';
       startInput.step = '1';
-      startInput.className = 'filter-value';
+      startInput.className = 'filter-time-input';
       startInput.value = startVal;
       startInput.setAttribute('aria-label', columnLabel + ' filter start time');
 
@@ -5743,7 +5799,7 @@ const _NetworkPlus = (function () {
       const endInput = document.createElement('input');
       endInput.type = 'time';
       endInput.step = '1';
-      endInput.className = 'filter-value';
+      endInput.className = 'filter-time-input';
       endInput.value = endVal;
       endInput.setAttribute('aria-label', columnLabel + ' filter end time');
 
@@ -5779,14 +5835,11 @@ const _NetworkPlus = (function () {
       const isMethodSet = rule && rule.mode === 'methodSet';
       const include = isMethodSet ? Object.assign({}, rule.include) : DEFAULT_METHOD_FILTERS();
 
-      // Select All / Deselect All
-      const btnRow = document.createElement('div');
-      btnRow.style.cssText = 'display:flex;gap:4px;margin-bottom:4px';
+      // All / None sit inline with the checkboxes so the whole rule is one row.
       const allBtn = document.createElement('button');
       allBtn.textContent = 'All';
-      allBtn.className = 'filter-clear-btn';
+      allBtn.className = 'filter-clear-btn filter-inline-action';
       allBtn.setAttribute('aria-label', 'Select all Method filter values');
-      allBtn.style.flex = '1';
       allBtn.addEventListener('click', () => {
         HTTP_METHODS.forEach((m) => { include[m] = true; });
         state.columnFilterRules[colId] = { mode: 'methodSet', include: Object.assign({}, include) };
@@ -5797,9 +5850,8 @@ const _NetworkPlus = (function () {
       });
       const noneBtn = document.createElement('button');
       noneBtn.textContent = 'None';
-      noneBtn.className = 'filter-clear-btn';
+      noneBtn.className = 'filter-clear-btn filter-inline-action';
       noneBtn.setAttribute('aria-label', 'Deselect all Method filter values');
-      noneBtn.style.flex = '1';
       noneBtn.addEventListener('click', () => {
         HTTP_METHODS.forEach((m) => { include[m] = false; });
         state.columnFilterRules[colId] = { mode: 'methodSet', include: Object.assign({}, include) };
@@ -5807,9 +5859,6 @@ const _NetworkPlus = (function () {
         grid.textContent = '';
         renderMethodCheckboxes();
       });
-      btnRow.appendChild(allBtn);
-      btnRow.appendChild(noneBtn);
-      wrap.appendChild(btnRow);
 
       const grid = document.createElement('div');
       grid.className = 'filter-checkbox-grid';
@@ -5826,7 +5875,13 @@ const _NetworkPlus = (function () {
         }
       };
       renderMethodCheckboxes();
-      wrap.appendChild(grid);
+
+      const row = document.createElement('div');
+      row.className = 'filter-inline-row';
+      row.appendChild(allBtn);
+      row.appendChild(noneBtn);
+      row.appendChild(grid);
+      wrap.appendChild(row);
       return wrap;
     }
 
@@ -5844,10 +5899,14 @@ const _NetworkPlus = (function () {
       // Default: all enabled (empty = show all)
 
       for (const cat of STATUS_CATEGORIES) {
+        // Category label and its codes share one row so the rule stays compact.
+        const row = document.createElement('div');
+        row.className = 'filter-inline-row';
+
         const catLabel = document.createElement('div');
         catLabel.className = 'filter-status-category';
         catLabel.textContent = cat.label;
-        wrap.appendChild(catLabel);
+        row.appendChild(catLabel);
 
         const grid = document.createElement('div');
         grid.className = 'filter-checkbox-grid';
@@ -5862,7 +5921,8 @@ const _NetworkPlus = (function () {
           cb.className = 'filter-checkbox-inline';
           grid.appendChild(cb);
         }
-        wrap.appendChild(grid);
+        row.appendChild(grid);
+        wrap.appendChild(row);
       }
       return wrap;
     }
@@ -5872,34 +5932,40 @@ const _NetworkPlus = (function () {
       const rule = state.columnFilterRules[colId];
       const isAdv = rule && rule.mode === 'urlAdvanced';
 
-      const inclAnyLabel = document.createElement('label');
-      inclAnyLabel.textContent = 'Include ANY (comma-separated):';
-      const inclAnyInput = document.createElement('input');
-      inclAnyInput.type = 'text';
-      inclAnyInput.className = 'filter-value';
-      inclAnyInput.placeholder = 'keyword1, keyword2';
-      inclAnyInput.value = isAdv ? rule.includeAny || '' : '';
-      inclAnyInput.setAttribute('aria-label', 'URL filter Include any');
+      // Each field is one "label: input" row; the comma-separated hint lives in
+      // the placeholder so the labels stay short enough to never wrap.
+      const makeUrlField = (labelText, placeholder, value, ariaLabel) => {
+        const field = document.createElement('div');
+        field.className = 'filter-inline-field';
+        const label = document.createElement('label');
+        label.className = 'filter-inline-label';
+        label.textContent = labelText;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'filter-value';
+        input.placeholder = placeholder;
+        input.value = value;
+        input.setAttribute('aria-label', ariaLabel);
+        field.appendChild(label);
+        field.appendChild(input);
+        return { field, input };
+      };
 
-      const inclAllLabel = document.createElement('label');
-      inclAllLabel.textContent = 'Include ALL (comma-separated):';
-      const inclAllInput = document.createElement('input');
-      inclAllInput.type = 'text';
-      inclAllInput.className = 'filter-value';
-      inclAllInput.placeholder = 'must1, must2';
-      inclAllInput.value = isAdv ? rule.includeAll || '' : '';
-      inclAllInput.setAttribute('aria-label', 'URL filter Include all');
-
-      const exclLabel = document.createElement('label');
-      exclLabel.textContent = 'Exclude ANY (comma-separated):';
-      const exclInput = document.createElement('input');
-      exclInput.type = 'text';
-      exclInput.className = 'filter-value';
-      exclInput.placeholder = 'exclude1, exclude2';
-      exclInput.value = isAdv ? rule.excludeAny || '' : '';
-      exclInput.setAttribute('aria-label', 'URL filter Exclude any');
+      const inclAny = makeUrlField(
+        'Include any', 'keyword1, keyword2', isAdv ? rule.includeAny || '' : '', 'URL filter Include any',
+      );
+      const inclAnyInput = inclAny.input;
+      const inclAll = makeUrlField(
+        'Include all', 'must1, must2', isAdv ? rule.includeAll || '' : '', 'URL filter Include all',
+      );
+      const inclAllInput = inclAll.input;
+      const excl = makeUrlField(
+        'Exclude any', 'exclude1, exclude2', isAdv ? rule.excludeAny || '' : '', 'URL filter Exclude any',
+      );
+      const exclInput = excl.input;
 
       const csLabel = document.createElement('label');
+      csLabel.className = 'filter-checkbox-inline';
       const csCb = document.createElement('input');
       csCb.type = 'checkbox';
       csCb.checked = isAdv ? !!rule.caseSensitive : false;
@@ -5922,12 +5988,9 @@ const _NetworkPlus = (function () {
       exclInput.addEventListener('input', update);
       csCb.addEventListener('change', update);
 
-      wrap.appendChild(inclAnyLabel);
-      wrap.appendChild(inclAnyInput);
-      wrap.appendChild(inclAllLabel);
-      wrap.appendChild(inclAllInput);
-      wrap.appendChild(exclLabel);
-      wrap.appendChild(exclInput);
+      wrap.appendChild(inclAny.field);
+      wrap.appendChild(inclAll.field);
+      wrap.appendChild(excl.field);
       wrap.appendChild(csLabel);
       return wrap;
     }
@@ -6064,7 +6127,7 @@ const _NetworkPlus = (function () {
     return countActiveColumnFilters(state.columnFilterRules);
   }
 
-  function createFilterPopupContent(onChange, focusColId) {
+  function createFilterPopupContent(onChange) {
     const root = document.createElement('div');
     root.className = 'filter-popup-body';
 
@@ -6072,11 +6135,6 @@ const _NetworkPlus = (function () {
     header.className = 'filter-popup-header';
     header.textContent = `Column Filters (${getActiveFilterCount()} active)`;
     root.appendChild(header);
-
-    const hint = document.createElement('div');
-    hint.className = 'filter-popup-hint';
-    hint.textContent = 'Click a column to edit its rule. Active rules stay expanded.';
-    root.appendChild(hint);
 
     const list = document.createElement('div');
     list.className = 'filter-popup-list';
@@ -6126,11 +6184,9 @@ const _NetworkPlus = (function () {
         toggle.setAttribute('aria-expanded', String(expanded));
         body.hidden = !expanded;
       };
-      // A column being inspected or already filtering starts expanded; the
-      // rest stay collapsed so the popup reads as a short scannable list.
-      setExpanded(
-        (focusColId && focusColId === col.id) || isRuleActive(state.columnFilterRules[col.id]),
-      );
+      // Every rule starts expanded and editable — collapsing is an opt-in way
+      // to shorten the list, never a hurdle in front of the controls.
+      setExpanded(true);
       toggle.addEventListener('click', () => {
         setExpanded(body.hidden);
       });
@@ -6162,83 +6218,6 @@ const _NetworkPlus = (function () {
     root.appendChild(control);
 
     return root;
-  }
-
-  function createPresetDropdownContent(presets, onApply, onDelete, onSave, onClearAll) {
-    const container = document.createElement('div');
-    container.style.cssText = 'min-width:min(240px,calc(100vw - 16px))';
-
-    if (presets.length === 0) {
-      const empty = document.createElement('p');
-      empty.className = 'preset-empty';
-      empty.textContent = 'No saved presets';
-      container.appendChild(empty);
-    } else {
-      presets.forEach((preset, idx) => {
-        const row = document.createElement('div');
-        row.className = 'preset-row';
-
-        const applyBtn = document.createElement('button');
-        applyBtn.className = 'context-menu-item preset-apply';
-        applyBtn.textContent = preset.name;
-        applyBtn.title = 'Apply preset: ' + preset.name;
-        applyBtn.addEventListener('click', () => onApply(preset, idx));
-        row.appendChild(applyBtn);
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'context-menu-item preset-delete';
-        deleteBtn.setAttribute('aria-label', 'Delete preset ' + preset.name);
-        deleteBtn.textContent = '×';
-        deleteBtn.addEventListener('click', () => onDelete(idx));
-        row.appendChild(deleteBtn);
-
-        container.appendChild(row);
-      });
-    }
-
-    const divider = document.createElement('div');
-    divider.className = 'preset-divider';
-    container.appendChild(divider);
-
-    const saveSection = document.createElement('div');
-    saveSection.className = 'preset-save-section';
-
-    const nameLabel = document.createElement('label');
-    nameLabel.className = 'preset-name-label';
-    nameLabel.textContent = 'New preset name';
-    const nameInputId = 'presetNameInput_' + Date.now();
-    nameLabel.htmlFor = nameInputId;
-    saveSection.appendChild(nameLabel);
-
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.id = nameInputId;
-    nameInput.className = 'preset-name-input';
-    nameInput.placeholder = 'Preset name…';
-    nameInput.maxLength = MAX_PRESET_NAME_LENGTH;
-    const doSave = () => { onSave(nameInput.value); };
-    nameInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); doSave(); }
-    });
-    saveSection.appendChild(nameInput);
-
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'context-menu-item preset-save-btn';
-    saveBtn.textContent = 'Save current filters';
-    saveBtn.addEventListener('click', doSave);
-    saveSection.appendChild(saveBtn);
-
-    if (presets.length > 0) {
-      const clearBtn = document.createElement('button');
-      clearBtn.className = 'context-menu-item preset-clear-btn';
-      clearBtn.textContent = 'Clear active filters';
-      clearBtn.title = 'Reset all column filters to defaults';
-      clearBtn.addEventListener('click', () => onClearAll());
-      saveSection.appendChild(clearBtn);
-    }
-
-    container.appendChild(saveSection);
-    return container;
   }
 
   function getInspectorTabButton(barId, tabId) {
@@ -9304,7 +9283,7 @@ const _NetworkPlus = (function () {
       if (focusColId) {
         filterPopup.appendChild(createSingleColumnFilterContent(focusColId, renderBody));
       } else {
-        filterPopup.appendChild(createFilterPopupContent(renderBody, null));
+        filterPopup.appendChild(createFilterPopupContent(renderBody));
       }
       showAccessiblePopupAt(filterPopup, x, y, trigger);
     };
@@ -9362,6 +9341,87 @@ const _NetworkPlus = (function () {
         });
         columnsContextMenu.appendChild(item);
       });
+
+      // Single view preset (columns + filters). Apply restores the saved view —
+      // or the factory default before anything was saved — and Update overwrites
+      // the preset with whatever is on screen right now.
+      const presetSection = document.createElement('div');
+      presetSection.className = 'columns-preset-section';
+
+      const presetHint = document.createElement('div');
+      presetHint.className = 'columns-preset-hint';
+      presetHint.textContent = 'Preset · columns + filters';
+      presetSection.appendChild(presetHint);
+
+      const hasCustomPreset = hasStoredViewPreset();
+      const actionRow = document.createElement('div');
+      actionRow.className = 'columns-preset-actions';
+
+      const refreshAfterPresetChange = (focusSelector) => {
+        renderColumnsContextMenu();
+        const focusTarget = columnsContextMenu.querySelector(focusSelector);
+        if (focusTarget) focusTarget.focus();
+      };
+
+      const applyPresetBtn = document.createElement('button');
+      applyPresetBtn.className = 'context-menu-item columns-preset-apply';
+      applyPresetBtn.setAttribute('role', 'menuitem');
+      applyPresetBtn.textContent = 'Apply';
+      applyPresetBtn.title = hasCustomPreset
+        ? 'Restore your saved columns and filters'
+        : 'Restore the default columns and clear filters';
+      applyPresetBtn.addEventListener('click', () => {
+        const { preset, error: presetError } = loadViewPreset();
+        if (presetError) {
+          setStatus(presetError);
+          return;
+        }
+        applyViewPreset(preset);
+        saveColumnPrefs();
+        filterRows();
+        render();
+        syncSearchUIAfterRender();
+        updateTableSummary(state.filteredRows.length);
+        refreshAfterPresetChange('.columns-preset-apply');
+        setStatus(preset ? 'Applied preset.' : 'Applied default view.');
+      });
+      actionRow.appendChild(applyPresetBtn);
+
+      const updatePresetBtn = document.createElement('button');
+      updatePresetBtn.className = 'context-menu-item columns-preset-update';
+      updatePresetBtn.setAttribute('role', 'menuitem');
+      updatePresetBtn.textContent = 'Update';
+      updatePresetBtn.title = 'Save the current columns and filters as the preset';
+      updatePresetBtn.addEventListener('click', () => {
+        const ok = saveViewPreset(buildViewPresetFromState());
+        if (!ok) {
+          setStatus('Could not save preset. Storage unavailable or data too large.');
+          return;
+        }
+        refreshAfterPresetChange('.columns-preset-update');
+        setStatus('Preset updated with the current view.');
+      });
+      actionRow.appendChild(updatePresetBtn);
+      presetSection.appendChild(actionRow);
+
+      if (hasCustomPreset) {
+        const resetPresetBtn = document.createElement('button');
+        resetPresetBtn.className = 'context-menu-item columns-preset-reset';
+        resetPresetBtn.setAttribute('role', 'menuitem');
+        resetPresetBtn.textContent = 'Forget saved preset';
+        resetPresetBtn.title = 'Delete the saved preset — Apply then restores the default view';
+        resetPresetBtn.addEventListener('click', () => {
+          if (!clearViewPreset()) {
+            setStatus('Could not reset preset. Storage unavailable.');
+            return;
+          }
+          refreshAfterPresetChange('.columns-preset-apply');
+          setStatus('Preset reset. Apply now restores the default view.');
+        });
+        presetSection.appendChild(resetPresetBtn);
+      }
+
+      columnsContextMenu.appendChild(presetSection);
     };
 
     $('#thead').addEventListener('contextmenu', (event) => {
@@ -9395,86 +9455,6 @@ const _NetworkPlus = (function () {
       const rect = event.currentTarget.getBoundingClientRect();
       openFilterPopup(rect.left, rect.bottom, null, filterBtn);
     });
-
-    // Filter preset dropdown
-    const presetsBtn = $('#presetsBtn');
-    const presetsMenu = document.createElement('div');
-    presetsMenu.id = 'presetsMenu';
-    presetsMenu.className = 'filter-dropdown-content dropdown-content preset-menu';
-    presetsMenu.style.position = 'fixed';
-    presetsMenu.style.display = 'none';
-    presetsMenu.setAttribute('role', 'dialog');
-    presetsMenu.setAttribute('aria-label', 'Filter presets');
-    installPopupKeyboardSupport(presetsMenu);
-    document.body.appendChild(presetsMenu);
-
-    const renderPresetsMenu = () => {
-      const { presets, error: loadError } = loadFilterPresets();
-      if (loadError) setStatus(loadError);
-      presetsMenu.textContent = '';
-      const header = document.createElement('div');
-      header.className = 'preset-header';
-      header.textContent = 'Filter Presets';
-      presetsMenu.appendChild(header);
-      presetsMenu.appendChild(
-        createPresetDropdownContent(
-          presets,
-          (preset) => {
-            state.columnFilterRules = deserializeFilterState(preset.filterRules);
-            filterRows();
-            renderBody();
-            updateTableSummary(state.filteredRows.length);
-            closeAccessiblePopup(presetsMenu, true);
-            setStatus('Applied preset: ' + preset.name);
-          },
-          (idx) => {
-            const { presets: updated, error: delLoadError } = loadFilterPresets();
-            if (delLoadError) { setStatus(delLoadError); return; }
-            const name = updated[idx] ? updated[idx].name : '';
-            updated.splice(idx, 1);
-            const ok = saveFilterPresets(updated);
-            if (!ok) { setStatus('Could not delete preset. Storage unavailable.'); return; }
-            renderPresetsMenu();
-            const firstItem = getPopupFocusableItems(presetsMenu, false)[0];
-            if (firstItem) firstItem.focus();
-            setStatus('Deleted preset: ' + name);
-          },
-          (name) => {
-            const safeName = normalizePresetName(name);
-            if (!safeName) { setStatus('Enter a preset name before saving.'); return; }
-            const { presets: presetList, error: saveLoadError } = loadFilterPresets();
-            if (saveLoadError) { setStatus(saveLoadError); return; }
-            if (presetList.length >= MAX_FILTER_PRESETS) {
-              setStatus('Preset limit reached (' + MAX_FILTER_PRESETS + '). Delete one before saving.');
-              return;
-            }
-            presetList.push({ name: safeName, filterRules: serializeFilterState(state.columnFilterRules) });
-            const ok = saveFilterPresets(presetList);
-            if (!ok) { setStatus('Could not save preset. Storage unavailable or data too large.'); return; }
-            renderPresetsMenu();
-            const firstItem = getPopupFocusableItems(presetsMenu, false)[0];
-            if (firstItem) firstItem.focus();
-            setStatus('Saved preset: ' + safeName);
-          },
-          () => {
-            clearColumnFilters();
-            closeAccessiblePopup(presetsMenu, true);
-          },
-        ),
-      );
-    };
-
-    if (presetsBtn) {
-      presetsBtn.addEventListener('click', (event) => {
-        if (presetsMenu.classList.contains('show')) {
-          closeAccessiblePopup(presetsMenu, true);
-          return;
-        }
-        renderPresetsMenu();
-        const rect = event.currentTarget.getBoundingClientRect();
-        showAccessiblePopupAt(presetsMenu, rect.left, rect.bottom, presetsBtn);
-      });
-    }
 
     // Keyboard shortcut help dialog
     const shortcutDialog = $('#shortcutDialog');
@@ -9600,10 +9580,13 @@ const _NetworkPlus = (function () {
 
     // Outside pointer actions dismiss transient surfaces without trapping focus.
     window.addEventListener('click', (event) => {
+      // A click handler may have re-rendered the control away (Select All,
+      // preset Update, add/remove filter condition). A detached target can't
+      // prove the click was outside a popup, so it must never dismiss one.
+      if (!event.target.isConnected) return;
       if (
         event.target.closest('#filterBtn') ||
         event.target.closest('#columnsBtn') ||
-        event.target.closest('#presetsBtn') ||
         event.target.closest('#searchScopeBtn') ||
         event.target.closest('.search-color-btn') ||
         event.target.closest('.filter-btn') ||
@@ -10926,12 +10909,12 @@ const _NetworkPlus = (function () {
     saveSearchPrefs,
     serializeFilterState,
     deserializeFilterState,
-    normalizePresetName,
-    loadFilterPresets,
-    saveFilterPresets,
-    FILTER_PRESET_KEY,
-    MAX_FILTER_PRESETS,
-    MAX_PRESET_NAME_LENGTH,
+    normalizeViewPreset,
+    loadViewPreset,
+    saveViewPreset,
+    clearViewPreset,
+    VIEW_PRESET_KEY,
+    LEGACY_FILTER_PRESET_KEY,
     MAX_PRESET_TOTAL_BYTES,
     diffHeaders,
     diffQueryParams,

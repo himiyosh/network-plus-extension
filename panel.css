@@ -426,22 +426,13 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .data-safety-actions{display:flex;justify-content:flex-end;gap:8px}
 @media (max-width:420px){.data-safety-choices{grid-template-columns:1fr}.data-safety-actions{flex-wrap:wrap}.data-safety-actions button{flex:1 1 auto}.timing-guidance-list{grid-template-columns:minmax(0,1fr)}}
 
-/* === Filter Presets === */
-.preset-menu{min-width:min(260px,calc(100vw - 16px));padding:8px}
-.preset-header{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);padding:2px 4px 6px;border-bottom:1px solid var(--border);margin-bottom:4px}
-.preset-empty{font-size:11px;color:var(--text-muted);padding:6px 4px;margin:0}
-.preset-row{display:flex;align-items:center;gap:2px;margin-bottom:2px}
-.preset-apply{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.preset-delete{flex-shrink:0;width:22px;min-width:22px;padding:2px 4px;font-size:13px;line-height:1;color:var(--text-muted)}
-.preset-delete:hover{color:var(--status-5xx-text);border-color:var(--status-5xx-text)}
-.preset-divider{height:1px;background:var(--border);margin:6px 0}
-.preset-save-section{display:flex;flex-direction:column;gap:4px}
-.preset-name-label{font-size:11px;color:var(--text-muted);font-weight:600}
-.preset-name-input{width:100%;box-sizing:border-box;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);padding:4px 6px;font:inherit;font-size:11px}
-.preset-name-input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
-.preset-save-btn{text-align:left}
-.preset-clear-btn{text-align:left;color:var(--text-muted)}
-.preset-clear-btn:hover{color:var(--text-accent)}
+/* === View preset (inside the Columns menu) === */
+.columns-preset-section{border-top:1px solid var(--border);margin-top:6px;padding:8px 4px 2px}
+.columns-preset-hint{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:6px}
+.columns-preset-actions{display:flex;gap:4px}
+.columns-preset-apply,.columns-preset-update{flex:1;text-align:center;font-size:11px;padding:4px}
+.columns-preset-reset{width:100%;text-align:center;font-size:10px;padding:3px;margin-top:4px;color:var(--text-muted)}
+.columns-preset-reset:hover{color:var(--text-accent)}
 
 /* === Shortcut Help Dialog === */
 #shortcutDialog{position:fixed;inset:0;margin:auto;width:min(480px,calc(100vw - 16px));max-height:min(calc(100vh - 16px),calc(100dvh - 16px));overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
@@ -576,18 +567,26 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 
 /* === Filter UI === */
 .filter-rule{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
-.filter-rule .filter-op{width:48%;min-width:110px;border:1px solid var(--control-border);background:var(--bg);color:var(--fg);padding:3px;border-radius:6px;font-size:11px;-webkit-appearance:menulist;appearance:menulist}
-.filter-rule .filter-value{width:52%;border:1px solid var(--control-border);background:var(--bg);color:var(--fg);padding:4px;border-radius:6px;font-size:11px;transition:border-color 0.2s}
+.filter-rule .filter-op{flex:0 0 150px;width:150px;min-width:110px;border:1px solid var(--control-border);background:var(--bg);color:var(--fg);padding:3px;border-radius:6px;font-size:11px;-webkit-appearance:menulist;appearance:menulist}
+.filter-rule .filter-value{flex:1 1 140px;width:auto;min-width:120px;border:1px solid var(--control-border);background:var(--bg);color:var(--fg);padding:4px;border-radius:6px;font-size:11px;transition:border-color 0.2s}
 .filter-rule .filter-value:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
 .filter-rule .filter-value:disabled{opacity:.5;cursor:not-allowed}
 .filter-rule input[type="time"]{width:auto;min-width:90px}
 .filter-rule > label{display:block;font-size:11px;color:var(--text-muted);margin-top:4px;width:100%}
 .filter-rule label input[type="text"]{width:100%;margin-top:2px}
-.filter-checkbox-grid{display:flex;flex-wrap:wrap;gap:2px 8px;width:100%}
-.filter-checkbox-inline{display:flex;align-items:center;gap:3px;font-size:11px;cursor:pointer;padding:3px 6px;border-radius:4px;white-space:nowrap;transition:background 0.1s}
+.filter-checkbox-grid{display:flex;flex-wrap:wrap;gap:2px 4px;width:100%}
+.filter-checkbox-inline{display:flex;align-items:center;gap:3px;font-size:11px;cursor:pointer;padding:2px 4px;border-radius:4px;white-space:nowrap;transition:background 0.1s}
 .filter-checkbox-inline:hover{background:var(--accent-dim)}
-.filter-checkbox-inline input[type="checkbox"]{width:24px;height:24px;margin:0;accent-color:var(--accent)}
-.filter-status-category{font-size:10px;font-weight:700;color:var(--text-muted);margin-top:6px;margin-bottom:2px;width:100%;text-transform:uppercase;letter-spacing:0.5px}
+.filter-checkbox-inline input[type="checkbox"]{width:14px;height:14px;margin:0;accent-color:var(--accent)}
+.filter-status-category{font-size:10px;font-weight:700;color:var(--text-muted);flex:0 0 104px;white-space:nowrap;text-transform:uppercase;letter-spacing:0.5px}
+.filter-inline-row{display:flex;align-items:center;gap:6px;width:100%;min-width:0}
+.filter-inline-row .filter-checkbox-grid{width:auto;flex:1;min-width:0}
+.filter-inline-action{margin-left:0;padding:2px 8px;flex-shrink:0}
+.filter-inline-field{display:flex;align-items:center;gap:6px;width:100%}
+.filter-inline-label{flex:0 0 76px;font-size:11px;color:var(--text-muted);font-weight:600;white-space:nowrap}
+.filter-inline-field .filter-value{flex:1;width:auto}
+.filter-time-input{border:1px solid var(--control-border);background:var(--bg);color:var(--fg);padding:3px 4px;border-radius:6px;font-size:11px}
+.filter-time-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .filter-condition-row{display:flex;gap:4px;align-items:center;width:100%}
 .filter-condition-row .filter-op{width:120px;min-width:110px;flex-shrink:0;-webkit-appearance:menulist;appearance:menulist}
 .filter-condition-row .filter-value{flex:1}
@@ -597,11 +596,10 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .filter-add-btn:hover{background:var(--accent-fill);color:var(--on-accent)}
 .filter-clear-btn{background:none;border:1px solid var(--control-border);color:var(--text-muted);border-radius:6px;cursor:pointer;padding:3px 10px;font-size:11px;margin-left:4px;transition:border-color 0.15s,color 0.15s}
 .filter-clear-btn:hover{border-color:var(--accent);color:var(--text-accent)}
-.filter-popup{display:none;position:fixed;min-width:0;width:min(560px,calc(100vw - 16px));max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-md);z-index:20}
+.filter-popup{display:none;position:fixed;min-width:0;width:min(620px,calc(100vw - 16px));max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-md);z-index:20}
 .filter-popup.show{display:block}
 .filter-popup-header{font-weight:700;margin-bottom:10px;color:var(--text-accent);font-size:13px}
 .filter-popup-list{display:flex;flex-direction:column;gap:1px}
-.filter-popup-hint{font-size:11px;color:var(--text-muted);margin:-4px 0 10px}
 .filter-section{border-bottom:1px solid var(--stripe)}
 .filter-section:last-child{border-bottom:0}
 .filter-section-toggle{display:flex;align-items:center;gap:8px;width:100%;background:transparent;border:0;padding:7px 6px;cursor:pointer;color:var(--fg);border-radius:6px;font:inherit;text-align:left}
@@ -613,7 +611,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .filter-section.open .filter-section-name{color:var(--text-accent)}
 .filter-section-state{margin-left:auto;font-size:10px;color:var(--text-accent);background:var(--accent-dim);border-radius:8px;padding:1px 8px;font-weight:600}
 .filter-section-state:empty{display:none}
-.filter-section-body{padding:2px 6px 12px 24px}
+.filter-section-body{padding:2px 6px 10px 20px}
 .filter-btn{width:100%;text-align:left;background:var(--bg);color:var(--fg);border:1px solid var(--control-border);border-radius:6px;padding:4px;cursor:pointer;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .filter-dropdown{position:relative;display:inline-block;width:100%}
 #settings-th .filter-dropdown{width:auto}

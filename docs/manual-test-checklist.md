@@ -50,7 +50,8 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 
 ## Toolbar popups and the status bar
 
-- [ ] The `Presets` button opens its popup on first click (no flicker-close); a preset can be named and saved from inside the popup, applied, and deleted, and `Filters (N)` reflects the applied rules.
+- [ ] The `Columns` menu ends with a `Preset` section: `Update` saves the current columns + filters, `Apply` restores them (or the default view before anything is saved), `Forget saved preset` removes the saved state, and `Filters (N)` reflects the applied rules.
+- [ ] The `Filters` popup opens with every column section expanded; Method / Status / URL rules read as single rows without stray wrapping, and a section header click collapses and re-expands it.
 - [ ] The `Filters` popup lists every filterable column as a collapsed row; clicking a row expands only that column's rule editor, editing a rule shows an `Active` chip and updates the header count live, and reopening the popup keeps active columns expanded.
 - [ ] The status bar shows only `Retention <limit> · cache <n>/<max>`, the status chips, `avg <t>`, the transferred size, and `N / M requests` (plus `· K active column filter(s)` only when K > 0); hovering retention, latency, and size reveals the full details in tooltips.
 
