@@ -86,7 +86,7 @@ The current Microsoft Learn publication guide allows at most seven terms and 21 
 
 **Single-purpose statement:** Network+ provides a local Microsoft Edge DevTools workbench for capturing, filtering, searching, comparing, inspecting, and user-initiated exporting of HTTP request and response evidence from the inspected page.
 
-**Permission justification (`storage`):** Stores the user-selected System, Dark, or Light theme in `chrome.storage.local` so the visual preference persists between DevTools sessions. This permission is not used to store captured URLs, headers, request bodies, response bodies, cookies, or request records.
+**Permission justification (`storage`):** Stores the user-selected System, Dark, or Light theme and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.
 
 **Remote code answer:** `No, I am not using remote code.`
 

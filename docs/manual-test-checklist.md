@@ -42,6 +42,9 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] Searching a JSON body with more than 100 array items or a preview truncated at 2,000 characters reports "(+N collapsed)" when hits are hidden, and `Expand all` opens the truncated content and includes those hits in the count and navigation.
 - [ ] An HTML response with no `charset` in its `Content-Type` header but a `<meta charset=...>` declaration (e.g. Shift_JIS) renders readable text in Body, Preview, and Raw.
 - [ ] Rows highlighted from the context menu (★) show the same colored leading edge and underline as search hits in both themes.
+- [ ] The `Aa` / `\b` / `.*` match options change the request-list matches, the cell marks, and the in-pane search identically; an invalid regular expression turns the input red with the error in its tooltip and matches nothing.
+- [ ] Scope, match options, and Matches only survive closing and reopening DevTools; search keyword text does not.
+- [ ] <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> focuses the pane search field when focus is inside a Body/Raw view, and toggles the request search panel elsewhere.
 - [ ] A response declaring `Content-Type: text/html; charset=Shift_JIS` (or another non-UTF-8 charset) renders readable text — not mojibake — in the Body, Preview, and Raw views, including after a SAZ import.
 
 ## Keyboard

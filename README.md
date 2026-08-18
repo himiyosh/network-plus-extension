@@ -116,7 +116,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 
 ### Find
 
-- Integrated multi-keyword search (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>): one input per keyword, six highlight colors, per-keyword match counts and ▲▼ navigation, a scope switch for URL / Body / Headers, and a **Matches only** toggle that hides non-matching rows (HAR export follows the displayed set).
+- Integrated multi-keyword search (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>): one input per keyword, six highlight colors, per-keyword match counts and ▲▼ navigation, a scope switch for URL / Body / Headers, match options (case / whole word / regex), and a **Matches only** toggle that hides non-matching rows (HAR export follows the displayed set). Scope, match options, and the toggle persist between sessions; keyword text does not.
 - Per-column filters: a visual local-time range picker for ClientStart and ServerDone, method multi-select, repeatable `contains` / `notcontains` rules for domain and path, and any/all/exclude logic for URLs.
 - Named filter presets — save, restore, and delete up to 20 filter configurations. Presets store filter values only, never captured traffic.
 - Status bar statistics: 2xx / 3xx / 4xx / 5xx / other counts plus average, minimum, and maximum response time, recalculated as filters change.
@@ -282,7 +282,7 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 
 - Every piece of user data rendered into the DOM goes through `textContent` or DOM APIs. `innerHTML` is not used anywhere.
 - The Content Security Policy is declared explicitly in [manifest.json](manifest.json): `script-src 'self'; object-src 'self'`.
-- The extension requests exactly one permission, `storage`, used to persist the theme. HAR downloads use a local Blob URL and a temporary `<a download>` element, so the `downloads` permission is not needed.
+- The extension requests exactly one permission, `storage`, used to persist the theme and search preferences (scope, match options, and the Matches only state — never search keywords or captured traffic). HAR downloads use a local Blob URL and a temporary `<a download>` element, so the `downloads` permission is not needed.
 - The manifest allows only the 8 top-level keys currently in use; host permissions, background workers, and content scripts are rejected by the validator outright.
 - `npm run extension:check` verifies exact permission parity and real usage, runtime path symlink and root boundaries, resource locality, the inline-script ban, the CSP, and the distribution allowlist.
 

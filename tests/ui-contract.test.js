@@ -2880,3 +2880,26 @@ describe('detail pane search contracts', () => {
     expect(gatedCalls.length).toBeGreaterThanOrEqual(5); // definition + 3 live sites + SAZ
   });
 });
+
+describe('search options and preference persistence contracts', () => {
+  test('exposes the three match-option buttons with pressed states', () => {
+    for (const id of ['searchOptCaseBtn', 'searchOptWordBtn', 'searchOptRegexBtn']) {
+      expect(html).toMatch(new RegExp(`id="${id}"[^>]*aria-pressed="false"`));
+    }
+    expect(css).toContain('.search-opt-btn[aria-pressed="true"]');
+    expect(css).toContain('.search-keyword-input-error,.pane-search-input-error');
+  });
+
+  test('persists only boolean search preferences, never keyword text', () => {
+    expect(js).toContain("const SEARCH_PREFS_KEY = 'networkPlus.searchPrefs';");
+    expect(js).toContain('function normalizeSearchPrefs(raw)');
+    // The saved shape is rebuilt from scope/options/matchesOnly exclusively.
+    expect(js).toMatch(/function currentSearchPrefs\(\) \{\s*return \{\s*scope: \{ \.\.\.state\.search\.scope \},\s*options: \{ \.\.\.state\.search\.options \},\s*matchesOnly: state\.search\.matchesOnly === true,\s*\};/);
+    expect(js).not.toMatch(/SEARCH_PREFS_KEY[^\n]*keywords/);
+  });
+
+  test('Ctrl+F prefers the focused detail pane search bar', () => {
+    expect(js).toMatch(/closest\('\.tab-pane'\)[\s\S]{0,200}querySelector\('\.pane-search-input'\)/);
+    expect(js).toContain('paneSearchInput.focus();');
+  });
+});

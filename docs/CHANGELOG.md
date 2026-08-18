@@ -4,6 +4,9 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- Added match options to the search panel — **Aa** (match case), **\b** (whole word), **.\*** (regular expression) — applying to the request-list keywords, the table cell marks, and the in-pane Body/Raw search. Invalid regular expressions mark the input red and match nothing instead of erroring.
+- Search preferences (scope, match options, and the Matches only state — never keyword text) now persist through `chrome.storage.local`, the same mechanism as the theme.
+- <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> is now context-aware: with focus inside a detail Body/Raw view it focuses that pane's own search bar; elsewhere it toggles the request search panel as before.
 - The in-pane search now counts matches hiding inside collapsed JSON-tree nodes and truncated body previews, shows them as "(+N collapsed)", and offers an **Expand all** action that opens every truncation control and re-highlights.
 - HTML responses that declare their charset only in a `<meta>` tag (with no `charset` in the `Content-Type` header) are now decoded correctly: the first 1 KB is scanned for a meta charset before decoding, in both the live-capture and SAZ-import paths.
 - Manually highlighted rows (context menu ★) now carry the same keyword-colored leading edge and underline ring as search-hit rows, so they stay legible in the dark theme.
