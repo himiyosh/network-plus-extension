@@ -2125,6 +2125,12 @@ describe('visual-state dark-mode parity', () => {
         new RegExp(`\\.search-row-${selector}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
       );
     }
+    // Manually highlighted rows (context menu) carry the same edge ring.
+    for (const color of ['yellow', 'red', 'green', 'blue', 'purple', 'orange']) {
+      expect(css).toMatch(
+        new RegExp(`\\.hl-${color}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
+      );
+    }
   });
 
   test('visual-state highlight rules do not use dark-only selector overrides', () => {
@@ -2832,9 +2838,9 @@ describe('search matches-only toggle contracts', () => {
 
 describe('detail pane search contracts', () => {
   test('attaches the in-pane search bar to the Body and Raw views of both inspectors', () => {
-    expect(js).toContain('attachPaneSearch(reqBodyPane);');
+    expect(js).toContain('attachPaneSearch(reqBodyPane, text);');
     expect(js).toContain('attachPaneSearch(reqRawPane);');
-    expect(js).toContain('attachPaneSearch(resBodyPane);');
+    expect(js).toContain('attachPaneSearch(resBodyPane, text);');
     expect(js).toContain('attachPaneSearch(resRawPane);');
   });
 
@@ -2852,5 +2858,23 @@ describe('detail pane search contracts', () => {
   test('bounds the hit count so huge bodies stay responsive', () => {
     expect(js).toContain('PANE_SEARCH_MAX_HITS = 1500');
     expect(js).toMatch(/marks\.length >= PANE_SEARCH_MAX_HITS/);
+  });
+
+  test('counts hits hidden in collapsed content and offers Expand all', () => {
+    expect(js).toContain('function expandPaneTruncations(pane, bar)');
+    expect(js).toContain("count.textContent += ' (+' + collapsedHits + ' collapsed)';");
+    expect(js).toContain('expandBtn.hidden = collapsedHits === 0;');
+    // Both truncating panes provide their full source text for the count.
+    expect(js).toContain('attachPaneSearch(resBodyPane, text);');
+    expect(js).toContain('attachPaneSearch(reqBodyPane, text);');
+    expect(css).toContain('.pane-search-expand');
+  });
+
+  test('decodes html bodies via the meta-declared charset when headers lack one', () => {
+    expect(js).toContain('function extractHtmlMetaCharset(prefixText)');
+    expect(js).toContain('function isHtmlLikeMime(mime)');
+    // The sniff is gated on html-like mime types at every decode site.
+    const gatedCalls = js.match(/isHtmlLikeMime\(/g) || [];
+    expect(gatedCalls.length).toBeGreaterThanOrEqual(5); // definition + 3 live sites + SAZ
   });
 });

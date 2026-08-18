@@ -39,6 +39,9 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] `Matches only` survives `Clear` → `Undo clear` together with the search terms and scope.
 - [ ] The Request/Response `Body` and `Raw` views each show their own search field as a bar pinned flush to the bottom of the pane (no gap below it, whether the content scrolls or not); typing highlights hits with a counter, Enter / Shift+Enter and the ▲▼ buttons cycle through hits (wrapping), and jumping to a hit inside a collapsed JSON-tree node expands it.
 - [ ] The in-pane query is kept when switching rows or tabs and re-applies to the new content; Escape clears the field without closing the panel.
+- [ ] Searching a JSON body with more than 100 array items or a preview truncated at 2,000 characters reports "(+N collapsed)" when hits are hidden, and `Expand all` opens the truncated content and includes those hits in the count and navigation.
+- [ ] An HTML response with no `charset` in its `Content-Type` header but a `<meta charset=...>` declaration (e.g. Shift_JIS) renders readable text in Body, Preview, and Raw.
+- [ ] Rows highlighted from the context menu (★) show the same colored leading edge and underline as search hits in both themes.
 - [ ] A response declaring `Content-Type: text/html; charset=Shift_JIS` (or another non-UTF-8 charset) renders readable text — not mojibake — in the Body, Preview, and Raw views, including after a SAZ import.
 
 ## Keyboard
