@@ -9831,7 +9831,7 @@ const _NetworkPlus = (function () {
     const searchToggleBtn = $('#searchToggleBtn');
     const searchAddBtn = $('#searchAddBtn');
     const searchScopeBtn = $('#searchScopeBtn');
-    const searchMatchesOnlyBtn = $('#searchMatchesOnlyBtn');
+    const searchMatchesOnlyToggle = $('#searchMatchesOnlyToggle');
     // Track search panel visibility
     let searchPanelVisible = false;
 
@@ -9896,8 +9896,8 @@ const _NetworkPlus = (function () {
       }
     }
 
-    searchMatchesOnlyBtn.addEventListener('click', () => {
-      state.search.matchesOnly = !state.search.matchesOnly;
+    searchMatchesOnlyToggle.addEventListener('change', () => {
+      state.search.matchesOnly = searchMatchesOnlyToggle.checked;
       renderBody();
       updateSearchUI();
       setStatus(
@@ -10139,7 +10139,7 @@ const _NetworkPlus = (function () {
         searchCount.textContent = '';
         searchCount.style.color = '';
       }
-      searchMatchesOnlyBtn.setAttribute('aria-pressed', String(srch.matchesOnly === true));
+      searchMatchesOnlyToggle.checked = srch.matchesOnly === true;
       // Body-search progress and mode notes live inside the search panel where
       // they have reserved space; putting them in the top bar resized the count
       // span continuously during capture and made the buttons jitter.

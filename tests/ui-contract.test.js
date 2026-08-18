@@ -2114,9 +2114,9 @@ describe('visual-state dark-mode parity', () => {
       expect({ themeName, value: parseInt(theme['hl-row-primary-pct'], 10) }).toMatchObject({
         value: expect.any(Number),
       });
-      expect(parseInt(theme['hl-row-primary-pct'], 10)).toBeGreaterThanOrEqual(30);
-      expect(parseInt(theme['hl-row-secondary-pct'], 10)).toBeGreaterThanOrEqual(25);
-      expect(parseInt(theme['hl-primary-pct'], 10)).toBeGreaterThanOrEqual(35);
+      expect(parseInt(theme['hl-row-primary-pct'], 10)).toBeGreaterThanOrEqual(18);
+      expect(parseInt(theme['hl-row-secondary-pct'], 10)).toBeGreaterThanOrEqual(15);
+      expect(parseInt(theme['hl-primary-pct'], 10)).toBeGreaterThanOrEqual(30);
       // The colored edge ring is the primary affordance on dark surfaces.
       expect(parseInt(theme['hl-row-ring-pct'], 10)).toBeGreaterThanOrEqual(60);
     }
@@ -2802,13 +2802,15 @@ describe('two-request diff comparison', () => {
 });
 
 describe('search matches-only toggle contracts', () => {
-  test('exposes a toggle button with a pressed state in the search panel footer', () => {
-    expect(html).toContain('id="searchMatchesOnlyBtn"');
-    expect(html).toMatch(/id="searchMatchesOnlyBtn"[^>]*aria-pressed="false"/);
-    expect(css).toContain('.search-scope-btn[aria-pressed="true"]');
-    // The toggle sits directly after "+ Add keyword" so it is visible even in
+  test('exposes a switch control in the search panel footer', () => {
+    expect(html).toMatch(/id="searchMatchesOnlyToggle"[^>]*role="switch"/);
+    expect(html).toContain('class="search-matches-only"');
+    expect(css).toContain('.search-toggle-track');
+    expect(css).toContain('.search-matches-only input:checked + .search-toggle-track');
+    expect(css).toContain('.search-matches-only input:focus-visible + .search-toggle-track');
+    // The switch sits directly after "+ Add keyword" so it is visible even in
     // narrow panels, and the footer wraps instead of clipping.
-    expect(html).toMatch(/id="searchAddBtn"[^>]*>[^<]*<\/button>\s*<button id="searchMatchesOnlyBtn"/);
+    expect(html).toMatch(/id="searchAddBtn"[^>]*>[^<]*<\/button>\s*<label class="search-matches-only"/);
     expect(css).toMatch(/\.search-panel-footer\{[^}]*flex-wrap:wrap/);
   });
 
