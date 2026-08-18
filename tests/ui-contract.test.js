@@ -381,6 +381,10 @@ describe('accessible workbench static contracts', () => {
     }
     expect(css).toContain('.row-state-badge');
     expect(js).toContain('Matches search ');
+    // The search-match badge must stay out of the ID column visually while
+    // remaining in the accessibility tree.
+    expect(js).toContain('label: searchMatchLabel, srOnly: true');
+    expect(js).toContain("stateBadge.srOnly ? 'row-state-badge sr-only' : 'row-state-badge'");
     expect(js).toContain('aria-label');
     expect(js).not.toContain("tr.setAttribute('aria-label'");
   });
@@ -2065,6 +2069,7 @@ describe('visual-state dark-mode parity', () => {
     'hl-secondary-pct',
     'hl-row-primary-pct',
     'hl-row-secondary-pct',
+    'hl-row-ring-pct',
     'multi-selected-pct',
     'danger-tint',
     'shadow-context-menu',
@@ -2097,6 +2102,29 @@ describe('visual-state dark-mode parity', () => {
     const componentCss = css.slice(css.indexOf('/* === Top Bar === */'));
     // All colors must flow through CSS custom properties; bare rgba() is not permitted in component rules
     expect(componentCss).not.toMatch(/rgba\(/);
+  });
+
+  test('keeps dark-mode search row highlights legible (issue: hits were hard to spot)', () => {
+    // Dark rows sit on very dark surfaces; a mix percentage below ~20% is
+    // visually indistinguishable from the plain row background.
+    for (const [themeName, theme] of [
+      ['system dark', systemDark],
+      ['forced dark', forcedDark],
+    ]) {
+      expect({ themeName, value: parseInt(theme['hl-row-primary-pct'], 10) }).toMatchObject({
+        value: expect.any(Number),
+      });
+      expect(parseInt(theme['hl-row-primary-pct'], 10)).toBeGreaterThanOrEqual(30);
+      expect(parseInt(theme['hl-row-secondary-pct'], 10)).toBeGreaterThanOrEqual(25);
+      expect(parseInt(theme['hl-primary-pct'], 10)).toBeGreaterThanOrEqual(35);
+      // The colored edge ring is the primary affordance on dark surfaces.
+      expect(parseInt(theme['hl-row-ring-pct'], 10)).toBeGreaterThanOrEqual(60);
+    }
+    for (const selector of [0, 1, 2, 3, 4, 5]) {
+      expect(css).toMatch(
+        new RegExp(`\\.search-row-${selector}\\{[^}]*box-shadow:inset 3px 0 0 0 color-mix`),
+      );
+    }
   });
 
   test('visual-state highlight rules do not use dark-only selector overrides', () => {
@@ -2764,5 +2792,65 @@ describe('two-request diff comparison', () => {
 
   test('compare-close-btn has explicit focus-visible style in CSS', () => {
     expect(css).toContain('.compare-close-btn:focus-visible');
+  });
+});
+
+describe('search matches-only toggle contracts', () => {
+  test('exposes a toggle button with a pressed state in the search panel footer', () => {
+    expect(html).toContain('id="searchMatchesOnlyBtn"');
+    expect(html).toMatch(/id="searchMatchesOnlyBtn"[^>]*aria-pressed="false"/);
+    expect(css).toContain('.search-scope-btn[aria-pressed="true"]');
+    // The toggle sits directly after "+ Add keyword" so it is visible even in
+    // narrow panels, and the footer wraps instead of clipping.
+    expect(html).toMatch(/id="searchAddBtn"[^>]*>[^<]*<\/button>\s*<button id="searchMatchesOnlyBtn"/);
+    expect(css).toMatch(/\.search-panel-footer\{[^}]*flex-wrap:wrap/);
+  });
+
+  test('keeps capture-time search notices out of the top bar so buttons do not jitter', () => {
+    expect(html).toContain('id="searchPanelNotice"');
+    expect(css).toMatch(/\.search-panel-notice\{[^}]*overflow:hidden[^}]*text-overflow:ellipsis/);
+    // The top-bar count must not carry the variable-width body-progress text.
+    expect(js).not.toMatch(/searchCount\.textContent \+= ' · ' \+ unsearchedBodies/);
+    expect(js).toContain("noticeParts.push(unsearchedBodies + ' bodies not searched')");
+  });
+
+  test('renders and exports through the shared matches-only visibility planner', () => {
+    expect(js).toContain('matchesOnly: false');
+    // Both the table render and HAR export must consult the same planner so the
+    // exported set is exactly what the list shows.
+    const plannerCalls = js.match(/planVisibleSearchRows\(/g) || [];
+    expect(plannerCalls.length).toBeGreaterThanOrEqual(3); // definition + render + export
+    expect(js).toMatch(/function getExportRows\(\) \{[^}]*planVisibleSearchRows\(/s);
+  });
+
+  test('survives Clear undo like the other search settings', () => {
+    expect(js).toContain('searchMatchesOnly: state.search.matchesOnly === true');
+    expect(js).toContain('searchMatchesOnly: context.searchMatchesOnly === true');
+    expect(js).toContain('state.search.matchesOnly = restorePlan.searchMatchesOnly;');
+  });
+});
+
+describe('detail pane search contracts', () => {
+  test('attaches the in-pane search bar to the Body and Raw views of both inspectors', () => {
+    expect(js).toContain('attachPaneSearch(reqBodyPane);');
+    expect(js).toContain('attachPaneSearch(reqRawPane);');
+    expect(js).toContain('attachPaneSearch(resBodyPane);');
+    expect(js).toContain('attachPaneSearch(resRawPane);');
+  });
+
+  test('renders hits through safe DOM APIs with theme-token styling', () => {
+    // Hits are wrapped via createElement/textContent (never innerHTML).
+    expect(js).toMatch(/mark\.className = 'pane-search-hit';\s*\n\s*mark\.textContent =/);
+    expect(css).toContain('mark.pane-search-hit{background:color-mix(in srgb,var(--search-yellow) var(--hl-primary-pct),transparent)');
+    expect(css).toContain('mark.pane-search-hit-current');
+    // The bar is pinned to the bottom of the pane, flush with its edges.
+    expect(css).toMatch(/\.pane-search-bar\{[^}]*position:sticky[^}]*bottom:0/);
+    expect(css).toMatch(/\.tab-pane\.pane-search-host\.active\{[^}]*flex-direction:column[^}]*min-height:100%/);
+    expect(js).toContain('pane.appendChild(bar);');
+  });
+
+  test('bounds the hit count so huge bodies stay responsive', () => {
+    expect(js).toContain('PANE_SEARCH_MAX_HITS = 1500');
+    expect(js).toMatch(/marks\.length >= PANE_SEARCH_MAX_HITS/);
   });
 });

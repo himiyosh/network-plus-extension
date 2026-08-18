@@ -35,6 +35,8 @@ const _NetworkPlus = (function () {
   const TRUNCATE_LIMIT = 2000;
   const FILTER_DEBOUNCE_MS = 150;
   const DEEP_SEARCH_DEBOUNCE_MS = 250;
+  // Cap on in-pane (detail view) search hits so pathological bodies stay responsive.
+  const PANE_SEARCH_MAX_HITS = 1500;
   const LIVE_COMMIT_MAX_WAIT_MS = 250;
   const LIVE_PENDING_HIGH_WATER_MARK = 5000;
   const RESPONSE_CONTENT_TIMEOUT_MS = 10000;
@@ -2279,13 +2281,32 @@ const _NetworkPlus = (function () {
    return typeof phase === 'string' ? TIMING_PHASE_GUIDANCE[phase] || null : null;
   }
 
-  function decodeResponseContent(content, encoding) {
+  function extractCharsetFromContentType(value) {
+    if (typeof value !== 'string') return '';
+    const match = value.match(/;\s*charset\s*=\s*"?\s*([^";,\s]+)/i);
+    return match ? match[1].trim().toLowerCase() : '';
+  }
+
+  // Returns a TextDecoder for the declared charset, falling back to UTF-8 on
+  // unknown labels so decoding never throws for a malformed Content-Type.
+  function createBodyTextDecoder(charset) {
+    if (charset) {
+      try {
+        return new TextDecoder(charset);
+      } catch (_e) {
+        // Unknown encoding label — fall through to UTF-8.
+      }
+    }
+    return new TextDecoder();
+  }
+
+  function decodeResponseContent(content, encoding, charset) {
     const text = typeof content === 'string' ? content : '';
     if (encoding !== 'base64') return text;
     try {
       const binary = atob(text);
       const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-      return new TextDecoder().decode(bytes);
+      return createBodyTextDecoder(charset).decode(bytes);
     } catch (_e) {
       return '';
     }
@@ -2445,6 +2466,29 @@ const _NetworkPlus = (function () {
       });
     }
     return highlights;
+  }
+
+  // Rows to render given the matches-only toggle: with an active search and the
+  // toggle on, only rows present in matchedRows (a Map or Set keyed by row) stay
+  // visible; otherwise the full sorted list is returned unchanged.
+  function planVisibleSearchRows(sortedRows, matchedRows, matchesOnly, hasActiveSearch) {
+    const rows = Array.isArray(sortedRows) ? sortedRows : [];
+    if (!matchesOnly || !hasActiveSearch) return rows;
+    if (!matchedRows || typeof matchedRows.has !== 'function') return rows;
+    return rows.filter((row) => matchedRows.has(row));
+  }
+
+  // Wrap-around navigation index for a flat match list (detail-pane search).
+  function getWrappedMatchIndex(matchCount, currentIndex, direction) {
+    if (!Number.isInteger(matchCount) || matchCount <= 0) return -1;
+    const step = direction === 'prev' ? -1 : 1;
+    const base =
+      Number.isInteger(currentIndex) && currentIndex >= 0 && currentIndex < matchCount
+        ? currentIndex
+        : direction === 'prev'
+          ? 0
+          : -1;
+    return (base + step + matchCount) % matchCount;
   }
 
   function shouldRenderSelectedRow(selectedRow, resolvedRow) {
@@ -2627,6 +2671,7 @@ const _NetworkPlus = (function () {
         ? deserializeFilterState(serializeFilterState(context.sampleCapturePreviousColumnFilterRules))
         : null,
       searchPanelVisible: context.searchPanelVisible === true,
+      searchMatchesOnly: context.searchMatchesOnly === true,
     };
   }
 
@@ -3048,12 +3093,25 @@ const _NetworkPlus = (function () {
     });
   }
 
+  // Byte offset of the CRLFCRLF header/body separator, or -1 when absent.
+  // The split must happen on bytes (not decoded text) so multi-byte body
+  // charsets do not shift the separator position.
+  function findHttpHeaderBodySplit(bytes) {
+    for (let index = 0; index + 3 < bytes.length; index++) {
+      if (bytes[index] === 13 && bytes[index + 1] === 10 && bytes[index + 2] === 13 && bytes[index + 3] === 10) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
   function parseSazHttpMessage(bytes) {
     if (!(bytes instanceof Uint8Array)) throw createImportError('SAZ HTTP payload is invalid.');
-    const text = new TextDecoder().decode(bytes);
-    const separatorIndex = text.indexOf('\r\n\r\n');
-    const headerPart = separatorIndex >= 0 ? text.slice(0, separatorIndex) : text;
-    const body = separatorIndex >= 0 ? text.slice(separatorIndex + 4) : '';
+    const separatorIndex = findHttpHeaderBodySplit(bytes);
+    const headerPart = new TextDecoder().decode(
+      separatorIndex >= 0 ? bytes.subarray(0, separatorIndex) : bytes,
+    );
+    const bodyBytes = separatorIndex >= 0 ? bytes.subarray(separatorIndex + 4) : new Uint8Array(0);
     const lines = headerPart.split('\r\n');
     const startLine = lines.shift() || '';
     if (!startLine) throw createImportError('SAZ HTTP start line is missing.');
@@ -3072,7 +3130,17 @@ const _NetworkPlus = (function () {
       };
       headers.push(currentHeader);
     }
+    const body = decodeSazMessageBody(bodyBytes, headers);
     return { startLine, headers, body };
+  }
+
+  // SAZ bodies are stored as raw bytes; decode them with the charset the
+  // message's own Content-Type declares (falling back to UTF-8) so imported
+  // non-UTF-8 bodies (e.g. Shift_JIS) do not appear garbled.
+  function decodeSazMessageBody(bodyBytes, headers) {
+    if (!(bodyBytes instanceof Uint8Array) || bodyBytes.length === 0) return '';
+    const charset = extractCharsetFromContentType(getNormalizedHeaderValue(headers, 'content-type'));
+    return createBodyTextDecoder(charset).decode(bodyBytes);
   }
 
   function getNormalizedHeaderValue(headers, name) {
@@ -3177,9 +3245,15 @@ const _NetworkPlus = (function () {
     return new TextEncoder().encode(typeof value === 'string' ? value : '').length;
   }
 
-  function measureResponsePayload(content, encoding) {
+  // Charset declared by the response's Content-Type header, if any.
+  function resolveRowResponseCharset(row) {
+    const headers = row && Array.isArray(row.responseHeaders) ? row.responseHeaders : [];
+    return extractCharsetFromContentType(getNormalizedHeaderValue(headers, 'content-type'));
+  }
+
+  function measureResponsePayload(content, encoding, charset) {
     const rawContent = typeof content === 'string' ? content : '';
-    const text = decodeResponseContent(rawContent, encoding);
+    const text = decodeResponseContent(rawContent, encoding, charset);
     const rawBytes = getUtf8ByteLength(rawContent);
     const decodedBytes = text === rawContent ? 0 : getUtf8ByteLength(text);
     return {
@@ -3697,6 +3771,7 @@ const _NetworkPlus = (function () {
       keywords: [],       // array of {query: string, colorIdx: number}
       matches: [],        // array of row references that match any keyword
       currentIndex: -1,   // index into matches[] for navigation
+      matchesOnly: false, // true = render only rows that match a search keyword
       scope: DEFAULT_SEARCH_SCOPE(),
       // Per-row match maps keep color and keyword correspondence lookup linear.
       rowColors: new Map(),
@@ -4273,7 +4348,7 @@ const _NetworkPlus = (function () {
     for (const row of rows) {
       if (!isRetainedRow(row, state.retainedRows)) continue;
       if (typeof row.responseContent === 'string') {
-        const payload = measureResponsePayload(row.responseContent, row.responseContentEncoding);
+        const payload = measureResponsePayload(row.responseContent, row.responseContentEncoding, resolveRowResponseCharset(row));
         releaseResponseContent(row, 'loading', false);
         try {
           admitResponsePayload(row, payload);
@@ -4397,6 +4472,7 @@ const _NetworkPlus = (function () {
           ? deserializeFilterState(serializeFilterState(state.sampleCapturePreviousColumnFilterRules))
           : null,
         searchPanelVisible: searchPanelVisible === true,
+        searchMatchesOnly: state.search.matchesOnly === true,
       },
     };
   }
@@ -4987,7 +5063,7 @@ const _NetworkPlus = (function () {
           }
           let payload;
           try {
-            payload = measureResponsePayload(content, encoding);
+            payload = measureResponsePayload(content, encoding, resolveRowResponseCharset(row));
           } catch (error) {
             fail('Failed to process response content for ' + requestLabel + ': ' + error.message);
             return;
@@ -5312,7 +5388,7 @@ const _NetworkPlus = (function () {
         keywordNumbers.length > 1 ? 'K' + keywordNumbers[0] + '+' + (keywordNumbers.length - 1) : 'K' + keywordNumbers[0];
       const searchMatchLabel = 'Matches search ' +
         (keywordNumbers.length === 1 ? 'keyword ' : 'keywords ') + keywordNumbers.join(', ');
-      visibleStateBadges.push({ text: searchMatchBadge, label: searchMatchLabel });
+      visibleStateBadges.push({ text: searchMatchBadge, label: searchMatchLabel, srOnly: true });
       if (srch.currentIndex >= 0 && srch.matches[srch.currentIndex] === row) {
         tr.classList.add('search-match-current');
       }
@@ -5416,10 +5492,17 @@ const _NetworkPlus = (function () {
       if (firstCell) {
         const badgeGroup = document.createElement('span');
         badgeGroup.className = 'row-state-badges';
+        // A group holding only screen-reader badges must not reserve visual space.
+        if (visibleStateBadges.every((stateBadge) => stateBadge.srOnly)) {
+          badgeGroup.classList.add('sr-only');
+        }
         for (let i = 0; i < visibleStateBadges.length; i++) {
           const stateBadge = visibleStateBadges[i];
           const badge = document.createElement('span');
-          badge.className = 'row-state-badge';
+          // Search-match badges stay in the accessibility tree but are visually
+          // hidden: the row tint, edge ring, and mark colors already show the
+          // match, and inline badges crowded the ID column.
+          badge.className = stateBadge.srOnly ? 'row-state-badge sr-only' : 'row-state-badge';
           badge.textContent = stateBadge.text;
           badge.title = stateBadge.label;
           badge.setAttribute('aria-label', stateBadge.label);
@@ -7064,7 +7147,12 @@ const _NetworkPlus = (function () {
     filterRows();
     state.renderedActiveFilterCount = countActiveColumnFilters(state.columnFilterRules);
     refreshSearchMatches();
-    const rows = getSortedRows(state.filteredRows);
+    const rows = planVisibleSearchRows(
+      getSortedRows(state.filteredRows),
+      state.search.rowColors,
+      state.search.matchesOnly,
+      hasActiveSearchKeywords(state.search.keywords),
+    );
     const visibleBytes = rows.reduce((total, row) => total + (row.size || 0), 0);
     updateEmptyState(rows.length);
     // Cache waterfall range once per render — createTableRow reads state.waterfallRange
@@ -7219,6 +7307,225 @@ const _NetworkPlus = (function () {
         return writeClipboardPayload(payload.text, 'Copied confirmed full request data');
       },
     });
+  }
+
+  // ---- In-pane keyword search (Request/Response Body & Raw views) ----
+  // Query text per pane id, so the query survives re-renders and row switches.
+  const paneSearchQueries = new Map();
+
+  const PANE_SEARCH_LABELS = {
+    'req-body': 'request body',
+    'req-raw': 'raw request',
+    'res-body': 'response body',
+    'res-raw': 'raw response',
+  };
+
+  function clearPaneSearchHits(pane) {
+    const marks = Array.from(pane.querySelectorAll('mark.pane-search-hit'));
+    const parents = new Set();
+    for (const mark of marks) {
+      const parent = mark.parentNode;
+      if (!parent) continue;
+      parent.replaceChild(document.createTextNode(mark.textContent), mark);
+      parents.add(parent);
+    }
+    for (const parent of parents) parent.normalize();
+  }
+
+  function applyPaneSearchHits(pane, query) {
+    const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (parent && parent.closest('.pane-search-bar,button,.json-tree-preview')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+    const marks = [];
+    let truncated = false;
+    const keywords = [{ query, colorIdx: 0 }];
+    for (const textNode of textNodes) {
+      if (marks.length >= PANE_SEARCH_MAX_HITS) {
+        truncated = true;
+        break;
+      }
+      const ranges = planKeywordHighlights(textNode.nodeValue, keywords);
+      if (ranges.length === 0) continue;
+      const source = textNode.nodeValue;
+      const fragment = document.createDocumentFragment();
+      let cursor = 0;
+      for (const range of ranges) {
+        if (marks.length >= PANE_SEARCH_MAX_HITS) {
+          truncated = true;
+          break;
+        }
+        if (range.start > cursor) {
+          fragment.appendChild(document.createTextNode(source.slice(cursor, range.start)));
+        }
+        const mark = document.createElement('mark');
+        mark.className = 'pane-search-hit';
+        mark.textContent = source.slice(range.start, range.end);
+        fragment.appendChild(mark);
+        marks.push(mark);
+        cursor = range.end;
+      }
+      if (cursor < source.length) {
+        fragment.appendChild(document.createTextNode(source.slice(cursor)));
+      }
+      textNode.parentNode.replaceChild(fragment, textNode);
+    }
+    return { marks, truncated };
+  }
+
+  // Open every collapsed <details> ancestor so the current hit is visible.
+  function revealPaneSearchHit(mark) {
+    let node = mark.parentElement ? mark.parentElement.closest('details') : null;
+    while (node) {
+      if (!node.open) node.open = true;
+      node = node.parentElement ? node.parentElement.closest('details') : null;
+    }
+    mark.scrollIntoView({ block: 'nearest' });
+  }
+
+  // (Re)build the search bar at the top of a detail pane. Renderers wipe pane
+  // children on every row selection, so this runs after each content render.
+  function attachPaneSearch(pane) {
+    if (!pane) return;
+    const paneId = pane.id;
+    const paneLabel = PANE_SEARCH_LABELS[paneId] || 'this view';
+
+    const bar = document.createElement('div');
+    bar.className = 'pane-search-bar';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'pane-search-input';
+    input.placeholder = 'Search in ' + paneLabel;
+    input.setAttribute('aria-label', 'Search within the ' + paneLabel + ' view');
+    const count = document.createElement('span');
+    count.className = 'pane-search-count';
+    count.setAttribute('role', 'status');
+    count.setAttribute('aria-live', 'polite');
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'pane-search-nav';
+    prevBtn.textContent = '↑';
+    prevBtn.title = 'Previous match (Shift+Enter)';
+    prevBtn.setAttribute('aria-label', 'Previous match in the ' + paneLabel + ' view');
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'pane-search-nav';
+    nextBtn.textContent = '↓';
+    nextBtn.title = 'Next match (Enter)';
+    nextBtn.setAttribute('aria-label', 'Next match in the ' + paneLabel + ' view');
+    bar.appendChild(input);
+    bar.appendChild(count);
+    bar.appendChild(prevBtn);
+    bar.appendChild(nextBtn);
+
+    let marks = [];
+    let currentIndex = -1;
+    let truncated = false;
+
+    const updateCount = () => {
+      const query = input.value.trim();
+      const total = marks.length + (truncated ? '+' : '');
+      count.textContent =
+        marks.length > 0
+          ? (currentIndex >= 0 ? currentIndex + 1 + ' / ' : '') + total
+          : query
+            ? 'No matches'
+            : '';
+      const disabled = marks.length === 0;
+      prevBtn.disabled = disabled;
+      nextBtn.disabled = disabled;
+    };
+
+    const setCurrent = (index, scroll) => {
+      if (currentIndex >= 0 && marks[currentIndex]) {
+        marks[currentIndex].classList.remove('pane-search-hit-current');
+      }
+      currentIndex = index;
+      const mark = currentIndex >= 0 ? marks[currentIndex] : null;
+      if (mark) {
+        mark.classList.add('pane-search-hit-current');
+        if (scroll) revealPaneSearchHit(mark);
+      }
+      updateCount();
+    };
+
+    const runHighlight = () => {
+      paneSearchQueries.set(paneId, input.value);
+      clearPaneSearchHits(pane);
+      marks = [];
+      currentIndex = -1;
+      truncated = false;
+      const query = input.value;
+      if (query.trim()) {
+        const result = applyPaneSearchHits(pane, query);
+        marks = result.marks;
+        truncated = result.truncated;
+      }
+      if (marks.length > 0) {
+        setCurrent(0, false);
+      } else {
+        updateCount();
+      }
+    };
+    pane._paneSearchRefresh = runHighlight;
+
+    const navigate = (direction) => {
+      const nextIndex = getWrappedMatchIndex(marks.length, currentIndex, direction);
+      if (nextIndex < 0) return;
+      setCurrent(nextIndex, true);
+    };
+
+    const debouncedHighlight = debounce(runHighlight, FILTER_DEBOUNCE_MS);
+    input.addEventListener('input', debouncedHighlight);
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        navigate(event.shiftKey ? 'prev' : 'next');
+      } else if (event.key === 'Escape' && input.value) {
+        event.preventDefault();
+        event.stopPropagation();
+        input.value = '';
+        runHighlight();
+      }
+    });
+    prevBtn.addEventListener('click', () => navigate('prev'));
+    nextBtn.addEventListener('click', () => navigate('next'));
+
+    // Expansion buttons ("Show all ...", "Show full cached body ...") replace
+    // pane content after render; re-apply the highlights once they finish.
+    // Bound once per pane element — the handler always calls the latest refresh.
+    if (!pane._paneSearchExpandBound) {
+      pane._paneSearchExpandBound = true;
+      pane.addEventListener('click', (event) => {
+        const target = event.target;
+        if (target && target.closest && target.closest('.link-btn')) {
+          setTimeout(() => {
+            if (typeof pane._paneSearchRefresh === 'function') pane._paneSearchRefresh();
+          }, 0);
+        }
+      });
+    }
+
+    // The bar is a bottom-pinned footer: it sticks to the pane's lower edge
+    // while long content scrolls, and margin-top:auto keeps it at the bottom
+    // for short content (the pane becomes a min-height flex column).
+    pane.classList.add('pane-search-host');
+    pane.appendChild(bar);
+    const storedQuery = paneSearchQueries.get(paneId) || '';
+    if (storedQuery) {
+      input.value = storedQuery;
+      runHighlight();
+    } else {
+      updateCount();
+    }
   }
 
   function addCopyActions(container, actions) {
@@ -7577,7 +7884,7 @@ const _NetworkPlus = (function () {
     const encoding = row.responseContentEncoding === 'base64' ? 'base64' : '';
     let text = row.responseContentText != null
       ? row.responseContentText
-      : decodeResponseContent(rawContent, encoding);
+      : decodeResponseContent(rawContent, encoding, resolveRowResponseCharset(row));
     if (encoding === 'base64' && rawContent && !text) text = '(could not decode base64 response)';
 
     // Body tab — formatted text
@@ -7660,6 +7967,8 @@ const _NetworkPlus = (function () {
       },
     ]);
     resRawPane.appendChild(rawResPre);
+    attachPaneSearch(resBodyPane);
+    attachPaneSearch(resRawPane);
   }
 
   function selectRow(row, event, moveFocus, extraAffectedRows) {
@@ -7759,6 +8068,7 @@ const _NetworkPlus = (function () {
           onClick: (button) => requestFullClipboardAction('requestBody', row, '', button, 'request body'),
         },
       ]);
+      attachPaneSearch(reqBodyPane);
     } else {
       reqBodyPane.textContent = '(no request body)';
     }
@@ -7799,6 +8109,7 @@ const _NetworkPlus = (function () {
       },
     ]);
     reqRawPane.appendChild(rawReqPre);
+    attachPaneSearch(reqRawPane);
 
     // === RESPONSE TABS ===
 
@@ -8237,9 +8548,16 @@ const _NetworkPlus = (function () {
   // Section 14: Export [U1][U2]
   // ============================================================
   function getExportRows() {
-    // [U2] Export only filtered (displayed) rows
+    // [U2] Export only filtered (displayed) rows — including the search
+    // matches-only toggle, so the exported set is exactly what the list shows.
     filterRows();
-    return state.filteredRows;
+    refreshSearchMatches();
+    return planVisibleSearchRows(
+      state.filteredRows,
+      state.search.rowColors,
+      state.search.matchesOnly,
+      hasActiveSearchKeywords(state.search.keywords),
+    );
   }
 
   function buildHarLogFromRows(rows, responseContents) {
@@ -8533,6 +8851,7 @@ const _NetworkPlus = (function () {
         restorePlan.sampleCapturePreviousColumnFilterRules;
       state.search.keywords = restorePlan.searchKeywords;
       state.search.scope = restorePlan.searchScope;
+      state.search.matchesOnly = restorePlan.searchMatchesOnly;
       state.search.matches = [];
       state.search.currentIndex = -1;
       state.search.rowColors.clear();
@@ -9430,6 +9749,7 @@ const _NetworkPlus = (function () {
     const searchToggleBtn = $('#searchToggleBtn');
     const searchAddBtn = $('#searchAddBtn');
     const searchScopeBtn = $('#searchScopeBtn');
+    const searchMatchesOnlyBtn = $('#searchMatchesOnlyBtn');
     // Track search panel visibility
     let searchPanelVisible = false;
 
@@ -9493,6 +9813,17 @@ const _NetworkPlus = (function () {
         input.checked = state.search.scope[input.dataset.searchScope] === true;
       }
     }
+
+    searchMatchesOnlyBtn.addEventListener('click', () => {
+      state.search.matchesOnly = !state.search.matchesOnly;
+      renderBody();
+      updateSearchUI();
+      setStatus(
+        state.search.matchesOnly
+          ? 'Showing only requests that match search keywords'
+          : 'Showing all requests with search highlights',
+      );
+    });
 
     searchScopeBtn.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -9726,13 +10057,20 @@ const _NetworkPlus = (function () {
         searchCount.textContent = '';
         searchCount.style.color = '';
       }
+      searchMatchesOnlyBtn.setAttribute('aria-pressed', String(srch.matchesOnly === true));
+      // Body-search progress and mode notes live inside the search panel where
+      // they have reserved space; putting them in the top bar resized the count
+      // span continuously during capture and made the buttons jitter.
       const unsearchedBodies = srch.scope.resBody && activeKws.length > 0
         ? countUnsearchedResponseBodies(state.filteredRows)
         : 0;
-      if (unsearchedBodies > 0) {
-        searchCount.textContent += ' · ' + unsearchedBodies + ' bodies not searched';
-      }
-      queueSearchCountAnnouncement(searchCount.textContent);
+      const noticeParts = [];
+      if (srch.matchesOnly && activeKws.length > 0) noticeParts.push('Showing matches only');
+      if (unsearchedBodies > 0) noticeParts.push(unsearchedBodies + ' bodies not searched');
+      const notice = $('#searchPanelNotice');
+      if (notice) notice.textContent = noticeParts.join(' · ');
+      const announcement = [searchCount.textContent, ...noticeParts].filter(Boolean).join(' · ');
+      queueSearchCountAnnouncement(announcement);
       // Update per-keyword counts in search rows
       renderSearchRows();
     }
@@ -10133,6 +10471,10 @@ const _NetworkPlus = (function () {
     countActiveColumnFilters,
     isVisualOnlyColumn,
     hasActiveSearchKeywords,
+    extractCharsetFromContentType,
+    planVisibleSearchRows,
+    getWrappedMatchIndex,
+    findHttpHeaderBodySplit,
     preserveMatchingRowIndex,
     planKeywordSearchNavigation,
     planKeywordHighlights,
