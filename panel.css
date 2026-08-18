@@ -103,8 +103,25 @@ html[data-theme="light"]{
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 12px;border-top:2px solid transparent;border-bottom:1px solid var(--border);background:var(--topbar-bg);position:sticky;top:0;z-index:3;box-shadow:var(--shadow-sm);overflow-x:auto;overflow-y:hidden;scroll-padding-inline:2px;scrollbar-width:thin;flex:0 0 auto}
 .topbar .left,.topbar .right{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 .topbar .separator{width:1px;height:22px;background:var(--border);margin:0 4px}
-.brand{display:inline-flex;align-items:center;gap:6px;padding:3px 14px;white-space:nowrap;border-radius:8px;background:var(--accent-dim);min-height:32px}
-.brand-icon{font-size:16px;line-height:1}
+.brand{position:relative;display:inline-flex;align-items:center;gap:6px;padding:3px 14px;white-space:nowrap;border-radius:8px;background:var(--accent-dim);min-height:32px;overflow:visible;cursor:pointer}
+.topbar button.brand{border-color:transparent;background:var(--accent-dim);padding:3px 14px 3px 35px;font-size:14px}
+.topbar button.brand:hover{background:var(--accent-dim);color:var(--fg)}
+.brand-cat{position:absolute;top:-4px;left:9px;width:22px;height:15px;overflow:visible;pointer-events:none;transition:transform .25s cubic-bezier(.2,.8,.3,1)}
+.topbar button.brand:hover .brand-cat,.topbar button.brand:focus-visible .brand-cat{transform:translateY(-2px)}
+.brand-cat-fur{fill:var(--cat)}
+.brand-cat-inner{fill:var(--cat-blush)}
+.brand-cat-eye{fill:var(--brew);transform-box:fill-box;transform-origin:50% 50%;animation:support-cat-blink 5.2s ease-in-out infinite}
+.brand-cat-ear--left{transform-box:fill-box;transform-origin:50% 100%;animation:support-cat-ear 8s ease-in-out infinite}
+.brand-cup{width:17px;height:17px;overflow:visible;flex-shrink:0}
+.brand-cup-body{fill:var(--accent-fill)}
+.brand-cup-handle{fill:none;stroke:var(--accent-fill);stroke-width:2.6;stroke-linecap:round}
+.brand-steam-group{opacity:.5;transition:opacity .2s}
+.brand-steam{fill:none;stroke:var(--text-accent);stroke-width:1.8;stroke-linecap:round;opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:support-steam-rise 5.6s ease-in-out infinite}
+.brand-steam--b{animation-delay:1.2s}
+.topbar button.brand:hover .brand-steam-group,.topbar button.brand:focus-visible .brand-steam-group{opacity:1}
+.topbar button.brand:hover .brand-steam,.topbar button.brand:focus-visible .brand-steam{animation-duration:2.4s}
+.brand-support-hint{display:inline-flex;align-items:center;max-width:0;opacity:0;overflow:hidden;color:var(--text-accent);font-size:11px;font-weight:700;letter-spacing:.02em;transition:max-width .28s cubic-bezier(.2,.8,.3,1),opacity .2s ease .06s}
+.topbar button.brand:hover .brand-support-hint,.topbar button.brand:focus-visible .brand-support-hint{max-width:80px;opacity:1}
 .brand-text{font-size:14px;font-weight:800;letter-spacing:-0.3px;color:var(--fg);line-height:1}
 .brand-plus{color:var(--text-accent);font-weight:900;font-size:16px}
 .brand-sub{font-size:9px;color:var(--text-muted);font-weight:500;letter-spacing:0.5px;text-transform:uppercase;align-self:flex-end;margin-bottom:2px;margin-left:2px}
@@ -119,7 +136,8 @@ html[data-theme="light"]{
 .topbar.recording{border-top:2px solid var(--status-5xx-text)}
 .topbar.recording #pauseBtn{color:var(--status-5xx-text)}
 @media (max-width:1366px){
-  .brand{padding:3px 8px}
+  .topbar button.brand{padding:3px 8px 3px 29px}
+  .brand-cat{left:6px}
   .brand-sub{display:none}
 }
 
@@ -434,8 +452,6 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .support-form{display:grid;gap:12px;padding:16px;min-width:0}
 .support-form h2{margin:0;font-size:15px;font-style:normal;text-align:center}
 .support-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
-.topbar button.support-btn{border-color:transparent;background:transparent;transition:background-color .15s,border-color .15s,color .15s,transform .15s}
-.topbar button.support-btn:hover{transform:scale(1.12)}
 .support-hero{display:flex;align-items:center;justify-content:center;padding:6px 0 2px;border-radius:10px;background:radial-gradient(60% 80% at 50% 65%,var(--accent-dim) 0%,transparent 70%)}
 .support-hero-art{width:184px;height:118px;overflow:visible}
 .support-cat-body,.support-cat-head,.support-cat-ear,.support-cat-paw{fill:var(--cat)}
@@ -678,8 +694,8 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .search-color-btn,.search-color-swatch,.hl-swatch,.timing-bar-seg,.json-tree-summary::before,.copy-toast,.sample-guide-btn,.sample-exit-btn,.status-details-toggle{transition:none}
   .search-color-btn:hover,.search-color-swatch:hover,.hl-swatch:hover{transform:none}
   .copy-toast,.copy-toast.show{transform:translateX(-50%)}
-  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-cat-tail,.support-cat-eye,.support-cat-ear--left,.topbar button.support-btn{animation:none;transition:none}
-  .topbar button.support-btn:hover{transform:none}
+  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-cat-tail,.support-cat-eye,.support-cat-ear--left,.brand-cat,.brand-cat-eye,.brand-cat-ear--left,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
+  .topbar button.brand:hover .brand-cat,.topbar button.brand:focus-visible .brand-cat{transform:none}
   .support-option-cta:hover{transform:none;filter:none}
   #supportDialog[open],#supportDialog[open]::backdrop{animation:none}
   .support-option:hover{transform:none}

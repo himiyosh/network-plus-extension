@@ -2502,19 +2502,26 @@ describe('optional support dialog', () => {
     js.indexOf('// Tab switching for inspector panels'),
   );
 
-  test('toolbar keeps the support trigger beside the brand and icon-only so the row still fits', () => {
-    // The toolbar has no spare width at 1280px; a text label pushes a trigger
-    // off-screen, which defeats the button. Keep it icon-only, and anchored to
-    // the brand rather than trailing the overflow-prone right cluster.
-    expect(html).toMatch(
-      /<span class="brand-sub">for DevTools<\/span>\s*<\/div>\s*<button id="supportBtn"[^>]*class="icon-btn support-btn">☕<\/button>/,
-    );
+  test('the brand pill itself is the support trigger, with the cat and cup inline', () => {
+    // The brand and the support trigger are one control: the pill carries the
+    // dialog trigger role, the peeking cat, the steaming cup, and a hover-only
+    // hint — no separate ☕ button that would spend toolbar width.
     const trigger = html.match(/<button id="supportBtn"[^>]*>/)[0];
+    expect(trigger).toContain('class="brand support-btn"');
     expect(trigger).toContain('aria-haspopup="dialog"');
     expect(trigger).toContain('aria-controls="supportDialog"');
-    expect(trigger).toContain('aria-label="Support Network+ development, optional"');
+    expect(trigger).toContain('aria-label="Network+ for DevTools — support development, optional"');
     // A modal dialog trigger must not advertise an expandable region.
     expect(trigger).not.toContain('aria-expanded');
+    const brandBlock = html.slice(html.indexOf('<button id="supportBtn"'), html.indexOf('</button>', html.indexOf('<button id="supportBtn"')));
+    for (const part of ['brand-cat', 'brand-cat-eye', 'brand-cup', 'brand-steam', 'brand-support-hint', 'brand-sub']) {
+      expect(brandBlock).toContain(part);
+    }
+    // Decorative SVGs stay out of the accessibility tree and inline (CSP).
+    expect(brandBlock).toMatch(/<svg class="brand-cat"[^>]*aria-hidden="true"[^>]*focusable="false"/);
+    expect(brandBlock).not.toMatch(/<img\b|<use\b|href=|url\(/);
+    // Exactly one toolbar support trigger remains.
+    expect(html.match(/id="supportBtn"/g)).toHaveLength(1);
   });
 
   test('support dialog links are exact and external-safe', () => {
@@ -2563,20 +2570,31 @@ describe('optional support dialog', () => {
     expect(supportBlock).toMatch(/addEventListener\('cancel'.*supportDialog\.close\(\)/);
   });
 
-  test('the support trigger is frameless at rest but still signals interactivity', () => {
-    const rule = css.match(/\.topbar button\.support-btn\{([^}]*)\}/)[1];
-    // Transparent, not removed: the toolbar keeps the border box so the row
-    // never reflows — the same technique the recording indicator uses.
+  test('the brand trigger keeps a reflow-free border box and visible focus', () => {
+    const rule = css.match(/\.topbar button\.brand\{([^}]*)\}/)[1];
+    // Transparent border, not removed: the toolbar keeps the border box so the
+    // row never reflows when the generic hover border appears.
     expect(rule).toContain('border-color:transparent');
-    expect(rule).toContain('background:transparent');
     expect(rule).not.toContain('border:none');
-    // A frameless control still has to expose itself on hover and keyboard focus.
     expect(css).toMatch(/\.topbar button:hover\{[^}]*border-color:var\(--accent\)/);
     expect(css).toMatch(/\.topbar button:focus-visible[^{]*\{[^}]*outline:2px solid var\(--accent\)/);
+    // The peeking cat must stay inside the topbar's 6px padding overflow
+    // budget (.topbar clips vertically): 4px at rest plus a 2px hover rise.
+    expect(css).toContain('.brand-cat{position:absolute;top:-4px;');
+    expect(css).toMatch(/\.brand-cat[^}]*\{transform:translateY\(-2px\)\}/);
+    // Idle life is calm (blink + faint steam); the invitation appears on hover.
+    expect(css).toContain('.brand-steam-group{opacity:.5;');
+    expect(css).toMatch(/\.topbar button\.brand:hover \.brand-steam-group[^{]*\{opacity:1\}/);
+    // Reduced motion freezes every brand animation.
+    const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
+    for (const part of ['.brand-cat', '.brand-cat-eye', '.brand-steam', '.brand-support-hint']) {
+      expect(reducedMotion).toContain(part);
+    }
   });
 
   test('support illustration is inline, decorative, and free of remote assets', () => {
-    const hero = html.slice(html.indexOf('<div class="support-hero">'), html.indexOf('</svg>'));
+    const heroStart = html.indexOf('<div class="support-hero">');
+    const hero = html.slice(heroStart, html.indexOf('</svg>', heroStart));
     expect(hero).toContain('aria-hidden="true"');
     expect(hero).toContain('focusable="false"');
     // The MV3 CSP and the package check both forbid non-local assets, so the

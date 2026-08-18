@@ -2735,19 +2735,21 @@ browserTest(
       expect(desktopMeasurement.brandDisplay).not.toBe('none');
       expect(desktopMeasurement.brandSubtitleDisplay).toBe('none');
       expect(desktopMeasurement.brandWidth).toBeLessThan(150);
-      expect(desktopMeasurement.brandPaddingLeft).toBe('8px');
+      // The peeking-cat slot reserves 29px on the left in compact mode
+      // (cat at 6px + 22px art + 1px breathing room); the right stays 8px.
+      expect(desktopMeasurement.brandPaddingLeft).toBe('29px');
       expect(desktopMeasurement.brandPaddingRight).toBe('8px');
 
       const compactBoundaryMeasurement = measurementsByWidth.get(1366);
       expect(compactBoundaryMeasurement.brandSubtitleDisplay).toBe('none');
-      expect(compactBoundaryMeasurement.brandPaddingLeft).toBe('8px');
+      expect(compactBoundaryMeasurement.brandPaddingLeft).toBe('29px');
       expect(compactBoundaryMeasurement.brandPaddingRight).toBe('8px');
 
       const wideBoundaryMeasurement = measurementsByWidth.get(1367);
       const wideMeasurement = measurementsByWidth.get(1500);
       for (const measurement of [wideBoundaryMeasurement, wideMeasurement]) {
         expect(measurement.brandSubtitleDisplay).not.toBe('none');
-        expect(measurement.brandPaddingLeft).toBe('14px');
+        expect(measurement.brandPaddingLeft).toBe('35px');
         expect(measurement.brandPaddingRight).toBe('14px');
         expect(measurement.brandWidth).toBeGreaterThan(compactBoundaryMeasurement.brandWidth);
       }
@@ -3067,7 +3069,7 @@ browserTest(
       ).toThrow(REVERSE_TOOLBAR_FOCUS_CONTRACT);
 
       const pointerCases = [
-        { caseId: 'exportHarBtn@545', width: 545, actionId: 'exportHarBtn' },
+        { caseId: 'exportHarBtn@519', width: 519, actionId: 'exportHarBtn' },
         { caseId: 'presetsBtn@800', width: 800, actionId: 'presetsBtn' },
         {
           caseId: 'exportHarBtn@500-sub-4px',
@@ -3201,8 +3203,8 @@ browserTest(
         })),
       ).toEqual([
         {
-          caseId: 'exportHarBtn@545',
-          width: 545,
+          caseId: 'exportHarBtn@519',
+          width: 519,
           actionId: 'exportHarBtn',
           clickTargets: ['exportHarBtn'],
           actionDeliveries: 1,

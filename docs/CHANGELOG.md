@@ -4,6 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- Merged the Network+ brand and the support (donation) button into one living toolbar mark: the dialog's cat now peeks over the brand pill (blinking, with an occasional ear flick) beside a coffee cup with faint always-on steam. Hovering or focusing the mark wakes the cat, strengthens the steam, and slides in a "Support ♥" hint; clicking opens the existing Support dialog. The separate ☕ button is gone, the toolbar is slightly narrower, and all motion stops under `prefers-reduced-motion`.
 - Added match options to the search panel — **Aa** (match case), **\b** (whole word), **.\*** (regular expression) — applying to the request-list keywords, the table cell marks, and the in-pane Body/Raw search. Invalid regular expressions mark the input red and match nothing instead of erroring.
 - Search preferences (scope, match options, and the Matches only state — never keyword text) now persist through `chrome.storage.local`, the same mechanism as the theme.
 - <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> is now context-aware: with focus inside a detail Body/Raw view it focuses that pane's own search bar; elsewhere it toggles the request search panel as before.

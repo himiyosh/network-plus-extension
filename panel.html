@@ -11,12 +11,28 @@
     <div class="left">
       <button id="pauseBtn" title="Pause recording" aria-label="Pause recording" class="icon-btn">⏸️</button>
       <div class="separator"></div>
-      <div class="brand">
-        <span class="brand-icon" aria-hidden="true">📡</span>
+      <button id="supportBtn" title="Support Network+ development (optional)" aria-label="Network+ for DevTools — support development, optional" aria-haspopup="dialog" aria-controls="supportDialog" class="brand support-btn">
+        <svg class="brand-cat" viewBox="0 0 24 17" aria-hidden="true" focusable="false">
+          <path class="brand-cat-fur brand-cat-ear--left" d="M4 10 L5 1.5 L11 7 Z"/>
+          <path class="brand-cat-fur" d="M20 10 L19 1.5 L13 7 Z"/>
+          <path class="brand-cat-inner" d="M6 8.6 L6.6 4.4 L10 7.6 Z"/>
+          <path class="brand-cat-inner" d="M18 8.6 L17.4 4.4 L14 7.6 Z"/>
+          <path class="brand-cat-fur" d="M2.5 17 a9.5 8.5 0 0 1 19 0 Z"/>
+          <ellipse class="brand-cat-eye" cx="8.4" cy="13.6" rx="1.5" ry="2"/>
+          <ellipse class="brand-cat-eye" cx="15.6" cy="13.6" rx="1.5" ry="2"/>
+        </svg>
         <span class="brand-text">Network<span class="brand-plus">+</span></span>
         <span class="brand-sub">for DevTools</span>
-      </div>
-      <button id="supportBtn" title="Support Network+ development (optional)" aria-label="Support Network+ development, optional" aria-haspopup="dialog" aria-controls="supportDialog" class="icon-btn support-btn">☕</button>
+        <svg class="brand-cup" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <g class="brand-steam-group">
+            <path class="brand-steam" d="M7 7 C6 5.5 8 4.5 7 2.5"/>
+            <path class="brand-steam brand-steam--b" d="M11 7 C10 5.5 12 4.5 11 2.5"/>
+          </g>
+          <path class="brand-cup-body" d="M3.5 9 h11 v4.2 a4 4 0 0 1 -4 4 h-3 a4 4 0 0 1 -4 -4 Z"/>
+          <path class="brand-cup-handle" d="M14.5 10.5 a2.7 2.7 0 0 1 0 5"/>
+        </svg>
+        <span class="brand-support-hint" aria-hidden="true">Support&nbsp;♥</span>
+      </button>
       <div class="separator"></div>
       <button id="searchToggleBtn" title="Toggle search panel (Ctrl+F)" aria-keyshortcuts="Control+F Meta+F" aria-controls="searchPanel" aria-expanded="false">🔍 Search</button>
       <span id="searchCount" class="search-count" aria-hidden="true"></span><span id="searchCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>

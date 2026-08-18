@@ -115,7 +115,7 @@ The policy URL must be opened in a signed-out browser after these changes are me
 
 ### Optional support links and payments
 
-The `☕` toolbar button opens a local Support dialog with user-activated links to https://github.com/sponsors/himiyosh and https://ko-fi.com/studio344. It does not embed a payment form, add affiliate codes, gate functionality, transmit captured traffic, or receive payment, card, or account data. Every feature remains free. Record these facts in reviewer notes so the optional donation routes are not mistaken for paid extension functionality. Final policy acceptance is determined by Chrome Web Store review.
+The Network+ brand button in the toolbar (the mark with the cat and coffee cup) opens a local Support dialog with user-activated links to https://github.com/sponsors/himiyosh and https://ko-fi.com/studio344. It does not embed a payment form, add affiliate codes, gate functionality, transmit captured traffic, or receive payment, card, or account data. Every feature remains free. Record these facts in reviewer notes so the optional donation routes are not mistaken for paid extension functionality. Final policy acceptance is determined by Chrome Web Store review.
 
 ## Distribution recommendation
 
@@ -137,7 +137,7 @@ No account, credentials, subscription, remote service, or live customer traffic 
 5. Select `Sample guide`. Before selecting `Reveal evidence`, verify that only four investigation questions are shown. Select `Reveal evidence` and verify the failed request, HTTP 503, 2,450 ms total, `Wait (TTFB) · 2,200 ms`, `Retry-After: 30 seconds`, and the browser-evidence limitation.
 6. Select the export action, then select `Export sanitized HAR`. Verify that `network-plus-sanitized.har` is downloaded only after the user action and that the HAR records the sanitization policy. Do not select full output for routine review evidence.
 7. Select `Clear`. Verify that the sample rows and details disappear, recording returns to its prior state, and `Undo clear` is offered for 10 seconds. Select `Undo clear` once to restore the bounded snapshot, then select `Clear` again to exit sample mode.
-8. Select the `☕` toolbar button. Verify that the Support dialog opens, lists the GitHub Sponsors and Ko-fi links, states that Network+ sends them no data, contains no payment form, and issues no network request when opened. Verify that each option exposes one user-activated action that opens its page in a browser tab, that no clipboard write occurs, and that `Esc` or `Close` returns focus to the `☕` button.
+8. Select the Network+ brand button in the toolbar (the mark with the cat and coffee cup). Verify that the Support dialog opens, lists the GitHub Sponsors and Ko-fi links, states that Network+ sends them no data, contains no payment form, and issues no network request when opened. Verify that each option exposes one user-activated action that opens its page in a browser tab, that no clipboard write occurs, and that `Esc` or `Close` returns focus to the brand button.
 
 ## Final operator checklist
 

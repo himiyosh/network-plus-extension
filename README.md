@@ -324,7 +324,7 @@ Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or pa
 | GitHub Sponsors | [github.com/sponsors/himiyosh](https://github.com/sponsors/himiyosh) | One-time or monthly · no platform fee |
 | Ko-fi | [ko-fi.com/studio344](https://ko-fi.com/studio344) | One-time · no account needed |
 
-The same links live in the panel, behind the ☕ button next to the Network+ brand in the toolbar. Network+ sends those sites no captured traffic and no usage data, and cannot tell whether you visited or contributed.
+The same links live in the panel, behind the Network+ brand button itself — the toolbar mark with the peeking cat and steaming cup opens the Support dialog. Network+ sends those sites no captured traffic and no usage data, and cannot tell whether you visited or contributed.
 
 Non-financial help counts just as much: [report a bug or suggest an improvement](https://github.com/himiyosh/network-plus-extension/issues/new/choose), star the repository, or pass it on to a colleague.
 
