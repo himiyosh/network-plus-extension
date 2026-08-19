@@ -1,6 +1,6 @@
 # Chrome Web Store submission dossier (en-US)
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-19
 
 ## Submission status and evidence boundary
 
@@ -8,20 +8,20 @@ This dossier is a repository-local recommendation for a future Chrome Web Store 
 
 ### Upload artifact
 
-- **Release:** `v1.8.0`
-- **ZIP:** `network-plus-extension-1.8.0.zip`
-- **Size:** `150672 bytes`
-- **SHA-256:** `6dfd5cf599f6adf50ddf70103b48a5b9006655065e9887ec7a5c434e6a4c8623`
-- **Download:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.8.0/network-plus-extension-1.8.0.zip
+- **Release:** `v1.9.0`
+- **ZIP:** `network-plus-extension-1.9.0.zip`
+- **Size:** `151681 bytes`
+- **SHA-256:** `c0f3018ff0cf30b868a41c9937452f776d6f1c99daa523a7998a58991e75175f`
+- **Download:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.9.0/network-plus-extension-1.9.0.zip
 
-The ZIP was downloaded from the public GitHub release and its size and SHA-256 were re-verified on 2026-08-18. Archive entries carry fixed timestamps, so `npm run extension:package` at tag `v1.8.0` reproduces the same bytes. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
+The size and SHA-256 above were produced by `npm run extension:package` at the reviewed commit and reproduced by a second local build. Archive entries carry fixed timestamps, so the same command at tag `v1.9.0` reproduces the same bytes, and the publishing workflow refuses to create the release if the archive it builds does not match this digest. The download link resolves once that workflow has published `v1.9.0`; until then the artifact exists only as a local build. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
 
 ### Observed repository facts
 
-- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.8.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
+- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.9.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
 - The same runtime uses Chromium extension APIs without an Edge-only code path. Chrome 151 loaded the manifest without extension errors, all 98 real-browser regression scenarios passed, and the Network+ DevTools panel was confirmed manually.
-- The public `v1.8.0` GitHub release is the current repository-backed upload source. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
+- The `v1.9.0` GitHub release is the current repository-backed upload source; it is published by the release workflow when the version bump reaches `main`. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
 
 ## Developer account prerequisites
 
@@ -140,6 +140,16 @@ No account, credentials, subscription, remote service, or live customer traffic 
 6. Select the export action, then select `Export sanitized HAR`. Verify that `network-plus-sanitized.har` is downloaded only after the user action and that the HAR records the sanitization policy. Do not select full output for routine review evidence.
 7. Select `Clear`. Verify that the sample rows and details disappear, recording returns to its prior state, and `Undo clear` is offered for 10 seconds. Select `Undo clear` once to restore the bounded snapshot, then select `Clear` again to exit sample mode.
 8. Select the Network+ brand button in the toolbar (the mark with the cat and coffee cup). Verify that the Support dialog opens, lists the GitHub Sponsors and Ko-fi links, states that Network+ sends them no data, contains no payment form, and issues no network request when opened. Verify that each option exposes one user-activated action that opens its page in a browser tab, that no clipboard write occurs, and that `Esc` or `Close` returns focus to the brand button.
+
+## Updating an already-listed item
+
+The sections above describe a first submission. When a Chrome Web Store item already exists for this extension, the work is a package update against that item: the account prerequisites are already satisfied and no new item is created.
+
+- The `manifest.json` version must be strictly higher than the version the store currently carries. v1.9.0 satisfies this against v1.8.0, and the release workflow refuses to publish a version that already has a GitHub release, so a version cannot be silently reused.
+- Upload `network-plus-extension-1.9.0.zip` obtained from the trusted release route as a new package on the existing item, and compare the complete 64-character SHA-256 recorded above against the downloaded file before submitting.
+- Re-check the listing text, screenshots, and privacy answers against this dossier. The listing is not versioned in the dashboard, so a stale screenshot or description stays live until it is replaced; the four 1280 x 800 screenshots in `docs/store-assets/` were re-captured for this version because the toolbar mark and status bar changed.
+- An update is a fresh review. Distribution and visibility settings carry over from the existing item unless the operator changes them, and the previously reviewed package stays live until the new one is approved.
+- Field labels and the navigation path for package updates must be confirmed in the live dashboard, which can change independently of this repository.
 
 ## Final operator checklist
 

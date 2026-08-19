@@ -1,6 +1,6 @@
 {
   "name": "network-plus-extension",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Network analysis with sanitized HAR, retention limits, integrated search, accessible UI, and keyboard controls.",
   "private": true,
   "main": "devtools.js",

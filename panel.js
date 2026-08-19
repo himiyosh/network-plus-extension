@@ -148,7 +148,7 @@ const _NetworkPlus = (function () {
    }),
   });
   const TIMING_EVIDENCE_LIMITATION = 'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause on the server.';
-  const TEST_EXTENSION_VERSION_FALLBACK = '1.8.0';
+  const TEST_EXTENSION_VERSION_FALLBACK = '1.9.0';
   const SAFE_SUPPORT_UNKNOWN = 'unknown';
   const SAFE_SUPPORT_OTHER_OS = 'Other/unknown';
   const SAFE_SUPPORT_REVIEW_NOTICE = 'This summary intentionally excludes captured traffic. Review it before posting to a public issue.';
@@ -2575,6 +2575,44 @@ const _NetworkPlus = (function () {
   // Rows to render given the matches-only toggle: with an active search and the
   // toggle on, only rows present in matchedRows (a Map or Set keyed by row) stay
   // visible; otherwise the full sorted list is returned unchanged.
+  // Describes the request counter so it always reports what the grid is really
+  // showing: the denominator is everything captured, the numerator is what
+  // survived the column filters and the search, and each narrowing says so.
+  function planRequestCountSummary(context) {
+    const total = Math.max(0, Number(context && context.totalCount) || 0);
+    const shown = Math.max(0, Number(context && context.shownCount) || 0);
+    const matched = Math.max(0, Number(context && context.matchedCount) || 0);
+    const filters = Math.max(0, Number(context && context.activeFilterCount) || 0);
+    const searching = !!(context && context.hasActiveSearch);
+    const matchesOnly = !!(context && context.matchesOnly);
+    const count = (value) => value.toLocaleString('en-US');
+
+    // Nothing captured yet: narrowing has nothing to describe, so say only that.
+    if (total === 0) return { text: '0 requests', accessibleText: '0 requests' };
+
+    const parts = [shown === total ? count(total) + ' requests' : count(shown) + ' / ' + count(total) + ' requests'];
+    const spoken = [
+      shown === total
+        ? count(total) + ' requests'
+        : 'showing ' + count(shown) + ' of ' + count(total) + ' requests',
+    ];
+    if (searching) {
+      if (matchesOnly) {
+        parts.push('matches only');
+        spoken.push('showing search matches only');
+      } else {
+        parts.push(count(matched) + ' matching');
+        spoken.push(count(matched) + ' matching the search');
+      }
+    }
+    if (filters > 0) {
+      const label = filters === 1 ? 'column filter' : 'column filters';
+      parts.push(count(filters) + ' ' + label);
+      spoken.push(count(filters) + ' active ' + label);
+    }
+    return { text: parts.join(' · '), accessibleText: spoken.join(', ') };
+  }
+
   function planVisibleSearchRows(sortedRows, matchedRows, matchesOnly, hasActiveSearch) {
     const rows = Array.isArray(sortedRows) ? sortedRows : [];
     if (!matchesOnly || !hasActiveSearch) return rows;
@@ -7154,8 +7192,9 @@ const _NetworkPlus = (function () {
     if (retention.settingWarning) detailParts.push(retention.settingWarning);
     // Visible text stays short; the full bookkeeping lives in the tooltip.
     // Retention events themselves are announced via queueRetentionSummary.
+    // The retention limit already sits on its own toolbar button, so the status
+    // bar shows only what changes on its own: the body cache and any warning.
     const visibleParts = [
-      'Retention ' + presentation.policyLabel.replace(' requests', ''),
       'cache ' + fmtBytes(retention.responseCacheBytes) + ' / ' + fmtBytes(MAX_RESPONSE_CACHE_BYTES),
     ];
     if (retention.settingWarning) visibleParts.push(retention.settingWarning);
@@ -7171,20 +7210,32 @@ const _NetworkPlus = (function () {
     }
   }
 
+  // Rows actually on screen: column filters first, then the search when it is
+  // narrowing the grid. Sorting cannot change the count, so it is skipped.
+  function countVisibleRows() {
+    return planVisibleSearchRows(
+      state.filteredRows,
+      state.search.rowColors,
+      state.search.matchesOnly,
+      hasActiveSearchKeywords(state.search.keywords),
+    ).length;
+  }
+
   function updateTableSummary(visibleRowCount, visibleBytes) {
     if (Number.isFinite(visibleBytes)) state.visibleBytes = visibleBytes;
     const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
-    const requestCountText =
-      visibleRowCount +
-      ' / ' +
-      state.rows.length +
-      ' requests' +
-      (activeFilterCount > 0
-        ? ' · ' + activeFilterCount + ' active column ' + (activeFilterCount === 1 ? 'filter' : 'filters')
-        : '');
+    const summary = planRequestCountSummary({
+      shownCount: Number.isFinite(visibleRowCount) ? visibleRowCount : countVisibleRows(),
+      totalCount: state.rows.length,
+      matchedCount: state.search.rowColors.size,
+      hasActiveSearch: hasActiveSearchKeywords(state.search.keywords),
+      matchesOnly: state.search.matchesOnly,
+      activeFilterCount,
+    });
+    const requestCountText = summary.text;
     const counter = $('#counter');
     if (counter) counter.textContent = requestCountText;
-    queueRequestCountAnnouncement(requestCountText);
+    queueRequestCountAnnouncement(summary.accessibleText);
     const filterButton = $('#filterBtn');
     if (filterButton) {
       filterButton.textContent =
@@ -7269,7 +7320,7 @@ const _NetworkPlus = (function () {
     refreshSearchMatches();
     if (rowsToAppend.length === 0) {
       updateEmptyState(state.filteredRows.length);
-      updateTableSummary(state.filteredRows.length);
+      updateTableSummary(countVisibleRows());
       restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);
       return true;
     }
@@ -7295,7 +7346,7 @@ const _NetworkPlus = (function () {
     tbody.appendChild(fragment);
     state.visibleBytes += rowsToAppend.reduce((total, row) => total + (row.size || 0), 0);
     updateEmptyState(state.filteredRows.length);
-    updateTableSummary(state.filteredRows.length);
+    updateTableSummary(countVisibleRows());
     restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);
     return true;
   }
@@ -7336,7 +7387,7 @@ const _NetworkPlus = (function () {
       const rowToFocus = tbody.querySelector(`tr[data-row-id="${focusRowId}"]`);
       if (rowToFocus) rowToFocus.focus({ preventScroll: true });
     }
-    updateTableSummary(state.filteredRows.length);
+    updateTableSummary(countVisibleRows());
     return true;
   }
 
@@ -9381,7 +9432,7 @@ const _NetworkPlus = (function () {
         filterRows();
         render();
         syncSearchUIAfterRender();
-        updateTableSummary(state.filteredRows.length);
+        updateTableSummary(countVisibleRows());
         refreshAfterPresetChange('.columns-preset-apply');
         setStatus(preset ? 'Applied preset.' : 'Applied default view.');
       });
@@ -10900,6 +10951,7 @@ const _NetworkPlus = (function () {
     findFirstStatusClassRow,
     renderStatsSummary,
     updateTableSummary,
+    planRequestCountSummary,
     computeStats,
     computeWaterfallBar,
     computeWaterfallRange,

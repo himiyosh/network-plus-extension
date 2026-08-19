@@ -22,7 +22,7 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 
 </div>
 
-**Try it now:** [Download the v1.8.0 release ZIP](https://github.com/himiyosh/network-plus-extension/releases/download/v1.8.0/network-plus-extension-1.8.0.zip) · [What is in v1.8.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.8.0) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
+**Try it now:** [Download the v1.9.0 release ZIP](https://github.com/himiyosh/network-plus-extension/releases/download/v1.9.0/network-plus-extension-1.9.0.zip) · [What is in v1.9.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.9.0) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
 
 ---
 
@@ -54,7 +54,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 
 ### Install from the release ZIP
 
-1. Download [network-plus-extension-1.8.0.zip](https://github.com/himiyosh/network-plus-extension/releases/download/v1.8.0/network-plus-extension-1.8.0.zip) — see the [v1.8.0 release notes](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.8.0) for what changed.
+1. Download [network-plus-extension-1.9.0.zip](https://github.com/himiyosh/network-plus-extension/releases/download/v1.9.0/network-plus-extension-1.9.0.zip) — see the [v1.9.0 release notes](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.9.0) for what changed.
 2. Extract it into a new folder. The browser loads the folder that contains `manifest.json`, not the ZIP itself.
 3. Open `edge://extensions/` in Microsoft Edge, or `chrome://extensions/` in Google Chrome, and turn on **Developer mode**.
 4. Choose **Load unpacked** and select the folder from step 2.
@@ -276,7 +276,7 @@ Issues and pull requests are welcome. Before opening a PR:
 
 Repository conventions, the panel's section layout, XSS rules, and the review topology are documented in [.github/copilot-instructions.md](.github/copilot-instructions.md).
 
-**Versioning** follows Semantic Versioning. `version` is bumped only at release time — not per commit — and must stay identical across [manifest.json](manifest.json), [package.json](package.json), the top-level and root entries in [package-lock.json](package-lock.json), and the test fallback constant in [panel.js](panel.js). Run `npm run version:check` to verify all five locations and the README release links. Current version: **1.8.0**.
+**Versioning** follows Semantic Versioning. `version` is bumped only at release time — not per commit — and must stay identical across [manifest.json](manifest.json), [package.json](package.json), the top-level and root entries in [package-lock.json](package-lock.json), and the test fallback constant in [panel.js](panel.js). Run `npm run version:check` to verify all five locations and the README release links. Current version: **1.9.0**.
 
 **Releasing** needs no manual step beyond merging. When a version bump reaches `main`, the [Publish Release workflow](.github/workflows/release.yml) rebuilds the package, re-runs the version, package, and store-kit gates, verifies that the archive digest equals the value recorded in the submission dossiers, and publishes the `vX.Y.Z` GitHub release with the ZIP attached and notes generated from that version's changelog section. Pushing the `vX.Y.Z` tag yourself triggers the same workflow. A version that already has a release is skipped rather than republished, so re-runs are safe.
 
