@@ -5,6 +5,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 ## Unreleased
 
 - Recorded the published v1.8.0 release in the Microsoft Edge and Chrome submission dossiers: the ZIP was re-downloaded from the public release and its 150672-byte size and SHA-256 digest were verified against the value the store kits pin.
+- Redrew the brand cat as a sleeping loaf and gave the mark more life: the cat now dozes on the “for DevTools” label with closed-eye arcs, breathing gently, its tail flicking now and then, and a small “z” drifting up beside it. Hovering or focusing the mark wakes it — the eyes open, breathing stops, the steam strengthens and the “Support ♥” hint slides in. The coffee cup is larger with three always-on steam wisps, so it reads as hot without hovering. The floating z and heart moved out of the cat's clipped window, so neither is cut off any more. All of it still stops under `prefers-reduced-motion`.
 - Release publishing is now automated: when a version bump reaches `main` (or a `vX.Y.Z` tag is pushed), CI rebuilds the extension package, verifies that the version, the tag, and the archive digest recorded in the store submission dossiers all agree, and publishes the GitHub release with the ZIP attached and notes generated from that version's changelog section. A version that is already published is skipped rather than republished.
 
 ## v1.8.0 - 2026-08-18

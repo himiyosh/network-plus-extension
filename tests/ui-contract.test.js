@@ -2513,7 +2513,10 @@ describe('optional support dialog', () => {
       'brand-cat-motion',
       'brand-cat',
       'brand-cat-eye',
+      'brand-cat-doze',
+      'brand-cat-tail',
       'brand-cat-paw',
+      'brand-zzz',
       'brand-heart',
       'brand-cup',
       'brand-steam',
@@ -2583,12 +2586,12 @@ describe('optional support dialog', () => {
     expect(rule).not.toContain('border:none');
     expect(css).toMatch(/\.topbar button:hover\{[^}]*border-color:var\(--accent\)/);
     expect(css).toMatch(/\.topbar button:focus-visible[^{]*\{[^}]*outline:2px solid var\(--accent\)/);
-    // The peeking cat hovers above the low, bottom-aligned "for DevTools"
+    // The sleeping cat sits above the low, bottom-aligned "for DevTools"
     // sub-label — the roomiest spot in the pill — with a deliberate 2px air
     // gap so no paw ever touches the letters. The art grazes at most ~4.5px
     // above the pill (~5.5px with the 1px hover rise), inside the topbar's
-    // 6px clip budget. The overflow window enables the duck-and-hide beat,
-    // and compact widths keep a fixed 22px perch when the words are hidden.
+    // 6px clip budget, and compact widths keep a fixed 22px perch when the
+    // words are hidden.
     expect(css).toContain('.brand-cat-window{position:absolute;bottom:calc(100% + 2px);');
     expect(css).toMatch(/\.brand-sub\{position:relative;display:inline-flex/);
     expect(css).toContain('.brand-sub-text{display:none}');
@@ -2596,19 +2599,35 @@ describe('optional support dialog', () => {
     expect(css).toMatch(/\.brand-cat-window\{[^}]*overflow:hidden/);
     // The cup is white porcelain with a brew-toned edge so it reads against
     // both the light and dark pill fills (an unedged accent-colored cup sank
-    // into the background).
+    // into the background), and it carries three always-on steam wisps.
     expect(css).toMatch(/\.brand-cup-body\{fill:var\(--cup\);stroke:var\(--brew\)/);
     expect(css).toMatch(/\.brand-cup-handle\{fill:none;stroke:var\(--cup\)/);
+    expect(css).toContain('.brand-cup{width:20px;height:20px');
+    expect(html.match(/class="brand-steam[ "]/g) || []).toHaveLength(3);
     expect(css).toMatch(/\.brand-cat[^}]*\{transform:translateY\(-1px\)\}/);
-    // Sparse life beats: an occasional duck below the rim and a floating heart.
-    expect(css).toMatch(/\.brand-cat-motion\{[^}]*animation:brand-cat-duck 28s/);
+    // Idle beats: breathing, a slow tail flick, a rare drifting z and heart.
+    expect(css).toMatch(/\.brand-cat-motion\{[^}]*animation:brand-cat-breathe 4\.2s/);
+    expect(css).toMatch(/\.brand-cat-tail\{[^}]*animation:brand-cat-tail-flick 7\.4s/);
+    expect(css).toMatch(/\.brand-zzz\{[^}]*animation:brand-zzz-drift 13s/);
     expect(css).toMatch(/\.brand-heart\{[^}]*animation:brand-heart-float 19s/);
-    // Idle life is calm (blink + faint steam); the invitation appears on hover.
-    expect(css).toContain('.brand-steam-group{opacity:.5;');
+    // The floaters hang off .brand-sub, never inside the clipped cat window:
+    // the motion wrapper closes, the window closes, and only then do they appear.
+    expect(html).toMatch(/<span class="brand-cat-window"[^>]*>\s*<span class="brand-cat-motion">/);
+    expect(html).toMatch(
+      /<\/span>\s*<\/span>\s*<span class="brand-zzz"[^>]*>z<\/span>\s*<span class="brand-heart">/,
+    );
+    // Hover wakes the cat: closed lids give way to open eyes and breathing stops.
+    expect(css).toMatch(/\.brand-cat-eye\{[^}]*opacity:0/);
+    expect(css).toMatch(/\.brand-cat-glint\{[^}]*opacity:0/);
+    expect(css).toMatch(/:hover \.brand-cat-eye[^{]*\{opacity:1\}/);
+    expect(css).toMatch(/:hover \.brand-cat-doze[^{]*\{opacity:0\}/);
+    expect(css).toMatch(/:hover \.brand-cat-motion[^{]*\{animation-play-state:paused\}/);
+    // Steam is legible without hovering; hovering only strengthens it.
+    expect(css).toContain('.brand-steam-group{opacity:.9;');
     expect(css).toMatch(/\.topbar button\.brand:hover \.brand-steam-group[^{]*\{opacity:1\}/);
     // Reduced motion freezes every brand animation.
     const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
-    for (const part of ['.brand-cat', '.brand-cat-motion', '.brand-heart', '.brand-cat-eye', '.brand-steam', '.brand-support-hint']) {
+    for (const part of ['.brand-cat', '.brand-cat-motion', '.brand-heart', '.brand-zzz', '.brand-cat-eye', '.brand-cat-doze', '.brand-cat-tail', '.brand-steam', '.brand-support-hint']) {
       expect(reducedMotion).toContain(part);
     }
   });
