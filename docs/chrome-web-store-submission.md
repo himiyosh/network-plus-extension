@@ -14,14 +14,14 @@ This dossier is a repository-local recommendation for a future Chrome Web Store 
 - **SHA-256:** `c0f3018ff0cf30b868a41c9937452f776d6f1c99daa523a7998a58991e75175f`
 - **Download:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.9.0/network-plus-extension-1.9.0.zip
 
-The size and SHA-256 above were produced by `npm run extension:package` at the reviewed commit and reproduced by a second local build. Archive entries carry fixed timestamps, so the same command at tag `v1.9.0` reproduces the same bytes, and the publishing workflow refuses to create the release if the archive it builds does not match this digest. The download link resolves once that workflow has published `v1.9.0`; until then the artifact exists only as a local build. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
+The ZIP was downloaded from the public GitHub release on 2026-08-19 and its size and SHA-256 were re-verified; the downloaded file is byte-identical to the local build. Archive entries carry fixed timestamps, so `npm run extension:package` at tag `v1.9.0` reproduces the same bytes, and the publishing workflow refuses to create a release whose archive does not match this digest. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
 
 ### Observed repository facts
 
 - `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.9.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
 - The same runtime uses Chromium extension APIs without an Edge-only code path. Chrome 151 loaded the manifest without extension errors, all 98 real-browser regression scenarios passed, and the Network+ DevTools panel was confirmed manually.
-- The `v1.9.0` GitHub release is the current repository-backed upload source; it is published by the release workflow when the version bump reaches `main`. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
+- The public `v1.9.0` GitHub release is the current repository-backed upload source. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
 
 ## Developer account prerequisites
 
