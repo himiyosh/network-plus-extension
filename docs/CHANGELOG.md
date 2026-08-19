@@ -2,6 +2,10 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
+## Unreleased
+
+- No changes have been recorded since v1.9.0.
+
 ## v1.9.0 - 2026-08-19
 
 - Refreshed the release media for the redrawn panel: the four 1280x800 store screenshots and the README tour GIF were re-captured from the local synthetic sample, so the toolbar mark and the status bar in the listing match what v1.9.0 ships. Brand animation is now frozen outright for captures rather than paused on a chosen frame, so repeat captures are identical.
