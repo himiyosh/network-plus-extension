@@ -4351,6 +4351,62 @@ describe('deserializeFilterState', () => {
   });
 });
 
+describe('planRequestCountSummary', () => {
+  const summary = (overrides) =>
+    np.planRequestCountSummary({
+      shownCount: 1967,
+      totalCount: 1967,
+      matchedCount: 0,
+      hasActiveSearch: false,
+      matchesOnly: false,
+      activeFilterCount: 0,
+      ...overrides,
+    });
+
+  test('states a single total when nothing narrows the grid', () => {
+    expect(summary().text).toBe('1,967 requests');
+  });
+
+  test('shows the narrowed count against the captured total', () => {
+    expect(summary({ shownCount: 120, activeFilterCount: 2 }).text).toBe(
+      '120 / 1,967 requests · 2 column filters',
+    );
+  });
+
+  test('reports search matches even while every row stays visible', () => {
+    // The complaint this guards: a search was typed and the counter still read
+    // "1967 / 1967", saying nothing about what the search selected.
+    expect(summary({ hasActiveSearch: true, matchedCount: 12 }).text).toBe('1,967 requests · 12 matching');
+  });
+
+  test('says matches only when the search is doing the narrowing', () => {
+    expect(summary({ shownCount: 12, hasActiveSearch: true, matchesOnly: true, matchedCount: 12 }).text).toBe(
+      '12 / 1,967 requests · matches only',
+    );
+  });
+
+  test('uses singular wording for one column filter', () => {
+    expect(summary({ shownCount: 4, activeFilterCount: 1 }).text).toBe('4 / 1,967 requests · 1 column filter');
+  });
+
+  test('spoken text spells the relationship out for screen readers', () => {
+    const spoken = summary({ shownCount: 120, hasActiveSearch: true, matchedCount: 12, activeFilterCount: 2 })
+      .accessibleText;
+    expect(spoken).toBe('showing 120 of 1,967 requests, 12 matching the search, 2 active column filters');
+  });
+
+  test('treats missing or negative counts as zero', () => {
+    expect(np.planRequestCountSummary({}).text).toBe('0 requests');
+    expect(summary({ shownCount: -5, totalCount: -2 }).text).toBe('0 requests');
+  });
+
+  test('says nothing about narrowing before anything is captured', () => {
+    const empty = summary({ shownCount: 0, totalCount: 0, hasActiveSearch: true, activeFilterCount: 2 });
+    expect(empty.text).toBe('0 requests');
+    expect(empty.accessibleText).toBe('0 requests');
+  });
+});
+
 describe('normalizeViewPreset', () => {
   test('returns null for non-object input', () => {
     expect(np.normalizeViewPreset(null)).toBeNull();

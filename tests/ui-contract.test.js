@@ -1183,7 +1183,9 @@ describe('capture retention static contracts', () => {
     expect(html).toMatch(/<label for="retentionLimit">Maximum retained requests<\/label>/);
     expect(html).toMatch(/id="retentionUnlimited"[^>]*aria-describedby="retentionWarning"/);
     expect(html).toMatch(/id="retentionWarning"[^>]*role="alert"[^>]*hidden/);
-    expect(html).toMatch(/id="retentionStatus"[^>]*>Retention /);
+    expect(html).toMatch(/id="retentionStatus"[^>]*>cache /);
+    expect(html).not.toMatch(/id="retentionStatus"[^>]*>[^<]*Retention /);
+    expect(html).toMatch(/id="retentionBtn"[^>]*>Retention: /);
     expect(html).not.toMatch(/id="retentionStatus"[^>]*(?:role|aria-live)=/);
     expect(html).toMatch(/id="retentionAnnouncement"[^>]*class="sr-only"[^>]*role="status"[^>]*aria-live="polite"/);
     expect(css).toMatch(/#retentionDialog\{[^}]*width:min\(420px,calc\(100vw - 16px\)\)[^}]*overflow:auto/);
@@ -2225,7 +2227,7 @@ describe('view preset static contracts', () => {
     expect(menuBlock).toContain('saveColumnPrefs();');
     expect(menuBlock).toContain('filterRows();');
     expect(menuBlock).toContain('syncSearchUIAfterRender();');
-    expect(menuBlock).toContain('updateTableSummary(state.filteredRows.length);');
+    expect(menuBlock).toContain('updateTableSummary(countVisibleRows());');
   });
 
   test('a null preset applies the factory default view instead of failing', () => {
@@ -2514,7 +2516,6 @@ describe('optional support dialog', () => {
       'brand-cat',
       'brand-cat-eye',
       'brand-cat-doze',
-      'brand-cat-lid',
       'brand-cat-tail',
       'brand-cat-paw',
       'brand-zzz',
@@ -2618,22 +2619,23 @@ describe('optional support dialog', () => {
       /<\/span>\s*<\/span>\s*<span class="brand-zzz"[^>]*>z<\/span>\s*<span class="brand-heart">/,
     );
     // Hover wakes the cat: closed lids give way to open eyes and breathing stops.
-    expect(css).toMatch(/\.brand-cat-eye\{[^}]*opacity:0/);
-    expect(css).toMatch(/\.brand-cat-glint\{[^}]*opacity:0/);
+    expect(css).toMatch(/\.brand-cat-eye\{fill:none;stroke:var\(--brew\)[^}]*opacity:0/);
     expect(css).toMatch(/:hover \.brand-cat-eye[^{]*\{opacity:1\}/);
     expect(css).toMatch(/:hover \.brand-cat-doze[^{]*\{opacity:0\}/);
-    // A droopy upper lid keeps the woken eyes from reading as a hard stare;
-    // it is fur-coloured, so it trims the eye instead of drawing on the face.
-    expect(html.match(/class="brand-cat-lid"/g) || []).toHaveLength(2);
-    expect(css).toMatch(/\.brand-cat-lid\{fill:var\(--cat\);opacity:0/);
-    expect(css).toMatch(/:hover \.brand-cat-lid[^{]*\{opacity:1\}/);
+    // Waking flips the lids upward instead of revealing pupils: two dark round
+    // eyes on an otherwise blank face read as a stare, not a greeting.
+    expect(html.match(/class="brand-cat-eye"/g) || []).toHaveLength(2);
+    expect(html).not.toContain('brand-cat-glint');
+    expect(html).not.toContain('brand-cat-lid');
+    expect(css).not.toContain('.brand-cat-glint{');
+    expect(css).not.toContain('.brand-cat-lid{');
     expect(css).toMatch(/:hover \.brand-cat-motion[^{]*\{animation-play-state:paused\}/);
     // Steam is legible without hovering; hovering only strengthens it.
     expect(css).toContain('.brand-steam-group{opacity:.9;');
     expect(css).toMatch(/\.topbar button\.brand:hover \.brand-steam-group[^{]*\{opacity:1\}/);
     // Reduced motion freezes every brand animation.
     const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
-    for (const part of ['.brand-cat', '.brand-cat-motion', '.brand-heart', '.brand-zzz', '.brand-cat-eye', '.brand-cat-doze', '.brand-cat-lid', '.brand-cat-tail', '.brand-steam', '.brand-support-hint']) {
+    for (const part of ['.brand-cat', '.brand-cat-motion', '.brand-heart', '.brand-zzz', '.brand-cat-eye', '.brand-cat-doze', '.brand-cat-tail', '.brand-steam', '.brand-support-hint']) {
       expect(reducedMotion).toContain(part);
     }
   });

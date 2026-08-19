@@ -1373,7 +1373,7 @@ browserTest(
         expect.objectContaining({
           rowCount: 1,
           rowIds: [1],
-          counter: '1 / 1 requests',
+          counter: '1 requests',
           totalSize: '42 B',
           tabStopIds: ['1'],
         }),
@@ -1384,7 +1384,7 @@ browserTest(
         expect.objectContaining({
           rowCount: 2,
           rowIds: [1, 2],
-          counter: '2 / 2 requests',
+          counter: '2 requests',
           totalSize: '84 B',
           tabStopIds: ['1'],
         }),
@@ -1395,7 +1395,7 @@ browserTest(
         expect.objectContaining({
           rowCount: 100,
           rowIds: Array.from({ length: 100 }, (_, index) => 101 + index),
-          counter: '100 / 100 requests',
+          counter: '100 requests',
           tabStopIds: ['101'],
           undoWasAvailable: true,
         }),
@@ -2059,8 +2059,8 @@ browserTest(
       expect(initialState).toMatchObject({
         activeResponseTabId: 'res-tab-timing',
         pauseDisabled: true,
-        requestCount: '3 / 3 requests',
-        requestCountAnnouncement: '3 / 3 requests',
+        requestCount: '3 requests · 1 matching',
+        requestCountAnnouncement: '3 requests, 1 matching the search',
         searchPanelDisplay: 'block',
         searchQuery: '503',
       });
@@ -2592,7 +2592,7 @@ browserTest(
       expect(exitedState).toEqual({
         pauseDisabled: false,
         pauseLabel: 'Pause recording',
-        requestCount: '0 / 0 requests',
+        requestCount: '0 requests',
         sampleStatusHidden: true,
       });
     } finally {

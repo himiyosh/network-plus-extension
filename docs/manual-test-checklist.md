@@ -53,7 +53,8 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] The `Columns` menu ends with a `Preset` section: `Update` saves the current columns + filters, `Apply` restores them (or the default view before anything is saved), `Forget saved preset` removes the saved state, and `Filters (N)` reflects the applied rules.
 - [ ] The `Filters` popup opens with every column section expanded; Method / Status / URL rules read as single rows without stray wrapping, and a section header click collapses and re-expands it.
 - [ ] The `Filters` popup lists every filterable column as a collapsed row; clicking a row expands only that column's rule editor, editing a rule shows an `Active` chip and updates the header count live, and reopening the popup keeps active columns expanded.
-- [ ] The status bar shows only `Retention <limit> · cache <n>/<max>`, the status chips, `avg <t>`, the transferred size, and `N / M requests` (plus `· K active column filter(s)` only when K > 0); hovering retention, latency, and size reveals the full details in tooltips.
+- [ ] The status bar shows only `cache <n>/<max>`, the status chips, `avg <t>`, and the transferred size — no retention limit, which lives on its own toolbar button; hovering cache, latency, and size reveals the full details in tooltips.
+- [ ] The request counter matches the grid in every state: `N requests` with nothing narrowing it, `N / M requests` when column filters narrow it (plus `· K column filter(s)`), `· N matching` while a search highlights without hiding rows, and `· matches only` when `Matches only` is on.
 
 ## Keyboard
 

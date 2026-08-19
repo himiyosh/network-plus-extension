@@ -22,12 +22,8 @@
               <path class="brand-cat-inner" d="M17.9 5.5 L15.7 7.5 C16.4 7.8 17.0 8.2 17.5 8.6 Z"/>
               <path class="brand-cat-doze" d="M8.6 12.6 C9.4 13.9 10.8 13.9 11.6 12.6"/>
               <path class="brand-cat-doze" d="M14.4 12.6 C15.2 13.9 16.6 13.9 17.4 12.6"/>
-              <circle class="brand-cat-eye" cx="10.1" cy="12.9" r="1.85"/>
-              <circle class="brand-cat-eye" cx="15.9" cy="12.9" r="1.85"/>
-              <circle class="brand-cat-glint" cx="10.75" cy="12.25" r="0.7"/>
-              <circle class="brand-cat-glint" cx="16.55" cy="12.25" r="0.7"/>
-              <path class="brand-cat-lid" d="M8.1 11.9 C8.9 11.1 11.3 11.1 12.1 11.9 L12.1 10.4 L8.1 10.4 Z"/>
-              <path class="brand-cat-lid" d="M13.9 11.9 C14.7 11.1 17.1 11.1 17.9 11.9 L17.9 10.4 L13.9 10.4 Z"/>
+              <path class="brand-cat-eye" d="M8.4 13.5 C9.2 11.8 11.0 11.8 11.8 13.5"/>
+              <path class="brand-cat-eye" d="M14.2 13.5 C15.0 11.8 16.8 11.8 17.6 13.5"/>
               <ellipse class="brand-cat-paw" cx="9.6" cy="17.4" rx="1.9" ry="1.0"/>
               <ellipse class="brand-cat-paw" cx="14.2" cy="17.4" rx="1.9" ry="1.0"/>
               <path class="brand-cat-tail" d="M20.4 18 C23.4 16.4 23.8 13.4 21.6 11.6"/>
@@ -139,7 +135,7 @@
       </div>
     </aside>
   </main>
-  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" hidden disabled>Exit · restore prior recording state</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus" title="Retention: 20,000 requests. body cache 0 B / 32 MB">Retention 20,000 · cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 / 0 requests</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
+  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" hidden disabled>Exit · restore prior recording state</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus" title="Retention: 20,000 requests. body cache 0 B / 32 MB">cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 requests</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
   <dialog id="retentionDialog" aria-labelledby="retentionDialogTitle" aria-describedby="retentionHelp">
     <form method="dialog" class="retention-form">
       <h2 id="retentionDialogTitle">Capture retention</h2>
