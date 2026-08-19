@@ -113,6 +113,17 @@ All executable JavaScript and CSS are included in the uploaded package. The Mani
 
 The policy URL must be checked from a signed-out browser after this document is merged and before it is entered in Partner Center.
 
+## Updating an already-listed extension
+
+The sections above describe a first submission. When a Partner Center product already exists for this extension, the work is a package update against that product: the account prerequisites are already satisfied and no new product is created.
+
+- The `manifest.json` version must be strictly higher than the version the store currently carries. v1.9.0 satisfies this against v1.8.0, and the release workflow refuses to publish a version that already has a GitHub release, so a version cannot be silently reused.
+- Upload `network-plus-extension-1.9.0.zip` obtained from the trusted release route into the existing product's package section, and compare the complete 64-character SHA-256 recorded above against the downloaded file before submitting.
+- Re-check the listing text, screenshots, and privacy answers against this dossier. The listing is not versioned in the portal, so a stale screenshot or description stays live until it is replaced; the four 1280 x 800 screenshots in `docs/store-assets/` were re-captured for this version because the toolbar mark and status bar changed.
+- Certification notes for an update should say what changed. The `## v1.9.0` section of `docs/CHANGELOG.md` is the reviewed source for that text.
+- An update is a fresh certification pass. Availability, markets, and visibility carry over from the existing product unless the operator changes them, and the previously certified package stays live until the new one passes.
+- Field labels and the navigation path for package updates must be confirmed in the live portal, which can change independently of this repository.
+
 ## Certification testing notes
 
 No account, credentials, subscription, remote service, or live customer traffic is required.

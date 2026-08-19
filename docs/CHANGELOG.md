@@ -4,7 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- No changes have been recorded since v1.9.0.
+- Both store submission dossiers now document the update path for an extension that is already listed, which differs from the first submission they described: a package update against the existing product, a version that must be strictly higher than the one in the store, a listing that is not versioned and so keeps stale screenshots live until they are replaced, and a fresh review in which the previously approved package stays live until the new one passes.
 
 ## v1.9.0 - 2026-08-19
 

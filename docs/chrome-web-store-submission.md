@@ -141,6 +141,16 @@ No account, credentials, subscription, remote service, or live customer traffic 
 7. Select `Clear`. Verify that the sample rows and details disappear, recording returns to its prior state, and `Undo clear` is offered for 10 seconds. Select `Undo clear` once to restore the bounded snapshot, then select `Clear` again to exit sample mode.
 8. Select the Network+ brand button in the toolbar (the mark with the cat and coffee cup). Verify that the Support dialog opens, lists the GitHub Sponsors and Ko-fi links, states that Network+ sends them no data, contains no payment form, and issues no network request when opened. Verify that each option exposes one user-activated action that opens its page in a browser tab, that no clipboard write occurs, and that `Esc` or `Close` returns focus to the brand button.
 
+## Updating an already-listed item
+
+The sections above describe a first submission. When a Chrome Web Store item already exists for this extension, the work is a package update against that item: the account prerequisites are already satisfied and no new item is created.
+
+- The `manifest.json` version must be strictly higher than the version the store currently carries. v1.9.0 satisfies this against v1.8.0, and the release workflow refuses to publish a version that already has a GitHub release, so a version cannot be silently reused.
+- Upload `network-plus-extension-1.9.0.zip` obtained from the trusted release route as a new package on the existing item, and compare the complete 64-character SHA-256 recorded above against the downloaded file before submitting.
+- Re-check the listing text, screenshots, and privacy answers against this dossier. The listing is not versioned in the dashboard, so a stale screenshot or description stays live until it is replaced; the four 1280 x 800 screenshots in `docs/store-assets/` were re-captured for this version because the toolbar mark and status bar changed.
+- An update is a fresh review. Distribution and visibility settings carry over from the existing item unless the operator changes them, and the previously reviewed package stays live until the new one is approved.
+- Field labels and the navigation path for package updates must be confirmed in the live dashboard, which can change independently of this repository.
+
 ## Final operator checklist
 
 - Confirm the developer account owner, publisher name, verified email, and one-time registration fee in the live dashboard.
