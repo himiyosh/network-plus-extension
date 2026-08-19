@@ -115,7 +115,7 @@ html[data-theme="light"]{
 .brand-cat-inner{fill:var(--cat-blush);opacity:.9}
 .brand-cat-doze{fill:none;stroke:var(--brew);stroke-width:1.5;stroke-linecap:round;transition:opacity .26s ease}
 .brand-cat-tail{fill:none;stroke:var(--cat);stroke-width:2.4;stroke-linecap:round;opacity:.9;transform-box:fill-box;transform-origin:100% 100%;animation:brand-cat-tail-flick 7.4s ease-in-out infinite}
-.brand-cat-eye{fill:none;stroke:var(--brew);stroke-width:1.6;stroke-linecap:round;opacity:0;transition:opacity .26s ease}
+.brand-cat-eye{fill:var(--brew);opacity:0;transform-box:fill-box;transform-origin:50% 50%;transition:opacity .26s ease;animation:support-cat-blink 5.2s ease-in-out infinite}
 .topbar button.brand:hover .brand-cat-eye,.topbar button.brand:focus-visible .brand-cat-eye{opacity:1}
 .topbar button.brand:hover .brand-cat-doze,.topbar button.brand:focus-visible .brand-cat-doze{opacity:0}
 .brand-zzz{position:absolute;left:calc(50% + 13px);bottom:calc(100% + 5px);font-size:9px;font-weight:800;line-height:1;color:var(--text-accent);opacity:0;pointer-events:none;animation:brand-zzz-drift 13s ease-in-out infinite;animation-delay:2.5s}

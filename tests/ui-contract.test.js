@@ -2619,16 +2619,25 @@ describe('optional support dialog', () => {
       /<\/span>\s*<\/span>\s*<span class="brand-zzz"[^>]*>z<\/span>\s*<span class="brand-heart">/,
     );
     // Hover wakes the cat: closed lids give way to open eyes and breathing stops.
-    expect(css).toMatch(/\.brand-cat-eye\{fill:none;stroke:var\(--brew\)[^}]*opacity:0/);
+    expect(css).toMatch(/\.brand-cat-eye\{fill:var\(--brew\)[^}]*opacity:0/);
     expect(css).toMatch(/:hover \.brand-cat-eye[^{]*\{opacity:1\}/);
     expect(css).toMatch(/:hover \.brand-cat-doze[^{]*\{opacity:0\}/);
-    // Waking flips the lids upward instead of revealing pupils: two dark round
-    // eyes on an otherwise blank face read as a stare, not a greeting.
+    // The woken pupils stay small dots set wide apart: eyes big enough to fill
+    // the muzzle read as a stare at 15px, so most of the face stays fur, and no
+    // drooping lid is drawn over them.
     expect(html.match(/class="brand-cat-eye"/g) || []).toHaveLength(2);
+    expect(html).toContain('<circle class="brand-cat-eye" cx="9.7" cy="12.7" r="1.05"/>');
+    expect(html).toContain('<circle class="brand-cat-eye" cx="16.3" cy="12.7" r="1.05"/>');
+    // No catchlight: a 0.4-radius highlight cannot read as one inside a pupil
+    // that is 1.75 device pixels wide, it only bleaches the pupil. Measured at
+    // true 1x, the darkest eye pixel goes from L=65 with it to L=40 without,
+    // against L=47 for the sleeping face the woken one has to out-read.
     expect(html).not.toContain('brand-cat-glint');
-    expect(html).not.toContain('brand-cat-lid');
     expect(css).not.toContain('.brand-cat-glint{');
+    expect(html).not.toContain('brand-cat-lid');
     expect(css).not.toContain('.brand-cat-lid{');
+    // A blink only reads when there is a pupil to close, so it returns with the dots.
+    expect(css).toMatch(/\.brand-cat-eye\{[^}]*animation:support-cat-blink 5\.2s/);
     expect(css).toMatch(/:hover \.brand-cat-motion[^{]*\{animation-play-state:paused\}/);
     // Steam is legible without hovering; hovering only strengthens it.
     expect(css).toContain('.brand-steam-group{opacity:.9;');
