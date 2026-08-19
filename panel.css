@@ -113,12 +113,14 @@ html[data-theme="light"]{
 .topbar button.brand:hover .brand-cat-motion,.topbar button.brand:focus-visible .brand-cat-motion{animation-play-state:paused}
 .brand-cat-fur,.brand-cat-paw{fill:var(--cat);stroke:var(--brew);stroke-width:.9;stroke-opacity:.55;stroke-linejoin:round}
 .brand-cat-inner{fill:var(--cat-blush);opacity:.9}
-.brand-cat-glint{fill:var(--on-accent);opacity:0;transition:opacity .18s ease}
-.brand-cat-doze{fill:none;stroke:var(--brew);stroke-width:1.5;stroke-linecap:round;transition:opacity .18s ease}
+.brand-cat-glint{fill:var(--on-accent);opacity:0;transition:opacity .26s ease}
+.brand-cat-doze{fill:none;stroke:var(--brew);stroke-width:1.5;stroke-linecap:round;transition:opacity .26s ease}
+.brand-cat-lid{fill:var(--cat);opacity:0;transition:opacity .26s ease}
 .brand-cat-tail{fill:none;stroke:var(--cat);stroke-width:2.4;stroke-linecap:round;opacity:.9;transform-box:fill-box;transform-origin:100% 100%;animation:brand-cat-tail-flick 7.4s ease-in-out infinite}
-.brand-cat-eye{fill:var(--brew);opacity:0;transform-box:fill-box;transform-origin:50% 50%;transition:opacity .18s ease;animation:support-cat-blink 5.2s ease-in-out infinite}
+.brand-cat-eye{fill:var(--brew);opacity:0;transform-box:fill-box;transform-origin:50% 50%;transition:opacity .26s ease;animation:support-cat-blink 5.2s ease-in-out infinite}
 .topbar button.brand:hover .brand-cat-eye,.topbar button.brand:focus-visible .brand-cat-eye,
-.topbar button.brand:hover .brand-cat-glint,.topbar button.brand:focus-visible .brand-cat-glint{opacity:1}
+.topbar button.brand:hover .brand-cat-glint,.topbar button.brand:focus-visible .brand-cat-glint,
+.topbar button.brand:hover .brand-cat-lid,.topbar button.brand:focus-visible .brand-cat-lid{opacity:1}
 .topbar button.brand:hover .brand-cat-doze,.topbar button.brand:focus-visible .brand-cat-doze{opacity:0}
 .brand-zzz{position:absolute;left:calc(50% + 13px);bottom:calc(100% + 5px);font-size:9px;font-weight:800;line-height:1;color:var(--text-accent);opacity:0;pointer-events:none;animation:brand-zzz-drift 13s ease-in-out infinite;animation-delay:2.5s}
 .topbar button.brand:hover .brand-zzz,.topbar button.brand:focus-visible .brand-zzz{animation:none;opacity:0}
@@ -737,7 +739,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .search-color-btn,.search-color-swatch,.hl-swatch,.timing-bar-seg,.json-tree-summary::before,.copy-toast,.sample-guide-btn,.sample-exit-btn,.status-details-toggle{transition:none}
   .search-color-btn:hover,.search-color-swatch:hover,.hl-swatch:hover{transform:none}
   .copy-toast,.copy-toast.show{transform:translateX(-50%)}
-  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-cat-tail,.support-cat-eye,.support-cat-ear--left,.brand-cat,.brand-cat-motion,.brand-heart,.brand-zzz,.brand-cat-eye,.brand-cat-glint,.brand-cat-doze,.brand-cat-tail,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
+  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-cat-tail,.support-cat-eye,.support-cat-ear--left,.brand-cat,.brand-cat-motion,.brand-heart,.brand-zzz,.brand-cat-eye,.brand-cat-glint,.brand-cat-doze,.brand-cat-lid,.brand-cat-tail,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
   .topbar button.brand:hover .brand-cat,.topbar button.brand:focus-visible .brand-cat{transform:none}
   .support-option-cta:hover{transform:none;filter:none}
   #supportDialog[open],#supportDialog[open]::backdrop{animation:none}

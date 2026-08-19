@@ -2514,6 +2514,7 @@ describe('optional support dialog', () => {
       'brand-cat',
       'brand-cat-eye',
       'brand-cat-doze',
+      'brand-cat-lid',
       'brand-cat-tail',
       'brand-cat-paw',
       'brand-zzz',
@@ -2621,13 +2622,18 @@ describe('optional support dialog', () => {
     expect(css).toMatch(/\.brand-cat-glint\{[^}]*opacity:0/);
     expect(css).toMatch(/:hover \.brand-cat-eye[^{]*\{opacity:1\}/);
     expect(css).toMatch(/:hover \.brand-cat-doze[^{]*\{opacity:0\}/);
+    // A droopy upper lid keeps the woken eyes from reading as a hard stare;
+    // it is fur-coloured, so it trims the eye instead of drawing on the face.
+    expect(html.match(/class="brand-cat-lid"/g) || []).toHaveLength(2);
+    expect(css).toMatch(/\.brand-cat-lid\{fill:var\(--cat\);opacity:0/);
+    expect(css).toMatch(/:hover \.brand-cat-lid[^{]*\{opacity:1\}/);
     expect(css).toMatch(/:hover \.brand-cat-motion[^{]*\{animation-play-state:paused\}/);
     // Steam is legible without hovering; hovering only strengthens it.
     expect(css).toContain('.brand-steam-group{opacity:.9;');
     expect(css).toMatch(/\.topbar button\.brand:hover \.brand-steam-group[^{]*\{opacity:1\}/);
     // Reduced motion freezes every brand animation.
     const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
-    for (const part of ['.brand-cat', '.brand-cat-motion', '.brand-heart', '.brand-zzz', '.brand-cat-eye', '.brand-cat-doze', '.brand-cat-tail', '.brand-steam', '.brand-support-hint']) {
+    for (const part of ['.brand-cat', '.brand-cat-motion', '.brand-heart', '.brand-zzz', '.brand-cat-eye', '.brand-cat-doze', '.brand-cat-lid', '.brand-cat-tail', '.brand-steam', '.brand-support-hint']) {
       expect(reducedMotion).toContain(part);
     }
   });
