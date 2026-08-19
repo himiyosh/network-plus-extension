@@ -151,6 +151,32 @@ The sections above describe a first submission. When a Chrome Web Store item alr
 - An update is a fresh review. Distribution and visibility settings carry over from the existing item unless the operator changes them, and the previously reviewed package stays live until the new one is approved.
 - Field labels and the navigation path for package updates must be confirmed in the live dashboard, which can change independently of this repository.
 
+## Automated submission
+
+`npm run store:submit -- --store chrome` uploads the packaged archive as a new package on the existing item and submits it for review through the Chrome Web Store API. The `Submit to Stores` workflow runs it automatically when a GitHub release is published, and can also be run on demand from the Actions tab.
+
+Before uploading anything, the script rebuilds the archive and compares its SHA-256 against the digest recorded in this dossier. A mismatch aborts the run, so the store can only receive bytes that passed review here.
+
+### Credentials
+
+The workflow reads four repository secrets and never writes their values to the log. The OAuth client is created in Google Cloud with the Chrome Web Store API enabled, and the refresh token is obtained once for the account that owns the item.
+
+| Secret | Where it comes from |
+|---|---|
+| `CHROME_ITEM_ID` | The item ID of the existing Chrome Web Store item |
+| `CHROME_CLIENT_ID` | OAuth client ID |
+| `CHROME_CLIENT_SECRET` | OAuth client secret |
+| `CHROME_REFRESH_TOKEN` | Refresh token issued for the `https://www.googleapis.com/auth/chromewebstore` scope |
+
+The secrets belong to the `store-submission` GitHub Actions environment. Adding a required reviewer to that environment makes every submission wait for a human approval; leaving it without rules lets the workflow submit unattended.
+
+### Failure modes the operator must expect
+
+- `ITEM_PENDING_REVIEW` means the upload landed but an earlier submission still occupies the review queue. The run reports it and does not treat it as a failure, but nothing was submitted and the publish has to be repeated once the queue clears.
+- `NOT_FOUND` on upload means the item ID is wrong; retrying cannot fix it.
+- A refresh token stops working if the OAuth client is deleted, its secret is rotated, or the grant is revoked. The run then fails at token exchange, before anything is uploaded.
+- A successful publish submits the item for review. It does not mean the new version is live.
+
 ## Final operator checklist
 
 - Confirm the developer account owner, publisher name, verified email, and one-time registration fee in the live dashboard.

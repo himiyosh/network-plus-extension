@@ -124,6 +124,30 @@ The sections above describe a first submission. When a Partner Center product al
 - An update is a fresh certification pass. Availability, markets, and visibility carry over from the existing product unless the operator changes them, and the previously certified package stays live until the new one passes.
 - Field labels and the navigation path for package updates must be confirmed in the live portal, which can change independently of this repository.
 
+## Automated submission
+
+`npm run store:submit -- --store edge` uploads the packaged archive to the existing Partner Center product and publishes the draft submission through the Update API v1.1. The `Submit to Stores` workflow runs it automatically when a GitHub release is published, and can also be run on demand from the Actions tab.
+
+Before uploading anything, the script rebuilds the archive and compares its SHA-256 against the digest recorded in this dossier. A mismatch aborts the run, so the store can only receive bytes that passed review here.
+
+### Credentials
+
+The workflow reads three repository secrets and never writes their values to the log. Partner Center shows both values when an API key is created; the API key is displayed once.
+
+| Secret | Where it comes from |
+|---|---|
+| `EDGE_PRODUCT_ID` | The product ID of the existing Partner Center product |
+| `EDGE_CLIENT_ID` | The client ID shown with the Partner Center API key |
+| `EDGE_API_KEY` | The API key created in Partner Center |
+
+The secrets belong to the `store-submission` GitHub Actions environment. Adding a required reviewer to that environment makes every submission wait for a human approval; leaving it without rules lets the workflow submit unattended.
+
+### Failure modes the operator must expect
+
+- A version that is not strictly higher than the published one is rejected at upload. The release workflow already refuses to republish a version, so this can only happen if the store carries a newer version than the repository.
+- Certification runs after the submission is accepted. A `Succeeded` publish operation means the submission was accepted for certification, not that it is live.
+- The API key is displayed once at creation and expires; when it does, the upload fails with an authorization error and the key must be replaced in the repository secret.
+
 ## Certification testing notes
 
 No account, credentials, subscription, remote service, or live customer traffic is required.

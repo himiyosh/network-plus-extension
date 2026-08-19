@@ -1,0 +1,91 @@
+name: Submit to Stores
+
+# Publishing a release makes the reviewed archive available; this takes that
+# same archive to the stores. The archive is rebuilt here and checked against
+# the digest the submission dossiers pin, so a store can only ever receive the
+# bytes that were reviewed.
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      store:
+        description: Which store to submit to
+        type: choice
+        default: both
+        options:
+          - both
+          - edge
+          - chrome
+      upload_only:
+        description: Upload the package but do not submit it for review
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    name: Submit to stores
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Store credentials live in this environment, so a submission can require a
+    # reviewer before it runs by adding protection rules to it in repository
+    # settings. Without rules the job runs unattended, which is the default.
+    environment: store-submission
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A release event checks out the default branch, which may already have
+      # moved past the released tag. Building the archive the release actually
+      # carries is what makes the digest check meaningful.
+      - name: Check out the released tag
+        if: github.event_name == 'release'
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          git checkout --detach "refs/tags/$TAG_NAME"
+          echo "building from $TAG_NAME"
+
+      - name: Check the extension package
+        run: npm run extension:check
+
+      - name: Build the extension package
+        run: npm run extension:package
+
+      - name: Check store submission kits
+        run: npm run store:check
+
+      - name: Submit to the stores
+        env:
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          CHROME_ITEM_ID: ${{ secrets.CHROME_ITEM_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          STORE: ${{ inputs.store || 'both' }}
+          UPLOAD_ONLY: ${{ inputs.upload_only && '--upload-only' || '' }}
+        run: npm run store:submit -- --store "$STORE" $UPLOAD_ONLY
