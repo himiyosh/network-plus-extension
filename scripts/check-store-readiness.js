@@ -141,8 +141,7 @@ const EXPECTED_ASSETS = Object.freeze({
     kind: 'promotional-tile',
     width: 440,
     height: 280,
-    source:
-      'Playwright render of the checked-in extension icon and the vector otter-and-cup mascot art; no captured traffic',
+    source: 'Image generation using the Network+ logo and synthetic request-detail screenshot as references',
     domains: Object.freeze([]),
   }),
   'chrome-marquee-1400x560.png': Object.freeze({
@@ -150,7 +149,7 @@ const EXPECTED_ASSETS = Object.freeze({
     width: 1400,
     height: 560,
     source:
-      'Playwright render of the checked-in extension icon and the vector otter-and-cup mascot art; no captured traffic',
+      'Playwright composition of the checked-in extension icon, the otter-investigator illustration cut out of the promotional tile, and the wordmark; no captured traffic',
     domains: Object.freeze([]),
   }),
   'screenshot-1-request-detail-1280x800.png': Object.freeze({
