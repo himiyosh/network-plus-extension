@@ -2,6 +2,10 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
+## Unreleased
+
+- No changes have been recorded since v1.10.0.
+
 ## v1.10.0 - 2026-08-20
 
 - The mascot is now an otter, in the toolbar brand mark and the support dialog alike — and the toolbar mark is now pixel art. At its real 15-pixel height, smooth vector shapes rasterized into mush, so the mark is a hand-placed 22x15 sprite drawn at exactly one device pixel per cell with `crispEdges`. Two full sprites ship in the markup: asleep (shut eyes, blush, a drifting z), and a woken frame that hover or focus cuts to instantly, ears perked and a magnifying glass raised — the investigator motif this network inspector deserves. The idle breathing tween became a two-frame `steps()` bob, so every frame stays on the pixel grid. The support dialog keeps its larger smooth vector otter, where there is room for curves, and all motion still stops under `prefers-reduced-motion`.
