@@ -23,7 +23,7 @@ const EXPECTED_SUPPORT_URL = 'https://github.com/himiyosh/network-plus-extension
 const EXPECTED_PRIVACY_URL = 'https://github.com/himiyosh/network-plus-extension/blob/main/docs/privacy.md';
 const EXPECTED_REPOSITORY_URL = 'git+https://github.com/himiyosh/network-plus-extension.git';
 const EXPECTED_CSP = "script-src 'self'; object-src 'self'";
-const EXPECTED_RELEASE_SHA256 = 'c0f3018ff0cf30b868a41c9937452f776d6f1c99daa523a7998a58991e75175f';
+const EXPECTED_RELEASE_SHA256 = '11e308be9a4982f0afc608138fdebad6029f650ac87b969b0b3c00a92d6cd25d';
 const EXPECTED_PERMISSION_JUSTIFICATION =
   'Stores the user-selected System, Dark, or Light theme and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.';
 const EXPECTED_SEARCH_TERMS = Object.freeze([

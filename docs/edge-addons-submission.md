@@ -8,9 +8,9 @@ This dossier is a repository-local recommendation for a future Partner Center su
 
 ### Observed repository facts
 
-- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.9.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
+- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.10.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The checked-in package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
-- GitHub release `v1.9.0` and `network-plus-extension-1.9.0.zip` were publicly observable and re-downloaded on 2026-08-19. The ZIP is 151681 bytes and its SHA-256 is `c0f3018ff0cf30b868a41c9937452f776d6f1c99daa523a7998a58991e75175f`. The downloaded file is byte-identical to the local build, CI published the release from the release commit on `main` after checking the archive against this digest, and archive entries carry fixed timestamps, so `npm run extension:package` at tag `v1.9.0` rebuilds the same bytes.
+- `network-plus-extension-1.10.0.zip` was built from the reviewed commit by `npm run extension:package`. It is 152096 bytes and its SHA-256 is `11e308be9a4982f0afc608138fdebad6029f650ac87b969b0b3c00a92d6cd25d`. A second local build reproduced the same digest, and archive entries carry fixed timestamps, so `npm run extension:package` at tag `v1.10.0` rebuilds the same bytes. The publishing workflow compares the archive it builds against this digest and fails the release on a mismatch. Public observation of the `v1.10.0` release is a post-merge step and is not claimed here.
 - The SHA-256 is safe to publish and useful for integrity checking, but it is not a publisher signature. The operator must obtain the ZIP from the trusted release route and compare the complete digest before upload.
 
 ### Checked-in discovery intent
@@ -117,10 +117,10 @@ The policy URL must be checked from a signed-out browser after this document is 
 
 The sections above describe a first submission. When a Partner Center product already exists for this extension, the work is a package update against that product: the account prerequisites are already satisfied and no new product is created.
 
-- The `manifest.json` version must be strictly higher than the version the store currently carries. v1.9.0 satisfies this against v1.8.0, and the release workflow refuses to publish a version that already has a GitHub release, so a version cannot be silently reused.
-- Upload `network-plus-extension-1.9.0.zip` obtained from the trusted release route into the existing product's package section, and compare the complete 64-character SHA-256 recorded above against the downloaded file before submitting.
+- The `manifest.json` version must be strictly higher than the version the store currently carries. v1.10.0 satisfies this against v1.9.0, and the release workflow refuses to publish a version that already has a GitHub release, so a version cannot be silently reused.
+- Upload `network-plus-extension-1.10.0.zip` obtained from the trusted release route into the existing product's package section, and compare the complete 64-character SHA-256 recorded above against the downloaded file before submitting.
 - Re-check the listing text, screenshots, and privacy answers against this dossier. The listing is not versioned in the portal, so a stale screenshot or description stays live until it is replaced; the four 1280 x 800 screenshots in `docs/store-assets/` were re-captured for this version because the toolbar mark and status bar changed.
-- Certification notes for an update should say what changed. The `## v1.9.0` section of `docs/CHANGELOG.md` is the reviewed source for that text.
+- Certification notes for an update should say what changed. The `## v1.10.0` section of `docs/CHANGELOG.md` is the reviewed source for that text.
 - An update is a fresh certification pass. Availability, markets, and visibility carry over from the existing product unless the operator changes them, and the previously certified package stays live until the new one passes.
 - Field labels and the navigation path for package updates must be confirmed in the live portal, which can change independently of this repository.
 
@@ -152,7 +152,7 @@ The secrets belong to the `store-submission` GitHub Actions environment. Adding 
 
 No account, credentials, subscription, remote service, or live customer traffic is required.
 
-1. Use the exact ZIP uploaded for certification. For repository-side reproduction, run `npm run extension:package`, extract `dist/network-plus-extension-1.9.0.zip` into a new folder, open `edge://extensions/`, enable Developer mode, choose `Load unpacked`, and select the extracted folder. A ZIP file itself is not selected by `Load unpacked`.
+1. Use the exact ZIP uploaded for certification. For repository-side reproduction, run `npm run extension:package`, extract `dist/network-plus-extension-1.10.0.zip` into a new folder, open `edge://extensions/`, enable Developer mode, choose `Load unpacked`, and select the extracted folder. A ZIP file itself is not selected by `Load unpacked`.
 2. Open a local blank page such as `data:text/html,<title>Network%2B%20certification</title>`, open Microsoft Edge DevTools, and select the `Network+` panel.
 3. With no captured requests, select `Explore sample capture`. Verify that exactly three synthetic requests appear: a 200 GET to `api.network-plus.test`, a 503 POST to `checkout.network-plus.test`, and a 304 GET to `static.network-plus.test`. The status must state `No network traffic was sent.` and that live recording is paused.
 4. Select the 503 `POST /v1/orders/preview` request. Open the Response `Timing` tab and verify a total duration of 2,450 ms, with `Wait (TTFB)` at 2,200 ms as the dominant phase. Open `What do the timing phases mean?` and verify that the guidance says browser timing does not prove packet loss, cabling or RF faults, or a definitive server root cause.
@@ -188,4 +188,4 @@ Machine-readable provenance and expected dimensions are recorded in `docs/store-
 | [Public support route](https://github.com/himiyosh/network-plus-extension/issues/new/choose) | Existing GitHub Issues chooser route | 2026-08-14 | Support contact route |
 | [Public v1.7.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.7.0) | Release published 2026-08-14 with one 140249-byte ZIP asset; SHA-256 re-verified from a fresh download | 2026-08-14 | Last publicly observed release; superseded as the upload source by v1.8.0 |
 | [Public v1.8.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.8.0) | Released 2026-08-18 by the tag-triggered publishing workflow with one 150672-byte ZIP asset; SHA-256 re-verified from a fresh download | 2026-08-18 | Superseded as the upload source by v1.9.0 |
-| [Public v1.9.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.9.0) | Released 2026-08-19 by the main-push publishing workflow with one 151681-byte ZIP asset; SHA-256 re-verified from a fresh download and byte-compared against the local build | 2026-08-19 | Exact upload-artifact identity; not store-listing evidence |
+| [Public v1.9.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.9.0) | Released 2026-08-19 by the main-push publishing workflow with one 151681-byte ZIP asset; SHA-256 re-verified from a fresh download and byte-compared against the local build | 2026-08-19 | Superseded as the upload source by v1.10.0 |
