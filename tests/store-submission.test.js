@@ -574,3 +574,20 @@ describe('credential fingerprint', () => {
     expect(workflow).toContain("DIAGNOSE: ${{ inputs.diagnose && '--diagnose' || '' }}");
   });
 });
+
+describe('duplicate credential guard', () => {
+  const { duplicateOf } = require('../scripts/setup-store-secrets');
+
+  // What actually happened: the Edge product ID answered the client ID prompt
+  // too, and the store rejected the pair with a bare 401 naming neither field.
+  test('names the earlier field a repeated value came from', () => {
+    const collected = [['EDGE_PRODUCT_ID', '4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241']];
+    expect(duplicateOf('4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241', collected)).toBe('EDGE_PRODUCT_ID');
+  });
+
+  test('passes a genuinely different value', () => {
+    const collected = [['EDGE_PRODUCT_ID', 'aaaa']];
+    expect(duplicateOf('bbbb', collected)).toBeNull();
+    expect(duplicateOf('aaaa', [])).toBeNull();
+  });
+});

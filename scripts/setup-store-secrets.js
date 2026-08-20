@@ -168,7 +168,18 @@ const askHidden = (rl, question) =>
 // saying so, is worth more than any other check in this script.
 const cleanValue = (raw) => String(raw).trim();
 
-const collect = async (rl, step, platform) => {
+// Two of these prompts arrive back to back and both want a GUID, so a clipboard
+// that was not refreshed silently answers the second one with the first one's
+// value. The store then rejects the pair with a bare 401 that names neither
+// field. Comparing against what was already collected catches it here instead.
+const duplicateOf = (value, collected) => {
+  for (const [name, previous] of collected) {
+    if (previous === value) return name;
+  }
+  return null;
+};
+
+const collect = async (rl, step, platform, collected = []) => {
   process.stdout.write(`\n--- ${step.secret} ---\n`);
   if (step.url) {
     const opened = await openInBrowser(step.url, platform);
@@ -187,6 +198,11 @@ const collect = async (rl, step, platform) => {
     }
     if (value !== String(raw).replace(/\n$/, '')) {
       process.stdout.write('  (trimmed surrounding whitespace)\n');
+    }
+    const duplicate = duplicateOf(value, collected);
+    if (duplicate) {
+      const answer = await ask(rl, `  identical to ${duplicate}; is the clipboard stale? Use it anyway? [y/N] `);
+      if (!/^y(es)?$/i.test(answer.trim())) continue;
     }
     const complaint = step.check(value);
     if (complaint) {
@@ -225,15 +241,18 @@ const main = async () => {
 
   const steps = store === 'both' ? [...STEPS.edge, ...STEPS.chrome] : STEPS[store];
   const stored = [];
+  // Kept only for the duplicate check, and only for this process's lifetime.
+  const collectedValues = [];
   try {
     for (const step of steps) {
-      const value = await collect(rl, step, process.platform);
+      const value = await collect(rl, step, process.platform, collectedValues);
       const result = await run('gh', secretSetArguments(step.secret), value);
       if (result.code !== 0) {
         throw new Error(`gh secret set ${step.secret} failed: ${result.stderr.trim()}`);
       }
       process.stdout.write(`  stored ${step.secret}\n`);
       stored.push(step.secret);
+      collectedValues.push([step.secret, value]);
     }
   } finally {
     rl.close();
@@ -268,4 +287,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { browserOpenCommand, cleanValue, secretSetArguments, ENVIRONMENT, REPO, STEPS };
+module.exports = { browserOpenCommand, cleanValue, duplicateOf, secretSetArguments, ENVIRONMENT, REPO, STEPS };
