@@ -10,7 +10,7 @@ This dossier is a repository-local recommendation for a future Partner Center su
 
 - `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.9.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The checked-in package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
-- `network-plus-extension-1.9.0.zip` was built from the reviewed commit by `npm run extension:package`. It is 151681 bytes and its SHA-256 is `c0f3018ff0cf30b868a41c9937452f776d6f1c99daa523a7998a58991e75175f`. A second local build reproduced the same digest, and archive entries carry fixed timestamps, so `npm run extension:package` at tag `v1.9.0` rebuilds the same bytes. The publishing workflow compares the archive it builds against this digest and fails the release on a mismatch. Public observation of the `v1.9.0` release is a post-merge step and is not claimed here.
+- GitHub release `v1.9.0` and `network-plus-extension-1.9.0.zip` were publicly observable and re-downloaded on 2026-08-19. The ZIP is 151681 bytes and its SHA-256 is `c0f3018ff0cf30b868a41c9937452f776d6f1c99daa523a7998a58991e75175f`. The downloaded file is byte-identical to the local build, CI published the release from the release commit on `main` after checking the archive against this digest, and archive entries carry fixed timestamps, so `npm run extension:package` at tag `v1.9.0` rebuilds the same bytes.
 - The SHA-256 is safe to publish and useful for integrity checking, but it is not a publisher signature. The operator must obtain the ZIP from the trusted release route and compare the complete digest before upload.
 
 ### Checked-in discovery intent
@@ -124,6 +124,30 @@ The sections above describe a first submission. When a Partner Center product al
 - An update is a fresh certification pass. Availability, markets, and visibility carry over from the existing product unless the operator changes them, and the previously certified package stays live until the new one passes.
 - Field labels and the navigation path for package updates must be confirmed in the live portal, which can change independently of this repository.
 
+## Automated submission
+
+`npm run store:submit -- --store edge` uploads the packaged archive to the existing Partner Center product and publishes the draft submission through the Update API v1.1. The `Submit to Stores` workflow runs it automatically when a GitHub release is published, and can also be run on demand from the Actions tab.
+
+Before uploading anything, the script rebuilds the archive and compares its SHA-256 against the digest recorded in this dossier. A mismatch aborts the run, so the store can only receive bytes that passed review here.
+
+### Credentials
+
+The workflow reads three repository secrets and never writes their values to the log. Partner Center shows both values when an API key is created; the API key is displayed once.
+
+| Secret | Where it comes from |
+|---|---|
+| `EDGE_PRODUCT_ID` | The product ID of the existing Partner Center product |
+| `EDGE_CLIENT_ID` | The client ID shown with the Partner Center API key |
+| `EDGE_API_KEY` | The API key created in Partner Center |
+
+The secrets belong to the `store-submission` GitHub Actions environment. Adding a required reviewer to that environment makes every submission wait for a human approval; leaving it without rules lets the workflow submit unattended.
+
+### Failure modes the operator must expect
+
+- A version that is not strictly higher than the published one is rejected at upload. The release workflow already refuses to republish a version, so this can only happen if the store carries a newer version than the repository.
+- Certification runs after the submission is accepted. A `Succeeded` publish operation means the submission was accepted for certification, not that it is live.
+- The API key is displayed once at creation and expires; when it does, the upload fails with an authorization error and the key must be replaced in the repository secret.
+
 ## Certification testing notes
 
 No account, credentials, subscription, remote service, or live customer traffic is required.
@@ -163,3 +187,4 @@ Machine-readable provenance and expected dimensions are recorded in `docs/store-
 | [Public support route](https://github.com/himiyosh/network-plus-extension/issues/new/choose) | Existing GitHub Issues chooser route | 2026-08-14 | Support contact route |
 | [Public v1.7.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.7.0) | Release published 2026-08-14 with one 140249-byte ZIP asset; SHA-256 re-verified from a fresh download | 2026-08-14 | Last publicly observed release; superseded as the upload source by v1.8.0 |
 | [Public v1.8.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.8.0) | Released 2026-08-18 by the tag-triggered publishing workflow with one 150672-byte ZIP asset; SHA-256 re-verified from a fresh download | 2026-08-18 | Superseded as the upload source by v1.9.0 |
+| [Public v1.9.0 release](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.9.0) | Released 2026-08-19 by the main-push publishing workflow with one 151681-byte ZIP asset; SHA-256 re-verified from a fresh download and byte-compared against the local build | 2026-08-19 | Exact upload-artifact identity; not store-listing evidence |

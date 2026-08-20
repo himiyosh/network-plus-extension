@@ -14,14 +14,14 @@ This dossier is a repository-local recommendation for a future Chrome Web Store 
 - **SHA-256:** `c0f3018ff0cf30b868a41c9937452f776d6f1c99daa523a7998a58991e75175f`
 - **Download:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.9.0/network-plus-extension-1.9.0.zip
 
-The size and SHA-256 above were produced by `npm run extension:package` at the reviewed commit and reproduced by a second local build. Archive entries carry fixed timestamps, so the same command at tag `v1.9.0` reproduces the same bytes, and the publishing workflow refuses to create the release if the archive it builds does not match this digest. The download link resolves once that workflow has published `v1.9.0`; until then the artifact exists only as a local build. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
+The ZIP was downloaded from the public GitHub release on 2026-08-19 and its size and SHA-256 were re-verified; the downloaded file is byte-identical to the local build. Archive entries carry fixed timestamps, so `npm run extension:package` at tag `v1.9.0` reproduces the same bytes, and the publishing workflow refuses to create a release whose archive does not match this digest. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
 
 ### Observed repository facts
 
 - `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.9.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The package guard allows only the ten audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift.
 - The same runtime uses Chromium extension APIs without an Edge-only code path. Chrome 151 loaded the manifest without extension errors, all 98 real-browser regression scenarios passed, and the Network+ DevTools panel was confirmed manually.
-- The `v1.9.0` GitHub release is the current repository-backed upload source; it is published by the release workflow when the version bump reaches `main`. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
+- The public `v1.9.0` GitHub release is the current repository-backed upload source. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
 
 ## Developer account prerequisites
 
@@ -150,6 +150,46 @@ The sections above describe a first submission. When a Chrome Web Store item alr
 - Re-check the listing text, screenshots, and privacy answers against this dossier. The listing is not versioned in the dashboard, so a stale screenshot or description stays live until it is replaced; the four 1280 x 800 screenshots in `docs/store-assets/` were re-captured for this version because the toolbar mark and status bar changed.
 - An update is a fresh review. Distribution and visibility settings carry over from the existing item unless the operator changes them, and the previously reviewed package stays live until the new one is approved.
 - Field labels and the navigation path for package updates must be confirmed in the live dashboard, which can change independently of this repository.
+
+## Automated submission
+
+`npm run store:submit -- --store chrome` uploads the packaged archive as a new package on the existing item and submits it for review through the Chrome Web Store API. The `Submit to Stores` workflow runs it automatically when a GitHub release is published, and can also be run on demand from the Actions tab.
+
+Before uploading anything, the script rebuilds the archive and compares its SHA-256 against the digest recorded in this dossier. A mismatch aborts the run, so the store can only receive bytes that passed review here.
+
+### Credentials
+
+The workflow reads four repository secrets and never writes their values to the log. The OAuth client is created in Google Cloud with the Chrome Web Store API enabled, and the refresh token is obtained once for the account that owns the item.
+
+| Secret | Where it comes from |
+|---|---|
+| `CHROME_ITEM_ID` | The item ID of the existing Chrome Web Store item |
+| `CHROME_CLIENT_ID` | OAuth client ID |
+| `CHROME_CLIENT_SECRET` | OAuth client secret |
+| `CHROME_REFRESH_TOKEN` | Refresh token issued for the `https://www.googleapis.com/auth/chromewebstore` scope |
+
+The secrets belong to the `store-submission` GitHub Actions environment. Adding a required reviewer to that environment makes every submission wait for a human approval; leaving it without rules lets the workflow submit unattended.
+
+### Obtaining the refresh token
+
+The published guide's "Testing your OAuth application" section still walks through the out-of-band redirect (`redirect_uri=urn:ietf:wg:oauth:2.0:oob`). Google retired that flow, so an OAuth client created today is refused by it. A Desktop App client accepts a loopback redirect instead, which is what `scripts/chrome-refresh-token.js` uses.
+
+Run it on an operator machine, never in CI:
+
+```
+CHROME_CLIENT_ID=... CHROME_CLIENT_SECRET=... node scripts/chrome-refresh-token.js
+```
+
+It listens on a free loopback port, prints the consent URL, waits for the redirect, exchanges the code, and prints only the refresh token. Sign in as the account that owns the Chrome Web Store item; that can be a different account from the one that owns the Google Cloud project. The account also needs 2-Step Verification enabled, which the Chrome Web Store requires of any developer publishing through the API.
+
+Google returns a refresh token only when offline access is requested and the consent is fresh, so the helper forces both. If it still reports no refresh token, revoke the app under `https://myaccount.google.com/permissions` and run it again.
+
+### Failure modes the operator must expect
+
+- `ITEM_PENDING_REVIEW` means the upload landed but an earlier submission still occupies the review queue. The run reports it and does not treat it as a failure, but nothing was submitted and the publish has to be repeated once the queue clears.
+- `NOT_FOUND` on upload means the item ID is wrong; retrying cannot fix it.
+- A refresh token stops working if the OAuth client is deleted, its secret is rotated, or the grant is revoked. The run then fails at token exchange, before anything is uploaded.
+- A successful publish submits the item for review. It does not mean the new version is live.
 
 ## Final operator checklist
 

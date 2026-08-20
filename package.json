@@ -16,6 +16,7 @@
     "extension:check": "node scripts/check-extension-package.js --check",
     "extension:package": "node scripts/check-extension-package.js --package",
     "store:check": "node scripts/check-store-readiness.js",
+    "store:submit": "node scripts/submit-to-stores.js",
     "audit:strict": "npm audit --audit-level=high",
     "contract:check": "node scripts/check-coordinator-contract.js"
   },
