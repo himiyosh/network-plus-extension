@@ -71,8 +71,9 @@ Do not add unrelated search phrases to the description. Chrome Web Store metadat
 | Dashboard field | File | Status and notes |
 |---|---|---|
 | Store icon | `icons/icon128.png` | Required 128 x 128 PNG packaged in the ZIP. The current artwork is usable; Google's transparent-padding guidance should be treated as a visual-quality recommendation and rechecked in the dashboard preview. |
-| Small promo tile | `docs/store-assets/chrome-small-promo-440x280.png` | Required 440 x 280 PNG. Text-free, full-bleed Network+ branding with an otter investigator and abstract request/timing motifs. |
-| Screenshot 1 | `docs/store-assets/screenshot-request-detail-1280x800.png` | Required screenshot set; synthetic 503 request and response headers. |
+| Small promo tile | `docs/store-assets/chrome-small-promo-440x280.png` | Required 440 x 280 PNG. Full-bleed indigo brand scene — the sleeping Network+ cat beside a steaming cup above the wordmark — matching the shipped toolbar mark. |
+| Marquee promo | `docs/store-assets/chrome-marquee-1400x560.png` | Optional 1400 x 560 PNG for featured placements: the same brand scene with the wordmark and the feature tagline. |
+| Screenshot 1 | `docs/store-assets/screenshot-request-detail-1280x800.png` | Required screenshot set; headline band over an unscaled synthetic capture: 503 request and response headers. |
 | Screenshot 2 | `docs/store-assets/screenshot-timing-guidance-1280x800.png` | Synthetic timing evidence and observability guidance. |
 | Screenshot 3 | `docs/store-assets/screenshot-sample-guide-1280x800.png` | Prompt-first sample guide before evidence reveal. |
 | Screenshot 4 | `docs/store-assets/screenshot-sanitized-export-1280x800.png` | Sanitized HAR export shown as the safe default. |
@@ -195,7 +196,7 @@ Google returns a refresh token only when offline access is requested and the con
 
 - Confirm the developer account owner, publisher name, verified email, and one-time registration fee in the live dashboard.
 - Download the release ZIP from the trusted route and match its exact size and SHA-256 before upload.
-- Upload the ZIP, 128 x 128 icon, required 440 x 280 promo tile, and four 1280 x 800 screenshots.
+- Upload the ZIP, 128 x 128 icon, required 440 x 280 promo tile, optional 1400 x 560 marquee, and four 1280 x 800 screenshots.
 - Paste the reviewed listing, single-purpose statement, permission justification, remote-code answer, data-use declarations, privacy URL, distribution choice, and test instructions.
 - Open the privacy URL signed out and verify that it describes both Chrome and Edge accurately.
 - Preview the listing at desktop and reduced image sizes. Confirm that no image looks like a browser control or contains illegible text.
