@@ -482,3 +482,59 @@ describe('chrome refresh token helper', () => {
     await expect(pending).resolves.toBe('from-browser');
   });
 });
+
+describe('guided secret setup', () => {
+  const { browserOpenCommand, cleanValue, secretSetArguments, ENVIRONMENT, REPO, STEPS } = require('../scripts/setup-store-secrets');
+  const { planStoreSubmissions: plan } = require('../scripts/submit-to-stores');
+
+  // The wizard and the workflow must agree on every name, or setup completes
+  // and the submission still reports missing credentials.
+  test('collects exactly the secrets the submission script requires', () => {
+    const collected = [...STEPS.edge, ...STEPS.chrome].map((step) => step.secret);
+    const required = plan({}, 'both').flatMap((entry) => entry.missing);
+    expect(collected.sort()).toEqual(required.sort());
+  });
+
+  test('targets the environment and repository the workflow reads', () => {
+    expect(ENVIRONMENT).toBe('store-submission');
+    const workflow = readRepoFile(path.join('.github', 'workflows', 'store-submit.yml'));
+    expect(workflow).toContain(`environment: ${ENVIRONMENT}`);
+    expect(REPO).toBe('himiyosh/network-plus-extension');
+  });
+
+  // The value goes over stdin; putting it in argv would expose it to any
+  // process that can read the process table.
+  test('never passes a secret value as a command-line argument', () => {
+    const args = secretSetArguments('EDGE_API_KEY');
+    expect(args).toEqual(['secret', 'set', 'EDGE_API_KEY', '--repo', REPO, '--env', ENVIRONMENT]);
+    expect(args).not.toContain('--body');
+  });
+
+  // A pasted credential routinely carries a trailing newline, and the store
+  // rejects it much later with an unhelpful error.
+  test('trims whitespace that pasting adds', () => {
+    expect(cleanValue('  abc123\n')).toBe('abc123');
+    expect(cleanValue('\tdef\r\n')).toBe('def');
+  });
+
+  test('opens pages with the right command per platform', () => {
+    expect(browserOpenCommand('darwin')).toBe('open');
+    expect(browserOpenCommand('win32')).toBe('start');
+    expect(browserOpenCommand('linux')).toBe('xdg-open');
+  });
+
+  test('hides the values that are credentials and not identifiers', () => {
+    const hidden = [...STEPS.edge, ...STEPS.chrome].filter((step) => step.hidden).map((step) => step.secret);
+    expect(hidden.sort()).toEqual(['CHROME_CLIENT_SECRET', 'CHROME_REFRESH_TOKEN', 'EDGE_API_KEY']);
+  });
+
+  test('checks the two identifiers whose shape is documented', () => {
+    const find = (secret) => [...STEPS.edge, ...STEPS.chrome].find((step) => step.secret === secret);
+    expect(find('EDGE_PRODUCT_ID').check('d34f98f5-f9b7-42b1-bebb-98707202b21d')).toBeNull();
+    expect(find('EDGE_PRODUCT_ID').check('not-a-guid')).toMatch(/GUID/);
+    expect(find('CHROME_ITEM_ID').check('a'.repeat(32))).toBeNull();
+    expect(find('CHROME_ITEM_ID').check('z'.repeat(32))).toMatch(/a-p/);
+    expect(find('CHROME_CLIENT_ID').check('123.apps.googleusercontent.com')).toBeNull();
+    expect(find('CHROME_CLIENT_ID').check('123')).toMatch(/googleusercontent/);
+  });
+});
