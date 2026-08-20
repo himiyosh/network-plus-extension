@@ -142,7 +142,7 @@ const EXPECTED_ASSETS = Object.freeze({
     width: 440,
     height: 280,
     source:
-      'Playwright render of the checked-in extension icon and the brand-mark SVG paths from panel.html; no captured traffic',
+      'Playwright render of the checked-in extension icon and the vector otter-and-cup mascot art; no captured traffic',
     domains: Object.freeze([]),
   }),
   'chrome-marquee-1400x560.png': Object.freeze({
@@ -150,7 +150,7 @@ const EXPECTED_ASSETS = Object.freeze({
     width: 1400,
     height: 560,
     source:
-      'Playwright render of the checked-in extension icon and the brand-mark SVG paths from panel.html; no captured traffic',
+      'Playwright render of the checked-in extension icon and the vector otter-and-cup mascot art; no captured traffic',
     domains: Object.freeze([]),
   }),
   'screenshot-1-request-detail-1280x800.png': Object.freeze({

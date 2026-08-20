@@ -17,22 +17,22 @@
       "kind": "promotional-tile",
       "width": 440,
       "height": 280,
-      "source": "Playwright render of the checked-in extension icon and the brand-mark SVG paths from panel.html; no captured traffic",
+      "source": "Playwright render of the checked-in extension icon and the vector otter-and-cup mascot art; no captured traffic",
       "syntheticOnly": true,
       "containsSensitiveData": false,
       "domains": [],
-      "state": "Text-free indigo brand tile: the extension icon as the centerpiece, the sleeping cat and steaming cup beside it, glowing waterfall bars behind; no traffic data"
+      "state": "Text-free indigo brand tile: the extension icon as the centerpiece, the sleeping otter and steaming cup beside it, glowing waterfall bars behind; no traffic data"
     },
     {
       "file": "chrome-marquee-1400x560.png",
       "kind": "promotional-marquee",
       "width": 1400,
       "height": 560,
-      "source": "Playwright render of the checked-in extension icon and the brand-mark SVG paths from panel.html; no captured traffic",
+      "source": "Playwright render of the checked-in extension icon and the vector otter-and-cup mascot art; no captured traffic",
       "syntheticOnly": true,
       "containsSensitiveData": false,
       "domains": [],
-      "state": "Wide indigo brand marquee: extension icon, sleeping cat, and steaming cup on the left, the Network+ wordmark and feature tagline on the right; no traffic data"
+      "state": "Wide indigo brand marquee: extension icon, sleeping otter, and steaming cup on the left, the Network+ wordmark and feature tagline on the right; no traffic data"
     },
     {
       "file": "screenshot-1-request-detail-1280x800.png",

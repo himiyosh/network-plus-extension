@@ -71,7 +71,7 @@ Do not add unrelated search phrases to the description. Chrome Web Store metadat
 | Dashboard field | File | Status and notes |
 |---|---|---|
 | Store icon | `icons/icon128.png` | Required 128 x 128 PNG packaged in the ZIP. The current artwork is usable; Google's transparent-padding guidance should be treated as a visual-quality recommendation and rechecked in the dashboard preview. |
-| Small promo tile | `docs/store-assets/chrome-small-promo-440x280.png` | Required 440 x 280 PNG. Text-free full-bleed tile: the extension icon as the centerpiece with the sleeping Network+ cat and steaming cup beside it, echoing the shipped toolbar mark. |
+| Small promo tile | `docs/store-assets/chrome-small-promo-440x280.png` | Required 440 x 280 PNG. Text-free full-bleed tile: the extension icon as the centerpiece with the sleeping Network+ otter and steaming cup beside it, echoing the toolbar mascot. |
 | Marquee promo | `docs/store-assets/chrome-marquee-1400x560.png` | Optional 1400 x 560 PNG for featured placements: the same brand scene with the wordmark and the feature tagline. The identical file fills the Microsoft Edge Large promotional tile slot, which uses the same dimensions. |
 | Screenshot 1 | `docs/store-assets/screenshot-1-request-detail-1280x800.png` | Required screenshot set; headline band over an unscaled synthetic capture: 503 request and response headers. |
 | Screenshot 2 | `docs/store-assets/screenshot-2-timing-guidance-1280x800.png` | Synthetic timing evidence and observability guidance. |
@@ -118,7 +118,7 @@ The policy URL must be opened in a signed-out browser after these changes are me
 
 ### Optional support links and payments
 
-The Network+ brand button in the toolbar (the mark with the cat and coffee cup) opens a local Support dialog with user-activated links to https://github.com/sponsors/himiyosh and https://ko-fi.com/studio344. It does not embed a payment form, add affiliate codes, gate functionality, transmit captured traffic, or receive payment, card, or account data. Every feature remains free. Record these facts in reviewer notes so the optional donation routes are not mistaken for paid extension functionality. Final policy acceptance is determined by Chrome Web Store review.
+The Network+ brand button in the toolbar (the mark with the pixel otter and coffee cup) opens a local Support dialog with user-activated links to https://github.com/sponsors/himiyosh and https://ko-fi.com/studio344. It does not embed a payment form, add affiliate codes, gate functionality, transmit captured traffic, or receive payment, card, or account data. Every feature remains free. Record these facts in reviewer notes so the optional donation routes are not mistaken for paid extension functionality. Final policy acceptance is determined by Chrome Web Store review.
 
 ## Distribution recommendation
 
@@ -140,7 +140,7 @@ No account, credentials, subscription, remote service, or live customer traffic 
 5. Select `Sample guide`. Before selecting `Reveal evidence`, verify that only four investigation questions are shown. Select `Reveal evidence` and verify the failed request, HTTP 503, 2,450 ms total, `Wait (TTFB) · 2,200 ms`, `Retry-After: 30 seconds`, and the browser-evidence limitation.
 6. Select the export action, then select `Export sanitized HAR`. Verify that `network-plus-sanitized.har` is downloaded only after the user action and that the HAR records the sanitization policy. Do not select full output for routine review evidence.
 7. Select `Clear`. Verify that the sample rows and details disappear, recording returns to its prior state, and `Undo clear` is offered for 10 seconds. Select `Undo clear` once to restore the bounded snapshot, then select `Clear` again to exit sample mode.
-8. Select the Network+ brand button in the toolbar (the mark with the cat and coffee cup). Verify that the Support dialog opens, lists the GitHub Sponsors and Ko-fi links, states that Network+ sends them no data, contains no payment form, and issues no network request when opened. Verify that each option exposes one user-activated action that opens its page in a browser tab, that no clipboard write occurs, and that `Esc` or `Close` returns focus to the brand button.
+8. Select the Network+ brand button in the toolbar (the mark with the pixel otter and coffee cup). Verify that the Support dialog opens, lists the GitHub Sponsors and Ko-fi links, states that Network+ sends them no data, contains no payment form, and issues no network request when opened. Verify that each option exposes one user-activated action that opens its page in a browser tab, that no clipboard write occurs, and that `Esc` or `Close` returns focus to the brand button.
 
 ## Updating an already-listed item
 
