@@ -27,7 +27,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --diff-remove-bg:rgba(239,68,68,0.10);--diff-remove-border:rgba(239,68,68,0.40);
   --diff-changed-bg:rgba(251,191,36,0.12);--diff-changed-border:rgba(251,191,36,0.45);
   --diff-badge-a-color:#15803d;--diff-badge-b-color:#92400e;
-  --brew:#3a2416;--cat:#e0954a;--cat-blush:#e8848f;--cup:#fffdf7
+  --brew:#3a2416;--cat-blush:#e8848f;--cup:#fffdf7;--otter:#a9744f;--otter-deep:#8a5a3a;--otter-muzzle:#ecd9c3
 }
 @media (prefers-color-scheme: dark){:root{
   --bg:#0f172a;--surface:#1e293b;--content-bg:#162032;--fg:#e2e8f0;--muted:#94a3b8;--text-muted:#a8b4c5;
@@ -50,7 +50,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --diff-remove-bg:rgba(239,68,68,0.14);--diff-remove-border:rgba(239,68,68,0.50);
   --diff-changed-bg:rgba(251,191,36,0.15);--diff-changed-border:rgba(251,191,36,0.55);
   --diff-badge-a-color:#86efac;--diff-badge-b-color:#fde047;
-  --brew:#43291a;--cat:#eaa55f;--cat-blush:#f0a0a9;--cup:#f5f1e8
+  --brew:#43291a;--cat-blush:#f0a0a9;--cup:#f5f1e8;--otter:#b57e57;--otter-deep:#96634a;--otter-muzzle:#e6d2b8
 }}
 html[data-theme="dark"]{
   --bg:#0f172a;--surface:#1e293b;--content-bg:#162032;--fg:#e2e8f0;--muted:#94a3b8;--text-muted:#a8b4c5;
@@ -73,7 +73,7 @@ html[data-theme="dark"]{
   --diff-remove-bg:rgba(239,68,68,0.14);--diff-remove-border:rgba(239,68,68,0.50);
   --diff-changed-bg:rgba(251,191,36,0.15);--diff-changed-border:rgba(251,191,36,0.55);
   --diff-badge-a-color:#86efac;--diff-badge-b-color:#fde047;
-  --brew:#43291a;--cat:#eaa55f;--cat-blush:#f0a0a9;--cup:#f5f1e8
+  --brew:#43291a;--cat-blush:#f0a0a9;--cup:#f5f1e8;--otter:#b57e57;--otter-deep:#96634a;--otter-muzzle:#e6d2b8
 }
 html[data-theme="light"]{
   --bg:#fafbfc;--surface:#f0f2f5;--content-bg:#ffffff;--fg:#1a1a2e;--muted:#606d7b;--text-muted:#526170;
@@ -96,7 +96,7 @@ html[data-theme="light"]{
   --diff-remove-bg:rgba(239,68,68,0.10);--diff-remove-border:rgba(239,68,68,0.40);
   --diff-changed-bg:rgba(251,191,36,0.12);--diff-changed-border:rgba(251,191,36,0.45);
   --diff-badge-a-color:#15803d;--diff-badge-b-color:#92400e;
-  --brew:#3a2416;--cat:#e0954a;--cat-blush:#e8848f;--cup:#fffdf7
+  --brew:#3a2416;--cat-blush:#e8848f;--cup:#fffdf7;--otter:#a9744f;--otter-deep:#8a5a3a;--otter-muzzle:#ecd9c3
 }
 
 /* === Top Bar === */
@@ -106,29 +106,19 @@ html[data-theme="light"]{
 .brand{position:relative;display:inline-flex;align-items:center;gap:6px;padding:3px 14px;white-space:nowrap;border-radius:8px;background:var(--accent-dim);min-height:32px;overflow:visible;cursor:pointer}
 .topbar button.brand{border-color:transparent;background:var(--accent-dim);padding:3px 14px;font-size:14px}
 .topbar button.brand:hover{background:var(--accent-dim);color:var(--fg)}
-.brand-cat-window{position:absolute;bottom:calc(100% + 2px);left:50%;margin-left:-11px;width:22px;height:15px;overflow:hidden;pointer-events:none}
-.brand-cat-motion{display:block;width:22px;height:15px;transform-origin:50% 100%;animation:brand-cat-breathe 4.2s ease-in-out infinite}
-.brand-cat{display:block;width:22px;height:15px;overflow:visible;transition:transform .25s cubic-bezier(.2,.8,.3,1)}
-.topbar button.brand:hover .brand-cat,.topbar button.brand:focus-visible .brand-cat{transform:translateY(-1px)}
-.topbar button.brand:hover .brand-cat-motion,.topbar button.brand:focus-visible .brand-cat-motion{animation-play-state:paused}
-.brand-cat-fur,.brand-cat-paw{fill:var(--cat);stroke:var(--brew);stroke-width:.9;stroke-opacity:.55;stroke-linejoin:round}
-.brand-cat-inner{fill:var(--cat-blush);opacity:.9}
-.brand-cat-doze{fill:none;stroke:var(--brew);stroke-width:1.5;stroke-linecap:round;transition:opacity .26s ease}
-.brand-cat-tail{fill:none;stroke:var(--cat);stroke-width:2.4;stroke-linecap:round;opacity:.9;transform-box:fill-box;transform-origin:100% 100%;animation:brand-cat-tail-flick 7.4s ease-in-out infinite}
-.brand-cat-eye{fill:var(--brew);opacity:0;transform-box:fill-box;transform-origin:50% 50%;transition:opacity .26s ease;animation:support-cat-blink 5.2s ease-in-out infinite}
-.topbar button.brand:hover .brand-cat-eye,.topbar button.brand:focus-visible .brand-cat-eye{opacity:1}
-.topbar button.brand:hover .brand-cat-doze,.topbar button.brand:focus-visible .brand-cat-doze{opacity:0}
+.brand-otter-window{position:absolute;bottom:calc(100% + 2px);left:50%;margin-left:-11px;width:22px;height:15px;overflow:hidden;pointer-events:none}
+.brand-otter-motion{display:block;width:22px;height:15px;animation:brand-otter-bob 2.4s steps(1,end) infinite}
+.brand-otter{display:block;width:22px;height:15px}
+.topbar button.brand:hover .brand-otter-motion,.topbar button.brand:focus-visible .brand-otter-motion{animation:none}
+.brand-otter-wake{display:none}
+.topbar button.brand:hover .brand-otter-sleep,.topbar button.brand:focus-visible .brand-otter-sleep{display:none}
+.topbar button.brand:hover .brand-otter-wake,.topbar button.brand:focus-visible .brand-otter-wake{display:inline}
 .brand-zzz{position:absolute;left:calc(50% + 13px);bottom:calc(100% + 5px);font-size:9px;font-weight:800;line-height:1;color:var(--text-accent);opacity:0;pointer-events:none;animation:brand-zzz-drift 13s ease-in-out infinite;animation-delay:2.5s}
 .topbar button.brand:hover .brand-zzz,.topbar button.brand:focus-visible .brand-zzz{animation:none;opacity:0}
 .brand-heart{position:absolute;left:calc(50% - 16px);bottom:calc(100% + 6px);font-size:9px;line-height:1;color:var(--cat-blush);opacity:0;pointer-events:none;animation:brand-heart-float 19s ease-in-out infinite;animation-delay:7s}
-@keyframes brand-cat-breathe{
-  0%,100%{transform:scaleY(1) translateY(0)}
-  50%{transform:scaleY(1.05) translateY(-0.5px)}
-}
-@keyframes brand-cat-tail-flick{
-  0%,72%,100%{transform:rotate(0deg)}
-  78%{transform:rotate(-7deg)}
-  85%{transform:rotate(3deg)}
+@keyframes brand-otter-bob{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(1px)}
 }
 @keyframes brand-zzz-drift{
   0%,86%{opacity:0;transform:translate(0,0) scale(.85)}
@@ -166,7 +156,7 @@ html[data-theme="light"]{
 .topbar.paused{border-top:2px solid var(--border)}
 .topbar.recording{border-top:2px solid var(--status-5xx-text)}
 .topbar.recording #pauseBtn{color:var(--status-5xx-text)}
-@media (max-width:1366px){
+@media (max-width:1254px){
   .topbar button.brand{padding:3px 8px}
   .brand-sub-text{display:none}
   .brand-sub{width:22px;height:11px}
@@ -479,15 +469,17 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .support-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
 .support-hero{display:flex;align-items:center;justify-content:center;padding:6px 0 2px;border-radius:10px;background:radial-gradient(60% 80% at 50% 65%,var(--accent-dim) 0%,transparent 70%)}
 .support-hero-art{width:184px;height:118px;overflow:visible}
-.support-cat-body,.support-cat-head,.support-cat-ear,.support-cat-paw{fill:var(--cat)}
-.support-cat-ear-inner,.support-cat-nose{fill:var(--cat-blush)}
-.support-cat-tail{fill:none;stroke:var(--cat);stroke-width:7;stroke-linecap:round;transform-box:fill-box;transform-origin:100% 100%;animation:support-cat-tail 3.6s ease-in-out infinite}
-.support-cat-whisker{fill:none;stroke:var(--brew);stroke-width:1.3;stroke-linecap:round;opacity:.5}
-.support-cat-eye{fill:var(--brew);transform-box:fill-box;transform-origin:50% 50%;animation:support-cat-blink 5.2s ease-in-out infinite}
-.support-cat-ear--left{transform-box:fill-box;transform-origin:50% 100%;animation:support-cat-ear 6.4s ease-in-out infinite}
-@keyframes support-cat-blink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(.12)}}
-@keyframes support-cat-tail{0%,100%{transform:rotate(0deg)}50%{transform:rotate(-13deg)}}
-@keyframes support-cat-ear{0%,86%,100%{transform:rotate(0deg)}90%{transform:rotate(-10deg)}95%{transform:rotate(5deg)}}
+.support-otter-body,.support-otter-head,.support-otter-ear,.support-otter-paw{fill:var(--otter)}
+.support-otter-ear-inner{fill:var(--otter-deep)}
+.support-otter-muzzle{fill:var(--otter-muzzle)}
+.support-otter-nose{fill:var(--brew)}
+.support-otter-tail{fill:none;stroke:var(--otter-deep);stroke-width:8;stroke-linecap:round;transform-box:fill-box;transform-origin:100% 100%;animation:support-otter-tail 3.6s ease-in-out infinite}
+.support-otter-whisker{fill:none;stroke:var(--brew);stroke-width:1.3;stroke-linecap:round;opacity:.5}
+.support-otter-eye{fill:var(--brew);transform-box:fill-box;transform-origin:50% 50%;animation:support-otter-blink 5.2s ease-in-out infinite}
+.support-otter-ear--left{transform-box:fill-box;transform-origin:50% 100%;animation:support-otter-ear 6.4s ease-in-out infinite}
+@keyframes support-otter-blink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(.12)}}
+@keyframes support-otter-tail{0%,100%{transform:rotate(0deg)}50%{transform:rotate(-13deg)}}
+@keyframes support-otter-ear{0%,86%,100%{transform:rotate(0deg)}90%{transform:rotate(-10deg)}95%{transform:rotate(5deg)}}
 .support-cup{fill:var(--accent-fill)}
 .support-handle{fill:none;stroke:var(--accent-fill);stroke-width:7;stroke-linecap:round}
 .support-brew{fill:var(--brew)}
@@ -735,8 +727,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .search-color-btn,.search-color-swatch,.hl-swatch,.timing-bar-seg,.json-tree-summary::before,.copy-toast,.sample-guide-btn,.sample-exit-btn,.status-details-toggle{transition:none}
   .search-color-btn:hover,.search-color-swatch:hover,.hl-swatch:hover{transform:none}
   .copy-toast,.copy-toast.show{transform:translateX(-50%)}
-  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-cat-tail,.support-cat-eye,.support-cat-ear--left,.brand-cat,.brand-cat-motion,.brand-heart,.brand-zzz,.brand-cat-eye,.brand-cat-doze,.brand-cat-tail,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
-  .topbar button.brand:hover .brand-cat,.topbar button.brand:focus-visible .brand-cat{transform:none}
+  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-otter-tail,.support-otter-eye,.support-otter-ear--left,.brand-otter,.brand-otter-motion,.brand-heart,.brand-zzz,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
   .support-option-cta:hover{transform:none;filter:none}
   #supportDialog[open],#supportDialog[open]::backdrop{animation:none}
   .support-option:hover{transform:none}

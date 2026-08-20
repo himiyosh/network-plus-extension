@@ -22,7 +22,7 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 
 </div>
 
-**Try it now:** [Download the v1.9.0 release ZIP](https://github.com/himiyosh/network-plus-extension/releases/download/v1.9.0/network-plus-extension-1.9.0.zip) · [What is in v1.9.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.9.0) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
+**Try it now:** [Download the v1.10.0 release ZIP](https://github.com/himiyosh/network-plus-extension/releases/download/v1.10.0/network-plus-extension-1.10.0.zip) · [What is in v1.10.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.10.0) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
 
 ---
 
@@ -43,9 +43,9 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 
 | | |
 |---|---|
-| <img src="docs/store-assets/screenshot-request-detail-1280x800.png" alt="Request grid with the failing 503 POST selected and its response headers shown in the inspector."> | <img src="docs/store-assets/screenshot-timing-guidance-1280x800.png" alt="Response Timing tab showing a 2.45 s total dominated by 2.20 s of wait time, with the phase guide expanded."> |
+| <img src="docs/store-assets/screenshot-1-request-detail-1280x800.png" alt="Request grid with the failing 503 POST selected and its response headers shown in the inspector."> | <img src="docs/store-assets/screenshot-2-timing-guidance-1280x800.png" alt="Response Timing tab showing a 2.45 s total dominated by 2.20 s of wait time, with the phase guide expanded."> |
 | **Request inspector** — tabbed Request and Response views for headers, body, query, cookies, timing, and raw text. | **Timing breakdown** — per-phase numbers, a bar, and an inline guide explaining what each phase does and does not prove. |
-| <img src="docs/store-assets/screenshot-sample-guide-1280x800.png" alt="Sample evidence guide dialog asking four investigation questions before revealing the answers."> | <img src="docs/store-assets/screenshot-sanitized-export-1280x800.png" alt="Export dialog with Export sanitized HAR as the primary action and a separate review step for the full HAR."> |
+| <img src="docs/store-assets/screenshot-3-sample-guide-1280x800.png" alt="Sample evidence guide dialog asking four investigation questions before revealing the answers."> | <img src="docs/store-assets/screenshot-4-sanitized-export-1280x800.png" alt="Export dialog with Export sanitized HAR as the primary action and a separate review step for the full HAR."> |
 | **Local sample capture** — a three-request synthetic capture with a prompt-first guide, so you can learn the panel before pointing it at real traffic. | **Sanitized export** — the safe export is the default action; the full export sits behind a warning you must read every time. |
 
 </details>
@@ -54,7 +54,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 
 ### Install from the release ZIP
 
-1. Download [network-plus-extension-1.9.0.zip](https://github.com/himiyosh/network-plus-extension/releases/download/v1.9.0/network-plus-extension-1.9.0.zip) — see the [v1.9.0 release notes](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.9.0) for what changed.
+1. Download [network-plus-extension-1.10.0.zip](https://github.com/himiyosh/network-plus-extension/releases/download/v1.10.0/network-plus-extension-1.10.0.zip) — see the [v1.10.0 release notes](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.10.0) for what changed.
 2. Extract it into a new folder. The browser loads the folder that contains `manifest.json`, not the ZIP itself.
 3. Open `edge://extensions/` in Microsoft Edge, or `chrome://extensions/` in Google Chrome, and turn on **Developer mode**.
 4. Choose **Load unpacked** and select the folder from step 2.
@@ -276,7 +276,7 @@ Issues and pull requests are welcome. Before opening a PR:
 
 Repository conventions, the panel's section layout, XSS rules, and the review topology are documented in [.github/copilot-instructions.md](.github/copilot-instructions.md).
 
-**Versioning** follows Semantic Versioning. `version` is bumped only at release time — not per commit — and must stay identical across [manifest.json](manifest.json), [package.json](package.json), the top-level and root entries in [package-lock.json](package-lock.json), and the test fallback constant in [panel.js](panel.js). Run `npm run version:check` to verify all five locations and the README release links. Current version: **1.9.0**.
+**Versioning** follows Semantic Versioning. `version` is bumped only at release time — not per commit — and must stay identical across [manifest.json](manifest.json), [package.json](package.json), the top-level and root entries in [package-lock.json](package-lock.json), and the test fallback constant in [panel.js](panel.js). Run `npm run version:check` to verify all five locations and the README release links. Current version: **1.10.0**.
 
 **Releasing** needs no manual step beyond merging. When a version bump reaches `main`, the [Publish Release workflow](.github/workflows/release.yml) rebuilds the package, re-runs the version, package, and store-kit gates, verifies that the archive digest equals the value recorded in the submission dossiers, and publishes the `vX.Y.Z` GitHub release with the ZIP attached and notes generated from that version's changelog section. Pushing the `vX.Y.Z` tag yourself triggers the same workflow. A version that already has a release is skipped rather than republished, so re-runs are safe.
 
@@ -326,7 +326,7 @@ Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or pa
 | GitHub Sponsors | [github.com/sponsors/himiyosh](https://github.com/sponsors/himiyosh) | One-time or monthly · no platform fee |
 | Ko-fi | [ko-fi.com/studio344](https://ko-fi.com/studio344) | One-time · no account needed |
 
-The same links live in the panel, behind the Network+ brand button itself — the toolbar mark with the peeking cat and steaming cup opens the Support dialog. Network+ sends those sites no captured traffic and no usage data, and cannot tell whether you visited or contributed.
+The same links live in the panel, behind the Network+ brand button itself — the toolbar mark with the dozing pixel otter and steaming cup opens the Support dialog. Network+ sends those sites no captured traffic and no usage data, and cannot tell whether you visited or contributed.
 
 Non-financial help counts just as much: [report a bug or suggest an improvement](https://github.com/himiyosh/network-plus-extension/issues/new/choose), star the repository, or pass it on to a colleague.
 

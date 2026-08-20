@@ -396,7 +396,7 @@ const replaceWithAlternateLayout = (source, pattern, layouts, mutationName) => {
 const VIEWPORT_CONTRACTS = [
   {
     constantName: 'TOOLBAR_VIEWPORT_WIDTHS',
-    expectedWidths: [375, 500, 800, 1280, 1366, 1367, 1500],
+    expectedWidths: [375, 500, 800, 1254, 1255, 1280, 1500],
     journeyTitle: TOOLBAR_FOCUS_JOURNEY_TITLE,
   },
   {
@@ -533,7 +533,7 @@ test.each([
 );
 
 test('locks toolbar branding coverage to both exact sides of the content breakpoint', () => {
-  assertExactViewportWidths(browserSuiteSource, 'TOOLBAR_VIEWPORT_WIDTHS', [375, 500, 800, 1280, 1366, 1367, 1500]);
+  assertExactViewportWidths(browserSuiteSource, 'TOOLBAR_VIEWPORT_WIDTHS', [375, 500, 800, 1254, 1255, 1280, 1500]);
 });
 
 test('locks toolbar focus coverage to narrow, stacked, and split layouts', () => {

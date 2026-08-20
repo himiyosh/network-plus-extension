@@ -23,7 +23,7 @@ const EXPECTED_SUPPORT_URL = 'https://github.com/himiyosh/network-plus-extension
 const EXPECTED_PRIVACY_URL = 'https://github.com/himiyosh/network-plus-extension/blob/main/docs/privacy.md';
 const EXPECTED_REPOSITORY_URL = 'git+https://github.com/himiyosh/network-plus-extension.git';
 const EXPECTED_CSP = "script-src 'self'; object-src 'self'";
-const EXPECTED_RELEASE_SHA256 = 'c0f3018ff0cf30b868a41c9937452f776d6f1c99daa523a7998a58991e75175f';
+const EXPECTED_RELEASE_SHA256 = '11e308be9a4982f0afc608138fdebad6029f650ac87b969b0b3c00a92d6cd25d';
 const EXPECTED_PERMISSION_JUSTIFICATION =
   'Stores the user-selected System, Dark, or Light theme and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.';
 const EXPECTED_SEARCH_TERMS = Object.freeze([
@@ -141,38 +141,39 @@ const EXPECTED_ASSETS = Object.freeze({
     kind: 'promotional-tile',
     width: 440,
     height: 280,
-    source: 'Playwright render of the brand-mark SVG paths from panel.html; no captured traffic',
+    source: 'Image generation using the Network+ logo and synthetic request-detail screenshot as references',
     domains: Object.freeze([]),
   }),
   'chrome-marquee-1400x560.png': Object.freeze({
     kind: 'promotional-marquee',
     width: 1400,
     height: 560,
-    source: 'Playwright render of the brand-mark SVG paths from panel.html; no captured traffic',
+    source:
+      'Playwright composition of the checked-in extension icon, the otter-investigator illustration cut out of the promotional tile, and the wordmark; no captured traffic',
     domains: Object.freeze([]),
   }),
-  'screenshot-request-detail-1280x800.png': Object.freeze({
+  'screenshot-1-request-detail-1280x800.png': Object.freeze({
     kind: 'screenshot',
     width: 1280,
     height: 800,
     source: 'panel.js:createSampleCaptureRequests',
     domains: Object.freeze(['api.network-plus.test', 'checkout.network-plus.test', 'static.network-plus.test']),
   }),
-  'screenshot-timing-guidance-1280x800.png': Object.freeze({
+  'screenshot-2-timing-guidance-1280x800.png': Object.freeze({
     kind: 'screenshot',
     width: 1280,
     height: 800,
     source: 'panel.js:createSampleCaptureRequests',
     domains: Object.freeze(['api.network-plus.test', 'checkout.network-plus.test', 'static.network-plus.test']),
   }),
-  'screenshot-sample-guide-1280x800.png': Object.freeze({
+  'screenshot-3-sample-guide-1280x800.png': Object.freeze({
     kind: 'screenshot',
     width: 1280,
     height: 800,
     source: 'panel.js:createSampleCaptureRequests',
     domains: Object.freeze(['api.network-plus.test', 'checkout.network-plus.test', 'static.network-plus.test']),
   }),
-  'screenshot-sanitized-export-1280x800.png': Object.freeze({
+  'screenshot-4-sanitized-export-1280x800.png': Object.freeze({
     kind: 'screenshot',
     width: 1280,
     height: 800,

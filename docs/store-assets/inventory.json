@@ -17,25 +17,25 @@
       "kind": "promotional-tile",
       "width": 440,
       "height": 280,
-      "source": "Playwright render of the brand-mark SVG paths from panel.html; no captured traffic",
+      "source": "Image generation using the Network+ logo and synthetic request-detail screenshot as references",
       "syntheticOnly": true,
       "containsSensitiveData": false,
       "domains": [],
-      "state": "Full-bleed indigo brand tile: sleeping loaf cat beside a steaming porcelain cup above the Network+ wordmark; no traffic data"
+      "state": "Text-free Network+ promotional tile with an otter investigator and abstract request and timing motifs"
     },
     {
       "file": "chrome-marquee-1400x560.png",
       "kind": "promotional-marquee",
       "width": 1400,
       "height": 560,
-      "source": "Playwright render of the brand-mark SVG paths from panel.html; no captured traffic",
+      "source": "Playwright composition of the checked-in extension icon, the otter-investigator illustration cut out of the promotional tile, and the wordmark; no captured traffic",
       "syntheticOnly": true,
       "containsSensitiveData": false,
       "domains": [],
-      "state": "Wide indigo brand marquee: sleeping cat and steaming cup beside the Network+ wordmark and the feature tagline; no traffic data"
+      "state": "Wide indigo brand marquee: the otter investigator beside the extension icon on the left, the Network+ wordmark and feature tagline on the right; no traffic data"
     },
     {
-      "file": "screenshot-request-detail-1280x800.png",
+      "file": "screenshot-1-request-detail-1280x800.png",
       "kind": "screenshot",
       "width": 1280,
       "height": 800,
@@ -47,10 +47,10 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Headline band plus unscaled native panel capture: synthetic request grid with the 503 request selected and response headers visible"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: synthetic request grid with the 503 request selected and response headers visible"
     },
     {
-      "file": "screenshot-timing-guidance-1280x800.png",
+      "file": "screenshot-2-timing-guidance-1280x800.png",
       "kind": "screenshot",
       "width": 1280,
       "height": 800,
@@ -62,10 +62,10 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Headline band plus unscaled native panel capture: synthetic 503 response Timing view with 2.45 s total, 2.20 s wait, and the browser-evidence guidance"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: synthetic 503 response Timing view with 2.45 s total, 2.20 s wait, and the browser-evidence guidance"
     },
     {
-      "file": "screenshot-sample-guide-1280x800.png",
+      "file": "screenshot-3-sample-guide-1280x800.png",
       "kind": "screenshot",
       "width": 1280,
       "height": 800,
@@ -77,10 +77,10 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Headline band plus unscaled native panel capture: prompt-first local Sample evidence guide before Reveal evidence"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: prompt-first local Sample evidence guide before Reveal evidence"
     },
     {
-      "file": "screenshot-sanitized-export-1280x800.png",
+      "file": "screenshot-4-sanitized-export-1280x800.png",
       "kind": "screenshot",
       "width": 1280,
       "height": 800,
@@ -92,7 +92,7 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Headline band plus unscaled native panel capture: user-initiated export dialog with Export sanitized HAR as the safe default"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: user-initiated export dialog with Export sanitized HAR as the safe default"
     }
   ]
 }

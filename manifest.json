@@ -1,6 +1,6 @@
 {
   "name": "Network+ for DevTools",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "manifest_version": 3,
   "devtools_page": "devtools.html",
   "description": "Network analysis with sanitized HAR, retention limits, integrated search, accessible UI, and keyboard controls.",
