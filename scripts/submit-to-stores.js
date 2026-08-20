@@ -52,6 +52,16 @@ const redact = (text, secrets) => {
   return output;
 };
 
+// Identifies a credential without disclosing it, so a value stored in CI can be
+// compared against the one that works on an operator machine. A length plus 8
+// hex characters of a digest distinguishes two high-entropy secrets while
+// revealing nothing usable about either.
+const fingerprint = (value) => {
+  const text = String(value == null ? '' : value);
+  if (text.length === 0) return 'absent';
+  return `len=${text.length} sha=${crypto.createHash('sha256').update(text).digest('hex').slice(0, 8)}`;
+};
+
 const describeArchive = (archivePath) => {
   const bytes = fs.readFileSync(archivePath);
   return {
@@ -320,10 +330,18 @@ const submitToChrome = async (context) => {
 // --- Entry point ------------------------------------------------------------
 
 const parseArguments = (argv) => {
-  const options = { store: 'both', archive: '', notesFile: '', uploadOnly: false, publishTarget: 'default' };
+  const options = {
+    store: 'both',
+    archive: '',
+    notesFile: '',
+    uploadOnly: false,
+    publishTarget: 'default',
+    diagnose: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--upload-only') options.uploadOnly = true;
+    else if (argument === '--diagnose') options.diagnose = true;
     else if (argument === '--store') options.store = argv[(index += 1)];
     else if (argument === '--archive') options.archive = argv[(index += 1)];
     else if (argument === '--notes-file') options.notesFile = argv[(index += 1)];
@@ -341,6 +359,23 @@ const parseArguments = (argv) => {
 
 const main = async () => {
   const options = parseArguments(process.argv.slice(2));
+  if (options.diagnose) {
+    // Reaching a store and being refused by it looks the same whether the value
+    // is wrong or the account is not entitled. This separates the two without
+    // printing anything an operator would have to rotate afterwards.
+    for (const name of [
+      'EDGE_PRODUCT_ID',
+      'EDGE_CLIENT_ID',
+      'EDGE_API_KEY',
+      'CHROME_ITEM_ID',
+      'CHROME_CLIENT_ID',
+      'CHROME_CLIENT_SECRET',
+      'CHROME_REFRESH_TOKEN',
+    ]) {
+      process.stdout.write(`${name.padEnd(22)} ${fingerprint(process.env[name])}\n`);
+    }
+    return;
+  }
   const root = process.cwd();
   const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   const archivePath = options.archive || path.join(root, 'dist', `network-plus-extension-${version}.zip`);
@@ -433,6 +468,7 @@ if (require.main === module) {
 
 module.exports = {
   assertArchiveMatchesReviewedDigest,
+  fingerprint,
   describeArchive,
   extractOperationId,
   interpretChromePublish,

@@ -366,12 +366,13 @@ describe('command line', () => {
       notesFile: '',
       uploadOnly: false,
       publishTarget: 'default',
+      diagnose: false,
     });
   });
 
   test('accepts the documented flags', () => {
     expect(parseArguments(['--store', 'chrome', '--archive', 'a.zip', '--notes-file', 'n.md', '--upload-only'])).toEqual(
-      { store: 'chrome', archive: 'a.zip', notesFile: 'n.md', uploadOnly: true, publishTarget: 'default' },
+      { store: 'chrome', archive: 'a.zip', notesFile: 'n.md', uploadOnly: true, publishTarget: 'default', diagnose: false },
     );
   });
 
@@ -536,5 +537,107 @@ describe('guided secret setup', () => {
     expect(find('CHROME_ITEM_ID').check('z'.repeat(32))).toMatch(/a-p/);
     expect(find('CHROME_CLIENT_ID').check('123.apps.googleusercontent.com')).toBeNull();
     expect(find('CHROME_CLIENT_ID').check('123')).toMatch(/googleusercontent/);
+  });
+});
+
+describe('credential fingerprint', () => {
+  const { fingerprint } = require('../scripts/submit-to-stores');
+
+  // The point is to compare a value stored in CI against one on an operator
+  // machine without either being printed, so the value must not be recoverable.
+  test('identifies a value without disclosing it', () => {
+    const secret = 'super-secret-api-key-value';
+    const print = fingerprint(secret);
+    expect(print).toMatch(/^len=26 sha=[0-9a-f]{8}$/);
+    expect(print).not.toContain(secret);
+    expect(print).not.toContain(secret.slice(0, 6));
+  });
+
+  test('distinguishes two values of the same length', () => {
+    expect(fingerprint('aaaaaaaaaaaa')).not.toBe(fingerprint('aaaaaaaaaaab'));
+  });
+
+  test('is stable, so the two sides can be compared at all', () => {
+    expect(fingerprint('abc')).toBe(fingerprint('abc'));
+  });
+
+  // "Not configured" and "configured wrongly" are different diagnoses.
+  test('reports an unset value as absent rather than hashing the empty string', () => {
+    expect(fingerprint(undefined)).toBe('absent');
+    expect(fingerprint('')).toBe('absent');
+  });
+
+  test('is reachable from the command line and the workflow', () => {
+    expect(parseArguments(['--diagnose']).diagnose).toBe(true);
+    expect(parseArguments([]).diagnose).toBe(false);
+    const workflow = readRepoFile(path.join('.github', 'workflows', 'store-submit.yml'));
+    expect(workflow).toContain("DIAGNOSE: ${{ inputs.diagnose && '--diagnose' || '' }}");
+  });
+});
+
+describe('duplicate credential guard', () => {
+  const { duplicateOf } = require('../scripts/setup-store-secrets');
+
+  // What actually happened: the Edge product ID answered the client ID prompt
+  // too, and the store rejected the pair with a bare 401 naming neither field.
+  test('names the earlier field a repeated value came from', () => {
+    const collected = [['EDGE_PRODUCT_ID', '4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241']];
+    expect(duplicateOf('4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241', collected)).toBe('EDGE_PRODUCT_ID');
+  });
+
+  test('passes a genuinely different value', () => {
+    const collected = [['EDGE_PRODUCT_ID', 'aaaa']];
+    expect(duplicateOf('bbbb', collected)).toBeNull();
+    expect(duplicateOf('aaaa', [])).toBeNull();
+  });
+});
+
+describe('quoted credential values', () => {
+  const { cleanValue: clean } = require('../scripts/setup-store-secrets');
+
+  // What happened: a 36-character GUID arrived as 38 characters because the
+  // .env line quoted it, and copying the line's text kept the quotes. A shell
+  // strips them on `source`, so the same value worked locally and not in CI.
+  test('strips matched surrounding quotes', () => {
+    const guid = '4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241';
+    expect(clean(`"${guid}"`)).toBe(guid);
+    expect(clean(`'${guid}'`)).toBe(guid);
+    expect(clean(`  "${guid}"  \n`)).toBe(guid);
+    expect(clean(`"${guid}"`)).toHaveLength(36);
+  });
+
+  // A quote on one side is not a wrapper, and a credential may legitimately
+  // contain one; removing it would corrupt the value.
+  test('leaves unmatched or interior quotes alone', () => {
+    expect(clean('"abc')).toBe('"abc');
+    expect(clean('abc"')).toBe('abc"');
+    expect(clean('ab"cd')).toBe('ab"cd');
+    expect(clean('"')).toBe('"');
+  });
+});
+
+describe('Edge product id from the dashboard URL', () => {
+  const { extractEdgeProductId } = require('../scripts/setup-store-secrets');
+  const GUID = '4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241';
+
+  // Partner Center uses a GUID for both the product id and the API client id,
+  // so no shape check separates them; the URL does.
+  test('reads the product id out of the dashboard URL', () => {
+    expect(
+      extractEdgeProductId(`https://partner.microsoft.com/ja-jp/dashboard/microsoftedge/${GUID}/packages/dashboard`),
+    ).toBe(GUID);
+    expect(extractEdgeProductId(`https://partner.microsoft.com/dashboard/microsoftedge/${GUID}`)).toBe(GUID);
+    expect(extractEdgeProductId(`  https://partner.microsoft.com/dashboard/microsoftedge/${GUID}/packages  `)).toBe(GUID);
+  });
+
+  test('still accepts a bare GUID', () => {
+    expect(extractEdgeProductId(GUID)).toBe(GUID);
+  });
+
+  // A client id pasted here is a bare GUID and cannot be distinguished, but a
+  // URL that is not the extension's dashboard must not yield anything.
+  test('yields nothing for text that carries no product id', () => {
+    expect(extractEdgeProductId('https://partner.microsoft.com/dashboard/microsoftedge/overview')).toBeNull();
+    expect(extractEdgeProductId('not a guid at all')).toBeNull();
   });
 });

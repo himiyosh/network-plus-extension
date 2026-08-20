@@ -39,6 +39,10 @@ profile によっては配布されないファイルがある。存在しない
 
 Edge / Chrome の申請資格情報は、拡張ごとではなく**アカウント単位**で共有される。同じ値を
 `himiyosh/dual-subtitles`（ローカル worktree: `~/GH_himiyosh/ghcp-worktrees/dual-subtitles`）でも使っている。
+Edge 側は 2026-08-20 に、dual-subtitles の Client ID + API キーで Network+ 製品への
+アップロードが成功したことで実証済み（それまでの 401 連発は保存値の貼り間違いが原因で、
+資格情報の分離を意味しなかった）。値の同一性を疑うときは値を貼り直すのではなく、
+`store:submit -- --diagnose` の指紋と手元の `.env.*` の指紋を突き合わせて確定させること。
 そちらのリポジトリ直下の `.env.edge` / `.env.cws` が値の所在で、どちらも `.env*` で gitignore されている。
 値そのものをこのリポジトリに書いてはならない。GitHub の `store-submission` environment secrets が唯一の保管先。
 

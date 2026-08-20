@@ -163,12 +163,13 @@ No account, credentials, subscription, remote service, or live customer traffic 
 
 ## Asset inventory
 
-All screenshots are 1280 x 800 PNG files and depict only deterministic data produced by `createSampleCaptureRequests()` in `panel.js`. The `.test` domains are reserved for examples. The captures contain no real browsing history, credentials, customer traffic, account UI, private data, store UI, or certification status.
+Each screenshot is a 1280 x 800 composition: a one-line headline band above an unscaled, natively captured panel view. The panel content depicts only deterministic data produced by `createSampleCaptureRequests()` in `panel.js`. The `.test` domains are reserved for examples. The captures contain no real browsing history, credentials, customer traffic, account UI, private data, store UI, or certification status.
 
 | File | Depicted state | Synthetic evidence |
 |---|---|---|
 | `docs/store-assets/logo-300.png` | 300 x 300 Network+ logo derived from the checked-in extension mark | No traffic data |
-| `docs/store-assets/chrome-small-promo-440x280.png` | 440 x 280 text-free Network+ promotional tile with an otter investigator and abstract request/timing motifs | No traffic data; also satisfies the Chrome Web Store required small-promo size |
+| `docs/store-assets/chrome-small-promo-440x280.png` | 440 x 280 indigo brand tile: sleeping cat, steaming cup, and the Network+ wordmark | No traffic data; also satisfies the Chrome Web Store required small-promo size |
+| `docs/store-assets/chrome-marquee-1400x560.png` | 1400 x 560 brand marquee: the same scene with the wordmark and feature tagline | No traffic data; used by Chrome Web Store featured placements |
 | `docs/store-assets/screenshot-request-detail-1280x800.png` | Request grid with the synthetic 503 row selected and response headers visible | `checkout.network-plus.test`, `Retry-After: 30`, local sample status |
 | `docs/store-assets/screenshot-timing-guidance-1280x800.png` | Response Timing view and timing interpretation guidance | 2,450 ms total, 2,200 ms Wait (TTFB), browser-evidence limitation |
 | `docs/store-assets/screenshot-sample-guide-1280x800.png` | Prompt-first Sample evidence guide before reveal | Four questions only; no answer is revealed in this capture |

@@ -22,6 +22,18 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A Chrome extension id is 32 characters drawn from a-p.
 const CHROME_ITEM = /^[a-p]{32}$/;
 
+// Partner Center uses a GUID for both the product id and the API client id, so
+// no shape check can tell them apart and pasting one where the other belongs
+// survives validation and fails much later as a bare 401. The dashboard URL is
+// unambiguous, is already on screen when the value is needed, and cannot be
+// confused with a client id, so it is accepted in place of the bare GUID.
+const extractEdgeProductId = (input) => {
+  const value = String(input).trim();
+  if (GUID.test(value)) return value;
+  const fromUrl = value.match(/\/microsoftedge\/([0-9a-f-]{36})(?:[/?#]|$)/i);
+  return fromUrl && GUID.test(fromUrl[1]) ? fromUrl[1] : null;
+};
+
 // Each step names the page the operator has to visit, what to do there, and how
 // to recognize a correct value. `secret` is the name the workflow reads.
 const STEPS = Object.freeze({
@@ -30,13 +42,16 @@ const STEPS = Object.freeze({
       secret: 'EDGE_PRODUCT_ID',
       url: 'https://partner.microsoft.com/dashboard/microsoftedge/overview',
       instructions: [
-        'Sign in as the account that published the extension.',
-        'Open the extension, then find Extension identity on the Extension overview page.',
-        'The same value is the GUID in the address bar between microsoftedge/ and /packages.',
+        'Sign in as the account that published the extension and open it.',
+        'Copy the whole address bar and paste it here; the product id is read out of it.',
+        'A bare GUID is accepted too, but the URL cannot be confused with the API client id,',
+        'which is also a GUID and belongs to the next prompt.',
       ],
-      prompt: 'Product ID',
+      prompt: 'Product ID, or paste the whole dashboard URL',
       hidden: false,
-      check: (value) => (GUID.test(value) ? null : 'that does not look like a GUID (8-4-4-4-12 hex)'),
+      transform: extractEdgeProductId,
+      check: (value) =>
+        GUID.test(value) ? null : 'expected the dashboard URL, or the GUID between microsoftedge/ and /packages in it',
     },
     {
       secret: 'EDGE_CLIENT_ID',
@@ -166,9 +181,32 @@ const askHidden = (rl, question) =>
 // A pasted value routinely carries a trailing newline or a stray space, and a
 // store rejects it hours later with an unhelpful error. Trimming here, and
 // saying so, is worth more than any other check in this script.
-const cleanValue = (raw) => String(raw).trim();
+//
+// Matched surrounding quotes go too. Credentials are commonly kept in .env
+// files, where quoting a value is ordinary and a shell strips the quotes on
+// `source`; copying the line's text instead keeps them, and the store then
+// refuses a value that looks correct in every log that shows its length.
+const cleanValue = (raw) => {
+  const trimmed = String(raw).trim();
+  const first = trimmed[0];
+  if ((first === '"' || first === "'") && trimmed.length >= 2 && trimmed.endsWith(first)) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+};
 
-const collect = async (rl, step, platform) => {
+// Two of these prompts arrive back to back and both want a GUID, so a clipboard
+// that was not refreshed silently answers the second one with the first one's
+// value. The store then rejects the pair with a bare 401 that names neither
+// field. Comparing against what was already collected catches it here instead.
+const duplicateOf = (value, collected) => {
+  for (const [name, previous] of collected) {
+    if (previous === value) return name;
+  }
+  return null;
+};
+
+const collect = async (rl, step, platform, collected = []) => {
   process.stdout.write(`\n--- ${step.secret} ---\n`);
   if (step.url) {
     const opened = await openInBrowser(step.url, platform);
@@ -180,13 +218,22 @@ const collect = async (rl, step, platform) => {
 
   for (;;) {
     const raw = step.hidden ? await askHidden(rl, `${step.prompt}: `) : await ask(rl, `${step.prompt}: `);
-    const value = cleanValue(raw);
+    const cleaned = cleanValue(raw);
+    const value = step.transform ? step.transform(cleaned) || cleaned : cleaned;
     if (!value) {
       process.stdout.write('  empty; try again\n');
       continue;
     }
-    if (value !== String(raw).replace(/\n$/, '')) {
-      process.stdout.write('  (trimmed surrounding whitespace)\n');
+    const raw_ = String(raw).replace(/\n$/, '');
+    if (value !== raw_ && value === cleaned) {
+      process.stdout.write(
+        `  (removed ${raw_.length - value.length} surrounding character(s): whitespace or quotes)\n`,
+      );
+    }
+    const duplicate = duplicateOf(value, collected);
+    if (duplicate) {
+      const answer = await ask(rl, `  identical to ${duplicate}; is the clipboard stale? Use it anyway? [y/N] `);
+      if (!/^y(es)?$/i.test(answer.trim())) continue;
     }
     const complaint = step.check(value);
     if (complaint) {
@@ -225,15 +272,18 @@ const main = async () => {
 
   const steps = store === 'both' ? [...STEPS.edge, ...STEPS.chrome] : STEPS[store];
   const stored = [];
+  // Kept only for the duplicate check, and only for this process's lifetime.
+  const collectedValues = [];
   try {
     for (const step of steps) {
-      const value = await collect(rl, step, process.platform);
+      const value = await collect(rl, step, process.platform, collectedValues);
       const result = await run('gh', secretSetArguments(step.secret), value);
       if (result.code !== 0) {
         throw new Error(`gh secret set ${step.secret} failed: ${result.stderr.trim()}`);
       }
       process.stdout.write(`  stored ${step.secret}\n`);
       stored.push(step.secret);
+      collectedValues.push([step.secret, value]);
     }
   } finally {
     rl.close();
@@ -268,4 +318,13 @@ if (require.main === module) {
   });
 }
 
-module.exports = { browserOpenCommand, cleanValue, secretSetArguments, ENVIRONMENT, REPO, STEPS };
+module.exports = {
+  browserOpenCommand,
+  cleanValue,
+  duplicateOf,
+  extractEdgeProductId,
+  secretSetArguments,
+  ENVIRONMENT,
+  REPO,
+  STEPS,
+};

@@ -11,7 +11,7 @@ const ASSET_DIRECTORY = 'docs/store-assets';
 // The synthetic store assets and the privacy notice are reviewed independently.
 // Keep the dates separate so a privacy-text change does not imply the PNG
 // inventory was re-reviewed on the same day.
-const ASSET_REVIEW_DATE = '2026-08-19';
+const ASSET_REVIEW_DATE = '2026-08-20';
 const PRIVACY_REVIEW_DATE = '2026-08-18';
 const MIN_DESCRIPTION_CHARACTERS = 250;
 const MAX_DESCRIPTION_CHARACTERS = 10000;
@@ -141,7 +141,14 @@ const EXPECTED_ASSETS = Object.freeze({
     kind: 'promotional-tile',
     width: 440,
     height: 280,
-    source: 'Image generation using the Network+ logo and synthetic request-detail screenshot as references',
+    source: 'Playwright render of the brand-mark SVG paths from panel.html; no captured traffic',
+    domains: Object.freeze([]),
+  }),
+  'chrome-marquee-1400x560.png': Object.freeze({
+    kind: 'promotional-marquee',
+    width: 1400,
+    height: 560,
+    source: 'Playwright render of the brand-mark SVG paths from panel.html; no captured traffic',
     domains: Object.freeze([]),
   }),
   'screenshot-request-detail-1280x800.png': Object.freeze({

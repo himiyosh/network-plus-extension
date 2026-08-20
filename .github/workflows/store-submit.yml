@@ -23,6 +23,10 @@ on:
         description: Upload the package but do not submit it for review
         type: boolean
         default: false
+      diagnose:
+        description: Print a non-reversible fingerprint of each stored credential and stop
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -88,4 +92,5 @@ jobs:
           CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
           STORE: ${{ inputs.store || 'both' }}
           UPLOAD_ONLY: ${{ inputs.upload_only && '--upload-only' || '' }}
-        run: npm run store:submit -- --store "$STORE" $UPLOAD_ONLY
+          DIAGNOSE: ${{ inputs.diagnose && '--diagnose' || '' }}
+        run: npm run store:submit -- --store "$STORE" $UPLOAD_ONLY $DIAGNOSE
