@@ -168,8 +168,8 @@ Each screenshot is a 1280 x 800 composition: a one-line headline band above an u
 | File | Depicted state | Synthetic evidence |
 |---|---|---|
 | `docs/store-assets/logo-300.png` | 300 x 300 Network+ logo derived from the checked-in extension mark | No traffic data |
-| `docs/store-assets/chrome-small-promo-440x280.png` | 440 x 280 indigo brand tile: sleeping cat, steaming cup, and the Network+ wordmark | No traffic data; also satisfies the Chrome Web Store required small-promo size |
-| `docs/store-assets/chrome-marquee-1400x560.png` | 1400 x 560 brand marquee: the same scene with the wordmark and feature tagline | No traffic data; used by Chrome Web Store featured placements |
+| `docs/store-assets/chrome-small-promo-440x280.png` | 440 x 280 text-free brand tile: the extension icon with the sleeping cat and steaming cup beside it | No traffic data; fills the Edge Small promotional tile slot and the Chrome required small-promo slot |
+| `docs/store-assets/chrome-marquee-1400x560.png` | 1400 x 560 brand marquee: the same scene with the wordmark and feature tagline | No traffic data; fills the Edge Large promotional tile slot (1400 x 560 per the Partner Center listing guide) and the Chrome marquee slot |
 | `docs/store-assets/screenshot-request-detail-1280x800.png` | Request grid with the synthetic 503 row selected and response headers visible | `checkout.network-plus.test`, `Retry-After: 30`, local sample status |
 | `docs/store-assets/screenshot-timing-guidance-1280x800.png` | Response Timing view and timing interpretation guidance | 2,450 ms total, 2,200 ms Wait (TTFB), browser-evidence limitation |
 | `docs/store-assets/screenshot-sample-guide-1280x800.png` | Prompt-first Sample evidence guide before reveal | Four questions only; no answer is revealed in this capture |
