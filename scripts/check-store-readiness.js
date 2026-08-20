@@ -153,28 +153,28 @@ const EXPECTED_ASSETS = Object.freeze({
       'Playwright render of the checked-in extension icon and the brand-mark SVG paths from panel.html; no captured traffic',
     domains: Object.freeze([]),
   }),
-  'screenshot-request-detail-1280x800.png': Object.freeze({
+  'screenshot-1-request-detail-1280x800.png': Object.freeze({
     kind: 'screenshot',
     width: 1280,
     height: 800,
     source: 'panel.js:createSampleCaptureRequests',
     domains: Object.freeze(['api.network-plus.test', 'checkout.network-plus.test', 'static.network-plus.test']),
   }),
-  'screenshot-timing-guidance-1280x800.png': Object.freeze({
+  'screenshot-2-timing-guidance-1280x800.png': Object.freeze({
     kind: 'screenshot',
     width: 1280,
     height: 800,
     source: 'panel.js:createSampleCaptureRequests',
     domains: Object.freeze(['api.network-plus.test', 'checkout.network-plus.test', 'static.network-plus.test']),
   }),
-  'screenshot-sample-guide-1280x800.png': Object.freeze({
+  'screenshot-3-sample-guide-1280x800.png': Object.freeze({
     kind: 'screenshot',
     width: 1280,
     height: 800,
     source: 'panel.js:createSampleCaptureRequests',
     domains: Object.freeze(['api.network-plus.test', 'checkout.network-plus.test', 'static.network-plus.test']),
   }),
-  'screenshot-sanitized-export-1280x800.png': Object.freeze({
+  'screenshot-4-sanitized-export-1280x800.png': Object.freeze({
     kind: 'screenshot',
     width: 1280,
     height: 800,

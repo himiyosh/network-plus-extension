@@ -168,7 +168,7 @@ describe('browser store submission kits', () => {
 
   test('rejects PNG dimension drift and non-synthetic inventory domains', () => {
     const root = createFixture();
-    const screenshot = 'docs/store-assets/screenshot-request-detail-1280x800.png';
+    const screenshot = 'docs/store-assets/screenshot-1-request-detail-1280x800.png';
     const bytes = fs.readFileSync(path.join(root, screenshot));
     expect(parsePngDimensions(bytes)).toEqual({ width: 1280, height: 800 });
     bytes.writeUInt32BE(1279, 16);
@@ -181,9 +181,9 @@ describe('browser store submission kits', () => {
 
     expect(validate(root)).toEqual(
       expect.arrayContaining([
-        'screenshot-request-detail-1280x800.png PNG dimensions must be 1280x800; found 1279x800',
-        'screenshot-request-detail-1280x800.png domains must match the reviewed synthetic inventory',
-        'screenshot-request-detail-1280x800.png domain must use the reserved .test suffix: customer.example.com',
+        'screenshot-1-request-detail-1280x800.png PNG dimensions must be 1280x800; found 1279x800',
+        'screenshot-1-request-detail-1280x800.png domains must match the reviewed synthetic inventory',
+        'screenshot-1-request-detail-1280x800.png domain must use the reserved .test suffix: customer.example.com',
       ]),
     );
   });

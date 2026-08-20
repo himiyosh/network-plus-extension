@@ -35,7 +35,7 @@
       "state": "Wide indigo brand marquee: extension icon, sleeping cat, and steaming cup on the left, the Network+ wordmark and feature tagline on the right; no traffic data"
     },
     {
-      "file": "screenshot-request-detail-1280x800.png",
+      "file": "screenshot-1-request-detail-1280x800.png",
       "kind": "screenshot",
       "width": 1280,
       "height": 800,
@@ -47,10 +47,10 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Headline band plus unscaled native panel capture: synthetic request grid with the 503 request selected and response headers visible"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: synthetic request grid with the 503 request selected and response headers visible"
     },
     {
-      "file": "screenshot-timing-guidance-1280x800.png",
+      "file": "screenshot-2-timing-guidance-1280x800.png",
       "kind": "screenshot",
       "width": 1280,
       "height": 800,
@@ -62,10 +62,10 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Headline band plus unscaled native panel capture: synthetic 503 response Timing view with 2.45 s total, 2.20 s wait, and the browser-evidence guidance"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: synthetic 503 response Timing view with 2.45 s total, 2.20 s wait, and the browser-evidence guidance"
     },
     {
-      "file": "screenshot-sample-guide-1280x800.png",
+      "file": "screenshot-3-sample-guide-1280x800.png",
       "kind": "screenshot",
       "width": 1280,
       "height": 800,
@@ -77,10 +77,10 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Headline band plus unscaled native panel capture: prompt-first local Sample evidence guide before Reveal evidence"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: prompt-first local Sample evidence guide before Reveal evidence"
     },
     {
-      "file": "screenshot-sanitized-export-1280x800.png",
+      "file": "screenshot-4-sanitized-export-1280x800.png",
       "kind": "screenshot",
       "width": 1280,
       "height": 800,
@@ -92,7 +92,7 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Headline band plus unscaled native panel capture: user-initiated export dialog with Export sanitized HAR as the safe default"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: user-initiated export dialog with Export sanitized HAR as the safe default"
     }
   ]
 }

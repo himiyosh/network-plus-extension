@@ -43,9 +43,9 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 
 | | |
 |---|---|
-| <img src="docs/store-assets/screenshot-request-detail-1280x800.png" alt="Request grid with the failing 503 POST selected and its response headers shown in the inspector."> | <img src="docs/store-assets/screenshot-timing-guidance-1280x800.png" alt="Response Timing tab showing a 2.45 s total dominated by 2.20 s of wait time, with the phase guide expanded."> |
+| <img src="docs/store-assets/screenshot-1-request-detail-1280x800.png" alt="Request grid with the failing 503 POST selected and its response headers shown in the inspector."> | <img src="docs/store-assets/screenshot-2-timing-guidance-1280x800.png" alt="Response Timing tab showing a 2.45 s total dominated by 2.20 s of wait time, with the phase guide expanded."> |
 | **Request inspector** — tabbed Request and Response views for headers, body, query, cookies, timing, and raw text. | **Timing breakdown** — per-phase numbers, a bar, and an inline guide explaining what each phase does and does not prove. |
-| <img src="docs/store-assets/screenshot-sample-guide-1280x800.png" alt="Sample evidence guide dialog asking four investigation questions before revealing the answers."> | <img src="docs/store-assets/screenshot-sanitized-export-1280x800.png" alt="Export dialog with Export sanitized HAR as the primary action and a separate review step for the full HAR."> |
+| <img src="docs/store-assets/screenshot-3-sample-guide-1280x800.png" alt="Sample evidence guide dialog asking four investigation questions before revealing the answers."> | <img src="docs/store-assets/screenshot-4-sanitized-export-1280x800.png" alt="Export dialog with Export sanitized HAR as the primary action and a separate review step for the full HAR."> |
 | **Local sample capture** — a three-request synthetic capture with a prompt-first guide, so you can learn the panel before pointing it at real traffic. | **Sanitized export** — the safe export is the default action; the full export sits behind a warning you must read every time. |
 
 </details>
