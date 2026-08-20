@@ -34,3 +34,31 @@ profile によっては配布されないファイルがある。存在しない
 - 導入元 ref: `v0.6.1` (`5792d8bb3ea23d3812e10c5b7f4ced214ac73753`)
 - 導入 profile: `core`（platform: `claude-code`）
 - ローカル逸脱: `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` §6.10 から、レビューコメント marker・レビュアー session UUID・repository variables による merge ゲート手続きの bullet 3 件を削除している（#129 で本リポジトリでは廃止済み。merge 可否は branch protection と通常の CI quality gates で判定する）。bundle 更新時は再取得後に同じ削除を再適用すること。
+
+### ストア申請の資格情報（`dual-subtitles` と共通）
+
+Edge / Chrome の申請資格情報は、拡張ごとではなく**アカウント単位**で共有される。同じ値を
+`himiyosh/dual-subtitles`（ローカル worktree: `~/GH_himiyosh/ghcp-worktrees/dual-subtitles`）でも使っている。
+そちらのリポジトリ直下の `.env.edge` / `.env.cws` が値の所在で、どちらも `.env*` で gitignore されている。
+値そのものをこのリポジトリに書いてはならない。GitHub の `store-submission` environment secrets が唯一の保管先。
+
+| このリポジトリの secret | dual-subtitles 側 | 拡張ごとに違うか |
+| --- | --- | --- |
+| `EDGE_CLIENT_ID` | `.env.edge` の同名 | 共通 |
+| `EDGE_API_KEY` | `.env.edge` の同名 | 共通 |
+| `EDGE_PRODUCT_ID` | `.env.edge` の同名 | **拡張ごと** — Network+ は `4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241` |
+| `CHROME_CLIENT_ID` | `.env.cws` の `CWS_CLIENT_ID` | 共通 |
+| `CHROME_CLIENT_SECRET` | `.env.cws` の `CWS_CLIENT_SECRET` | 共通 |
+| `CHROME_REFRESH_TOKEN` | `.env.cws` の `CWS_REFRESH_TOKEN` | 共通（スコープはアカウント単位） |
+| `CHROME_ITEM_ID` | `.env.cws` の `CWS_ITEM_ID` | **拡張ごと** — Network+ は `mhidipnhdnonbjkfklcohmnnmfggjlpo` |
+
+この 2 つは識別子であって資格情報ではない。API キーなしでは何もできず、Chrome の方は公開 listing の
+URL にそのまま現れる。ポータルを開き直さずに済むよう、ここに控えておく。取得元は Partner Center の
+`.../microsoftedge/<GUID>/packages/...` の GUID 部分と、`chromewebstore.google.com/detail/<name>/<id>` の末尾。
+
+Chrome の OAuth クライアントと refresh token は共通なので、Cloud プロジェクトの作成も同意フローも
+やり直さない。`scripts/chrome-refresh-token.js` は、その refresh token を失ったときだけ使う。
+
+Edge の API キーは**作成から約 72 日で失効する**。使う前に dual-subtitles 側の
+`./scripts/publish-edge.sh check` で生死を確認すること。失効していれば Partner Center の Publish API
+ページで再作成し、両プロジェクトの保管先を揃えて更新する。
