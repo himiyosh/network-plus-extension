@@ -591,3 +591,27 @@ describe('duplicate credential guard', () => {
     expect(duplicateOf('aaaa', [])).toBeNull();
   });
 });
+
+describe('quoted credential values', () => {
+  const { cleanValue: clean } = require('../scripts/setup-store-secrets');
+
+  // What happened: a 36-character GUID arrived as 38 characters because the
+  // .env line quoted it, and copying the line's text kept the quotes. A shell
+  // strips them on `source`, so the same value worked locally and not in CI.
+  test('strips matched surrounding quotes', () => {
+    const guid = '4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241';
+    expect(clean(`"${guid}"`)).toBe(guid);
+    expect(clean(`'${guid}'`)).toBe(guid);
+    expect(clean(`  "${guid}"  \n`)).toBe(guid);
+    expect(clean(`"${guid}"`)).toHaveLength(36);
+  });
+
+  // A quote on one side is not a wrapper, and a credential may legitimately
+  // contain one; removing it would corrupt the value.
+  test('leaves unmatched or interior quotes alone', () => {
+    expect(clean('"abc')).toBe('"abc');
+    expect(clean('abc"')).toBe('abc"');
+    expect(clean('ab"cd')).toBe('ab"cd');
+    expect(clean('"')).toBe('"');
+  });
+});

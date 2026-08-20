@@ -166,7 +166,19 @@ const askHidden = (rl, question) =>
 // A pasted value routinely carries a trailing newline or a stray space, and a
 // store rejects it hours later with an unhelpful error. Trimming here, and
 // saying so, is worth more than any other check in this script.
-const cleanValue = (raw) => String(raw).trim();
+//
+// Matched surrounding quotes go too. Credentials are commonly kept in .env
+// files, where quoting a value is ordinary and a shell strips the quotes on
+// `source`; copying the line's text instead keeps them, and the store then
+// refuses a value that looks correct in every log that shows its length.
+const cleanValue = (raw) => {
+  const trimmed = String(raw).trim();
+  const first = trimmed[0];
+  if ((first === '"' || first === "'") && trimmed.length >= 2 && trimmed.endsWith(first)) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+};
 
 // Two of these prompts arrive back to back and both want a GUID, so a clipboard
 // that was not refreshed silently answers the second one with the first one's
@@ -196,8 +208,11 @@ const collect = async (rl, step, platform, collected = []) => {
       process.stdout.write('  empty; try again\n');
       continue;
     }
-    if (value !== String(raw).replace(/\n$/, '')) {
-      process.stdout.write('  (trimmed surrounding whitespace)\n');
+    const raw_ = String(raw).replace(/\n$/, '');
+    if (value !== raw_) {
+      process.stdout.write(
+        `  (removed ${raw_.length - value.length} surrounding character(s): whitespace or quotes)\n`,
+      );
     }
     const duplicate = duplicateOf(value, collected);
     if (duplicate) {
