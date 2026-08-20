@@ -22,6 +22,18 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A Chrome extension id is 32 characters drawn from a-p.
 const CHROME_ITEM = /^[a-p]{32}$/;
 
+// Partner Center uses a GUID for both the product id and the API client id, so
+// no shape check can tell them apart and pasting one where the other belongs
+// survives validation and fails much later as a bare 401. The dashboard URL is
+// unambiguous, is already on screen when the value is needed, and cannot be
+// confused with a client id, so it is accepted in place of the bare GUID.
+const extractEdgeProductId = (input) => {
+  const value = String(input).trim();
+  if (GUID.test(value)) return value;
+  const fromUrl = value.match(/\/microsoftedge\/([0-9a-f-]{36})(?:[/?#]|$)/i);
+  return fromUrl && GUID.test(fromUrl[1]) ? fromUrl[1] : null;
+};
+
 // Each step names the page the operator has to visit, what to do there, and how
 // to recognize a correct value. `secret` is the name the workflow reads.
 const STEPS = Object.freeze({
@@ -30,13 +42,16 @@ const STEPS = Object.freeze({
       secret: 'EDGE_PRODUCT_ID',
       url: 'https://partner.microsoft.com/dashboard/microsoftedge/overview',
       instructions: [
-        'Sign in as the account that published the extension.',
-        'Open the extension, then find Extension identity on the Extension overview page.',
-        'The same value is the GUID in the address bar between microsoftedge/ and /packages.',
+        'Sign in as the account that published the extension and open it.',
+        'Copy the whole address bar and paste it here; the product id is read out of it.',
+        'A bare GUID is accepted too, but the URL cannot be confused with the API client id,',
+        'which is also a GUID and belongs to the next prompt.',
       ],
-      prompt: 'Product ID',
+      prompt: 'Product ID, or paste the whole dashboard URL',
       hidden: false,
-      check: (value) => (GUID.test(value) ? null : 'that does not look like a GUID (8-4-4-4-12 hex)'),
+      transform: extractEdgeProductId,
+      check: (value) =>
+        GUID.test(value) ? null : 'expected the dashboard URL, or the GUID between microsoftedge/ and /packages in it',
     },
     {
       secret: 'EDGE_CLIENT_ID',
@@ -203,13 +218,14 @@ const collect = async (rl, step, platform, collected = []) => {
 
   for (;;) {
     const raw = step.hidden ? await askHidden(rl, `${step.prompt}: `) : await ask(rl, `${step.prompt}: `);
-    const value = cleanValue(raw);
+    const cleaned = cleanValue(raw);
+    const value = step.transform ? step.transform(cleaned) || cleaned : cleaned;
     if (!value) {
       process.stdout.write('  empty; try again\n');
       continue;
     }
     const raw_ = String(raw).replace(/\n$/, '');
-    if (value !== raw_) {
+    if (value !== raw_ && value === cleaned) {
       process.stdout.write(
         `  (removed ${raw_.length - value.length} surrounding character(s): whitespace or quotes)\n`,
       );
@@ -302,4 +318,13 @@ if (require.main === module) {
   });
 }
 
-module.exports = { browserOpenCommand, cleanValue, duplicateOf, secretSetArguments, ENVIRONMENT, REPO, STEPS };
+module.exports = {
+  browserOpenCommand,
+  cleanValue,
+  duplicateOf,
+  extractEdgeProductId,
+  secretSetArguments,
+  ENVIRONMENT,
+  REPO,
+  STEPS,
+};

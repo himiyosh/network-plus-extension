@@ -615,3 +615,29 @@ describe('quoted credential values', () => {
     expect(clean('"')).toBe('"');
   });
 });
+
+describe('Edge product id from the dashboard URL', () => {
+  const { extractEdgeProductId } = require('../scripts/setup-store-secrets');
+  const GUID = '4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241';
+
+  // Partner Center uses a GUID for both the product id and the API client id,
+  // so no shape check separates them; the URL does.
+  test('reads the product id out of the dashboard URL', () => {
+    expect(
+      extractEdgeProductId(`https://partner.microsoft.com/ja-jp/dashboard/microsoftedge/${GUID}/packages/dashboard`),
+    ).toBe(GUID);
+    expect(extractEdgeProductId(`https://partner.microsoft.com/dashboard/microsoftedge/${GUID}`)).toBe(GUID);
+    expect(extractEdgeProductId(`  https://partner.microsoft.com/dashboard/microsoftedge/${GUID}/packages  `)).toBe(GUID);
+  });
+
+  test('still accepts a bare GUID', () => {
+    expect(extractEdgeProductId(GUID)).toBe(GUID);
+  });
+
+  // A client id pasted here is a bare GUID and cannot be distinguished, but a
+  // URL that is not the extension's dashboard must not yield anything.
+  test('yields nothing for text that carries no product id', () => {
+    expect(extractEdgeProductId('https://partner.microsoft.com/dashboard/microsoftedge/overview')).toBeNull();
+    expect(extractEdgeProductId('not a guid at all')).toBeNull();
+  });
+});
