@@ -46,11 +46,15 @@ Edge / Chrome の申請資格情報は、拡張ごとではなく**アカウン�
 | --- | --- | --- |
 | `EDGE_CLIENT_ID` | `.env.edge` の同名 | 共通 |
 | `EDGE_API_KEY` | `.env.edge` の同名 | 共通 |
-| `EDGE_PRODUCT_ID` | `.env.edge` の同名 | **拡張ごと** |
+| `EDGE_PRODUCT_ID` | `.env.edge` の同名 | **拡張ごと** — Network+ は `4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241` |
 | `CHROME_CLIENT_ID` | `.env.cws` の `CWS_CLIENT_ID` | 共通 |
 | `CHROME_CLIENT_SECRET` | `.env.cws` の `CWS_CLIENT_SECRET` | 共通 |
 | `CHROME_REFRESH_TOKEN` | `.env.cws` の `CWS_REFRESH_TOKEN` | 共通（スコープはアカウント単位） |
-| `CHROME_ITEM_ID` | `.env.cws` の `CWS_ITEM_ID` | **拡張ごと** |
+| `CHROME_ITEM_ID` | `.env.cws` の `CWS_ITEM_ID` | **拡張ごと** — Network+ は `mhidipnhdnonbjkfklcohmnnmfggjlpo` |
+
+この 2 つは識別子であって資格情報ではない。API キーなしでは何もできず、Chrome の方は公開 listing の
+URL にそのまま現れる。ポータルを開き直さずに済むよう、ここに控えておく。取得元は Partner Center の
+`.../microsoftedge/<GUID>/packages/...` の GUID 部分と、`chromewebstore.google.com/detail/<name>/<id>` の末尾。
 
 Chrome の OAuth クライアントと refresh token は共通なので、Cloud プロジェクトの作成も同意フローも
 やり直さない。`scripts/chrome-refresh-token.js` は、その refresh token を失ったときだけ使う。
