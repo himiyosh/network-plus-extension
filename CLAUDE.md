@@ -35,21 +35,21 @@ profile によっては配布されないファイルがある。存在しない
 - 導入 profile: `core`（platform: `claude-code`）
 - ローカル逸脱: `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` §6.10 から、レビューコメント marker・レビュアー session UUID・repository variables による merge ゲート手続きの bullet 3 件を削除している（#129 で本リポジトリでは廃止済み。merge 可否は branch protection と通常の CI quality gates で判定する）。bundle 更新時は再取得後に同じ削除を再適用すること。
 
-### ストア申請の資格情報（`dual-subtitles` との関係）
+### ストア申請の資格情報（`dual-subtitles` と共通）
 
-Chrome の申請資格情報はアカウント単位で共有され、`himiyosh/dual-subtitles`
-（ローカル worktree: `~/GH_himiyosh/ghcp-worktrees/dual-subtitles`）と同じ値を使える。
-**Edge については共通ではない。** 2026-08-20 に実測で否定された。dual-subtitles の
-API キーは同キーで dual-subtitles の製品には通る（`publish-edge.sh check` が成功する）のに、
-Network+ の製品へのアップロードは 401 を返す。キー自体は有効なので、この 401 は製品側の
-到達可否を意味する。Network+ が見えるアカウントの Publish API ページで別途資格情報を作ること。
+Edge / Chrome の申請資格情報は、拡張ごとではなく**アカウント単位**で共有される。同じ値を
+`himiyosh/dual-subtitles`（ローカル worktree: `~/GH_himiyosh/ghcp-worktrees/dual-subtitles`）でも使っている。
+Edge 側は 2026-08-20 に、dual-subtitles の Client ID + API キーで Network+ 製品への
+アップロードが成功したことで実証済み（それまでの 401 連発は保存値の貼り間違いが原因で、
+資格情報の分離を意味しなかった）。値の同一性を疑うときは値を貼り直すのではなく、
+`store:submit -- --diagnose` の指紋と手元の `.env.*` の指紋を突き合わせて確定させること。
 そちらのリポジトリ直下の `.env.edge` / `.env.cws` が値の所在で、どちらも `.env*` で gitignore されている。
 値そのものをこのリポジトリに書いてはならない。GitHub の `store-submission` environment secrets が唯一の保管先。
 
 | このリポジトリの secret | dual-subtitles 側 | 拡張ごとに違うか |
 | --- | --- | --- |
-| `EDGE_CLIENT_ID` | `.env.edge` の同名 | **共通ではない**（上記） |
-| `EDGE_API_KEY` | `.env.edge` の同名 | **共通ではない**（上記） |
+| `EDGE_CLIENT_ID` | `.env.edge` の同名 | 共通 |
+| `EDGE_API_KEY` | `.env.edge` の同名 | 共通 |
 | `EDGE_PRODUCT_ID` | `.env.edge` の同名 | **拡張ごと** — Network+ は `4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241` |
 | `CHROME_CLIENT_ID` | `.env.cws` の `CWS_CLIENT_ID` | 共通 |
 | `CHROME_CLIENT_SECRET` | `.env.cws` の `CWS_CLIENT_SECRET` | 共通 |
