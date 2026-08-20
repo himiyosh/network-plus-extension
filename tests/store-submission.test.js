@@ -366,12 +366,13 @@ describe('command line', () => {
       notesFile: '',
       uploadOnly: false,
       publishTarget: 'default',
+      diagnose: false,
     });
   });
 
   test('accepts the documented flags', () => {
     expect(parseArguments(['--store', 'chrome', '--archive', 'a.zip', '--notes-file', 'n.md', '--upload-only'])).toEqual(
-      { store: 'chrome', archive: 'a.zip', notesFile: 'n.md', uploadOnly: true, publishTarget: 'default' },
+      { store: 'chrome', archive: 'a.zip', notesFile: 'n.md', uploadOnly: true, publishTarget: 'default', diagnose: false },
     );
   });
 
@@ -536,5 +537,40 @@ describe('guided secret setup', () => {
     expect(find('CHROME_ITEM_ID').check('z'.repeat(32))).toMatch(/a-p/);
     expect(find('CHROME_CLIENT_ID').check('123.apps.googleusercontent.com')).toBeNull();
     expect(find('CHROME_CLIENT_ID').check('123')).toMatch(/googleusercontent/);
+  });
+});
+
+describe('credential fingerprint', () => {
+  const { fingerprint } = require('../scripts/submit-to-stores');
+
+  // The point is to compare a value stored in CI against one on an operator
+  // machine without either being printed, so the value must not be recoverable.
+  test('identifies a value without disclosing it', () => {
+    const secret = 'super-secret-api-key-value';
+    const print = fingerprint(secret);
+    expect(print).toMatch(/^len=26 sha=[0-9a-f]{8}$/);
+    expect(print).not.toContain(secret);
+    expect(print).not.toContain(secret.slice(0, 6));
+  });
+
+  test('distinguishes two values of the same length', () => {
+    expect(fingerprint('aaaaaaaaaaaa')).not.toBe(fingerprint('aaaaaaaaaaab'));
+  });
+
+  test('is stable, so the two sides can be compared at all', () => {
+    expect(fingerprint('abc')).toBe(fingerprint('abc'));
+  });
+
+  // "Not configured" and "configured wrongly" are different diagnoses.
+  test('reports an unset value as absent rather than hashing the empty string', () => {
+    expect(fingerprint(undefined)).toBe('absent');
+    expect(fingerprint('')).toBe('absent');
+  });
+
+  test('is reachable from the command line and the workflow', () => {
+    expect(parseArguments(['--diagnose']).diagnose).toBe(true);
+    expect(parseArguments([]).diagnose).toBe(false);
+    const workflow = readRepoFile(path.join('.github', 'workflows', 'store-submit.yml'));
+    expect(workflow).toContain("DIAGNOSE: ${{ inputs.diagnose && '--diagnose' || '' }}");
   });
 });
