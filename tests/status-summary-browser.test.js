@@ -15,7 +15,7 @@ const BROWSER_REQUIRED_IN_CI_MESSAGE =
   'Real-browser regression tests require an executable Chrome or Edge in CI. ' +
   'Set EDGE_BIN or CHROME_BIN to an executable browser path.';
 const TRANSIENT_PROFILE_CLEANUP_ERRORS = new Set(['ENOTEMPTY', 'EBUSY']);
-const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1280, 1366, 1367, 1500];
+const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1254, 1255, 1280, 1500];
 const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const GRID_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const STATUS_WORKSPACE_VIEWPORT_WIDTHS = [320, 375, 414, 768, 1280];
@@ -2728,25 +2728,25 @@ browserTest(
       }
       expect(viewportMeasurements.slice(0, 3).every((measurement) => measurement.toolbarOverflow > 0)).toBe(true);
       const measurementsByWidth = new Map(viewportMeasurements.map((measurement) => [measurement.width, measurement]));
-      const desktopMeasurement = measurementsByWidth.get(1280);
-      expect(desktopMeasurement.toolbarOverflow).toBe(0);
-      expect(desktopMeasurement.actions.every((action) => action.fullyVisible)).toBe(true);
-      expect(desktopMeasurement.brandDisplay).not.toBe('none');
-      expect(desktopMeasurement.brandSubtitleDisplay).toBe('none');
-      expect(desktopMeasurement.brandWidth).toBeLessThan(150);
-      // Compact mode drops only the sub-label words; the cat keeps a fixed
-      // 22px perch between the wordmark and the cup, inside symmetric paddings.
-      expect(desktopMeasurement.brandPaddingLeft).toBe('8px');
-      expect(desktopMeasurement.brandPaddingRight).toBe('8px');
-
-      const compactBoundaryMeasurement = measurementsByWidth.get(1366);
+      // The "for DevTools" sub-label hides only below the width where every
+      // toolbar control still fits beside it (the full toolbar fits from
+      // 1249px; 1254px adds margin for font-metric jitter). Wherever the
+      // label is visible, nothing may need scrolling to reach.
+      const compactBoundaryMeasurement = measurementsByWidth.get(1254);
       expect(compactBoundaryMeasurement.brandSubtitleDisplay).toBe('none');
+      expect(compactBoundaryMeasurement.brandWidth).toBeLessThan(150);
+      // Compact mode drops only the sub-label words; the otter keeps a fixed
+      // 22px perch between the wordmark and the cup, inside symmetric paddings.
       expect(compactBoundaryMeasurement.brandPaddingLeft).toBe('8px');
       expect(compactBoundaryMeasurement.brandPaddingRight).toBe('8px');
 
-      const wideBoundaryMeasurement = measurementsByWidth.get(1367);
+      const wideBoundaryMeasurement = measurementsByWidth.get(1255);
+      const desktopMeasurement = measurementsByWidth.get(1280);
       const wideMeasurement = measurementsByWidth.get(1500);
-      for (const measurement of [wideBoundaryMeasurement, wideMeasurement]) {
+      for (const measurement of [wideBoundaryMeasurement, desktopMeasurement, wideMeasurement]) {
+        expect(measurement.toolbarOverflow).toBe(0);
+        expect(measurement.actions.every((action) => action.fullyVisible)).toBe(true);
+        expect(measurement.brandDisplay).not.toBe('none');
         expect(measurement.brandSubtitleDisplay).not.toBe('none');
         expect(measurement.brandPaddingLeft).toBe('14px');
         expect(measurement.brandPaddingRight).toBe('14px');
