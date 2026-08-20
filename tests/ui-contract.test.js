@@ -2511,13 +2511,13 @@ describe('optional support dialog', () => {
     expect(trigger).not.toContain('aria-expanded');
     const brandBlock = html.slice(html.indexOf('<button id="supportBtn"'), html.indexOf('</button>', html.indexOf('<button id="supportBtn"')));
     for (const part of [
-      'brand-cat-window',
-      'brand-cat-motion',
-      'brand-cat',
-      'brand-cat-eye',
-      'brand-cat-doze',
-      'brand-cat-tail',
-      'brand-cat-paw',
+      'brand-otter-window',
+      'brand-otter-motion',
+      'brand-otter',
+      'brand-otter-eye',
+      'brand-otter-doze',
+      'brand-otter-tail',
+      'brand-otter-paw',
       'brand-zzz',
       'brand-heart',
       'brand-cup',
@@ -2528,7 +2528,7 @@ describe('optional support dialog', () => {
       expect(brandBlock).toContain(part);
     }
     // Decorative art stays out of the accessibility tree and inline (CSP).
-    expect(brandBlock).toMatch(/<span class="brand-cat-window" aria-hidden="true">/);
+    expect(brandBlock).toMatch(/<span class="brand-otter-window" aria-hidden="true">/);
     expect(brandBlock).not.toMatch(/<img\b|<use\b|href=|url\(/);
     // Exactly one toolbar support trigger remains.
     expect(html.match(/id="supportBtn"/g)).toHaveLength(1);
@@ -2594,11 +2594,11 @@ describe('optional support dialog', () => {
     // above the pill (~5.5px with the 1px hover rise), inside the topbar's
     // 6px clip budget, and compact widths keep a fixed 22px perch when the
     // words are hidden.
-    expect(css).toContain('.brand-cat-window{position:absolute;bottom:calc(100% + 2px);');
+    expect(css).toContain('.brand-otter-window{position:absolute;bottom:calc(100% + 2px);');
     expect(css).toMatch(/\.brand-sub\{position:relative;display:inline-flex/);
     expect(css).toContain('.brand-sub-text{display:none}');
     expect(css).toContain('.brand-sub{width:22px;height:11px}');
-    expect(css).toMatch(/\.brand-cat-window\{[^}]*overflow:hidden/);
+    expect(css).toMatch(/\.brand-otter-window\{[^}]*overflow:hidden/);
     // The cup is white porcelain with a brew-toned edge so it reads against
     // both the light and dark pill fills (an unedged accent-colored cup sank
     // into the background), and it carries three always-on steam wisps.
@@ -2606,45 +2606,46 @@ describe('optional support dialog', () => {
     expect(css).toMatch(/\.brand-cup-handle\{fill:none;stroke:var\(--cup\)/);
     expect(css).toContain('.brand-cup{width:20px;height:20px');
     expect(html.match(/class="brand-steam[ "]/g) || []).toHaveLength(3);
-    expect(css).toMatch(/\.brand-cat[^}]*\{transform:translateY\(-1px\)\}/);
+    expect(css).toMatch(/\.brand-otter[^}]*\{transform:translateY\(-1px\)\}/);
     // Idle beats: breathing, a slow tail flick, a rare drifting z and heart.
-    expect(css).toMatch(/\.brand-cat-motion\{[^}]*animation:brand-cat-breathe 4\.2s/);
-    expect(css).toMatch(/\.brand-cat-tail\{[^}]*animation:brand-cat-tail-flick 7\.4s/);
+    expect(css).toMatch(/\.brand-otter-motion\{[^}]*animation:brand-otter-breathe 4\.2s/);
+    expect(css).toMatch(/\.brand-otter-tail\{[^}]*animation:brand-otter-tail-flick 7\.4s/);
     expect(css).toMatch(/\.brand-zzz\{[^}]*animation:brand-zzz-drift 13s/);
     expect(css).toMatch(/\.brand-heart\{[^}]*animation:brand-heart-float 19s/);
     // The floaters hang off .brand-sub, never inside the clipped cat window:
     // the motion wrapper closes, the window closes, and only then do they appear.
-    expect(html).toMatch(/<span class="brand-cat-window"[^>]*>\s*<span class="brand-cat-motion">/);
+    expect(html).toMatch(/<span class="brand-otter-window"[^>]*>\s*<span class="brand-otter-motion">/);
     expect(html).toMatch(
       /<\/span>\s*<\/span>\s*<span class="brand-zzz"[^>]*>z<\/span>\s*<span class="brand-heart">/,
     );
     // Hover wakes the cat: closed lids give way to open eyes and breathing stops.
-    expect(css).toMatch(/\.brand-cat-eye\{fill:var\(--brew\)[^}]*opacity:0/);
-    expect(css).toMatch(/:hover \.brand-cat-eye[^{]*\{opacity:1\}/);
-    expect(css).toMatch(/:hover \.brand-cat-doze[^{]*\{opacity:0\}/);
+    expect(css).toMatch(/\.brand-otter-eye\{fill:var\(--brew\)[^}]*opacity:0/);
+    expect(css).toMatch(/:hover \.brand-otter-eye[^{]*\{opacity:1\}/);
+    expect(css).toMatch(/:hover \.brand-otter-doze[^{]*\{opacity:0\}/);
     // The woken pupils stay small dots set wide apart: eyes big enough to fill
     // the muzzle read as a stare at 15px, so most of the face stays fur, and no
-    // drooping lid is drawn over them.
-    expect(html.match(/class="brand-cat-eye"/g) || []).toHaveLength(2);
-    expect(html).toContain('<circle class="brand-cat-eye" cx="9.7" cy="12.7" r="1.05"/>');
-    expect(html).toContain('<circle class="brand-cat-eye" cx="16.3" cy="12.7" r="1.05"/>');
+    // drooping lid is drawn over them. Waking also raises the magnifying glass,
+    // the investigator motif the otter brand mark exists for.
+    expect(html.match(/class="brand-otter-eye"/g) || []).toHaveLength(2);
+    expect(html).toContain('<circle class="brand-otter-eye" cx="10.5" cy="11.6" r="0.95"/>');
+    expect(html).toContain('<circle class="brand-otter-eye" cx="15.0" cy="11.6" r="0.95"/>');
     // No catchlight: a 0.4-radius highlight cannot read as one inside a pupil
     // that is 1.75 device pixels wide, it only bleaches the pupil. Measured at
     // true 1x, the darkest eye pixel goes from L=65 with it to L=40 without,
     // against L=47 for the sleeping face the woken one has to out-read.
-    expect(html).not.toContain('brand-cat-glint');
-    expect(css).not.toContain('.brand-cat-glint{');
-    expect(html).not.toContain('brand-cat-lid');
-    expect(css).not.toContain('.brand-cat-lid{');
+    expect(html).not.toContain('brand-otter-glint');
+    expect(css).not.toContain('.brand-otter-glint{');
+    expect(html).not.toContain('brand-otter-lid');
+    expect(css).not.toContain('.brand-otter-lid{');
     // A blink only reads when there is a pupil to close, so it returns with the dots.
-    expect(css).toMatch(/\.brand-cat-eye\{[^}]*animation:support-cat-blink 5\.2s/);
-    expect(css).toMatch(/:hover \.brand-cat-motion[^{]*\{animation-play-state:paused\}/);
+    expect(css).toMatch(/\.brand-otter-eye\{[^}]*animation:support-otter-blink 5\.2s/);
+    expect(css).toMatch(/:hover \.brand-otter-motion[^{]*\{animation-play-state:paused\}/);
     // Steam is legible without hovering; hovering only strengthens it.
     expect(css).toContain('.brand-steam-group{opacity:.9;');
     expect(css).toMatch(/\.topbar button\.brand:hover \.brand-steam-group[^{]*\{opacity:1\}/);
     // Reduced motion freezes every brand animation.
     const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
-    for (const part of ['.brand-cat', '.brand-cat-motion', '.brand-heart', '.brand-zzz', '.brand-cat-eye', '.brand-cat-doze', '.brand-cat-tail', '.brand-steam', '.brand-support-hint']) {
+    for (const part of ['.brand-otter', '.brand-otter-motion', '.brand-heart', '.brand-zzz', '.brand-otter-eye', '.brand-otter-doze', '.brand-otter-tail', '.brand-steam', '.brand-support-hint']) {
       expect(reducedMotion).toContain(part);
     }
   });
@@ -2662,9 +2663,9 @@ describe('optional support dialog', () => {
       'support-cup',
       'support-brew',
       'support-sparkle--a',
-      'support-cat-head',
-      'support-cat-tail',
-      'support-cat-eye',
+      'support-otter-head',
+      'support-otter-tail',
+      'support-otter-eye',
     ]) {
       expect(hero).toContain(part);
     }
@@ -2716,7 +2717,7 @@ describe('optional support dialog', () => {
     // contrast is already asserted by the theme contract above.
     expect(css).toMatch(/\.support-option-cta\{[^}]*var\(--accent-fill\)[^}]*var\(--on-accent\)/);
     expect(css).toContain('.support-option-cta:focus-visible{');
-    expect(css).toMatch(/\.support-cat-body,[^{]*\{fill:var\(--cat\)\}/);
+    expect(css).toMatch(/\.support-otter-body,[^{]*\{fill:var\(--otter\)\}/);
   });
 });
 
