@@ -430,3 +430,55 @@ describe('store submission workflow', () => {
     expect(scripts['store:submit']).toBe('node scripts/submit-to-stores.js');
   });
 });
+
+describe('chrome refresh token helper', () => {
+  const {
+    awaitAuthorizationCode,
+    buildConsentUrl,
+    extractAuthorizationCode,
+    readRefreshToken,
+    SCOPE,
+  } = require('../scripts/chrome-refresh-token');
+
+  test('asks for offline access, or the flow returns no refresh token at all', () => {
+    const url = new URL(buildConsentUrl('client-123', 'http://127.0.0.1:5000'));
+    expect(url.origin + url.pathname).toBe('https://accounts.google.com/o/oauth2/auth');
+    expect(url.searchParams.get('access_type')).toBe('offline');
+    expect(url.searchParams.get('prompt')).toBe('consent');
+    expect(url.searchParams.get('scope')).toBe(SCOPE);
+    expect(url.searchParams.get('client_id')).toBe('client-123');
+    expect(url.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:5000');
+  });
+
+  // The retired out-of-band redirect is exactly what the published guide still
+  // shows; a client created today is refused by it.
+  test('uses a loopback redirect rather than the retired out-of-band one', () => {
+    expect(buildConsentUrl('client-123', 'http://127.0.0.1:5000')).not.toContain('oauth:2.0:oob');
+  });
+
+  test('reads the code out of the callback', () => {
+    expect(extractAuthorizationCode('/?code=abc123&scope=x', 'http://127.0.0.1')).toBe('abc123');
+  });
+
+  // A declined consent must end the run, not leave it waiting forever.
+  test('surfaces a declined consent instead of waiting', () => {
+    expect(() => extractAuthorizationCode('/?error=access_denied', 'http://127.0.0.1')).toThrow(
+      /Google returned "access_denied"/,
+    );
+    expect(() => extractAuthorizationCode('/', 'http://127.0.0.1')).toThrow(/neither a code nor an error/);
+  });
+
+  test('explains the fix when Google withholds the refresh token', () => {
+    expect(() => readRefreshToken({ access_token: 'ya29' })).toThrow(/revoke this app under/);
+    expect(readRefreshToken({ refresh_token: '1/rwn' })).toBe('1/rwn');
+  });
+
+  test('serves one callback on a loopback port and then stops', async () => {
+    const pending = awaitAuthorizationCode(async (redirectUri) => {
+      expect(redirectUri).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      const response = await fetch(`${redirectUri}/?code=from-browser`);
+      expect(response.status).toBe(200);
+    });
+    await expect(pending).resolves.toBe('from-browser');
+  });
+});

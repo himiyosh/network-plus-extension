@@ -170,6 +170,20 @@ The workflow reads four repository secrets and never writes their values to the 
 
 The secrets belong to the `store-submission` GitHub Actions environment. Adding a required reviewer to that environment makes every submission wait for a human approval; leaving it without rules lets the workflow submit unattended.
 
+### Obtaining the refresh token
+
+The published guide's "Testing your OAuth application" section still walks through the out-of-band redirect (`redirect_uri=urn:ietf:wg:oauth:2.0:oob`). Google retired that flow, so an OAuth client created today is refused by it. A Desktop App client accepts a loopback redirect instead, which is what `scripts/chrome-refresh-token.js` uses.
+
+Run it on an operator machine, never in CI:
+
+```
+CHROME_CLIENT_ID=... CHROME_CLIENT_SECRET=... node scripts/chrome-refresh-token.js
+```
+
+It listens on a free loopback port, prints the consent URL, waits for the redirect, exchanges the code, and prints only the refresh token. Sign in as the account that owns the Chrome Web Store item; that can be a different account from the one that owns the Google Cloud project. The account also needs 2-Step Verification enabled, which the Chrome Web Store requires of any developer publishing through the API.
+
+Google returns a refresh token only when offline access is requested and the consent is fresh, so the helper forces both. If it still reports no refresh token, revoke the app under `https://myaccount.google.com/permissions` and run it again.
+
 ### Failure modes the operator must expect
 
 - `ITEM_PENDING_REVIEW` means the upload landed but an earlier submission still occupies the review queue. The run reports it and does not treat it as a failure, but nothing was submitted and the publish has to be repeated once the queue clears.
