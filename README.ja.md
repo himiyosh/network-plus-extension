@@ -129,6 +129,7 @@ Chrome での検証内容:
 ### 安全に共有する
 
 - **サニタイズ済み HAR**(`network-plus-sanitized.har`)が通常のエクスポートです。**完全版 HAR** は別のアクションで、毎回確認する警告の先にあります。
+- **選択した行だけをエクスポート。** 行を選択している場合(<kbd>Ctrl</kbd>/<kbd>⌘</kbd> クリック、<kbd>Shift</kbd> クリック)、エクスポートダイアログに件数付きの「Selected requests only」スコープが現れます。ファイル名には `-selected` が付くので取り違えません。既定は毎回「All displayed requests」にリセットされます。
 - コピー操作 — Summary、URL、リクエスト/レスポンスボディ、生リクエスト/レスポンス、cURL、fetch、PowerShell — は既定でサニタイズされ、リダクション後もコマンドとして有効な構文を保ちます。
 - Keyboard Shortcuts ダイアログの `Copy safe support summary` は、許可リストに基づく環境スナップショット(バージョン、Edge メジャー、粗い OS ファミリ、テーマ、保持設定、記録状態、表示設定)のみをコピーし、キャプチャしたトラフィックは含めません。公開の場に貼る前に内容を確認してください。
 

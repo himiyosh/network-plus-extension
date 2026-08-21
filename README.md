@@ -129,6 +129,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 ### Share safely
 
 - **Sanitized HAR** (`network-plus-sanitized.har`) is the normal export. **Full HAR** is a separate action gated behind a warning you confirm every single time.
+- **Export only the selected rows.** When rows are selected (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>-click, <kbd>Shift</kbd>-click), the export dialog offers a "Selected requests only" scope with live counts; the file gains a `-selected` suffix so exports are never confused. "All displayed requests" stays the pre-checked default on every open.
 - Copy actions — Summary, URL, request/response body, raw request/response, cURL, fetch, PowerShell — are sanitized by default and keep valid command syntax after redaction.
 - `Copy safe support summary` in the Keyboard Shortcuts dialog copies an allowlisted environment snapshot (version, Edge major, coarse OS family, theme, retention, recording state, display preferences) and no captured traffic. Review it before posting it publicly.
 

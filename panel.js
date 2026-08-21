@@ -462,6 +462,10 @@ const _NetworkPlus = (function () {
     const confirm = $('#dataSafetyConfirmBtn');
     const format = $('#dataSafetyCopyFormat');
     const formatLabel = $('#dataSafetyCopyFormatLabel');
+    const scope = $('#dataSafetyScope');
+    // Export mode decides scope visibility itself (it depends on whether a
+    // selection exists); every other mode always hides the chooser.
+    if (scope && mode !== 'export') scope.hidden = true;
     choices.hidden = mode !== 'export';
     warning.hidden = mode === 'export';
     confirm.hidden = mode === 'export';
@@ -486,8 +490,26 @@ const _NetworkPlus = (function () {
       '',
       false,
     );
+    const scope = $('#dataSafetyScope');
+    if (scope) {
+      const selectedCount = getSelectedExportRows().length;
+      const displayedCount = getExportRows().length;
+      // Displayed rows stay the default every time the dialog opens so a
+      // leftover selection never silently narrows an export.
+      $('#dataSafetyScopeDisplayed').checked = true;
+      $('#dataSafetyScopeSelected').checked = false;
+      $('#dataSafetyScopeDisplayedCount').textContent = String(displayedCount);
+      $('#dataSafetyScopeSelectedCount').textContent = String(selectedCount);
+      scope.hidden = selectedCount === 0;
+    }
     showDataSafetyDialog(trigger);
     setTimeout(() => $('#dataSafetySanitizedBtn').focus(), 0);
+  }
+
+  function readExportScopeChoice() {
+    const scope = $('#dataSafetyScope');
+    const selectedRadio = $('#dataSafetyScopeSelected');
+    return scope && !scope.hidden && selectedRadio && selectedRadio.checked ? 'selected' : 'displayed';
   }
 
   function requestFullOutboundAction(config) {
@@ -525,17 +547,21 @@ const _NetworkPlus = (function () {
       if (trigger && trigger.focus && trigger.isConnected !== false) trigger.focus();
     });
     $('#dataSafetySanitizedBtn').addEventListener('click', () => {
+      const scope = readExportScopeChoice();
       dialog.close('sanitized');
-      exportHAR({ mode: 'sanitized' });
+      exportHAR({ mode: 'sanitized', scope });
     });
     $('#dataSafetyFullBtn').addEventListener('click', () => {
+      // The full-HAR warning reuses this dialog, which hides the scope
+      // chooser, so the choice is captured before the mode switches.
+      const scope = readExportScopeChoice();
       requestFullOutboundAction({
         title: 'Export full HAR?',
         detail:
           'A full HAR can expose Authorization, cookies, every query or fragment value, URL userinfo, non-allowlisted headers, and complete request or response bodies.',
         confirmLabel: 'Export full HAR',
         trigger: dataSafetyDialogTrigger,
-        onConfirm: () => exportHAR({ mode: 'full', confirmed: true }),
+        onConfirm: () => exportHAR({ mode: 'full', confirmed: true, scope }),
       });
     });
     $('#dataSafetyConfirmBtn').addEventListener('click', () => {
@@ -9165,6 +9191,20 @@ const _NetworkPlus = (function () {
     );
   }
 
+  // The selected-rows export scope keeps capture order and means exactly the
+  // rows the user picked — a later filter change never silently narrows it.
+  function planSelectedExportRows(allRows, selectedRowsSet, selectedRow) {
+    const rows = Array.isArray(allRows) ? allRows : [];
+    if (selectedRowsSet && selectedRowsSet.size > 0) {
+      return rows.filter((row) => selectedRowsSet.has(row));
+    }
+    return selectedRow && rows.includes(selectedRow) ? [selectedRow] : [];
+  }
+
+  function getSelectedExportRows() {
+    return planSelectedExportRows(state.rows, state.selectedRows, state.selectedRow);
+  }
+
   function buildHarLogFromRows(rows, responseContents) {
     const pageref = 'page_1';
     const entries = [];
@@ -9234,7 +9274,12 @@ const _NetworkPlus = (function () {
       setStatus('Full HAR export requires one-time confirmation. No file was downloaded.');
       return;
     }
-    const rows = getExportRows().slice();
+    const exportScope = outboundPolicy.scope === 'selected' ? 'selected' : 'displayed';
+    const rows = (exportScope === 'selected' ? getSelectedExportRows() : getExportRows()).slice();
+    if (exportScope === 'selected' && rows.length === 0) {
+      setStatus('No selected requests to export.');
+      return;
+    }
     const exportButton = $('#exportHarBtn');
     let objectUrl = null;
     exportButton.disabled = true;
@@ -9260,18 +9305,23 @@ const _NetworkPlus = (function () {
       objectUrl = URL.createObjectURL(blob);
       const downloadUrl = objectUrl;
       objectUrl = null;
+      const scopeSuffix = exportScope === 'selected' ? '-selected' : '';
+      const scopeLabel = exportScope === 'selected' ? ' selected requests' : ' requests';
       triggerObjectUrlDownload(
         downloadUrl,
-        outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har',
+        outboundPolicy.mode === 'full'
+          ? 'network-plus-full' + scopeSuffix + '.har'
+          : 'network-plus-sanitized' + scopeSuffix + '.har',
       );
       if (outboundPolicy.mode === 'full') {
-        setStatus('Exported full HAR for ' + rows.length + ' requests after one-time confirmation.');
+        setStatus('Exported full HAR for ' + rows.length + scopeLabel + ' after one-time confirmation.');
       } else {
         const counts = har.log._networkPlus.counts;
         setStatus(
           'Exported sanitized HAR for ' +
             rows.length +
-            ' requests; ' +
+            scopeLabel +
+            '; ' +
             counts.redactedValues +
             ' values redacted, ' +
             counts.omittedBodies +
@@ -11579,6 +11629,7 @@ const _NetworkPlus = (function () {
     truncateUrlLabel,
     NAVIGATION_BODY_UNAVAILABLE_REASON,
     markUnfetchedRowsForNavigation,
+    planSelectedExportRows,
     MIRROR_PROTOCOL_VERSION,
     MIRROR_PORT_PREFIX,
     MIRROR_SNAPSHOT_CHUNK_SIZE,
