@@ -76,6 +76,11 @@ sneaks back in.
      here". Never claim the release was publicly observed in the commit that
      creates it — it cannot have been. Move the previous version's evidence
      row to "Superseded as the upload source by vX.Y.Z".
+   - Finish by grepping both dossiers for the previous version string. The
+     only legitimate hits are evidence-table history rows and the two
+     "vX.Y.Z satisfies this against v<prev>" sentences; any other hit is a
+     missed repoint. (The v1.11.0 cut missed exactly one this way: the
+     Chrome dossier's "Upload `network-plus-extension-<prev>.zip`" bullet.)
 5. Commit (`release: cut vX.Y.Z and repoint the store kits at it`).
 6. Reopen the changelog in a second commit: add back `## Unreleased` with the
    placeholder bullet `- No changes have been recorded since vX.Y.Z.` — the
