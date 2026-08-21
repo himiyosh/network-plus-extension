@@ -14,9 +14,12 @@ const {
   writeExtensionPackage,
 } = require('../scripts/check-extension-package');
 const {
+  README_CONFIGS,
   getGitHubReleaseBaseUrl,
+  getLatestReleaseUrl,
   getReleaseDownloadUrl,
   getReleaseTagUrl,
+  validateReadmeReleaseReferences,
   validateReleaseVersions,
 } = require('../scripts/check-version-sync');
 
@@ -58,34 +61,36 @@ afterEach(() => {
 });
 
 describe('release version integrity', () => {
-  const QUICK_TRY_PREFIX = '**Try it now:**';
-  const RELEASE_SETUP_HEADING = '### Install from the release ZIP';
   const DEFAULT_REPOSITORY = {
     type: 'git',
     url: 'git+https://github.com/himiyosh/network-plus-extension.git',
   };
+  const EN_CONFIG = README_CONFIGS.find((config) => config.path === 'README.md');
+  const JA_CONFIG = README_CONFIGS.find((config) => config.path === 'README.ja.md');
   const createReadmeSource = (
-    version,
+    config,
     {
       repository = DEFAULT_REPOSITORY,
       setupPrelude = [],
       boundaryHeading = '### Install from source',
       trailingLines = [],
+      quickTryTarget,
+      setupTarget,
+      extraBody = [],
     } = {},
   ) => {
-    const archiveName = getReleaseArchiveName(version);
-    const downloadUrl = getReleaseDownloadUrl(repository, version);
-    const tagUrl = getReleaseTagUrl(repository, version);
+    const latestUrl = getLatestReleaseUrl(repository);
     return [
-      `${QUICK_TRY_PREFIX} [Download the v${version} release ZIP](${downloadUrl}) · [What is in v${version}](${tagUrl})`,
-      RELEASE_SETUP_HEADING,
+      `${config.quickTryPrefix} [Download the latest release ZIP](${quickTryTarget ?? latestUrl})`,
+      config.setupHeading,
       ...setupPrelude,
-      `1. Download [${archiveName}](${downloadUrl}) — see the [v${version} release notes](${tagUrl}) for what changed.`,
+      `1. Download the ZIP from the [latest release](${setupTarget ?? latestUrl}).`,
       boundaryHeading,
       ...trailingLines,
+      ...extraBody,
     ].join('\n');
   };
-  const createVersionInput = (version = '1.6.0', readmeVersion = version, readmeOptions = {}) => {
+  const createVersionInput = (version = '1.6.0', readmeOptions = {}) => {
     const repository = readmeOptions.repository ?? DEFAULT_REPOSITORY;
     const readmeRepository = readmeOptions.readmeRepository ?? repository;
     return {
@@ -96,7 +101,10 @@ describe('release version integrity', () => {
       },
       manifest: { version },
       panelSource: `const TEST_EXTENSION_VERSION_FALLBACK = '${version}';`,
-      readmeSource: createReadmeSource(readmeVersion, { ...readmeOptions, repository: readmeRepository }),
+      readmeSources: README_CONFIGS.map((config) => ({
+        config,
+        source: createReadmeSource(config, { ...readmeOptions, repository: readmeRepository }),
+      })),
     };
   };
 
@@ -106,6 +114,9 @@ describe('release version integrity', () => {
     );
     expect(getGitHubReleaseBaseUrl('https://github.com/example/network-plus-extension.git')).toBe(
       'https://github.com/example/network-plus-extension/releases',
+    );
+    expect(getLatestReleaseUrl(DEFAULT_REPOSITORY)).toBe(
+      'https://github.com/himiyosh/network-plus-extension/releases/latest',
     );
   });
 
@@ -150,27 +161,36 @@ describe('release version integrity', () => {
     expect(() => getGitHubReleaseBaseUrl(repository)).toThrow(expectedError);
   });
 
-  test('accepts synchronized release versions and README download routes', () => {
+  test('accepts synchronized release versions and version-free README routes in both languages', () => {
     expect(validateReleaseVersions(createVersionInput())).toEqual([]);
   });
 
-  test('derives release routes from fork repository metadata and rejects stale original routes', () => {
+  test('the checked-in READMEs satisfy the version-free latest-release contract', () => {
+    const repository = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8')).repository;
+    for (const config of README_CONFIGS) {
+      const source = fs.readFileSync(path.join(repositoryRoot, config.path), 'utf8');
+      expect(validateReadmeReleaseReferences(source, repository, config)).toEqual([]);
+    }
+  });
+
+  test('derives the latest route from fork repository metadata and rejects stale original routes', () => {
     const repository = {
       type: 'git',
       url: 'git+https://github.com/example/network-plus-extension.git',
     };
-    expect(validateReleaseVersions(createVersionInput('1.6.0', '1.6.0', { repository }))).toEqual([]);
+    expect(validateReleaseVersions(createVersionInput('1.6.0', { repository }))).toEqual([]);
 
-    const staleInput = createVersionInput('1.6.0', '1.6.0', {
+    const staleInput = createVersionInput('1.6.0', {
       repository,
       readmeRepository: DEFAULT_REPOSITORY,
     });
+    const forkLatestUrl = getLatestReleaseUrl(repository);
     expect(validateReleaseVersions(staleInput)).toEqual(
       expect.arrayContaining([
-        `README.md primary release ZIP CTA must link directly to ${getReleaseDownloadUrl(repository, '1.6.0')}`,
-        `README.md quick-start release context must link to ${getReleaseTagUrl(repository, '1.6.0')}`,
-        `README.md release ZIP setup must link directly to ${getReleaseDownloadUrl(repository, '1.6.0')}`,
-        `README.md release ZIP setup context must link to ${getReleaseTagUrl(repository, '1.6.0')}`,
+        `README.md primary release CTA must link to ${forkLatestUrl}`,
+        `README.md release ZIP setup must link to ${forkLatestUrl}`,
+        `README.ja.md primary release CTA must link to ${forkLatestUrl}`,
+        `README.ja.md release ZIP setup must link to ${forkLatestUrl}`,
       ]),
     );
   });
@@ -178,7 +198,10 @@ describe('release version integrity', () => {
   test('fails closed when package repository metadata is missing or unsupported', () => {
     const missing = createVersionInput();
     delete missing.packageJson.repository;
+    // The repository error surfaces once per README, since each file's route
+    // validation depends on the same metadata.
     expect(validateReleaseVersions(missing)).toEqual([
+      'package.json repository must be a URL string or a git repository object',
       'package.json repository must be a URL string or a git repository object',
     ]);
 
@@ -187,11 +210,14 @@ describe('release version integrity', () => {
       type: 'git',
       url: 'https://gitlab.com/example/network-plus-extension.git',
     };
-    expect(validateReleaseVersions(unsupported)).toEqual(['package.json repository URL must use github.com']);
+    expect(validateReleaseVersions(unsupported)).toEqual([
+      'package.json repository URL must use github.com',
+      'package.json repository URL must use github.com',
+    ]);
   });
 
   test('bounds the release ZIP setup at the next h2 while allowing deeper headings', () => {
-    const input = createVersionInput('1.6.0', '1.6.0', {
+    const input = createVersionInput('1.6.0', {
       setupPrelude: ['#### Download notes'],
       boundaryHeading: '## For developers',
       trailingLines: ['1. This step sits outside the release ZIP section.'],
@@ -201,7 +227,7 @@ describe('release version integrity', () => {
   });
 
   test('bounds the release ZIP setup at the next h3 before trailing numbered steps', () => {
-    const input = createVersionInput('1.6.0', '1.6.0', {
+    const input = createVersionInput('1.6.0', {
       boundaryHeading: '### Install from source',
       trailingLines: ['1. Run npm ci.'],
     });
@@ -209,20 +235,20 @@ describe('release version integrity', () => {
     expect(validateReleaseVersions(input)).toEqual([]);
   });
 
-  test('rejects missing or duplicated README release route landmarks', () => {
+  test('rejects missing or duplicated README release route landmarks per language', () => {
     const missing = createVersionInput();
-    missing.readmeSource = missing.readmeSource
+    missing.readmeSources[0].source = missing.readmeSources[0].source
       .split('\n')
-      .filter((line) => !line.startsWith(QUICK_TRY_PREFIX))
+      .filter((line) => !line.startsWith(EN_CONFIG.quickTryPrefix))
       .join('\n');
     expect(validateReleaseVersions(missing)).toEqual(
-      expect.arrayContaining([`README.md must contain exactly one ${QUICK_TRY_PREFIX} line`]),
+      expect.arrayContaining([`README.md must contain exactly one ${EN_CONFIG.quickTryPrefix} line`]),
     );
 
     const duplicated = createVersionInput();
-    duplicated.readmeSource = `${duplicated.readmeSource}\n${RELEASE_SETUP_HEADING}`;
+    duplicated.readmeSources[1].source = `${duplicated.readmeSources[1].source}\n${JA_CONFIG.setupHeading}`;
     expect(validateReleaseVersions(duplicated)).toEqual(
-      expect.arrayContaining([`README.md must contain exactly one ${RELEASE_SETUP_HEADING} section`]),
+      expect.arrayContaining([`README.ja.md must contain exactly one ${JA_CONFIG.setupHeading} section`]),
     );
   });
 
@@ -249,18 +275,23 @@ describe('release version integrity', () => {
     );
   });
 
-  test('rejects README routes left stale after a synchronized version change', () => {
-    const version = '1.7.0';
-    const input = createVersionInput(version, '1.6.0');
-    const repository = input.packageJson.repository;
+  test('rejects versioned routes and version literals left behind in a README', () => {
+    const version = '1.6.0';
+    const repository = DEFAULT_REPOSITORY;
+    const input = createVersionInput(version, {
+      extraBody: [
+        `Old CTA: [Download v${version}](${getReleaseDownloadUrl(repository, version)})`,
+        `Old notes: [what changed](${getReleaseTagUrl(repository, version)})`,
+        `Old archive: ${getReleaseArchiveName(version)}`,
+      ],
+    });
 
     expect(validateReleaseVersions(input)).toEqual(
       expect.arrayContaining([
-        `README.md primary release ZIP CTA must link directly to ${getReleaseDownloadUrl(repository, version)}`,
-        `README.md quick-start release context must link to ${getReleaseTagUrl(repository, version)}`,
-        `README.md release ZIP setup must link directly to ${getReleaseDownloadUrl(repository, version)}`,
-        `README.md release ZIP setup must name ${getReleaseArchiveName(version)}`,
-        `README.md release ZIP setup context must link to ${getReleaseTagUrl(repository, version)}`,
+        expect.stringContaining('README.md must stay version-free but contains a versioned release download route'),
+        expect.stringContaining('README.md must stay version-free but contains a versioned release tag route'),
+        expect.stringContaining('README.md must stay version-free but contains a release version literal'),
+        expect.stringContaining('README.md must stay version-free but contains a versioned archive name'),
       ]),
     );
   });

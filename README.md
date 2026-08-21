@@ -14,7 +14,9 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/himiyosh)
 
-[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [Data safety](#data-safety) · [Development](#development) · [Docs](#documentation) · [Sponsor](#sponsor)
+**English** · [日本語 (Japanese)](README.ja.md)
+
+[Quick start](#-quick-start) · [Features](#-features) · [Usage](#-usage) · [Data safety](#-data-safety) · [Development](#-development) · [Docs](#-documentation) · [Sponsor](#-sponsor)
 
 <img src="docs/media/network-plus-tour.gif" alt="Tour of the Network+ panel: the request grid with a tabbed request and response inspector, the response Timing breakdown with its phase guide, the local sample evidence guide, and the export dialog offering sanitized HAR as the default." width="880">
 
@@ -22,11 +24,11 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 
 </div>
 
-**Try it now:** [Download the v1.10.0 release ZIP](https://github.com/himiyosh/network-plus-extension/releases/download/v1.10.0/network-plus-extension-1.10.0.zip) · [What is in v1.10.0](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.10.0) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
+**Try it now:** [Download the latest release ZIP](https://github.com/himiyosh/network-plus-extension/releases/latest) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
 
 ---
 
-## Why Network+
+## ✨ Why Network+
 
 The stock Network panel is great at showing you traffic. Network+ is built for the moment **after** that — when you have 4,000 requests, a customer waiting, and one failing call to find and explain.
 
@@ -50,11 +52,11 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 
 </details>
 
-## Quick start
+## 🚀 Quick start
 
 ### Install from the release ZIP
 
-1. Download [network-plus-extension-1.10.0.zip](https://github.com/himiyosh/network-plus-extension/releases/download/v1.10.0/network-plus-extension-1.10.0.zip) — see the [v1.10.0 release notes](https://github.com/himiyosh/network-plus-extension/releases/tag/v1.10.0) for what changed.
+1. Download the ZIP from the [latest release](https://github.com/himiyosh/network-plus-extension/releases/latest) — the release notes there list what changed.
 2. Extract it into a new folder. The browser loads the folder that contains `manifest.json`, not the ZIP itself.
 3. Open `edge://extensions/` in Microsoft Edge, or `chrome://extensions/` in Google Chrome, and turn on **Developer mode**.
 4. Choose **Load unpacked** and select the folder from step 2.
@@ -95,7 +97,7 @@ Verified for Chrome:
 
 With the panel open and no traffic captured yet, choose **Explore sample capture**. It loads three synthetic requests (a 200 API call, a slow 503, and a 304 cache hit), sends no network traffic, and pauses live recording so the sample never mixes with real requests. **Exit · restore prior recording state** puts everything back exactly as it was.
 
-## Features
+## 🧰 Features
 
 ### Capture and retention
 
@@ -134,7 +136,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 - Responsive from 320 px up; below 700 px the request list stacks above the detail panel.
 - Match badges never rely on color alone, status changes are announced to screen readers, and decorative motion respects `prefers-reduced-motion`.
 
-## Usage
+## 📖 Usage
 
 1. Open DevTools (<kbd>F12</kbd>) and select the **Network+** tab.
 2. Reproduce the problem. Rows stream in live; use **Pause** to freeze the working set.
@@ -178,7 +180,7 @@ The Response **Timing** tab includes a native disclosure, `What do the timing ph
 
 Definitions follow the [HAR 1.2 specification (timings)](http://www.softwareishard.com/blog/har-12-spec/), [W3C Resource Timing Level 2](https://www.w3.org/TR/resource-timing-2/), and the [Chrome DevTools Network overview](https://developer.chrome.com/docs/devtools/network/overview/).
 
-## Data safety
+## 🔒 Data safety
 
 Network+ treats the clipboard and HAR downloads as its only outbound surfaces, and makes the safe form the default one. A confirmed full output applies to that single action and is never stored as a preference.
 
@@ -190,7 +192,7 @@ Network+ treats the clipboard and HAR downloads as its only outbound surfaces, a
 
 This reduces accidental disclosure in what you send outward. It is not a redaction layer for what you see inside DevTools: local inspection still shows the captured values. Full details are in the [privacy notice](docs/privacy.md).
 
-## How it works
+## 🔧 How it works
 
 ```
 Edge / Chrome DevTools
@@ -213,14 +215,14 @@ Edge / Chrome DevTools
 
 The status bar continuously shows the active retention policy, body cache usage, and cumulative row-eviction, body-omission, body-eviction, and preview-omission counts. See [docs/architecture.md](docs/architecture.md) for the rendering pipeline, eviction rules, import validation, and UI stability rules.
 
-## Development
+## 🧪 Development
 
 ```bash
 npm ci                    # install dependencies from the lockfile
 npm test                  # Jest with coverage
 npm run lint              # ESLint over all first-party JavaScript
 npm run format            # Prettier write (format:check for CI parity)
-npm run version:check     # 5 release version locations + README release routes
+npm run version:check     # 5 release version locations + version-free README routes
 npm run integrity:check   # package-lock.json provenance
 npm run extension:check   # manifest, permissions, references, CSP, distribution allowlist
 npm run extension:package # build the verified release ZIP into dist/
@@ -264,7 +266,7 @@ network-plus-extension/
 └── .github/             workflows, agents, Copilot instructions, issue forms, funding config
 ```
 
-## Contributing
+## 🤝 Contributing
 
 Issues and pull requests are welcome. Before opening a PR:
 
@@ -276,11 +278,11 @@ Issues and pull requests are welcome. Before opening a PR:
 
 Repository conventions, the panel's section layout, XSS rules, and the review topology are documented in [.github/copilot-instructions.md](.github/copilot-instructions.md).
 
-**Versioning** follows Semantic Versioning. `version` is bumped only at release time — not per commit — and must stay identical across [manifest.json](manifest.json), [package.json](package.json), the top-level and root entries in [package-lock.json](package-lock.json), and the test fallback constant in [panel.js](panel.js). Run `npm run version:check` to verify all five locations and the README release links. Current version: **1.10.0**.
+**Versioning** follows Semantic Versioning. `version` is bumped only at release time — not per commit — and must stay identical across [manifest.json](manifest.json), [package.json](package.json), the top-level and root entries in [package-lock.json](package-lock.json), and the test fallback constant in [panel.js](panel.js). Run `npm run version:check` to verify all five locations. The READMEs stay deliberately version-free — every release link points at `releases/latest` — so cutting a release never edits them, and `version:check` enforces exactly that.
 
 **Releasing** needs no manual step beyond merging. When a version bump reaches `main`, the [Publish Release workflow](.github/workflows/release.yml) rebuilds the package, re-runs the version, package, and store-kit gates, verifies that the archive digest equals the value recorded in the submission dossiers, and publishes the `vX.Y.Z` GitHub release with the ZIP attached and notes generated from that version's changelog section. Pushing the `vX.Y.Z` tag yourself triggers the same workflow. A version that already has a release is skipped rather than republished, so re-runs are safe.
 
-## Security
+## 🔐 Security
 
 - Every piece of user data rendered into the DOM goes through `textContent` or DOM APIs. `innerHTML` is not used anywhere.
 - The Content Security Policy is declared explicitly in [manifest.json](manifest.json): `script-src 'self'; object-src 'self'`.
@@ -288,7 +290,7 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 - The manifest allows only the 8 top-level keys currently in use; host permissions, background workers, and content scripts are rejected by the validator outright.
 - `npm run extension:check` verifies exact permission parity and real usage, runtime path symlink and root boundaries, resource locality, the inline-script ban, the CSP, and the distribution allowlist.
 
-## Limitations
+## 🚧 Limitations
 
 - **Chromium browsers only.** Edge and Chrome are supported; Firefox and Safari implement DevTools extensions differently and are out of scope. See [Browser support](#browser-support).
 - **No ES modules in DevTools panels.** `import` / `export` cannot be used in `panel.js`.
@@ -296,7 +298,7 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 - **Local only.** No network requests, no external APIs, no telemetry.
 - **Timing is a lead, not proof.** Displayed values are browser-reported observations and do not establish packet loss, physical-layer faults, or a definitive server-side root cause.
 
-## Documentation
+## 📚 Documentation
 
 | Document | Contents |
 |---|---|
@@ -313,11 +315,11 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 | [.github/copilot-instructions.md](.github/copilot-instructions.md) | Coding, security, and testing rules for contributors and agents (Japanese) |
 | [.github/agents/](.github/agents/) | Primary project agent and the 6-axis UI/UX review agent |
 
-## Support
+## 💬 Support
 
 Questions and bug reports go to [GitHub Issues](https://github.com/himiyosh/network-plus-extension/issues/new/choose). Issues are public: remove credentials, customer data, and real traffic before posting, and review the output of `Copy safe support summary` before pasting it.
 
-## Sponsor
+## 💖 Sponsor
 
 Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or paid tier. **Every feature is free, and contributing never unlocks, limits, or changes any of them.**
 
@@ -326,10 +328,10 @@ Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or pa
 | GitHub Sponsors | [github.com/sponsors/himiyosh](https://github.com/sponsors/himiyosh) | One-time or monthly · no platform fee |
 | Ko-fi | [ko-fi.com/studio344](https://ko-fi.com/studio344) | One-time · no account needed |
 
-The same links live in the panel, behind the Network+ brand button itself — the toolbar mark with the dozing pixel otter and steaming cup opens the Support dialog. Network+ sends those sites no captured traffic and no usage data, and cannot tell whether you visited or contributed.
+The same links live in the panel, behind the Network+ brand button itself — the toolbar mark with the pixel otter and steaming cup opens the Support dialog. Network+ sends those sites no captured traffic and no usage data, and cannot tell whether you visited or contributed.
 
 Non-financial help counts just as much: [report a bug or suggest an improvement](https://github.com/himiyosh/network-plus-extension/issues/new/choose), star the repository, or pass it on to a colleague.
 
-## License
+## 📄 License
 
 [MIT](LICENSE) © himiyosh

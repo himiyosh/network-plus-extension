@@ -52,9 +52,13 @@ authority for version locations; the known set is:
 | `package.json`, `manifest.json` | `"version"` |
 | `package-lock.json` | two `"version"` entries |
 | `panel.js` | `TEST_EXTENSION_VERSION_FALLBACK` |
-| `README.md` | two download/notes link lines + `Current version:` |
 | `tests/extension-package.test.js` | expected zip name |
 | `tests/panel.test.js` | four version literals |
+
+The READMEs (`README.md`, `README.ja.md`) are deliberately version-free —
+every release link points at `releases/latest` — so the cut never touches
+them, and `version:check` fails if a versioned route or version literal
+sneaks back in.
 
 1. Bump all of the above to the new version.
 2. In `docs/CHANGELOG.md`, rename `## Unreleased` to `## vX.Y.Z - YYYY-MM-DD`.
