@@ -2516,8 +2516,9 @@ describe('optional support dialog', () => {
       'brand-otter',
       'brand-otter-sleep',
       'brand-otter-wake',
-      'brand-zzz',
-      'brand-heart',
+      'brand-otter-lid',
+      'brand-otter-glint',
+      'brand-heart-px',
       'brand-cup',
       'brand-steam',
       'brand-support-hint',
@@ -2586,7 +2587,7 @@ describe('optional support dialog', () => {
     expect(rule).not.toContain('border:none');
     expect(css).toMatch(/\.topbar button:hover\{[^}]*border-color:var\(--accent\)/);
     expect(css).toMatch(/\.topbar button:focus-visible[^{]*\{[^}]*outline:2px solid var\(--accent\)/);
-    // The sleeping otter sits above the low, bottom-aligned "for DevTools"
+    // The investigating otter sits above the low, bottom-aligned "for DevTools"
     // sub-label — the roomiest spot in the pill — with a deliberate 2px air
     // gap so no paw ever touches the letters. The art grazes at most ~4.5px
     // above the pill (~5.5px with the 1px hover rise), inside the topbar's
@@ -2611,18 +2612,21 @@ describe('optional support dialog', () => {
     expect(html).toMatch(
       /<svg class="brand-otter" viewBox="0 0 22 15" shape-rendering="crispEdges" focusable="false">/,
     );
-    // Two complete sprites live in the markup: the sleeping default and the
-    // woken investigator (magnifying glass up). CSS only toggles display, so
-    // the swap is a single-frame cut — tweening between sprites would blur.
+    // Two complete sprites live in the markup. The woken investigator
+    // (magnifying glass up) is the default — a network inspector's mascot is
+    // on duty — and hover or focus soothes it into the shut-eyed sleeping
+    // face while pixel hearts rise: the pointer reads as petting. CSS only
+    // toggles display, so the swap is a single-frame cut — tweening between
+    // sprites would blur.
     const brandBlock = html.slice(
       html.indexOf('<button id="supportBtn"'),
       html.indexOf('</button>', html.indexOf('<button id="supportBtn"')),
     );
     expect(html.match(/<g class="brand-otter-sleep">/g) || []).toHaveLength(1);
     expect(html.match(/<g class="brand-otter-wake">/g) || []).toHaveLength(1);
-    expect(css).toContain('.brand-otter-wake{display:none}');
-    expect(css).toMatch(/:hover \.brand-otter-sleep[^{]*\{display:none\}/);
-    expect(css).toMatch(/:hover \.brand-otter-wake[^{]*\{display:inline\}/);
+    expect(css).toContain('.brand-otter-sleep{display:none}');
+    expect(css).toMatch(/:hover \.brand-otter-wake[^{]*\{display:none\}/);
+    expect(css).toMatch(/:hover \.brand-otter-sleep[^{]*\{display:inline\}/);
     // Every sprite cell is an integer-aligned rect with an inline hex fill:
     // fractional geometry would break the pixel grid, and the palette is baked
     // per-cell (shading is the sprite's own, identical in both themes).
@@ -2637,14 +2641,33 @@ describe('optional support dialog', () => {
     expect(css).toMatch(/\.brand-otter-motion\{[^}]*animation:brand-otter-bob 2\.4s steps\(1,end\) infinite\}/);
     expect(css).toMatch(/@keyframes brand-otter-bob\{\s*0%,100%\{transform:translateY\(0\)\}\s*50%\{transform:translateY\(1px\)\}\s*\}/);
     expect(css).toMatch(/:hover \.brand-otter-motion[^{]*\{animation:none\}/);
-    // Rare drifting z and heart still punctuate the idle loop.
-    expect(css).toMatch(/\.brand-zzz\{[^}]*animation:brand-zzz-drift 13s/);
-    expect(css).toMatch(/\.brand-heart\{[^}]*animation:brand-heart-float 19s/);
+    // Idle beats on the working otter: a rare one-frame blink of the visible
+    // eye (the lid overlay repaints its two cells in fur) and a rarer one-cell
+    // glint in the lens. Both are steps() so no intermediate opacity ever
+    // renders a half-lit pixel, and both hide on hover with the woken sprite.
+    expect(html).toContain('<g class="brand-otter-lid"><rect x="5" y="7" width="2" height="1" fill="#a9744f"/></g>');
+    expect(html).toContain('<g class="brand-otter-glint"><rect x="15" y="8" width="1" height="1" fill="#ffffff"/></g>');
+    expect(css).toMatch(/\.brand-otter-lid\{opacity:0;animation:brand-otter-blink 5\.2s steps\(1,end\) infinite\}/);
+    expect(css).toMatch(/\.brand-otter-glint\{opacity:0;animation:brand-otter-glint 8\.8s steps\(1,end\) infinite/);
+    expect(css).toMatch(/:hover \.brand-otter-lid[^{]*\{display:none\}/);
+    // Petting hearts: two 5x4 pixel hearts, hidden at rest, rising on hover in
+    // whole-pixel steps(6) hops so they stay on the grid, the second delayed
+    // half a beat so the pair reads as a stream rather than a stamp.
+    expect(html.match(/class="brand-heart-px brand-heart-px--[ab]"/g) || []).toHaveLength(2);
+    expect(html).toMatch(/<span class="brand-heart-px brand-heart-px--a"[^>]*><svg viewBox="0 0 5 4" shape-rendering="crispEdges"/);
+    expect(css).toContain('.brand-heart-px{position:absolute;width:5px;height:4px;bottom:calc(100% + 1px);opacity:0;pointer-events:none}');
+    expect(css).toMatch(/:hover \.brand-heart-px--a[^{]*\{animation:brand-heart-rise 1\.6s steps\(6,end\) infinite\}/);
+    expect(css).toMatch(/:hover \.brand-heart-px--b[^{]*\{animation:brand-heart-rise 1\.6s steps\(6,end\) 0\.8s infinite\}/);
+    // The retired ambient beats stay retired: a drifting "z" contradicts an
+    // otter that is awake by default.
+    expect(html).not.toContain('brand-zzz');
+    expect(css).not.toContain('brand-zzz-drift');
+    expect(css).not.toContain('brand-heart-float');
     // The floaters hang off .brand-sub, never inside the clipped sprite window:
     // the motion wrapper closes, the window closes, and only then do they appear.
     expect(html).toMatch(/<span class="brand-otter-window"[^>]*>\s*<span class="brand-otter-motion">/);
     expect(html).toMatch(
-      /<\/span>\s*<\/span>\s*<span class="brand-zzz"[^>]*>z<\/span>\s*<span class="brand-heart">/,
+      /<\/span>\s*<\/span>\s*<span class="brand-heart-px brand-heart-px--a"/,
     );
     // The magnifying-glass lens tint belongs to the woken sprite alone, and the
     // sleeping face keeps shut eyes (no pupil cells) — waking must change the
@@ -2662,7 +2685,7 @@ describe('optional support dialog', () => {
     expect(css).toMatch(/\.topbar button\.brand:hover \.brand-steam-group[^{]*\{opacity:1\}/);
     // Reduced motion freezes every brand animation.
     const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'));
-    for (const part of ['.brand-otter', '.brand-otter-motion', '.brand-heart', '.brand-zzz', '.brand-steam', '.brand-support-hint']) {
+    for (const part of ['.brand-otter', '.brand-otter-motion', '.brand-otter-lid', '.brand-otter-glint', '.brand-heart-px', '.brand-steam', '.brand-support-hint']) {
       expect(reducedMotion).toContain(part);
     }
   });
