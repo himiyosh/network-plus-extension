@@ -110,25 +110,35 @@ html[data-theme="light"]{
 .brand-otter-motion{display:block;width:22px;height:15px;animation:brand-otter-bob 2.4s steps(1,end) infinite}
 .brand-otter{display:block;width:22px;height:15px}
 .topbar button.brand:hover .brand-otter-motion,.topbar button.brand:focus-visible .brand-otter-motion{animation:none}
-.brand-otter-wake{display:none}
-.topbar button.brand:hover .brand-otter-sleep,.topbar button.brand:focus-visible .brand-otter-sleep{display:none}
-.topbar button.brand:hover .brand-otter-wake,.topbar button.brand:focus-visible .brand-otter-wake{display:inline}
-.brand-zzz{position:absolute;left:calc(50% + 13px);bottom:calc(100% + 5px);font-size:9px;font-weight:800;line-height:1;color:var(--text-accent);opacity:0;pointer-events:none;animation:brand-zzz-drift 13s ease-in-out infinite;animation-delay:2.5s}
-.topbar button.brand:hover .brand-zzz,.topbar button.brand:focus-visible .brand-zzz{animation:none;opacity:0}
-.brand-heart{position:absolute;left:calc(50% - 16px);bottom:calc(100% + 6px);font-size:9px;line-height:1;color:var(--cat-blush);opacity:0;pointer-events:none;animation:brand-heart-float 19s ease-in-out infinite;animation-delay:7s}
+.brand-otter-sleep{display:none}
+.topbar button.brand:hover .brand-otter-wake,.topbar button.brand:focus-visible .brand-otter-wake,.topbar button.brand:hover .brand-otter-lid,.topbar button.brand:focus-visible .brand-otter-lid,.topbar button.brand:hover .brand-otter-glint,.topbar button.brand:focus-visible .brand-otter-glint{display:none}
+.topbar button.brand:hover .brand-otter-sleep,.topbar button.brand:focus-visible .brand-otter-sleep{display:inline}
+.brand-otter-lid{opacity:0;animation:brand-otter-blink 5.2s steps(1,end) infinite}
+.brand-otter-glint{opacity:0;animation:brand-otter-glint 8.8s steps(1,end) infinite;animation-delay:3s}
+.brand-heart-px{position:absolute;width:5px;height:4px;bottom:calc(100% + 1px);opacity:0;pointer-events:none}
+.brand-heart-px svg{display:block;width:5px;height:4px}
+.brand-heart-px--a{left:calc(50% + 12px)}
+.brand-heart-px--b{left:calc(50% - 16px)}
+.topbar button.brand:hover .brand-heart-px--a,.topbar button.brand:focus-visible .brand-heart-px--a{animation:brand-heart-rise 1.6s steps(6,end) infinite}
+.topbar button.brand:hover .brand-heart-px--b,.topbar button.brand:focus-visible .brand-heart-px--b{animation:brand-heart-rise 1.6s steps(6,end) 0.8s infinite}
 @keyframes brand-otter-bob{
   0%,100%{transform:translateY(0)}
   50%{transform:translateY(1px)}
 }
-@keyframes brand-zzz-drift{
-  0%,86%{opacity:0;transform:translate(0,0) scale(.85)}
-  91%{opacity:.9;transform:translate(1.5px,-3px) scale(1)}
-  100%{opacity:0;transform:translate(4px,-6px) scale(1.08)}
+@keyframes brand-otter-blink{
+  0%,90%{opacity:0}
+  91%,96%{opacity:1}
+  97%,100%{opacity:0}
 }
-@keyframes brand-heart-float{
-  0%,93%,100%{opacity:0;transform:translate(0,0) scale(.7)}
-  94.5%{opacity:.95;transform:translate(2px,-4px) scale(1)}
-  97.5%{opacity:0;transform:translate(4px,-6px) scale(.85)}
+@keyframes brand-otter-glint{
+  0%,54%{opacity:0}
+  55%,57%{opacity:1}
+  58%,100%{opacity:0}
+}
+@keyframes brand-heart-rise{
+  0%{opacity:1;transform:translateY(0)}
+  90%{opacity:1;transform:translateY(-6px)}
+  91%,100%{opacity:0;transform:translateY(-6px)}
 }
 .brand-cup{width:20px;height:20px;overflow:visible;flex-shrink:0}
 .brand-cup-body{fill:var(--cup);stroke:var(--brew);stroke-width:1.1;stroke-opacity:.72;stroke-linejoin:round}
@@ -727,7 +737,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .search-color-btn,.search-color-swatch,.hl-swatch,.timing-bar-seg,.json-tree-summary::before,.copy-toast,.sample-guide-btn,.sample-exit-btn,.status-details-toggle{transition:none}
   .search-color-btn:hover,.search-color-swatch:hover,.hl-swatch:hover{transform:none}
   .copy-toast,.copy-toast.show{transform:translateX(-50%)}
-  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-otter-tail,.support-otter-eye,.support-otter-ear--left,.brand-otter,.brand-otter-motion,.brand-heart,.brand-zzz,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
+  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-otter-tail,.support-otter-eye,.support-otter-ear--left,.brand-otter,.brand-otter-motion,.brand-otter-lid,.brand-otter-glint,.brand-heart-px,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
   .support-option-cta:hover{transform:none;filter:none}
   #supportDialog[open],#supportDialog[open]::backdrop{animation:none}
   .support-option:hover{transform:none}
