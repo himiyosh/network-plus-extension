@@ -35,6 +35,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 - **Find the evidence.** Search several keywords at once across URLs, headers, and bodies, each with its own highlight color, match count, and next/previous navigation.
 - **Narrow without losing context.** Combine per-column filters (time range, method multi-select, `contains` / `notcontains` rules, include/exclude URL logic) and keep your standard setup one click away as a saved view preset.
 - **Compare two requests directly.** Select exactly two rows and diff URL, query, method, status, headers, and body side by side.
+- **Pop out into a browser tab.** One click opens the same panel as a regular tab that live-mirrors the DevTools session — big-screen triage while DevTools stays docked, with no extra permissions.
 - **Share without leaking.** Every copy and every HAR export is sanitized by default; full output requires a per-action confirmation that is never remembered.
 - **Stay bounded.** Request retention and the response-body cache have explicit limits, visible counters, and predictable eviction — no silent unbounded growth.
 - **Work by keyboard.** Every control is reachable without a mouse, in System / Dark / Light themes that all meet WCAG 2.2 AA contrast.
@@ -114,6 +115,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 - Timing breakdown per phase (blocked, DNS, connect, TLS, send, wait, receive) with an inline guide and an explicit statement of what browser-reported timing cannot prove.
 - **Compare 2 selected requests** — <kbd>Ctrl</kbd>/<kbd>⌘</kbd>-click exactly two rows to diff URL, query parameters, method, status, protocol, headers, and body, with matching, changed, and one-sided values color-coded.
 - Initiator links open the originating source file in DevTools.
+- **Pop out into a browser tab** — the 🪟 toolbar button opens this panel as a regular tab that mirrors the DevTools session live: new requests stream in, clears and imports follow within a second, and response bodies are fetched from the DevTools side on demand. Capture stays owned by DevTools (the tab hides pause, clear, import, and retention), the tab keeps its rows if DevTools closes, and initiator entries render as plain text there.
 - Waterfall column visualizes each request's start offset and timing phases inline.
 
 ### Find
@@ -203,6 +205,7 @@ Edge / Chrome DevTools
 ```
 
 - **DevTools panel extension.** Requests arrive through `chrome.devtools.network.onRequestFinished`.
+- **Pop-out mirror tab.** The same `panel.html` opened with `?view=window`; the DevTools panel connects a `chrome.runtime` port to it, streams serialized rows, reconciles differences through a one-second sync heartbeat, and serves response bodies on demand. No additional permissions.
 - **No ES modules.** DevTools panel pages do not support `<script type="module">`, so all logic lives in one IIFE file. This is a platform constraint, not a style choice.
 - **Buildless.** No bundler, no transpiler. `npm run extension:package` copies an explicit allowlist of 10 runtime files into a ZIP without transforming any code.
 

@@ -5114,3 +5114,232 @@ describe('normalizeSearchPrefs', () => {
     expect(prefs.keywords).toBeUndefined();
   });
 });
+
+describe('devtools-session mirror', () => {
+  const SAMPLE_ENTRY = {
+    startedDateTime: '2026-08-21T04:05:06.789Z',
+    time: 123.4,
+    request: {
+      method: 'POST',
+      url: 'https://api.example.test/v1/items?q=1',
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      postData: { mimeType: 'application/json', text: '{"q":1}' },
+    },
+    response: {
+      status: 503,
+      statusText: 'Service Unavailable',
+      httpVersion: 'http/2.0',
+      headers: [{ name: 'Retry-After', value: '30' }],
+      bodySize: 42,
+      content: { mimeType: 'application/json', size: 42 },
+    },
+    timings: { wait: 100.2, receive: 3.1 },
+    initiator: { type: 'parser' },
+  };
+
+  const buildHostRow = (id) => np.buildRowFromRequest({ ...SAMPLE_ENTRY, getContent: () => {} }, id);
+
+  test('getMirrorViewParams detects the pop-out view and its source tab', () => {
+    expect(np.getMirrorViewParams('')).toEqual({ viewerMode: false, sourceTabId: '' });
+    expect(np.getMirrorViewParams(undefined)).toEqual({ viewerMode: false, sourceTabId: '' });
+    expect(np.getMirrorViewParams('?view=window')).toEqual({ viewerMode: true, sourceTabId: '' });
+    expect(np.getMirrorViewParams('?view=window&src=42')).toEqual({ viewerMode: true, sourceTabId: '42' });
+    expect(np.getMirrorViewParams('?view=other&src=42').viewerMode).toBe(false);
+  });
+
+  test('serialized rows survive JSON transport and rebuild into equivalent rows', () => {
+    const hostRow = buildHostRow(7);
+    const wire = JSON.parse(JSON.stringify(np.serializeRowForMirror(hostRow)));
+    const viewerRow = np.buildRowFromRequest(np.buildMirrorEntryFromWire(wire), wire.id);
+    viewerRow.initiator = wire.initiator;
+
+    expect(viewerRow.id).toBe(7);
+    expect(viewerRow.method).toBe(hostRow.method);
+    expect(viewerRow.url).toBe(hostRow.url);
+    expect(viewerRow.status).toBe(hostRow.status);
+    expect(viewerRow.statusText).toBe(hostRow.statusText);
+    expect(viewerRow.protocol).toBe(hostRow.protocol);
+    expect(viewerRow.type).toBe(hostRow.type);
+    expect(viewerRow.size).toBe(hostRow.size);
+    expect(viewerRow.duration).toBe(hostRow.duration);
+    expect(viewerRow.startedDateTime).toBe(hostRow.startedDateTime);
+    expect(viewerRow.requestHeaders).toEqual(hostRow.requestHeaders);
+    expect(viewerRow.responseHeaders).toEqual(hostRow.responseHeaders);
+    expect(viewerRow.requestPostData).toEqual(hostRow.requestPostData);
+    expect(viewerRow.timings).toEqual(hostRow.timings);
+    expect(viewerRow.initiator).toEqual(hostRow.initiator);
+    expect(viewerRow.domain).toBe(hostRow.domain);
+    expect(viewerRow.responseContentState).toBe('not-loaded');
+  });
+
+  const createLinkedSessions = ({ rows, fetchBodyForRow, paused = () => false }) => {
+    // The fake viewer state mirrors the production ingestion contract: rows
+    // are unique by id, whether they arrive appended or via snapshot.
+    const viewerRowsById = new Map();
+    const viewerReceived = { snapshots: [], appended: [], pausedChanges: [] };
+    let host;
+    const viewer = np.createMirrorViewerSession({
+      postMessage: (message) => host.handleMessage(message),
+      appendWireRow: (wireRow) => {
+        viewerReceived.appended.push(wireRow);
+        viewerRowsById.set(wireRow.id, wireRow);
+      },
+      applyWireSnapshot: (wireRows) => {
+        viewerReceived.snapshots.push(wireRows);
+        viewerRowsById.clear();
+        for (const wireRow of wireRows) viewerRowsById.set(wireRow.id, wireRow);
+      },
+      getLocalCount: () => viewerRowsById.size,
+      getLocalMaxId: () => {
+        let maxId = 0;
+        for (const id of viewerRowsById.keys()) if (id > maxId) maxId = id;
+        return maxId;
+      },
+      onHostPausedChange: (value) => viewerReceived.pausedChanges.push(value),
+    });
+    host = np.createMirrorHostSession({
+      postMessage: (message) => viewer.handleMessage(message),
+      getRows: () => rows,
+      isPaused: paused,
+      fetchBodyForRow: fetchBodyForRow || (() => Promise.reject(new Error('no body fetcher'))),
+    });
+    return { host, viewer, viewerReceived };
+  };
+
+  const flushAsync = () => new Promise((resolve) => setImmediate(resolve));
+
+  test('hello delivers a chunked snapshot that reassembles in order', () => {
+    const rows = Array.from({ length: 1201 }, (_unused, index) => buildHostRow(index + 1));
+    const pair = createLinkedSessions({ rows });
+    pair.viewer.handleMessage({ type: 'noise' });
+    pair.host.handleMessage({ type: 'hello', protocolVersion: np.MIRROR_PROTOCOL_VERSION });
+    expect(pair.viewerReceived.snapshots).toHaveLength(1);
+    const snapshotRows = pair.viewerReceived.snapshots[0];
+    expect(snapshotRows).toHaveLength(1201);
+    expect(snapshotRows[0].id).toBe(1);
+    expect(snapshotRows.at(-1).id).toBe(1201);
+    expect(pair.viewerReceived.appended).toHaveLength(0);
+  });
+
+  test('a stale snapshot generation is discarded instead of applied', () => {
+    const applied = [];
+    const viewer = np.createMirrorViewerSession({
+      postMessage: () => {},
+      appendWireRow: () => {},
+      applyWireSnapshot: (wireRows) => applied.push(wireRows),
+      getLocalCount: () => 0,
+      getLocalMaxId: () => 0,
+    });
+    viewer.handleMessage({ type: 'snapshot-start', generation: 1, total: 1 });
+    viewer.handleMessage({ type: 'snapshot-start', generation: 2, total: 1 });
+    viewer.handleMessage({ type: 'snapshot-rows', generation: 1, rows: [{ id: 1 }] });
+    viewer.handleMessage({ type: 'snapshot-rows', generation: 2, rows: [{ id: 2 }] });
+    viewer.handleMessage({ type: 'snapshot-end', generation: 1 });
+    viewer.handleMessage({ type: 'snapshot-end', generation: 2 });
+    expect(applied).toHaveLength(1);
+    expect(applied[0]).toEqual([{ id: 2 }]);
+  });
+
+  test('pushed rows stream to the viewer and sync mismatch triggers a resync', () => {
+    const rows = [buildHostRow(1)];
+    const { host, viewerReceived } = createLinkedSessions({ rows });
+    host.pushRow(rows[0]);
+    expect(viewerReceived.appended).toHaveLength(1);
+    expect(viewerReceived.appended[0].id).toBe(1);
+
+    // Viewer count (1 appended) matches the host: sync stays quiet.
+    host.sendSync();
+    expect(viewerReceived.snapshots).toHaveLength(0);
+
+    // A second host row the viewer never saw: sync detects and resyncs.
+    rows.push(buildHostRow(2));
+    host.sendSync();
+    expect(viewerReceived.snapshots).toHaveLength(1);
+    expect(viewerReceived.snapshots[0].map((wireRow) => wireRow.id)).toEqual([1, 2]);
+  });
+
+  test('paused state changes reach the viewer through sync', () => {
+    const rows = [];
+    let paused = false;
+    const { host, viewerReceived } = createLinkedSessions({ rows, paused: () => paused });
+    host.sendSync();
+    paused = true;
+    host.sendSync();
+    expect(viewerReceived.pausedChanges).toEqual([false, true]);
+  });
+
+  test('body requests round-trip: cached success and host-side failure', async () => {
+    const rows = [buildHostRow(1), buildHostRow(2)];
+    const fetchBodyForRow = (rowId) =>
+      rowId === 1
+        ? Promise.resolve({ content: 'aGVsbG8=', encoding: 'base64' })
+        : Promise.reject(new Error('evicted by retention'));
+    const { viewer } = createLinkedSessions({ rows, fetchBodyForRow });
+
+    const success = await new Promise((resolve) => {
+      viewer.requestBody(1, (error, payload) => resolve({ error, payload }));
+    });
+    expect(success.error).toBeNull();
+    expect(success.payload).toEqual({ content: 'aGVsbG8=', encoding: 'base64' });
+
+    const failure = await new Promise((resolve) => {
+      viewer.requestBody(2, (error, payload) => resolve({ error, payload }));
+    });
+    expect(failure.payload).toBeNull();
+    expect(failure.error.message).toBe('evicted by retention');
+    await flushAsync();
+  });
+
+  test('disconnect fails pending body requests immediately', () => {
+    const viewer = np.createMirrorViewerSession({
+      postMessage: () => {},
+      appendWireRow: () => {},
+      applyWireSnapshot: () => {},
+      getLocalCount: () => 0,
+      getLocalMaxId: () => 0,
+    });
+    const outcomes = [];
+    viewer.requestBody(5, (error) => outcomes.push(error.message));
+    viewer.failPendingBodyRequests('The DevTools session disconnected before the response content arrived.');
+    expect(outcomes).toEqual(['The DevTools session disconnected before the response content arrived.']);
+  });
+
+  test('a throwing transport surfaces to the requestBody caller and leaves no pending entry', () => {
+    const viewer = np.createMirrorViewerSession({
+      postMessage: () => {
+        throw new Error('The DevTools session is disconnected, so response content cannot be retrieved.');
+      },
+      appendWireRow: () => {},
+      applyWireSnapshot: () => {},
+      getLocalCount: () => 0,
+      getLocalMaxId: () => 0,
+    });
+    expect(() => viewer.requestBody(1, () => {})).toThrow('session is disconnected');
+    const outcomes = [];
+    viewer.failPendingBodyRequests('should reach nobody');
+    expect(outcomes).toEqual([]);
+  });
+
+  test('fetchResponsePayload serves mirror rows through _mirrorFetchBody', async () => {
+    const row = np.buildRowFromRequest(np.buildMirrorEntryFromWire(np.serializeRowForMirror(buildHostRow(9))), 9);
+    row._reqObj = null;
+    row._mirrorFetchBody = () => Promise.resolve({ content: 'hello body', encoding: '' });
+    const payload = await np.fetchResponsePayload(row);
+    expect(payload.content).toBe('hello body');
+    expect(payload.text).toBe('hello body');
+
+    const failingRow = np.buildRowFromRequest(np.buildMirrorEntryFromWire(np.serializeRowForMirror(buildHostRow(10))), 10);
+    failingRow._reqObj = null;
+    failingRow._mirrorFetchBody = () => Promise.reject(new Error('host gone'));
+    await expect(np.fetchResponsePayload(failingRow)).rejects.toThrow(
+      'Failed to retrieve response content for request 10: host gone',
+    );
+
+    const stalledRow = np.buildRowFromRequest(np.buildMirrorEntryFromWire(np.serializeRowForMirror(buildHostRow(11))), 11);
+    stalledRow._reqObj = null;
+    stalledRow._mirrorFetchBody = () => new Promise(() => {});
+    await expect(np.fetchResponsePayload(stalledRow, 20)).rejects.toThrow(
+      'Timed out retrieving response content for request 11',
+    );
+  });
+});

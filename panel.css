@@ -157,6 +157,7 @@ html[data-theme="light"]{
 .brand-plus{color:var(--text-accent);font-weight:900;font-size:16px}
 .brand-sub{position:relative;display:inline-flex;align-items:center;font-size:9px;color:var(--text-muted);font-weight:500;letter-spacing:0.5px;text-transform:uppercase;align-self:flex-end;margin-bottom:2px;margin-left:2px}
 .topbar button{min-height:32px;padding:5px 12px;border:1px solid var(--control-border);border-radius:8px;background:var(--bg);color:var(--fg);cursor:pointer;font-size:12px;line-height:1.5;display:inline-flex;align-items:center;justify-content:center;transition:background-color 0.15s,border-color 0.15s,color 0.15s;white-space:nowrap;scroll-margin-inline:2px}
+.topbar button[hidden]{display:none}
 .topbar button.icon-btn{padding:5px 8px;font-size:16px}
 .topbar button:hover{background:var(--hover);border-color:var(--accent);color:var(--text-accent)}
 .topbar button.active{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
