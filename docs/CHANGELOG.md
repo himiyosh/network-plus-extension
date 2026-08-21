@@ -2,6 +2,10 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
+## Unreleased
+
+- No changes have been recorded since v1.11.0.
+
 ## v1.11.0 - 2026-08-21
 
 - Re-captured the four store screenshots and the README tour GIF for the working-otter toolbar: the captured panel now shows the magnifying-glass sprite perched over the for DevTools sub-label, and the screenshots' band mark switches to that same working sprite so the decoration matches the toolbar it sits above.
