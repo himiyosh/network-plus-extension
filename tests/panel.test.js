@@ -5343,3 +5343,57 @@ describe('devtools-session mirror', () => {
     );
   });
 });
+
+describe('navigation body persistence', () => {
+  const liveWaitingRow = () => ({
+    responseContentState: 'not-loaded',
+    responseContentReason: '',
+    responseContentError: null,
+    _reqObj: { getContent: () => {} },
+  });
+
+  test('marks only live rows still waiting on getContent, and nothing else', () => {
+    const waiting = liveWaitingRow();
+    const loading = { ...liveWaitingRow(), responseContentState: 'loading' };
+    const cached = { ...liveWaitingRow(), responseContentState: 'cached', responseContent: 'body' };
+    const embedded = { ...liveWaitingRow(), responseContentState: 'pending-admission' };
+    const imported = { responseContentState: 'not-loaded', responseContentReason: '', _reqObj: {} };
+    const mirror = {
+      responseContentState: 'not-loaded',
+      responseContentReason: '',
+      _reqObj: null,
+      _mirrorFetchBody: () => {},
+    };
+    const marked = np.markUnfetchedRowsForNavigation([waiting, loading, cached, embedded, imported, mirror, null]);
+    expect(marked).toEqual([waiting]);
+    expect(waiting.responseContentState).toBe('unavailable');
+    expect(waiting.responseContentReason).toBe(np.NAVIGATION_BODY_UNAVAILABLE_REASON);
+    expect(waiting._reqObj).toBeNull();
+    expect(loading.responseContentState).toBe('loading');
+    expect(cached.responseContentState).toBe('cached');
+    expect(embedded.responseContentState).toBe('pending-admission');
+    expect(imported.responseContentState).toBe('not-loaded');
+    expect(mirror.responseContentState).toBe('not-loaded');
+    expect(np.markUnfetchedRowsForNavigation(undefined)).toEqual([]);
+  });
+
+  test('a marked row rejects retrieval with the navigation reason instead of timing out', async () => {
+    const row = np.buildRowFromRequest(
+      {
+        startedDateTime: '2026-08-21T04:05:06.789Z',
+        time: 10,
+        request: { method: 'GET', url: 'https://example.test/late', headers: [] },
+        response: { status: 200, statusText: 'OK', headers: [], bodySize: 5, content: { mimeType: 'text/plain', size: 5 } },
+        timings: {},
+        getContent: () => {},
+      },
+      31,
+    );
+    expect(row.responseContentState).toBe('not-loaded');
+    const marked = np.markUnfetchedRowsForNavigation([row]);
+    expect(marked).toEqual([row]);
+    await expect(np.cacheResponseContent(row)).rejects.toThrow(
+      'The inspected page navigated away before this response body was retrieved.',
+    );
+  });
+});

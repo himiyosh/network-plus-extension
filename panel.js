@@ -3413,6 +3413,32 @@ const _NetworkPlus = (function () {
     };
   }
 
+  // A navigation never clears the table; the browser merely stops serving the
+  // previous document's response bodies once the new one commits, so a body
+  // that was not prefetched in time can never be retrieved again. Rows that
+  // lost that race flip to a terminal state carrying this reason instead of
+  // timing out on a doomed getContent call later.
+  const NAVIGATION_BODY_UNAVAILABLE_REASON =
+    'The inspected page navigated away before this response body was retrieved.';
+
+  function markUnfetchedRowsForNavigation(rows) {
+    const markedRows = [];
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (!row || typeof row !== 'object') continue;
+      // Only live-captured rows still waiting on getContent lose anything at
+      // navigation: embedded (sample/import), cached, in-flight, mirror, and
+      // already-terminal bodies all keep their existing behavior.
+      if (row.responseContentState !== 'not-loaded') continue;
+      if (!row._reqObj || typeof row._reqObj.getContent !== 'function') continue;
+      row.responseContentState = 'unavailable';
+      row.responseContentReason = NAVIGATION_BODY_UNAVAILABLE_REASON;
+      row.responseContentError = null;
+      row._reqObj = null;
+      markedRows.push(row);
+    }
+    return markedRows;
+  }
+
   function getUtf8ByteLength(value) {
     return new TextEncoder().encode(typeof value === 'string' ? value : '').length;
   }
@@ -11026,6 +11052,27 @@ const _NetworkPlus = (function () {
 
         scheduleLiveRows(wasAtBottom);
       });
+      if (
+        chrome.devtools.network.onNavigated &&
+        typeof chrome.devtools.network.onNavigated.addListener === 'function'
+      ) {
+        chrome.devtools.network.onNavigated.addListener(() => {
+          // Navigation never clears the table. It only ends the browser's
+          // willingness to serve the previous document's response bodies, so
+          // rows that lost that race flip to an honest terminal state now
+          // instead of failing a doomed retrieval later.
+          const navigatedBodyRows = markUnfetchedRowsForNavigation(pendingLiveRows.concat(state.rows));
+          const retainedCount = state.rows.length + pendingLiveRows.length;
+          if (retainedCount === 0) return;
+          setStatus(
+            'Page navigated; kept ' +
+              formatRequestCount(retainedCount) +
+              (navigatedBodyRows.length > 0
+                ? '; ' + navigatedBodyRows.length + ' response bodies were not retrieved in time.'
+                : '.'),
+          );
+        });
+      }
       setStatus('Capturing...');
     } else {
       setStatus('DevTools network API unavailable');
@@ -11249,6 +11296,15 @@ const _NetworkPlus = (function () {
           }
           if (typeof row.responseContent === 'string') {
             return Promise.resolve({ content: row.responseContent, encoding: row.responseContentEncoding });
+          }
+          if (
+            (!row._reqObj || typeof row._reqObj.getContent !== 'function') &&
+            typeof row.responseContentReason === 'string' &&
+            row.responseContentReason
+          ) {
+            // A terminal body state (navigated away, evicted, omitted)
+            // travels to the mirror tab with its real reason.
+            return Promise.reject(new Error(row.responseContentReason));
           }
           return fetchResponsePayload(row).then((payload) => ({
             content: payload.content,
@@ -11521,6 +11577,8 @@ const _NetworkPlus = (function () {
     describeBodyForComparison,
     describeRequestBodyForComparison,
     truncateUrlLabel,
+    NAVIGATION_BODY_UNAVAILABLE_REASON,
+    markUnfetchedRowsForNavigation,
     MIRROR_PROTOCOL_VERSION,
     MIRROR_PORT_PREFIX,
     MIRROR_SNAPSHOT_CHUNK_SIZE,

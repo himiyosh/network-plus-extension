@@ -107,6 +107,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 - Response bodies are capped independently at 1 MiB per body and 32 MiB across the shared cache, with least-recently-used eviction that keeps the rows themselves.
 - Pause / Resume recording, auto-scroll that switches itself off when you scroll up, and `Clear` with a 10-second **Undo clear**.
 - Import HAR (`.har`) and Fiddler SAZ (`.saz`) archives; import is atomic and never destroys the current capture if the file is rejected.
+- **Navigation does not clear the capture.** Rows persist across page navigations, bodies already prefetched into the bounded cache stay readable, and bodies the page navigated away from before retrieval are marked with an explicit notice instead of failing later — the status bar reports both counts.
 
 ### Inspect
 
@@ -146,6 +147,16 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 4. Right-click a column header for a filter scoped to that column, or use **Filters** to edit them all at once. Save what worked with **Update** in the **Columns** menu's preset section.
 5. Click a row to inspect it; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>-click a second row and choose **Compare 2 selected requests** from the context menu.
 6. Export with **Export sanitized HAR**, or copy a single request as cURL / fetch / PowerShell.
+
+### Open Network+ in its own browser tab
+
+The panel can also run as a regular browser tab that mirrors the DevTools session — useful when the docked panel is too small for an investigation.
+
+1. Open DevTools on the page you are inspecting and switch to the **Network+** tab.
+2. Click the **🪟 button** on the right side of the toolbar, between the theme toggle and the `⌨️ ?` button (tooltip: "Open Network+ in a browser tab").
+3. A new tab opens and mirrors the session immediately: existing rows appear first, new requests stream in live, and response bodies load on demand from the DevTools side.
+
+Capture stays with DevTools, so keep it open while you work; if you close DevTools the tab keeps its rows and shows "The DevTools session disconnected". The 🪟 button exists only inside DevTools, and if the browser blocks the new tab, allow pop-ups for DevTools pages and click again.
 
 ### Keyboard shortcuts
 
@@ -206,6 +217,7 @@ Edge / Chrome DevTools
 
 - **DevTools panel extension.** Requests arrive through `chrome.devtools.network.onRequestFinished`.
 - **Pop-out mirror tab.** The same `panel.html` opened with `?view=window`; the DevTools panel connects a `chrome.runtime` port to it, streams serialized rows, reconciles differences through a one-second sync heartbeat, and serves response bodies on demand. No additional permissions.
+- **Navigation handling.** `chrome.devtools.network.onNavigated` never clears the table; it only marks not-yet-retrieved bodies as unavailable, because the browser stops serving the previous document's bodies once a navigation commits.
 - **No ES modules.** DevTools panel pages do not support `<script type="module">`, so all logic lives in one IIFE file. This is a platform constraint, not a style choice.
 - **Buildless.** No bundler, no transpiler. `npm run extension:package` copies an explicit allowlist of 10 runtime files into a ZIP without transforming any code.
 
