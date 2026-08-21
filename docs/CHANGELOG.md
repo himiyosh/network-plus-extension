@@ -4,7 +4,8 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- No changes have been recorded since v1.11.0.
+- Recorded the published v1.11.0 release in both submission dossiers: the ZIP was re-downloaded from the public release, its 152202-byte size and SHA-256 digest were verified against the pinned value, and the downloaded file was byte-compared against a fresh local build. The Edge dossier's evidence table gained the matching v1.11.0 row.
+- Fixed two dossier defects the observation pass surfaced: the Chrome update-submission step still named the v1.10.0 archive as the file to upload — the one repoint the v1.11.0 cut missed — and the Chrome observed-facts section had carried the same evidence-boundary sentence twice since v1.10.0. The release runbook's repoint step now ends by grepping both dossiers for the previous version string, which catches exactly this class of miss before it is committed.
 
 ## v1.11.0 - 2026-08-21
 
