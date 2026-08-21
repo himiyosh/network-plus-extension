@@ -3,10 +3,29 @@ const path = require('path');
 const { getReleaseArchiveName } = require('./check-extension-package');
 
 const FALLBACK_PATTERN = /\bconst\s+TEST_EXTENSION_VERSION_FALLBACK\s*=\s*['"]([^'"]+)['"]\s*;/g;
-const README_PATH = 'README.md';
-const QUICK_TRY_PREFIX = '**Try it now:**';
-const RELEASE_SETUP_HEADING = '### Install from the release ZIP';
+// Both READMEs must stay version-free: every release link points at the
+// stable /releases/latest route, so cutting a release never edits them. The
+// validator therefore enforces the absence of versioned routes rather than
+// their synchronization.
+const README_CONFIGS = [
+  {
+    path: 'README.md',
+    quickTryPrefix: '**Try it now:**',
+    setupHeading: '### Install from the release ZIP',
+  },
+  {
+    path: 'README.ja.md',
+    quickTryPrefix: '**今すぐ試す:**',
+    setupHeading: '### リリース ZIP からインストール',
+  },
+];
 const RELEASE_SETUP_BOUNDARY_PATTERN = /^#{2,3}(?:[ \t]+|$)/;
+const VERSIONED_ROUTE_PATTERNS = [
+  { name: 'a versioned release download route', pattern: /\/releases\/download\// },
+  { name: 'a versioned release tag route', pattern: /\/releases\/tag\/v/ },
+  { name: 'a release version literal', pattern: /\bv\d+\.\d+\.\d+\b/ },
+  { name: 'a versioned archive name', pattern: /network-plus-extension-\d[\w.-]*\.zip/ },
+];
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
@@ -78,6 +97,8 @@ const getReleaseDownloadUrl = (repository, version) =>
 
 const getReleaseTagUrl = (repository, version) => `${getGitHubReleaseBaseUrl(repository)}/tag/v${version}`;
 
+const getLatestReleaseUrl = (repository) => `${getGitHubReleaseBaseUrl(repository)}/latest`;
+
 const extractPanelFallbackVersion = (panelSource) => {
   const matches = Array.from(panelSource.matchAll(FALLBACK_PATTERN));
   if (matches.length !== 1) {
@@ -92,23 +113,23 @@ const extractMarkdownLinks = (line) =>
     target: match[2],
   }));
 
-const findReadmeReleaseLines = (readmeSource, errors) => {
+const findReadmeReleaseLines = (readmeSource, errors, { path: readmePath, quickTryPrefix, setupHeading }) => {
   if (typeof readmeSource !== 'string') {
-    errors.push(`${README_PATH} source must be provided`);
+    errors.push(`${readmePath} source must be provided`);
     return { quickTryLine: '', setupStep: '' };
   }
 
   const lines = readmeSource.split(/\r?\n/);
-  const quickTryLines = lines.filter((line) => line.startsWith(QUICK_TRY_PREFIX));
+  const quickTryLines = lines.filter((line) => line.startsWith(quickTryPrefix));
   if (quickTryLines.length !== 1) {
-    errors.push(`${README_PATH} must contain exactly one ${QUICK_TRY_PREFIX} line`);
+    errors.push(`${readmePath} must contain exactly one ${quickTryPrefix} line`);
   }
 
   const setupHeadingIndexes = lines
-    .map((line, index) => (line === RELEASE_SETUP_HEADING ? index : -1))
+    .map((line, index) => (line === setupHeading ? index : -1))
     .filter((index) => index >= 0);
   if (setupHeadingIndexes.length !== 1) {
-    errors.push(`${README_PATH} must contain exactly one ${RELEASE_SETUP_HEADING} section`);
+    errors.push(`${readmePath} must contain exactly one ${setupHeading} section`);
     return { quickTryLine: quickTryLines[0] ?? '', setupStep: '' };
   }
 
@@ -117,7 +138,7 @@ const findReadmeReleaseLines = (readmeSource, errors) => {
   const setupEnd = nextHeadingOffset < 0 ? lines.length : setupStart + nextHeadingOffset;
   const setupSteps = lines.slice(setupStart, setupEnd).filter((line) => line.startsWith('1. '));
   if (setupSteps.length !== 1) {
-    errors.push(`${README_PATH} ${RELEASE_SETUP_HEADING} section must contain exactly one first step`);
+    errors.push(`${readmePath} ${setupHeading} section must contain exactly one first step`);
   }
 
   return {
@@ -126,16 +147,13 @@ const findReadmeReleaseLines = (readmeSource, errors) => {
   };
 };
 
-const validateReadmeReleaseReferences = (readmeSource, version, repository) => {
+const validateReadmeReleaseReferences = (readmeSource, repository, config) => {
   const errors = [];
-  const archiveName = getReleaseArchiveName(version);
-  const { quickTryLine, setupStep } = findReadmeReleaseLines(readmeSource, errors);
-  let downloadUrl;
-  let tagUrl;
+  const { quickTryLine, setupStep } = findReadmeReleaseLines(readmeSource, errors, config);
+  let latestUrl;
 
   try {
-    downloadUrl = getReleaseDownloadUrl(repository, version);
-    tagUrl = getReleaseTagUrl(repository, version);
+    latestUrl = getLatestReleaseUrl(repository);
   } catch (error) {
     errors.push(error.message);
     return errors;
@@ -143,40 +161,31 @@ const validateReadmeReleaseReferences = (readmeSource, version, repository) => {
 
   if (quickTryLine) {
     const quickTryLinks = extractMarkdownLinks(quickTryLine);
-    if (quickTryLinks[0]?.target !== downloadUrl) {
-      errors.push(`${README_PATH} primary release ZIP CTA must link directly to ${downloadUrl}`);
-    }
-    if (!quickTryLinks[0]?.label.includes(`v${version}`)) {
-      errors.push(`${README_PATH} primary release ZIP CTA label must include v${version}`);
-    }
-    const releaseContext = quickTryLinks.find((link) => link.target === tagUrl);
-    if (!releaseContext) {
-      errors.push(`${README_PATH} quick-start release context must link to ${tagUrl}`);
-    } else if (!releaseContext.label.includes(`v${version}`)) {
-      errors.push(`${README_PATH} quick-start release context label must include v${version}`);
+    if (quickTryLinks[0]?.target !== latestUrl) {
+      errors.push(`${config.path} primary release CTA must link to ${latestUrl}`);
     }
   }
 
   if (setupStep) {
     const setupLinks = extractMarkdownLinks(setupStep);
-    if (setupLinks[0]?.target !== downloadUrl) {
-      errors.push(`${README_PATH} release ZIP setup must link directly to ${downloadUrl}`);
+    if (setupLinks[0]?.target !== latestUrl) {
+      errors.push(`${config.path} release ZIP setup must link to ${latestUrl}`);
     }
-    if (setupLinks[0]?.label !== archiveName) {
-      errors.push(`${README_PATH} release ZIP setup must name ${archiveName}`);
-    }
-    const releaseContext = setupLinks.find((link) => link.target === tagUrl);
-    if (!releaseContext) {
-      errors.push(`${README_PATH} release ZIP setup context must link to ${tagUrl}`);
-    } else if (!releaseContext.label.includes(`v${version}`)) {
-      errors.push(`${README_PATH} release ZIP setup context label must include v${version}`);
+  }
+
+  if (typeof readmeSource === 'string') {
+    for (const { name, pattern } of VERSIONED_ROUTE_PATTERNS) {
+      const match = readmeSource.match(pattern);
+      if (match) {
+        errors.push(`${config.path} must stay version-free but contains ${name}: ${match[0]}`);
+      }
     }
   }
 
   return errors;
 };
 
-const validateReleaseVersions = ({ packageJson, lockfile, manifest, panelSource, readmeSource }) => {
+const validateReleaseVersions = ({ packageJson, lockfile, manifest, panelSource, readmeSources = [] }) => {
   const errors = [];
   let panelFallback;
 
@@ -202,7 +211,9 @@ const validateReleaseVersions = ({ packageJson, lockfile, manifest, panelSource,
     );
   }
 
-  errors.push(...validateReadmeReleaseReferences(readmeSource, packageJson.version, packageJson.repository));
+  for (const { config, source } of readmeSources) {
+    errors.push(...validateReadmeReleaseReferences(source, packageJson.repository, config));
+  }
 
   return errors;
 };
@@ -215,7 +226,10 @@ const main = () => {
     lockfile: readJson(path.join(root, 'package-lock.json')),
     manifest: readJson(path.join(root, 'manifest.json')),
     panelSource: fs.readFileSync(path.join(root, 'panel.js'), 'utf8'),
-    readmeSource: fs.readFileSync(path.join(root, README_PATH), 'utf8'),
+    readmeSources: README_CONFIGS.map((config) => ({
+      config,
+      source: fs.readFileSync(path.join(root, config.path), 'utf8'),
+    })),
   });
 
   if (errors.length > 0) {
@@ -224,14 +238,18 @@ const main = () => {
     return;
   }
 
-  console.log(`OK: release versions and README download routes synced (${packageJson.version}, 5 version locations)`);
+  console.log(
+    `OK: release versions synced (${packageJson.version}, 5 locations); READMEs carry version-free latest-release routes`,
+  );
 };
 
 if (require.main === module) main();
 
 module.exports = {
+  README_CONFIGS,
   extractPanelFallbackVersion,
   getGitHubReleaseBaseUrl,
+  getLatestReleaseUrl,
   getReleaseDownloadUrl,
   getReleaseTagUrl,
   validateReadmeReleaseReferences,

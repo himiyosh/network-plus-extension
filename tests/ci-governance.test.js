@@ -62,6 +62,7 @@ const listMarkdownFiles = (relativeDirectory) => {
 const currentGuidanceFiles = () => {
   const fixedFiles = [
     'README.md',
+    'README.ja.md',
     path.join('docs', 'coordinator-topology.md'),
     path.join('.github', 'copilot-instructions.md'),
     'CLAUDE.md',
