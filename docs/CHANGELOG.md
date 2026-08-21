@@ -6,6 +6,8 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 - Recorded the published v1.11.0 release in both submission dossiers: the ZIP was re-downloaded from the public release, its 152202-byte size and SHA-256 digest were verified against the pinned value, and the downloaded file was byte-compared against a fresh local build. The Edge dossier's evidence table gained the matching v1.11.0 row.
 - Fixed two dossier defects the observation pass surfaced: the Chrome update-submission step still named the v1.10.0 archive as the file to upload — the one repoint the v1.11.0 cut missed — and the Chrome observed-facts section had carried the same evidence-boundary sentence twice since v1.10.0. The release runbook's repoint step now ends by grepping both dossiers for the previous version string, which catches exactly this class of miss before it is committed.
+- Added a pop-out mirror view: the 🪟 toolbar button opens the panel as a regular browser tab that live-mirrors the DevTools session over a `chrome.runtime` port. Rows stream in as they are captured, a one-second sync heartbeat reconciles clears, imports, and retention evictions through snapshot resync, and response bodies travel only when a row asks for them. The tab hides the capture-owning controls (pause, clear, import, retention), keeps its rows if DevTools closes, renders initiator entries as plain text where the Sources panel is unreachable, and adds no permissions.
+- Made the `hidden` attribute effective for toolbar buttons: the shared `.topbar button` display rule was silently overriding it, so a control hidden by script still rendered. Caught by the real-browser smoke pass for the mirror view and now pinned by a UI contract test.
 
 ## v1.11.0 - 2026-08-21
 

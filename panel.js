@@ -836,6 +836,19 @@ const _NetworkPlus = (function () {
     }
   }
 
+  // The initiator column links into the Sources panel via openResource, which
+  // exists only inside a DevTools window; the pop-out mirror tab renders the
+  // same initiator as plain text. Evaluated per render because tests install
+  // the chrome mock after this module loads.
+  function canOpenDevtoolsResource() {
+    return (
+      typeof chrome !== 'undefined' &&
+      !!chrome.devtools &&
+      !!chrome.devtools.panels &&
+      typeof chrome.devtools.panels.openResource === 'function'
+    );
+  }
+
   function formatInitiator(initiator) {
     if (!initiator) return { text: '(unknown)', typeLabel: '' };
     switch (initiator.type) {
@@ -5279,9 +5292,265 @@ const _NetworkPlus = (function () {
     return r;
   }
 
+  // ---- DevTools-session mirror (pop-out browser tab) ----
+  // The pop-out tab is this same panel.html opened with ?view=window. The
+  // DevTools panel owns capture and initiates a chrome.runtime port to the
+  // tab; the tab renders what the port delivers. Response bodies stay on the
+  // DevTools side and travel only on demand, so the mirror never widens what
+  // the panel already holds. A one-second sync heartbeat carries row count
+  // and max id; any mismatch makes the tab request a full snapshot, which is
+  // how clears, undos, imports, and retention evictions propagate without
+  // hooking each of those code paths.
+  const MIRROR_PROTOCOL_VERSION = 1;
+  const MIRROR_PORT_PREFIX = 'networkplus-mirror:';
+  const MIRROR_SNAPSHOT_CHUNK_SIZE = 500;
+  const MIRROR_SYNC_INTERVAL_MS = 1000;
+  const MIRROR_RECONNECT_INTERVAL_MS = 1500;
+
+  function getMirrorViewParams(search) {
+    const params = new URLSearchParams(typeof search === 'string' ? search : '');
+    return {
+      viewerMode: params.get('view') === 'window',
+      sourceTabId: params.get('src') || '',
+    };
+  }
+
+  function serializeRowForMirror(row) {
+    return {
+      id: row.id,
+      startedDateTime: row.startedDateTime,
+      time: row.duration,
+      initiator: row.initiator || null,
+      request: {
+        method: row.method,
+        url: row.url,
+        headers: Array.isArray(row.requestHeaders) ? row.requestHeaders : [],
+        postData: row.requestPostData || null,
+      },
+      response: {
+        status: row.status,
+        statusText: row.statusText,
+        httpVersion: row.protocol,
+        headers: Array.isArray(row.responseHeaders) ? row.responseHeaders : [],
+        bodySize: row.size,
+        content: { mimeType: row.type, size: row.size },
+      },
+      timings: row.timings || {},
+    };
+  }
+
+  function buildMirrorEntryFromWire(wireRow) {
+    const wire = wireRow && typeof wireRow === 'object' ? wireRow : {};
+    const request = wire.request && typeof wire.request === 'object' ? wire.request : {};
+    return {
+      startedDateTime: typeof wire.startedDateTime === 'string' ? wire.startedDateTime : '',
+      time: Number.isFinite(wire.time) ? wire.time : 0,
+      request: {
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        postData: request.postData || null,
+      },
+      response: wire.response && typeof wire.response === 'object' ? wire.response : {},
+      timings: wire.timings && typeof wire.timings === 'object' ? wire.timings : {},
+    };
+  }
+
+  function createMirrorHostSession({ postMessage, getRows, isPaused, fetchBodyForRow }) {
+    let snapshotGeneration = 0;
+    const sendSnapshot = () => {
+      snapshotGeneration += 1;
+      const generation = snapshotGeneration;
+      const rows = getRows();
+      postMessage({
+        type: 'snapshot-start',
+        generation,
+        total: rows.length,
+        protocolVersion: MIRROR_PROTOCOL_VERSION,
+      });
+      for (let index = 0; index < rows.length; index += MIRROR_SNAPSHOT_CHUNK_SIZE) {
+        postMessage({
+          type: 'snapshot-rows',
+          generation,
+          rows: rows.slice(index, index + MIRROR_SNAPSHOT_CHUNK_SIZE).map(serializeRowForMirror),
+        });
+      }
+      postMessage({ type: 'snapshot-end', generation });
+    };
+    const sendSync = () => {
+      const rows = getRows();
+      let maxId = 0;
+      for (const row of rows) if (row.id > maxId) maxId = row.id;
+      postMessage({ type: 'sync', count: rows.length, maxId, paused: isPaused() === true });
+    };
+    const handleMessage = (message) => {
+      if (!message || typeof message !== 'object') return;
+      if (message.type === 'hello' || message.type === 'snapshot-request') {
+        sendSnapshot();
+        sendSync();
+        return;
+      }
+      if (message.type === 'body-request') {
+        const requestId = message.requestId;
+        Promise.resolve()
+          .then(() => fetchBodyForRow(message.rowId))
+          .then(
+            (payload) =>
+              postMessage({
+                type: 'body-result',
+                requestId,
+                ok: true,
+                content: payload.content,
+                encoding: payload.encoding,
+              }),
+            (error) =>
+              postMessage({
+                type: 'body-result',
+                requestId,
+                ok: false,
+                error: error && error.message ? error.message : 'Response content is unavailable.',
+              }),
+          );
+      }
+    };
+    return {
+      sendSnapshot,
+      sendSync,
+      handleMessage,
+      pushRow: (row) => postMessage({ type: 'row', row: serializeRowForMirror(row) }),
+    };
+  }
+
+  function createMirrorViewerSession({
+    postMessage,
+    appendWireRow,
+    applyWireSnapshot,
+    getLocalCount,
+    getLocalMaxId,
+    onHostPausedChange,
+  }) {
+    let pendingSnapshot = null;
+    let nextBodyRequestId = 1;
+    const pendingBodyCallbacks = new Map();
+    const requestBody = (rowId, callback) => {
+      const requestId = nextBodyRequestId;
+      nextBodyRequestId += 1;
+      pendingBodyCallbacks.set(requestId, callback);
+      try {
+        postMessage({ type: 'body-request', requestId, rowId });
+      } catch (error) {
+        pendingBodyCallbacks.delete(requestId);
+        throw error;
+      }
+    };
+    const handleMessage = (message) => {
+      if (!message || typeof message !== 'object') return;
+      switch (message.type) {
+        case 'snapshot-start':
+          pendingSnapshot = { generation: message.generation, rows: [] };
+          break;
+        case 'snapshot-rows':
+          if (
+            pendingSnapshot &&
+            pendingSnapshot.generation === message.generation &&
+            Array.isArray(message.rows)
+          ) {
+            pendingSnapshot.rows.push(...message.rows);
+          }
+          break;
+        case 'snapshot-end':
+          if (pendingSnapshot && pendingSnapshot.generation === message.generation) {
+            const rows = pendingSnapshot.rows;
+            pendingSnapshot = null;
+            applyWireSnapshot(rows);
+          }
+          break;
+        case 'row':
+          if (message.row && typeof message.row === 'object') appendWireRow(message.row);
+          break;
+        case 'sync': {
+          if (typeof onHostPausedChange === 'function') onHostPausedChange(message.paused === true);
+          const mismatch = message.count !== getLocalCount() || message.maxId !== getLocalMaxId();
+          if (mismatch && !pendingSnapshot) postMessage({ type: 'snapshot-request' });
+          break;
+        }
+        case 'body-result': {
+          const callback = pendingBodyCallbacks.get(message.requestId);
+          if (!callback) return;
+          pendingBodyCallbacks.delete(message.requestId);
+          if (message.ok) callback(null, { content: message.content, encoding: message.encoding });
+          else callback(new Error(message.error || 'Response content is unavailable.'), null);
+          break;
+        }
+      }
+    };
+    const failPendingBodyRequests = (reason) => {
+      const failures = Array.from(pendingBodyCallbacks.values());
+      pendingBodyCallbacks.clear();
+      for (const callback of failures) callback(new Error(reason), null);
+    };
+    return { handleMessage, requestBody, failPendingBodyRequests };
+  }
+
   function fetchResponsePayload(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
     if (row._responsePayloadPromise) return row._responsePayloadPromise;
     const requestLabel = row.id == null ? 'unknown request' : 'request ' + row.id;
+    if (typeof row._mirrorFetchBody === 'function') {
+      // Mirror rows hold no getContent; the DevTools session serves the body
+      // over the port. The timeout guards a host that stops responding.
+      const pending = new Promise((resolve, reject) => {
+        let settled = false;
+        const timeoutId = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          reject(new Error('Timed out retrieving response content for ' + requestLabel));
+        }, timeoutMs);
+        Promise.resolve()
+          .then(() => row._mirrorFetchBody())
+          .then(
+            (payload) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeoutId);
+              try {
+                resolve(
+                  measureResponsePayload(
+                    payload.content,
+                    payload.encoding,
+                    resolveRowResponseCharset(row),
+                    isHtmlLikeMime(row.type),
+                  ),
+                );
+              } catch (error) {
+                reject(new Error('Failed to process response content for ' + requestLabel + ': ' + error.message));
+              }
+            },
+            (error) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeoutId);
+              reject(
+                new Error(
+                  'Failed to retrieve response content for ' +
+                    requestLabel +
+                    ': ' +
+                    (error && error.message ? error.message : 'unknown error'),
+                ),
+              );
+            },
+          );
+      });
+      row._responsePayloadPromise = pending;
+      pending.then(
+        () => {
+          if (row._responsePayloadPromise === pending) row._responsePayloadPromise = null;
+        },
+        () => {
+          if (row._responsePayloadPromise === pending) row._responsePayloadPromise = null;
+        },
+      );
+      return pending;
+    }
     if (!row._reqObj || typeof row._reqObj.getContent !== 'function') {
       return Promise.reject(new Error('Response content is unavailable for ' + requestLabel));
     }
@@ -5661,7 +5930,7 @@ const _NetworkPlus = (function () {
 
       if (c.id === 'initiator') {
         const initiator = row.initiator;
-        if (initiator && initiator.url) {
+        if (initiator && initiator.url && canOpenDevtoolsResource()) {
           const link = document.createElement('a');
           link.href = '#';
           link.title = initiator.url;
@@ -10704,6 +10973,10 @@ const _NetworkPlus = (function () {
       onInternalError: () =>
         console.error('Network+ automatic response prefetch scheduler failed internally.'),
     });
+    // Reassigned by the mirror-host wiring below; the capture listener calls
+    // it for every finished request so a connected pop-out tab stays live.
+    let notifyMirrorRowCaptured = () => {};
+
     const scheduleLiveRows = (scrollToBottom) => {
       if (scrollToBottom) pendingScrollToBottom = true;
       if (pendingLiveRows.length >= LIVE_PENDING_HIGH_WATER_MARK) {
@@ -10745,6 +11018,7 @@ const _NetworkPlus = (function () {
           'Undo for the cleared local sample was closed before live capture to keep sample and live traffic separate.',
         );
         const row = buildRowFromRequest(request);
+        notifyMirrorRowCaptured(row);
         const wasAtBottom =
           state.autoScroll &&
           tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
@@ -10779,6 +11053,280 @@ const _NetworkPlus = (function () {
             if (tr) tr.focus({ preventScroll: false });
           }
         }
+      });
+    }
+    // --- DevTools-session mirror wiring (pop-out browser tab) ---
+    // Placed after the capture registration so the contract-tested live
+    // scheduling block stays contiguous; a viewer overwrites the offline
+    // status set above as soon as its wiring runs.
+    const popoutBtn = $('#popoutBtn');
+    const mirrorRuntime = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime : null;
+    const mirrorParams = getMirrorViewParams(window.location ? window.location.search : '');
+    const mirrorViewerActive =
+      mirrorParams.viewerMode &&
+      !!(mirrorRuntime && mirrorRuntime.onConnect && typeof mirrorRuntime.onConnect.addListener === 'function');
+
+    if (mirrorViewerActive) {
+      document.documentElement.setAttribute('data-view', 'window');
+      // Capture, retention, and import belong to the DevTools session; the
+      // mirror tab only renders, so its capture-owning controls disappear.
+      for (const hiddenControlId of ['pauseBtn', 'clearBtn', 'importBtn', 'retentionBtn', 'popoutBtn']) {
+        const hiddenControl = $('#' + hiddenControlId);
+        if (hiddenControl) hiddenControl.hidden = true;
+      }
+      let activeMirrorPort = null;
+      let mirrorHostPaused = false;
+      let mirrorEverConnected = false;
+      const updateMirrorStatus = () => {
+        if (activeMirrorPort) {
+          setStatus(
+            mirrorHostPaused
+              ? 'Mirroring the DevTools session (recording paused)'
+              : 'Mirroring the DevTools session',
+          );
+        } else if (mirrorEverConnected) {
+          setStatus('The DevTools session disconnected; captured requests remain available.');
+        } else {
+          setStatus('Waiting for the DevTools session...');
+        }
+      };
+      const bumpNextId = (rowId) => {
+        if (Number.isInteger(rowId) && rowId >= state.nextId) state.nextId = rowId + 1;
+      };
+      const buildViewerRowFromWire = (wireRow) => {
+        const row = buildRowFromRequest(buildMirrorEntryFromWire(wireRow), wireRow.id);
+        if (wireRow.initiator && typeof wireRow.initiator === 'object') row.initiator = wireRow.initiator;
+        row._reqObj = null;
+        row._mirrorFetchBody = () =>
+          new Promise((resolve, reject) => {
+            viewerSession.requestBody(row.id, (error, payload) => (error ? reject(error) : resolve(payload)));
+          });
+        return row;
+      };
+      const appendWireRow = (wireRow) => {
+        if (!Number.isInteger(wireRow.id)) return;
+        if (
+          state.rows.some((row) => row.id === wireRow.id) ||
+          pendingLiveRows.some((row) => row.id === wireRow.id)
+        ) {
+          return;
+        }
+        const row = buildViewerRowFromWire(wireRow);
+        bumpNextId(row.id);
+        const wasAtBottom =
+          state.autoScroll &&
+          tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - SCROLL_THRESHOLD;
+        pendingLiveRows.push(row);
+        scheduleLiveRows(wasAtBottom);
+      };
+      const applyWireSnapshot = (wireRows) => {
+        commitPendingLiveRows();
+        state.liveRowsAwaitingRender.splice(0, state.liveRowsAwaitingRender.length);
+        const existingById = new Map(state.rows.map((row) => [row.id, row]));
+        const orderedRows = [];
+        const freshRows = [];
+        const seenIds = new Set();
+        for (const wireRow of Array.isArray(wireRows) ? wireRows : []) {
+          if (!wireRow || !Number.isInteger(wireRow.id) || seenIds.has(wireRow.id)) continue;
+          seenIds.add(wireRow.id);
+          const existing = existingById.get(wireRow.id);
+          if (existing) {
+            orderedRows.push(existing);
+            continue;
+          }
+          const row = buildViewerRowFromWire(wireRow);
+          freshRows.push(row);
+          orderedRows.push(row);
+        }
+        const removedRows = state.rows.filter((row) => !seenIds.has(row.id));
+        if (removedRows.length > 0) removeRowsFromState(removedRows, false);
+        if (freshRows.length > 0) addRowsWithRetention(freshRows, 'live');
+        const orderIndex = new Map(orderedRows.map((row, index) => [row.id, index]));
+        state.rows.sort(
+          (a, b) =>
+            (orderIndex.has(a.id) ? orderIndex.get(a.id) : Number.MAX_SAFE_INTEGER) -
+            (orderIndex.has(b.id) ? orderIndex.get(b.id) : Number.MAX_SAFE_INTEGER),
+        );
+        for (const row of state.rows) bumpNextId(row.id);
+        render();
+        updateRetentionStatus();
+      };
+      const viewerSession = createMirrorViewerSession({
+        postMessage: (message) => {
+          if (!activeMirrorPort) {
+            throw new Error('The DevTools session is disconnected, so response content cannot be retrieved.');
+          }
+          activeMirrorPort.postMessage(message);
+        },
+        appendWireRow,
+        applyWireSnapshot,
+        getLocalCount: () => state.rows.length + pendingLiveRows.length,
+        getLocalMaxId: () => {
+          let maxId = 0;
+          for (const row of state.rows) if (row.id > maxId) maxId = row.id;
+          for (const row of pendingLiveRows) if (row.id > maxId) maxId = row.id;
+          return maxId;
+        },
+        onHostPausedChange: (paused) => {
+          if (paused === mirrorHostPaused) return;
+          mirrorHostPaused = paused;
+          updateMirrorStatus();
+        },
+      });
+      mirrorRuntime.onConnect.addListener((port) => {
+        if (!port || typeof port.name !== 'string' || !port.name.startsWith(MIRROR_PORT_PREFIX)) return;
+        if (mirrorParams.sourceTabId && port.name !== MIRROR_PORT_PREFIX + mirrorParams.sourceTabId) return;
+        if (activeMirrorPort) {
+          // One DevTools session per mirror tab; a second host is refused.
+          try {
+            port.disconnect();
+          } catch (_error) {
+            // A port that is already gone needs no refusal.
+          }
+          return;
+        }
+        activeMirrorPort = port;
+        mirrorEverConnected = true;
+        updateMirrorStatus();
+        port.onMessage.addListener((message) => viewerSession.handleMessage(message));
+        port.onDisconnect.addListener(() => {
+          if (activeMirrorPort !== port) return;
+          activeMirrorPort = null;
+          viewerSession.failPendingBodyRequests(
+            'The DevTools session disconnected before the response content arrived.',
+          );
+          updateMirrorStatus();
+        });
+        try {
+          port.postMessage({ type: 'hello', protocolVersion: MIRROR_PROTOCOL_VERSION });
+        } catch (_error) {
+          // The disconnect listener recovers from a port that died mid-handshake.
+        }
+      });
+      updateMirrorStatus();
+    }
+
+    const canHostMirror =
+      !mirrorViewerActive &&
+      !!(
+        popoutBtn &&
+        mirrorRuntime &&
+        typeof mirrorRuntime.connect === 'function' &&
+        typeof chrome !== 'undefined' &&
+        chrome.devtools &&
+        chrome.devtools.network &&
+        chrome.devtools.network.onRequestFinished
+      );
+    if (canHostMirror) {
+      popoutBtn.hidden = false;
+      const inspectedTabId =
+        chrome.devtools.inspectedWindow && Number.isInteger(chrome.devtools.inspectedWindow.tabId)
+          ? chrome.devtools.inspectedWindow.tabId
+          : 0;
+      const mirrorPortName = MIRROR_PORT_PREFIX + inspectedTabId;
+      let popoutWindow = null;
+      let mirrorPort = null;
+      let mirrorReconnectTimer = null;
+      let mirrorSyncTimer = null;
+      const hostSession = createMirrorHostSession({
+        postMessage: (message) => {
+          if (!mirrorPort) return;
+          try {
+            mirrorPort.postMessage(message);
+          } catch (_error) {
+            // The onDisconnect listener clears the dead port.
+          }
+        },
+        getRows: () => {
+          commitPendingLiveRows();
+          return state.rows;
+        },
+        isPaused: () => state.paused === true,
+        fetchBodyForRow: (rowId) => {
+          const row = state.rows.find((candidate) => candidate.id === rowId);
+          if (!row) {
+            return Promise.reject(new Error('The request is no longer available in the DevTools session.'));
+          }
+          if (typeof row.responseContent === 'string') {
+            return Promise.resolve({ content: row.responseContent, encoding: row.responseContentEncoding });
+          }
+          return fetchResponsePayload(row).then((payload) => ({
+            content: payload.content,
+            encoding: payload.encoding,
+          }));
+        },
+      });
+      const stopMirrorSync = () => {
+        if (!mirrorSyncTimer) return;
+        clearInterval(mirrorSyncTimer);
+        mirrorSyncTimer = null;
+      };
+      const startMirrorSync = () => {
+        if (mirrorSyncTimer) return;
+        mirrorSyncTimer = setInterval(() => hostSession.sendSync(), MIRROR_SYNC_INTERVAL_MS);
+      };
+      const stopMirrorReconnect = () => {
+        if (!mirrorReconnectTimer) return;
+        clearInterval(mirrorReconnectTimer);
+        mirrorReconnectTimer = null;
+      };
+      const tryMirrorConnect = () => {
+        if (mirrorPort) return;
+        if (!popoutWindow || popoutWindow.closed) {
+          stopMirrorReconnect();
+          return;
+        }
+        let port = null;
+        try {
+          port = mirrorRuntime.connect({ name: mirrorPortName });
+        } catch (_error) {
+          return;
+        }
+        mirrorPort = port;
+        port.onMessage.addListener((message) => {
+          if (message && message.type === 'hello') startMirrorSync();
+          hostSession.handleMessage(message);
+        });
+        port.onDisconnect.addListener(() => {
+          // Reading lastError acknowledges the expected "receiving end does
+          // not exist" while the tab is still loading.
+          void (mirrorRuntime.lastError && mirrorRuntime.lastError.message);
+          if (mirrorPort !== port) return;
+          mirrorPort = null;
+          stopMirrorSync();
+        });
+      };
+      const startMirrorReconnect = () => {
+        if (!mirrorReconnectTimer) {
+          mirrorReconnectTimer = setInterval(tryMirrorConnect, MIRROR_RECONNECT_INTERVAL_MS);
+        }
+        tryMirrorConnect();
+      };
+      notifyMirrorRowCaptured = (row) => {
+        if (mirrorPort) hostSession.pushRow(row);
+      };
+      popoutBtn.addEventListener('click', () => {
+        if (popoutWindow && !popoutWindow.closed) {
+          try {
+            popoutWindow.focus();
+          } catch (_error) {
+            // A window that is closing loses focus rights; the next click reopens.
+          }
+          return;
+        }
+        let opened = null;
+        try {
+          opened = window.open('panel.html?view=window&src=' + encodeURIComponent(String(inspectedTabId)));
+        } catch (_error) {
+          // A blocked opener is reported below exactly like a null return.
+        }
+        if (!opened) {
+          setStatus('The browser blocked opening the Network+ tab; allow pop-ups for DevTools and retry.');
+          return;
+        }
+        popoutWindow = opened;
+        setStatus('Network+ opened in a browser tab; it mirrors this DevTools session.');
+        startMirrorReconnect();
       });
     }
   }
@@ -10973,6 +11521,14 @@ const _NetworkPlus = (function () {
     describeBodyForComparison,
     describeRequestBodyForComparison,
     truncateUrlLabel,
+    MIRROR_PROTOCOL_VERSION,
+    MIRROR_PORT_PREFIX,
+    MIRROR_SNAPSHOT_CHUNK_SIZE,
+    getMirrorViewParams,
+    serializeRowForMirror,
+    buildMirrorEntryFromWire,
+    createMirrorHostSession,
+    createMirrorViewerSession,
   };
 })();
 

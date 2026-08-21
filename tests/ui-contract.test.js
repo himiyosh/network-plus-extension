@@ -3022,3 +3022,38 @@ describe('search options and preference persistence contracts', () => {
     expect(js).toContain('paneSearchInput.focus();');
   });
 });
+
+describe('devtools-session mirror contracts', () => {
+  test('the toolbar offers a pop-out that opens this panel as a browser tab', () => {
+    expect(html).toContain(
+      '<button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" class="icon-btn" hidden>🪟</button>',
+    );
+    expect(js).toContain("window.open('panel.html?view=window&src=' + encodeURIComponent(String(inspectedTabId)))");
+    // The button only appears where a DevTools session can host a mirror.
+    expect(js).toContain('popoutBtn.hidden = false;');
+  });
+
+  test('the mirror tab hides capture-owning controls and reports its session state', () => {
+    expect(js).toContain("['pauseBtn', 'clearBtn', 'importBtn', 'retentionBtn', 'popoutBtn']");
+    // The toolbar display rule would defeat the hidden attribute without this
+    // guard, leaving "hidden" controls visible (caught by browser smoke).
+    expect(css).toContain('.topbar button[hidden]{display:none}');
+    expect(js).toContain("'Waiting for the DevTools session...'");
+    expect(js).toContain("'Mirroring the DevTools session'");
+    expect(js).toContain("'Mirroring the DevTools session (recording paused)'");
+    expect(js).toContain("'The DevTools session disconnected; captured requests remain available.'");
+  });
+
+  test('mirror transport stays inside the extension with no new permissions', () => {
+    // The port name is namespaced and scoped per inspected tab; capture stays
+    // in the DevTools session and bodies travel only on demand.
+    expect(js).toContain("const MIRROR_PORT_PREFIX = 'networkplus-mirror:';");
+    expect(js).toContain("mirrorRuntime.connect({ name: mirrorPortName })");
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+    expect(manifest.permissions).toEqual(['storage']);
+  });
+
+  test('the initiator column links into Sources only where DevTools exists', () => {
+    expect(js).toContain('initiator && initiator.url && canOpenDevtoolsResource()');
+  });
+});
