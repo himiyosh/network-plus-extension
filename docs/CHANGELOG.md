@@ -4,6 +4,12 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- No changes have been recorded since v1.11.0.
+
+## v1.11.0 - 2026-08-21
+
+- Re-captured the four store screenshots and the README tour GIF for the working-otter toolbar: the captured panel now shows the magnifying-glass sprite perched over the for DevTools sub-label, and the screenshots' band mark switches to that same working sprite so the decoration matches the toolbar it sits above.
+
 - The README now has a full Japanese edition (`README.ja.md`), cross-linked with the English one, and both gained emoji section markers for faster visual scanning. Both files are also version-free now: the release links point at the stable `releases/latest` route instead of a pinned `vX.Y.Z`, so cutting a release no longer edits either README, and `npm run version:check` enforces the new contract — it fails if a versioned release route, tag link, archive name, or version literal reappears in either language.
 
 - The toolbar otter now works by default and relaxes when petted. The woken sprite — magnifying glass up — is the resting state, which is what a network inspector's mascot should be doing, and hovering or focusing the mark cuts to the shut-eyed face while two 5x4 pixel hearts rise beside it in whole-pixel hops. The working otter also blinks its visible eye about every five seconds (a one-frame fur-colored lid over two cells) and its lens throws a rare one-cell glint. The ambient drifting “z” and the old text heart are retired — an otter that is awake by default has no business snoring — and every new beat uses steps() timing so no half-lit pixel ever renders, stops under `prefers-reduced-motion`, and hides with the sprite it belongs to.
