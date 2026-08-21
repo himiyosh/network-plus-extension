@@ -35,6 +35,11 @@ profile によっては配布されないファイルがある。存在しない
 - 導入 profile: `core`（platform: `claude-code`）
 - ローカル逸脱: `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` §6.10 から、レビューコメント marker・レビュアー session UUID・repository variables による merge ゲート手続きの bullet 3 件を削除している（#129 で本リポジトリでは廃止済み。merge 可否は branch protection と通常の CI quality gates で判定する）。bundle 更新時は再取得後に同じ削除を再適用すること。
 
+### リリースとストア再申請
+
+手順は skill `.claude/skills/store-release/SKILL.md`(`/store-release`)に集約してある。リリース・再申請・store-submit の失敗診断はまずそれを開く。
+最重要の 1 点だけここに再掲: **store-submit は release イベントでは発火しない**(release.yml が GITHUB_TOKEN でリリースを作るため)。毎回 workflow_dispatch で起動する。
+
 ### ストア申請の資格情報（`dual-subtitles` と共通）
 
 Edge / Chrome の申請資格情報は、拡張ごとではなく**アカウント単位**で共有される。同じ値を

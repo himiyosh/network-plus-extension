@@ -386,8 +386,16 @@ describe('command line', () => {
 describe('store submission workflow', () => {
   const workflow = readRepoFile(SUBMIT_WORKFLOW);
 
-  test('runs when a release is published and on demand', () => {
-    expect(workflow).toMatch(/on:\s*\n\s*release:\s*\n\s*types:\s*\n\s*- published/);
+  test('declares the release trigger, says why it never fires, and runs on demand', () => {
+    // The release trigger stays declared for manually created releases, but
+    // the normal path is a manual dispatch: release.yml creates releases with
+    // the workflow GITHUB_TOKEN, and GitHub suppresses that token's events to
+    // prevent workflow recursion. The comment carrying that fact lives inside
+    // the trigger block and is pinned here so a cleanup pass cannot silently
+    // delete the knowledge and leave the next operator waiting for a run that
+    // will never start.
+    expect(workflow).toMatch(/on:\s*\n(?:\s*#[^\n]*\n)*\s*release:\s*\n\s*types:\s*\n\s*- published/);
+    expect(workflow).toContain("GitHub suppresses events");
     expect(workflow).toContain('workflow_dispatch:');
   });
 
