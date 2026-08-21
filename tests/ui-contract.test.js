@@ -3057,3 +3057,29 @@ describe('devtools-session mirror contracts', () => {
     expect(js).toContain('initiator && initiator.url && canOpenDevtoolsResource()');
   });
 });
+
+describe('navigation persistence contracts', () => {
+  test('navigation marks unfetched bodies and never clears the table', () => {
+    const navStart = js.indexOf('chrome.devtools.network.onNavigated.addListener');
+    expect(navStart).toBeGreaterThan(-1);
+    const navBlock = js.slice(navStart, js.indexOf("setStatus('Capturing...')", navStart));
+    expect(navBlock).toContain('markUnfetchedRowsForNavigation(pendingLiveRows.concat(state.rows))');
+    expect(navBlock).toContain("'Page navigated; kept '");
+    expect(navBlock).toContain("' response bodies were not retrieved in time.'");
+    // The listener may mark bodies, but must never drop rows.
+    for (const forbidden of [
+      'removeRowsFromState(',
+      'state.rows = [',
+      'clearStoredRows(',
+      'detachStoredRowsForClearUndo(',
+    ]) {
+      expect(navBlock).not.toContain(forbidden);
+    }
+    expect(js).toContain(
+      "'The inspected page navigated away before this response body was retrieved.'",
+    );
+    // The mirror tab receives the same terminal reason instead of a generic
+    // unavailable message.
+    expect(js).toContain('row.responseContentReason');
+  });
+});
