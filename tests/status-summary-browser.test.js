@@ -2681,6 +2681,8 @@ browserTest(
                 const rect = button.getBoundingClientRect();
                 return {
                   id: button.id,
+                  hidden: button.hidden === true,
+                  width: rect.width,
                   fullyVisible: rect.left >= toolbarRect.left && rect.right <= toolbarRect.right,
                 };
               });
@@ -2718,13 +2720,20 @@ browserTest(
         'columnsBtn',
         'retentionBtn',
         'themeBtn',
+        'popoutBtn',
         'shortcutBtn',
       ];
       for (const measurement of viewportMeasurements) {
         expect(measurement.documentOverflow).toBe(0);
         expect(measurement.toolbarOverflowX).toBe('auto');
-        expect(measurement.actions).toHaveLength(12);
+        expect(measurement.actions).toHaveLength(13);
         expect(measurement.actions.map((action) => action.id)).toEqual(expectedActionOrder);
+        // The pop-out button exists only for a DevTools session; outside one
+        // it must not just carry the hidden attribute but actually render at
+        // zero width (the .topbar button[hidden] guard).
+        const popoutAction = measurement.actions.find((action) => action.id === 'popoutBtn');
+        expect(popoutAction.hidden).toBe(true);
+        expect(popoutAction.width).toBe(0);
       }
       expect(viewportMeasurements.slice(0, 3).every((measurement) => measurement.toolbarOverflow > 0)).toBe(true);
       const measurementsByWidth = new Map(viewportMeasurements.map((measurement) => [measurement.width, measurement]));
@@ -2745,7 +2754,7 @@ browserTest(
       const wideMeasurement = measurementsByWidth.get(1500);
       for (const measurement of [wideBoundaryMeasurement, desktopMeasurement, wideMeasurement]) {
         expect(measurement.toolbarOverflow).toBe(0);
-        expect(measurement.actions.every((action) => action.fullyVisible)).toBe(true);
+        expect(measurement.actions.every((action) => action.hidden || action.fullyVisible)).toBe(true);
         expect(measurement.brandDisplay).not.toBe('none');
         expect(measurement.brandSubtitleDisplay).not.toBe('none');
         expect(measurement.brandPaddingLeft).toBe('14px');
