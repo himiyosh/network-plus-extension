@@ -6049,10 +6049,18 @@ const _NetworkPlus = (function () {
           else if (row.duration > 100) td.classList.add('dur-ok');
         }
         const text = v == null ? '' : String(v);
+        // Known methods render as a colored badge; the pill keys off the
+        // row's method-* class, so unknown methods stay plain bold text.
+        let contentHost = td;
+        if (c.id === 'method' && text) {
+          contentHost = document.createElement('span');
+          contentHost.className = 'method-badge';
+          td.appendChild(contentHost);
+        }
         if (srch.keywords.length > 0 && text) {
-          td.appendChild(highlightTextMulti(text, srch.keywords, srch.options));
+          contentHost.appendChild(highlightTextMulti(text, srch.keywords, srch.options));
         } else {
-          td.textContent = text;
+          contentHost.textContent = text;
         }
       }
 

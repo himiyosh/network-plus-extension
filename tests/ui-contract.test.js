@@ -3109,3 +3109,44 @@ describe('export scope contracts', () => {
     expect(js).toContain("(exportScope === 'selected' ? getSelectedExportRows() : getExportRows()).slice()");
   });
 });
+
+describe('method badge contracts', () => {
+  const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
+
+  test('every method badge pair meets WCAG AA in every theme state', () => {
+    for (const [name, theme] of [
+      ['light', light],
+      ['systemDark', systemDark],
+      ['forcedDark', forcedDark],
+      ['forcedLight', forcedLight],
+    ]) {
+      for (const method of METHODS) {
+        const fg = theme['method-' + method + '-fg'];
+        const bg = theme['method-' + method + '-bg'];
+        expect(fg).toBeDefined();
+        expect(bg).toBeDefined();
+        const ratio = contrastRatio(fg, bg);
+        if (ratio < 4.5) {
+          throw new Error(name + ' method-' + method + ' badge contrast ' + ratio.toFixed(2) + ' < 4.5');
+        }
+      }
+    }
+  });
+
+  test('badges color through row method classes so unknown methods stay plain', () => {
+    for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD']) {
+      const lower = method.toLowerCase();
+      expect(css).toContain(
+        '.grid tbody tr.method-' +
+          method +
+          ' .method-badge{color:var(--method-' +
+          lower +
+          '-fg);background:var(--method-' +
+          lower +
+          '-bg)}',
+      );
+    }
+    expect(css).toContain('.method-badge{display:inline-block;min-width:34px;');
+    expect(js).toContain("contentHost.className = 'method-badge';");
+  });
+});
