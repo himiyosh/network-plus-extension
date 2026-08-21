@@ -4,7 +4,9 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- No changes have been recorded since v1.10.0.
+- Added the `store-release` runbook skill (`.claude/skills/store-release`), so every future release and store resubmission follows the proven sequence instead of being re-derived: version-bump locations, the changelog cut and reopen, reproducible-build digest repointing with cut-time dossier phrasing, merge and CI release publishing, the manual store-submit dispatch, the two media paths (unchanged versus replaced listing images), and post-release observation recording. A bundled troubleshooting reference maps every store-submission failure seen so far — absent credentials, `invalid_client`, `invalid_grant`, Chrome's pending-review lock, Edge's bare 401 — to its cause, with the fingerprint discipline and expected value shapes that settle credential identity without re-pasting values.
+- Documented in the submission workflow itself that its release trigger never fires — releases are created with the workflow `GITHUB_TOKEN`, whose events GitHub suppresses to prevent recursion — so submissions are started by manual dispatch, and recorded the same fact in the project memory.
+- Recorded the published v1.10.0 release in both submission dossiers: the ZIP was re-downloaded from the public release, its 152096-byte size and SHA-256 digest were verified against the pinned value, and the downloaded file was byte-compared against a fresh local build.
 
 ## v1.10.0 - 2026-08-20
 

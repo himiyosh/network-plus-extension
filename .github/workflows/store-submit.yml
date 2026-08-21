@@ -6,6 +6,11 @@ name: Submit to Stores
 # bytes that were reviewed.
 
 on:
+  # The release trigger never actually fires today: releases are created by
+  # release.yml with the workflow GITHUB_TOKEN, and GitHub suppresses events
+  # from that token to prevent workflow recursion. It stays declared so a
+  # manually created release still submits; the normal path is a manual
+  # dispatch after each release (see .claude/skills/store-release).
   release:
     types:
       - published
