@@ -2,7 +2,9 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
-## Unreleased
+## v1.11.0 - 2026-08-21
+
+- Re-captured the four store screenshots and the README tour GIF for the working-otter toolbar: the captured panel now shows the magnifying-glass sprite perched over the for DevTools sub-label, and the screenshots' band mark switches to that same working sprite so the decoration matches the toolbar it sits above.
 
 - The README now has a full Japanese edition (`README.ja.md`), cross-linked with the English one, and both gained emoji section markers for faster visual scanning. Both files are also version-free now: the release links point at the stable `releases/latest` route instead of a pinned `vX.Y.Z`, so cutting a release no longer edits either README, and `npm run version:check` enforces the new contract — it fails if a versioned release route, tag link, archive name, or version literal reappears in either language.
 
