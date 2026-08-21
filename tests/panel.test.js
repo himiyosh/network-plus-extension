@@ -5397,3 +5397,29 @@ describe('navigation body persistence', () => {
     );
   });
 });
+
+describe('selected-rows export scope', () => {
+  test('planSelectedExportRows keeps capture order and exact membership', () => {
+    const rows = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
+    const selection = new Set([rows[3], rows[1]]);
+    expect(np.planSelectedExportRows(rows, selection, null)).toEqual([rows[1], rows[3]]);
+  });
+
+  test('a single focused row exports when no multi-selection exists', () => {
+    const rows = [{ id: 1 }, { id: 2 }];
+    expect(np.planSelectedExportRows(rows, new Set(), rows[1])).toEqual([rows[1]]);
+    // A stale single selection no longer present in the capture is not exported.
+    expect(np.planSelectedExportRows(rows, new Set(), { id: 99 })).toEqual([]);
+  });
+
+  test('empty selection plans an empty export', () => {
+    expect(np.planSelectedExportRows([{ id: 1 }], new Set(), null)).toEqual([]);
+    expect(np.planSelectedExportRows(undefined, new Set(), null)).toEqual([]);
+  });
+
+  test('selection that was evicted from the capture is not resurrected', () => {
+    const rows = [{ id: 1 }];
+    const evicted = { id: 2 };
+    expect(np.planSelectedExportRows(rows, new Set([evicted]), null)).toEqual([]);
+  });
+});

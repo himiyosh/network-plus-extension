@@ -1745,7 +1745,9 @@ describe('outbound data-safety static contracts', () => {
     expect(js).not.toContain('copyTextWithFeedback');
     expect((js.match(/\.download\s*=/g) || [])).toHaveLength(1);
     expect(js).toContain('anchor.download = filename;');
-    expect(js).toContain("outboundPolicy.mode === 'full' ? 'network-plus-full.har' : 'network-plus-sanitized.har'");
+    expect(js).toContain("? 'network-plus-full' + scopeSuffix + '.har'");
+    expect(js).toContain(": 'network-plus-sanitized' + scopeSuffix + '.har'");
+    expect(js).toContain("exportScope === 'selected' ? '-selected' : ''");
     expect(js).toContain("const payload = buildClipboardPayload(action, row, { mode: 'sanitized', responseBody });");
     expect(js).toContain("buildMultiRowClipboardPayload(rows, 'summary', { mode: 'sanitized' })");
     expect(js).toContain("['url', 'Copy sanitized URL']");
@@ -1759,8 +1761,8 @@ describe('outbound data-safety static contracts', () => {
     expect(js).toContain("if (source.mode === 'full') {");
     expect(js).toContain("if (!isFullOutputAuthorized(source)) throw new Error('Full output requires per-action confirmation.');");
     expect(js).toMatch(/onConfirm: \(\) => \{\s*const payload = buildClipboardPayload\(action, row, \{\s*mode: 'full',\s*confirmed: true,/s);
-    expect(js).toContain("onConfirm: () => exportHAR({ mode: 'full', confirmed: true })");
-    expect(js).toContain("exportHAR({ mode: 'sanitized' });");
+    expect(js).toContain("onConfirm: () => exportHAR({ mode: 'full', confirmed: true, scope })");
+    expect(js).toContain("exportHAR({ mode: 'sanitized', scope });");
     expect(js).not.toMatch(/addEventListener\('click',\s*exportHAR\)/);
     expect(js).not.toMatch(/localStorage\.(?:setItem|getItem)\([^)]*(?:full|safety)/i);
   });
@@ -3081,5 +3083,29 @@ describe('navigation persistence contracts', () => {
     // The mirror tab receives the same terminal reason instead of a generic
     // unavailable message.
     expect(js).toContain('row.responseContentReason');
+  });
+});
+
+describe('export scope contracts', () => {
+  test('the export dialog offers a selected-rows scope only when a selection exists', () => {
+    expect(html).toContain('<fieldset id="dataSafetyScope" class="data-safety-scope" hidden>');
+    expect(html).toContain(
+      '<label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeDisplayed" value="displayed" checked> All displayed requests (<span id="dataSafetyScopeDisplayedCount">0</span>)</label>',
+    );
+    expect(html).toContain(
+      '<label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeSelected" value="selected"> Selected requests only (<span id="dataSafetyScopeSelectedCount">0</span>)</label>',
+    );
+    expect(js).toContain('scope.hidden = selectedCount === 0;');
+    // Displayed rows are re-checked on every open so a leftover selection
+    // never silently narrows an export.
+    expect(js).toContain("$('#dataSafetyScopeDisplayed').checked = true;");
+    expect(css).toContain('.data-safety-scope[hidden]{display:none}');
+  });
+
+  test('both export modes honor the captured scope and the empty-selection guard', () => {
+    expect(js).toContain("exportHAR({ mode: 'sanitized', scope });");
+    expect(js).toContain("onConfirm: () => exportHAR({ mode: 'full', confirmed: true, scope }),");
+    expect(js).toContain("setStatus('No selected requests to export.');");
+    expect(js).toContain("(exportScope === 'selected' ? getSelectedExportRows() : getExportRows()).slice()");
   });
 });

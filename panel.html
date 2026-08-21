@@ -323,6 +323,11 @@
     <form method="dialog" class="data-safety-form">
       <h2 id="dataSafetyDialogTitle">Export network data</h2>
       <p id="dataSafetyDialogDetail">Sanitized output is the safe default.</p>
+      <fieldset id="dataSafetyScope" class="data-safety-scope" hidden>
+        <legend>Scope</legend>
+        <label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeDisplayed" value="displayed" checked> All displayed requests (<span id="dataSafetyScopeDisplayedCount">0</span>)</label>
+        <label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeSelected" value="selected"> Selected requests only (<span id="dataSafetyScopeSelectedCount">0</span>)</label>
+      </fieldset>
       <div id="dataSafetyExportChoices" class="data-safety-choices">
         <button id="dataSafetySanitizedBtn" type="button" class="data-safety-primary">Export sanitized HAR</button>
         <button id="dataSafetyFullBtn" type="button">Review full HAR warning</button>
