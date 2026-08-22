@@ -225,8 +225,7 @@
       <button id="filterBtn" aria-label="Column Filters, no active filters" aria-haspopup="dialog" aria-controls="columnFilterPopup" aria-expanded="false">⚙️ Filters</button>
       <button id="columnsBtn" aria-haspopup="menu" aria-controls="columnsMenu" aria-expanded="false">🗂️ Columns</button>
       <div class="separator"></div>
-      <button id="retentionBtn" aria-haspopup="dialog" aria-controls="retentionDialog" aria-expanded="false">Retention: 20,000</button>
-      <button id="themeBtn">🌗 System</button>
+      <button id="settingsBtn" aria-haspopup="dialog" aria-controls="settingsDialog" aria-expanded="false">🎛️ Settings</button>
       <button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" class="icon-btn" hidden>🪟</button>
       <button id="shortcutBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutDialog">⌨️ ?</button>
     </div>
@@ -301,21 +300,43 @@
     </aside>
   </main>
   <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" hidden disabled>Exit · restore prior recording state</button><button id="wsCaptureBtn" type="button" class="ws-capture-btn" title="Capture WebSocket and Server-Sent-Event streams by wrapping this page's WebSocket and EventSource constructors; only connections created while capture is on are seen, and traffic is never altered" aria-pressed="false" hidden>Stream capture: Off</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus" title="Retention: 20,000 requests. body cache 0 B / 32 MB">cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 requests</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
-  <dialog id="retentionDialog" aria-labelledby="retentionDialogTitle" aria-describedby="retentionHelp">
-    <form method="dialog" class="retention-form">
-      <h2 id="retentionDialogTitle">Capture retention</h2>
-      <label for="retentionLimit">Maximum retained requests</label>
-      <input id="retentionLimit" type="number" min="100" max="100000" step="100" inputmode="numeric" aria-describedby="retentionHelp retentionError" />
-      <p id="retentionHelp">Oldest requests are removed after this limit. Response bodies use a separate 1 MiB per-body and 32 MiB total cache.</p>
-      <p id="retentionError" class="retention-error" role="alert" hidden></p>
-      <label class="retention-unlimited" for="retentionUnlimited">
-        <input id="retentionUnlimited" type="checkbox" aria-describedby="retentionWarning" />
-        Keep unlimited requests
-      </label>
-      <p id="retentionWarning" class="retention-warning" role="alert" hidden>Unlimited request retention can exhaust DevTools memory. Response-body limits remain active.</p>
-      <div class="retention-actions">
-        <button id="retentionCancelBtn" type="button">Cancel</button>
-        <button id="retentionSaveBtn" type="button">Save retention</button>
+  <dialog id="settingsDialog" aria-labelledby="settingsDialogTitle">
+    <form method="dialog" class="settings-form">
+      <h2 id="settingsDialogTitle">Settings</h2>
+      <section class="settings-section" aria-labelledby="langSectionTitle">
+        <h3 id="langSectionTitle">🌐 Language</h3>
+        <select id="langSelect" aria-describedby="langHelp">
+          <option value="system">System</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+        </select>
+        <p id="langHelp" data-i18n="langHelp">Applies to explanations and guide dialogs; control labels stay in English.</p>
+      </section>
+      <section class="settings-section" aria-labelledby="themeSectionTitle">
+        <h3 id="themeSectionTitle">🌗 Theme</h3>
+        <select id="themeSelect" aria-labelledby="themeSectionTitle">
+          <option value="system">System</option>
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </section>
+      <section class="settings-section" aria-labelledby="retentionSectionTitle">
+        <h3 id="retentionSectionTitle">🗃️ Retention</h3>
+        <label for="retentionLimit">Maximum retained requests</label>
+        <input id="retentionLimit" type="number" min="100" max="100000" step="100" inputmode="numeric" aria-describedby="retentionHelp retentionError" />
+        <p id="retentionHelp" data-i18n="retentionHelp">Oldest requests are removed after this limit. Response bodies use a separate 1 MiB per-body and 32 MiB total cache.</p>
+        <p id="retentionError" class="retention-error" role="alert" hidden></p>
+        <label class="retention-unlimited" for="retentionUnlimited">
+          <input id="retentionUnlimited" type="checkbox" aria-describedby="retentionWarning" />
+          Keep unlimited requests
+        </label>
+        <p id="retentionWarning" class="retention-warning" role="alert" hidden data-i18n="retentionWarning">Unlimited request retention can exhaust DevTools memory. Response-body limits remain active.</p>
+        <div class="retention-actions">
+          <button id="retentionSaveBtn" type="button">Save retention</button>
+        </div>
+      </section>
+      <div class="settings-actions">
+        <button id="settingsCloseBtn" type="button">Close</button>
       </div>
     </form>
   </dialog>
@@ -383,15 +404,27 @@
   </dialog>
   <dialog id="undockHintDialog" aria-labelledby="undockHintDialogTitle" aria-describedby="undockHintIntro">
     <form method="dialog" class="undock-hint-form">
-      <h2 id="undockHintDialogTitle">Keep DevTools open</h2>
-      <p id="undockHintIntro">This tab mirrors the Network+ panel in the original tab's DevTools — the capture itself runs there. Closing DevTools stops capture and freezes this tab.</p>
-      <p class="undock-hint-warning">Don't close DevTools; undock it instead.</p>
-      <p>DevTools is docked inside the page right now, which is why both views stay visible. Undock it once and every future pop-out minimizes the DevTools window automatically while capture keeps running:</p>
-      <ol class="undock-hint-steps">
-        <li>In DevTools, open the ⋮ menu (top right).</li>
-        <li>Under "Dock side", choose "Undock into separate window".</li>
-      </ol>
-      <p>DevTools remembers the dock choice, so this is a one-time step.</p>
+      <h2 id="undockHintDialogTitle" data-i18n="undockHintTitle">🪟 Keep DevTools open</h2>
+      <p id="undockHintIntro" data-i18n="undockHintIntro">Capture runs inside the original tab's DevTools — this tab is a live mirror of it.</p>
+      <p class="undock-hint-warning" data-i18n="undockHintWarning">⚠️ Closing DevTools stops capture and freezes this tab.</p>
+      <div class="undock-hint-steps-card">
+        <p class="undock-hint-steps-title" data-i18n="undockHintStepsTitle">DevTools is docked, so both stay visible. Tidy it away with a one-time setup:</p>
+        <ol class="undock-hint-steps">
+          <li data-i18n="undockHintStep1">Open the ⋮ menu at the top right of DevTools.</li>
+          <li data-i18n="undockHintStep2">Under "Dock side", choose "Undock into separate window".</li>
+        </ol>
+        <div class="undock-dockrow" aria-hidden="true">
+          <span class="undock-dockrow-label">Dock side</span>
+          <span class="undock-dockrow-icons">
+            <span class="undock-dock-icon undock-dock-target"><span class="dock-glyph dock-glyph-undock"></span></span>
+            <span class="undock-dock-icon"><span class="dock-glyph dock-glyph-left"></span></span>
+            <span class="undock-dock-icon"><span class="dock-glyph dock-glyph-bottom"></span></span>
+            <span class="undock-dock-icon"><span class="dock-glyph dock-glyph-right"></span></span>
+          </span>
+        </div>
+        <p class="undock-hint-pick" data-i18n="undockHintPick">It is the highlighted icon — the first of the four.</p>
+      </div>
+      <p class="undock-hint-outro" data-i18n="undockHintOutro">✅ DevTools remembers this choice: every future pop-out then minimizes the DevTools window automatically while capture keeps running.</p>
       <label class="undock-hint-dismiss"><input type="checkbox" id="undockHintDontShowAgain"> Don't show this again</label>
       <div class="undock-hint-actions">
         <button id="undockHintCloseBtn" type="button" class="undock-hint-primary">Got it</button>

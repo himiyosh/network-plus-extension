@@ -411,26 +411,30 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 #selectedSize{margin-right:12px;font-weight:600;color:var(--status-3xx-text)}
 #counter{white-space:normal;font-variant-numeric:tabular-nums}
 
-/* === Retention Settings === */
-#retentionDialog{position:fixed;inset:0;margin:auto;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
-#retentionDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
-.retention-form{display:grid;gap:8px;padding:16px}
-.retention-form h2{margin:0 0 4px;font-size:15px;font-style:normal}
-.retention-form label{font-size:12px;font-weight:600}
-.retention-form input[type="number"]{min-height:32px;width:100%;padding:5px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg)}
-.retention-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.4}
+/* === Settings (language, theme, retention) === */
+#settingsDialog{position:fixed;inset:0;margin:auto;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
+#settingsDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
+.settings-form{display:grid;gap:10px;padding:16px}
+.settings-form h2{margin:0;font-size:15px;font-style:normal}
+.settings-section{display:grid;gap:8px;padding:10px 12px;border:1px solid var(--control-border);border-radius:8px;background:var(--bg)}
+.settings-section h3{margin:0;font-size:12px;font-style:normal;letter-spacing:0.2px}
+.settings-form select{min-height:32px;width:100%;padding:5px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--fg);font:inherit}
+.settings-form select:hover{background:var(--content-bg)}
+.settings-form label{font-size:12px;font-weight:600}
+.settings-form input[type="number"]{min-height:32px;width:100%;padding:5px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--fg)}
+.settings-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.4}
 .retention-unlimited{display:flex;align-items:center;gap:8px}
-.retention-form input[type="number"]:hover{background:var(--content-bg)}
-.retention-form input[type="number"][aria-invalid="true"]{border-color:var(--status-5xx-text)}
-.retention-form input[type="number"]:disabled{opacity:.5;cursor:not-allowed}
-.retention-form .retention-error{color:var(--status-5xx-text);font-weight:600}
+.settings-form input[type="number"]:hover{background:var(--content-bg)}
+.settings-form input[type="number"][aria-invalid="true"]{border-color:var(--status-5xx-text)}
+.settings-form input[type="number"]:disabled{opacity:.5;cursor:not-allowed}
+.settings-form .retention-error{color:var(--status-5xx-text);font-weight:600}
 .retention-unlimited input{width:24px;height:24px;margin:0;accent-color:var(--accent)}
-.retention-form .retention-warning{color:var(--status-5xx-text);font-weight:600}
-.retention-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
-.retention-actions button{min-height:32px;padding:5px 12px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer}
-.retention-actions button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
+.settings-form .retention-warning{color:var(--status-5xx-text);font-weight:600}
+.retention-actions,.settings-actions{display:flex;justify-content:flex-end;gap:8px}
+.retention-actions button,.settings-actions button{min-height:32px;padding:5px 12px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;cursor:pointer}
+.retention-actions button:hover,.settings-actions button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
 
-.retention-actions button:active{background:var(--accent-dim);color:var(--text-accent)}
+.retention-actions button:active,.settings-actions button:active{background:var(--accent-dim);color:var(--text-accent)}
 /* === Outbound Data Safety === */
 #dataSafetyDialog{position:fixed;inset:0;margin:auto;width:min(460px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
 #dataSafetyDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
@@ -485,8 +489,23 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .undock-hint-form{display:grid;gap:10px;padding:16px}
 .undock-hint-form h2{margin:0;font-size:15px;font-style:normal}
 .undock-hint-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45}
-.undock-hint-form .undock-hint-warning{color:var(--status-5xx-text);font-weight:600;font-size:12px}
+.undock-hint-form .undock-hint-warning{padding:8px 10px;border:1px solid var(--status-5xx-text);border-radius:8px;background:color-mix(in srgb,var(--status-5xx-text) 10%,transparent);color:var(--status-5xx-text);font-weight:600;font-size:12px}
+.undock-hint-steps-card{display:grid;gap:8px;padding:10px 12px;border:1px solid var(--control-border);border-radius:8px;background:var(--bg)}
+.undock-hint-steps-card .undock-hint-steps-title{color:var(--fg);font-size:12px;font-weight:600}
 .undock-hint-steps{display:grid;gap:6px;margin:0;padding-left:20px;color:var(--fg);font-size:12px;line-height:1.45}
+.undock-dockrow{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--control-border);border-radius:8px;background:var(--surface);width:fit-content}
+.undock-dockrow-label{color:var(--text-muted);font-size:11px}
+.undock-dockrow-icons{display:flex;gap:6px}
+.undock-dock-icon{display:flex;align-items:center;justify-content:center;width:26px;height:22px;border:1px solid var(--control-border);border-radius:4px;background:var(--bg)}
+.undock-dock-target{border-color:var(--accent);background:var(--accent-dim);box-shadow:0 0 0 2px var(--accent-dim)}
+.dock-glyph{position:relative;width:13px;height:10px;border:1.5px solid var(--fg);border-radius:1px}
+.dock-glyph-undock{margin:3px 0 0 3px}
+.dock-glyph-undock::before{content:"";position:absolute;top:-5px;left:-5px;width:11px;height:8px;border-top:1.5px solid var(--fg);border-left:1.5px solid var(--fg);border-top-left-radius:1px}
+.dock-glyph-left::before{content:"";position:absolute;top:1px;bottom:1px;left:1px;width:4px;background:var(--fg);opacity:.65}
+.dock-glyph-bottom::before{content:"";position:absolute;left:1px;right:1px;bottom:1px;height:3px;background:var(--fg);opacity:.65}
+.dock-glyph-right::before{content:"";position:absolute;top:1px;bottom:1px;right:1px;width:4px;background:var(--fg);opacity:.65}
+.undock-hint-pick{color:var(--text-accent)}
+.undock-hint-outro{color:var(--fg)}
 .undock-hint-dismiss{display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
 .undock-hint-dismiss input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
 .undock-hint-actions{display:flex;justify-content:flex-end;gap:8px}

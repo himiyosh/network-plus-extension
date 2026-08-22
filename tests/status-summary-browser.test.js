@@ -861,15 +861,15 @@ browserTest(
           const exportBoundary = captureGrid();
 
           emitRange(2, 1);
-          document.querySelector('#retentionBtn').click();
+          document.querySelector('#settingsBtn').click();
           document.querySelector('#retentionUnlimited').checked = false;
           document.querySelector('#retentionLimit').value = '99';
           document.querySelector('#retentionSaveBtn').click();
           await settleFrames();
           const invalidRetentionBoundary = captureGrid();
-          document.querySelector('#retentionCancelBtn').click();
+          document.querySelector('#settingsCloseBtn').click();
 
-          document.querySelector('#retentionBtn').click();
+          document.querySelector('#settingsBtn').click();
           document.querySelector('#retentionLimit').value = '100';
           document.querySelector('#retentionSaveBtn').click();
           await settleFrames();
@@ -937,7 +937,7 @@ browserTest(
           // Pin the eviction boundary for this scenario instead of inheriting
           // DEFAULT_REQUEST_RETENTION_LIMIT, so the burst numbers below keep
           // exercising eviction when the shipped default changes.
-          document.querySelector('#retentionBtn').click();
+          document.querySelector('#settingsBtn').click();
           document.querySelector('#retentionUnlimited').checked = false;
           document.querySelector('#retentionLimit').value = '5000';
           document.querySelector('#retentionSaveBtn').click();
@@ -1008,7 +1008,7 @@ browserTest(
             prefetchedSourceIds: window.__networkPlusPrefetchStarted.slice(),
           };
 
-          document.querySelector('#retentionBtn').click();
+          document.querySelector('#settingsBtn').click();
           document.querySelector('#retentionUnlimited').checked = false;
           document.querySelector('#retentionLimit').value = '100';
           document.querySelector('#retentionSaveBtn').click();
@@ -1220,7 +1220,7 @@ browserTest(
             rowIds: state.rows.map((row) => row.id),
           });
 
-          document.querySelector('#retentionBtn').click();
+          document.querySelector('#settingsBtn').click();
           document.querySelector('#retentionUnlimited').checked = false;
           document.querySelector('#retentionLimit').value = '100';
           document.querySelector('#retentionSaveBtn').click();
@@ -2718,15 +2718,14 @@ browserTest(
         'autoScrollBtn',
         'filterBtn',
         'columnsBtn',
-        'retentionBtn',
-        'themeBtn',
+        'settingsBtn',
         'popoutBtn',
         'shortcutBtn',
       ];
       for (const measurement of viewportMeasurements) {
         expect(measurement.documentOverflow).toBe(0);
         expect(measurement.toolbarOverflowX).toBe('auto');
-        expect(measurement.actions).toHaveLength(13);
+        expect(measurement.actions).toHaveLength(12);
         expect(measurement.actions.map((action) => action.id)).toEqual(expectedActionOrder);
         // The pop-out button exists only for a DevTools session; outside one
         // it must not just carry the hidden attribute but actually render at
@@ -2771,8 +2770,7 @@ browserTest(
         'autoScrollBtn',
         'filterBtn',
         'columnsBtn',
-        'retentionBtn',
-        'themeBtn',
+        'settingsBtn',
         'shortcutBtn',
       ];
       const reverseTabOrder = expectedTabOrder.slice().reverse();
@@ -3338,8 +3336,7 @@ browserTest(
         'autoScrollBtn',
         'filterBtn',
         'columnsBtn',
-        'retentionBtn',
-        'themeBtn',
+        'settingsBtn',
         'shortcutBtn',
       ];
       const visibleColumns = [

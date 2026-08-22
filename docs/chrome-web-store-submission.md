@@ -65,7 +65,7 @@ Clipboard copy and HAR export are user-initiated. Sanitized output is the defaul
 
 An empty panel offers three deterministic, local-only sample requests under reserved `.test` domains. The sample sends no network traffic, pauses live capture to avoid mixing evidence, and includes a prompt-first guide for identifying a 503 request, its dominant Wait (TTFB) phase, a Retry-After header, and the limits of browser-observed timing. No account or test credentials are required.
 
-Network+ supports System, Dark, and Light themes, keyboard navigation, visible focus, screen-reader status announcements, responsive panel layouts, and reduced-motion preferences. It runs from packaged extension code without remote code, telemetry, analytics, advertising, or an external service. Network+ reports browser-observed HTTP timing; it does not prove packet loss, cabling or radio-frequency faults, or a definitive server root cause. Every feature is free. Optional GitHub Sponsors and Ko-fi links open in ordinary browser tabs; the extension embeds no checkout and receives no payment or account data.
+Network+ supports System, Dark, and Light themes, keyboard navigation, visible focus, screen-reader status announcements, responsive panel layouts, and reduced-motion preferences. A Settings dialog gathers language, theme, and capture retention; explanations and guide dialogs are available in Japanese, while control labels stay in English so instructions always match the UI. It runs from packaged extension code without remote code, telemetry, analytics, advertising, or an external service. Network+ reports browser-observed HTTP timing; it does not prove packet loss, cabling or radio-frequency faults, or a definitive server root cause. Every feature is free. Optional GitHub Sponsors and Ko-fi links open in ordinary browser tabs; the extension embeds no checkout and receives no payment or account data.
 <!-- chrome-store-description:end -->
 
 Do not add unrelated search phrases to the description. Chrome Web Store metadata must describe the extension naturally and comply with the keyword-spam policy.
@@ -90,7 +90,7 @@ The four screenshots use only deterministic `.test` sample data and contain no r
 
 **Single-purpose description:** Network+ provides a local Google Chrome DevTools workbench for capturing, filtering, searching, comparing, inspecting, user-initiated exporting, and user-initiated re-sending of HTTP request and response evidence from the inspected page.
 
-**Permission justification (`storage`):** Stores the user-selected System, Dark, or Light theme and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.
+**Permission justification (`storage`):** Stores the user-selected System, Dark, or Light theme, the language for explanatory text (System, English, or Japanese), and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.
 
 **Remote code answer:** `No, I am not using remote code.`
 

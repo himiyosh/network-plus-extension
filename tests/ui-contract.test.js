@@ -1177,18 +1177,18 @@ describe('recoverable Clear Undo static contracts', () => {
 });
 
 describe('capture retention static contracts', () => {
-  test('provides a labelled narrow-safe retention dialog with an explicit unlimited warning', () => {
-    expect(html).toMatch(/id="retentionBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="retentionDialog"/);
-    expect(html).toMatch(/<dialog id="retentionDialog"[^>]*aria-labelledby="retentionDialogTitle"/);
+  test('provides a labelled narrow-safe settings dialog with an explicit unlimited warning', () => {
+    expect(html).toMatch(/id="settingsBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="settingsDialog"/);
+    expect(html).toMatch(/<dialog id="settingsDialog"[^>]*aria-labelledby="settingsDialogTitle"/);
     expect(html).toMatch(/<label for="retentionLimit">Maximum retained requests<\/label>/);
     expect(html).toMatch(/id="retentionUnlimited"[^>]*aria-describedby="retentionWarning"/);
     expect(html).toMatch(/id="retentionWarning"[^>]*role="alert"[^>]*hidden/);
     expect(html).toMatch(/id="retentionStatus"[^>]*>cache /);
     expect(html).not.toMatch(/id="retentionStatus"[^>]*>[^<]*Retention /);
-    expect(html).toMatch(/id="retentionBtn"[^>]*>Retention: /);
+    expect(html).toMatch(/id="settingsBtn"[^>]*>🎛️ Settings</);
     expect(html).not.toMatch(/id="retentionStatus"[^>]*(?:role|aria-live)=/);
     expect(html).toMatch(/id="retentionAnnouncement"[^>]*class="sr-only"[^>]*role="status"[^>]*aria-live="polite"/);
-    expect(css).toMatch(/#retentionDialog\{[^}]*width:min\(420px,calc\(100vw - 16px\)\)[^}]*overflow:auto/);
+    expect(css).toMatch(/#settingsDialog\{[^}]*width:min\(420px,calc\(100vw - 16px\)\)[^}]*overflow:auto/);
   });
 
   test('persists named budgets and routes live and imported rows through one policy', () => {
@@ -1304,15 +1304,17 @@ describe('capture retention static contracts', () => {
     expect(statusBlock).toContain('if (statusGeneration === generation) el.textContent = plan.text;');
   });
 
-  test('uses one retention presentation for the visible and accessible button labels', () => {
+  test('keeps the retention presentation in the status tooltip now that Settings holds the limit', () => {
     const statusStart = js.indexOf('function updateRetentionStatus');
     const statusEnd = js.indexOf('function updateTableSummary', statusStart);
     const statusSource = js.slice(statusStart, statusEnd);
     expect(statusSource).toContain(
       'const presentation = getRetentionPresentation(retention.requestLimit, retention.unlimited);',
     );
-    expect(statusSource).toContain('button.textContent = presentation.buttonLabel;');
-    expect(statusSource).toContain("button.setAttribute('aria-label', presentation.accessibleName);");
+    expect(statusSource).toContain("'Retention: ' + presentation.policyLabel");
+    // The toolbar button became the Settings opener; nothing relabels it.
+    expect(statusSource).not.toContain('buttonLabel');
+    expect(statusSource).not.toContain("$('#settingsBtn')");
   });
 
   test('marks unavailable HAR content and incomplete body search explicitly', () => {
@@ -1323,6 +1325,47 @@ describe('capture retention static contracts', () => {
     expect(js).toContain('renderCachedResponseContent(row);');
     expect(js).toContain("' bodies not searched'");
     expect(js).toContain("releaseResponseContent(row, 'row-evicted', false);");
+  });
+});
+
+describe('settings and language contracts', () => {
+  test('the Settings dialog gathers language, theme, and retention with instant-apply selects', () => {
+    expect(html).toMatch(/id="langSelect"[^>]*aria-describedby="langHelp"/);
+    expect(html).toContain('<option value="ja">日本語</option>');
+    expect(html).toMatch(/id="themeSelect"/);
+    expect(html).toContain('<option value="dark">Dark</option>');
+    expect(js).toContain("const LANG_KEY = 'networkPlus.lang';");
+    expect(js).toContain("const LANGS = ['system', 'en', 'ja'];");
+    // Selects apply immediately; retention keeps its explicit Save button.
+    expect(js).toContain('saveThemePref(chosen);');
+    expect(js).toContain('saveLangPref(chosen);');
+    expect(js).toContain("$('#settingsCloseBtn').addEventListener('click', () => settingsDialog.close());");
+    expect(html).toMatch(/id="retentionSaveBtn"[^>]*>Save retention</);
+  });
+
+  test('only explanations translate: data-i18n swaps text and control labels stay English', () => {
+    // The resolver honors an explicit choice and derives system from the browser.
+    expect(js).toContain("if (pref === 'en' || pref === 'ja') return pref;");
+    expect(js).toContain("/^ja([-_]|$)/i.test(String(nav || '')) ? 'ja' : 'en'");
+    // The applier rewrites only data-i18n text nodes, so labels never translate.
+    expect(js).toContain("document.querySelectorAll('[data-i18n]')");
+    expect(js).toContain('el.textContent = entry[activeLanguage];');
+    // A Japanese translation actually ships, including the critical stream warning.
+    expect(js).toContain('DevTools を閉じるとキャプチャが止まり、このタブの更新も停止します。');
+    // The authored English fallback matches the dictionary for the same key.
+    expect(html).toContain('⚠️ Closing DevTools stops capture and freezes this tab.');
+    expect(js).toContain("en: '⚠️ Closing DevTools stops capture and freezes this tab.',");
+    // Language persists like the theme: extension storage, localStorage fallback.
+    expect(js).toContain("done(localStorage.getItem(LANG_KEY) || 'system');");
+    expect(js).toContain('localStorage.setItem(LANG_KEY, v);');
+  });
+
+  test('the undock hint teaches visually: warning card, steps card, and a dock-side icon row', () => {
+    expect(html).toContain('class="undock-hint-steps-card"');
+    expect(html).toContain('class="undock-dockrow" aria-hidden="true"');
+    expect(html).toContain('class="undock-dock-icon undock-dock-target"');
+    expect(css).toMatch(/\.undock-hint-warning\{[^}]*border:1px solid var\(--status-5xx-text\)/);
+    expect(css).toContain('.dock-glyph-undock::before');
   });
 });
 
