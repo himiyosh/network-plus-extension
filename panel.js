@@ -2000,7 +2000,7 @@ const _NetworkPlus = (function () {
     let summary = createSanitizationSummary();
     let sanitizedResponseBody = '';
 
-    if (action === 'summary' || action === 'url' || REQUEST_CLIPBOARD_ACTIONS.has(action)) {
+    if (action === 'summary' || action === 'url' || action === 'markdown' || REQUEST_CLIPBOARD_ACTIONS.has(action)) {
       const url = sanitizeUrlValue(source.url || '');
       value.url = url.value;
       const parts = extractUrlParts(url.value);
@@ -2130,6 +2130,7 @@ const _NetworkPlus = (function () {
     const source = options || {};
     const render = (targetRow, responseBody) => {
       if (action === 'summary') return formatRowSummary(targetRow);
+      if (action === 'markdown') return formatRowMarkdown(targetRow);
       if (action === 'url') return targetRow.url || '';
       if (action === 'requestBody') return targetRow.requestPostData ? targetRow.requestPostData.text || '' : '';
       if (action === 'responseBody') return responseBody || '';
@@ -3675,6 +3676,116 @@ const _NetworkPlus = (function () {
     if (row.domain) lines.push('Domain: ' + row.domain);
     if (row.initiator && row.initiator.text) lines.push('Initiator: ' + row.initiator.text);
     return lines.join('\n');
+  }
+
+  // Markdown copies exist to paste straight into an issue or a chat thread,
+  // which is exactly where an unsanitized query value would leak — so they
+  // ride the same sanitizer as the summary copy.
+  function escapeMarkdownTableCell(value) {
+    return String(value == null ? '' : value)
+      .replace(/\|/g, '\\|')
+      .replace(/\r?\n/g, ' ');
+  }
+
+  function formatRowMarkdown(row) {
+    const fields = [
+      ['Status', String(row.status || '') + (row.statusText ? ' ' + row.statusText : '')],
+      ...(row.operation ? [['Operation', row.operation]] : []),
+      ['Type', row.type || '(none)'],
+      ['Duration', fmtTime(row.duration)],
+      ['Size', fmtBytes(row.size)],
+      ['Time', (row.clientStart || '') + ' – ' + (row.serverDone || '')],
+      ...(row.initiator && row.initiator.text ? [['Initiator', row.initiator.text]] : []),
+    ];
+    return [
+      '### ' + (row.method || '') + ' ' + (row.url || ''),
+      '',
+      '| Field | Value |',
+      '| --- | --- |',
+      ...fields.map(([key, value]) => '| ' + key + ' | ' + escapeMarkdownTableCell(value) + ' |'),
+    ].join('\n');
+  }
+
+  function formatRowsMarkdownTable(rows) {
+    const lines = [
+      '| # | Method | Status | URL | Duration | Size |',
+      '| --- | --- | --- | --- | --- | --- |',
+    ];
+    (Array.isArray(rows) ? rows : []).forEach((row, index) => {
+      lines.push(
+        '| ' + (index + 1) +
+        ' | ' + escapeMarkdownTableCell(row.method || '') +
+        ' | ' + escapeMarkdownTableCell(String(row.status || '') + (row.statusText ? ' ' + row.statusText : '')) +
+        ' | ' + escapeMarkdownTableCell(row.url || '') +
+        ' | ' + escapeMarkdownTableCell(fmtTime(row.duration)) +
+        ' | ' + escapeMarkdownTableCell(fmtBytes(row.size)) + ' |',
+      );
+    });
+    return lines.join('\n');
+  }
+
+  function buildMarkdownTablePayload(rows) {
+    try {
+      const orderedRows = (Array.isArray(rows) ? rows : []).slice().sort((a, b) => a.id - b.id);
+      const sanitizedRows = orderedRows.map(
+        (row) => sanitizeClipboardRow('markdown', row, '', { mode: 'sanitized' }).value,
+      );
+      return { ok: true, text: formatRowsMarkdownTable(sanitizedRows) };
+    } catch (_error) {
+      return { ok: false, text: '' };
+    }
+  }
+
+  // Chrome's HAR export carries WebSocket conversations as _webSocketMessages;
+  // importing them threads the frames into the same panes live capture uses.
+  const HAR_WS_MESSAGE_IMPORT_LIMIT = 1000;
+
+  function applyHarWebSocketMessages(row, messages) {
+    if (!row || !Array.isArray(messages) || messages.length === 0) return 0;
+    const usable = messages
+      .filter((message) => message && typeof message === 'object' && (message.type === 'send' || message.type === 'receive'))
+      .sort((a, b) => (Number(a.time) || 0) - (Number(b.time) || 0));
+    if (usable.length === 0) return 0;
+    const limited = usable.slice(0, HAR_WS_MESSAGE_IMPORT_LIMIT);
+    let applied = 0;
+    for (const message of limited) {
+      const rawTime = Number(message.time);
+      // Chrome writes epoch seconds; some tools write milliseconds.
+      const at = Number.isFinite(rawTime) ? (rawTime > 1e12 ? rawTime : rawTime * 1000) : NaN;
+      const preview =
+        message.opcode === 2
+          ? '[binary frame' + (typeof message.data === 'string' ? ', ' + message.data.length + ' base64 chars' : '') + ']'
+          : String(message.data == null ? '' : message.data).slice(0, WS_FRAME_PREVIEW_CHARS);
+      const line = formatWsFrameLine({ kind: message.type === 'send' ? 'ws-sent' : 'ws-received', at, preview });
+      if (message.type === 'send') {
+        if (!row.requestPostData || typeof row.requestPostData !== 'object') {
+          row.requestPostData = { mimeType: 'text/plain', text: '' };
+        }
+        row.requestPostData.text = appendBoundedWsText(row.requestPostData.text || '', line, WS_DIRECTION_TEXT_LIMIT_CHARS);
+      } else {
+        row.responseContent = appendBoundedWsText(
+          typeof row.responseContent === 'string' ? row.responseContent : '',
+          line,
+          WS_DIRECTION_TEXT_LIMIT_CHARS,
+        );
+        row.responseContentState = 'pending-admission';
+        row.responseContentReason = '';
+        row.responseContentEncoding = '';
+        row.responseContentText = null;
+        row.responseContentBytes = 0;
+      }
+      applied += 1;
+    }
+    if (usable.length > limited.length) {
+      row.responseContent = appendBoundedWsText(
+        typeof row.responseContent === 'string' ? row.responseContent : '',
+        '— only the first ' + HAR_WS_MESSAGE_IMPORT_LIMIT + ' of ' + usable.length + ' WebSocket messages were imported',
+        WS_DIRECTION_TEXT_LIMIT_CHARS,
+      );
+      row.responseContentState = 'pending-admission';
+    }
+    if (applied > 0 && !row.type) row.type = 'websocket';
+    return applied;
   }
 
   /**
@@ -10345,10 +10456,23 @@ const _NetworkPlus = (function () {
         ['curl', 'Copy sanitized cURL'],
         ['fetch', 'Copy sanitized fetch'],
         ['powershell', 'Copy sanitized PowerShell'],
+        ['markdown', 'Copy sanitized Markdown'],
       ]) {
         contextMenu.appendChild(createRowMenuButton(label, () => {
           copySanitizedAction(action, contextMenuRow, '', label.replace('Copy', 'Copied'));
         }));
+      }
+      if (targetRows.length > 1) {
+        contextMenu.appendChild(
+          createRowMenuButton('Copy sanitized Markdown table (' + targetRows.length + ' rows)', () => {
+            const payload = buildMarkdownTablePayload(targetRows);
+            if (!payload.ok) {
+              setStatus('Clipboard copy failed during sanitization. No data was copied.');
+              return;
+            }
+            writeClipboardPayload(payload.text, 'Copied a sanitized Markdown table of ' + targetRows.length + ' requests');
+          }),
+        );
       }
       const fullCopyRow = contextMenuRow;
       contextMenu.appendChild(createRowMenuButton('Copy full request...', () => {
@@ -11093,6 +11217,7 @@ const _NetworkPlus = (function () {
             row.responseContentState = 'unavailable';
             row.responseContentReason = availability.reason;
           }
+          applyHarWebSocketMessages(row, entries[index] ? entries[index]._webSocketMessages : null);
           rows.push(row);
         }
         return {
@@ -11983,6 +12108,11 @@ const _NetworkPlus = (function () {
     formatWsFrameLine,
     appendBoundedWsText,
     ingestWsEvents,
+    escapeMarkdownTableCell,
+    formatRowMarkdown,
+    formatRowsMarkdownTable,
+    HAR_WS_MESSAGE_IMPORT_LIMIT,
+    applyHarWebSocketMessages,
     MIRROR_PROTOCOL_VERSION,
     MIRROR_PORT_PREFIX,
     MIRROR_SNAPSHOT_CHUNK_SIZE,

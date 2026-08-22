@@ -5564,3 +5564,96 @@ describe('websocket capture pieces', () => {
     expect(row.duration).toBe(5000);
   });
 });
+
+describe('markdown copy and HAR websocket import', () => {
+  const buildRow = (url, extra) =>
+    np.buildRowFromRequest(
+      {
+        startedDateTime: '2026-08-22T03:00:00.000Z',
+        time: 120,
+        request: { method: 'GET', url, headers: [], postData: (extra && extra.postData) || null },
+        response: {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: [],
+          bodySize: 42,
+          content: { mimeType: 'application/json', size: 42 },
+        },
+        timings: {},
+        getContent: () => {},
+      },
+      (extra && extra.id) || 61,
+    );
+
+  test('single-row markdown renders a titled field table with escaped cells', () => {
+    const row = buildRow('https://api.example.test/v1/items');
+    row.statusText = 'Service|Unavailable';
+    const text = np.formatRowMarkdown(row);
+    expect(text.startsWith('### GET https://api.example.test/v1/items')).toBe(true);
+    expect(text).toContain('| Field | Value |');
+    expect(text).toContain('| Status | 503 Service\\|Unavailable |');
+    expect(text).toContain('| Duration |');
+    expect(np.escapeMarkdownTableCell('a|b\nc')).toBe('a\\|b c');
+  });
+
+  test('markdown copies ride the sanitizer, so query values never reach the clipboard', () => {
+    const row = buildRow('https://api.example.test/v1/items?token=SECRET123&x=1');
+    const payload = np.buildClipboardPayload('markdown', row, { mode: 'sanitized' });
+    expect(payload.mode).toBe('sanitized');
+    expect(payload.text).not.toContain('SECRET123');
+    expect(payload.text).toContain('token=');
+    expect(payload.text).toContain('### GET https://api.example.test/v1/items?');
+  });
+
+  test('the operation label appears in markdown when present', () => {
+    const row = buildRow('https://api.example.test/graphql', {
+      postData: { mimeType: 'application/json', text: '{"operationName":"GetCart","query":"query GetCart{cart}"}' },
+    });
+    expect(np.formatRowMarkdown(row)).toContain('| Operation | GetCart |');
+  });
+
+  test('the multi-row table keeps one line per request', () => {
+    const rows = [buildRow('https://a.test/x', { id: 1 }), buildRow('https://b.test/y', { id: 2 })];
+    const table = np.formatRowsMarkdownTable(rows);
+    const lines = table.split('\n');
+    expect(lines[0]).toBe('| # | Method | Status | URL | Duration | Size |');
+    expect(lines).toHaveLength(4);
+    expect(lines[2]).toContain('| 1 | GET | 503 Service Unavailable | https://a.test/x |');
+    expect(lines[3]).toContain('| 2 |');
+  });
+
+  test('_webSocketMessages thread into both panes sorted by time, with the limit noted', () => {
+    const row = buildRow('wss://api.example.test/live');
+    row.responseContent = '';
+    row.responseContentState = 'pending-admission';
+    const applied = np.applyHarWebSocketMessages(row, [
+      { type: 'receive', time: 1755750000.2, opcode: 1, data: '{"pong":1}' },
+      { type: 'send', time: 1755750000.1, opcode: 1, data: '{"ping":1}' },
+      { type: 'receive', time: 1755750000300, opcode: 2, data: 'AAAA' },
+      { type: 'ignored', time: 1, data: 'x' },
+      null,
+    ]);
+    expect(applied).toBe(3);
+    expect(row.requestPostData.text).toContain('↑');
+    expect(row.requestPostData.text).toContain('{"ping":1}');
+    expect(row.responseContent).toContain('{"pong":1}');
+    expect(row.responseContent).toContain('[binary frame, 4 base64 chars]');
+    expect(row.responseContent.indexOf('{"pong":1}')).toBeLessThan(row.responseContent.indexOf('[binary frame'));
+    expect(row.responseContentState).toBe('pending-admission');
+
+    const overflowRow = buildRow('wss://api.example.test/busy');
+    overflowRow.responseContent = '';
+    const many = Array.from({ length: np.HAR_WS_MESSAGE_IMPORT_LIMIT + 5 }, (_unused, index) => ({
+      type: 'receive',
+      time: 1755750000 + index,
+      opcode: 1,
+      data: 'm' + index,
+    }));
+    expect(np.applyHarWebSocketMessages(overflowRow, many)).toBe(np.HAR_WS_MESSAGE_IMPORT_LIMIT);
+    expect(overflowRow.responseContent).toContain(
+      'only the first ' + np.HAR_WS_MESSAGE_IMPORT_LIMIT + ' of ' + (np.HAR_WS_MESSAGE_IMPORT_LIMIT + 5) + ' WebSocket messages were imported',
+    );
+    expect(np.applyHarWebSocketMessages(buildRow('wss://x.test'), [])).toBe(0);
+    expect(np.applyHarWebSocketMessages(null, [{ type: 'send', time: 1, data: 'x' }])).toBe(0);
+  });
+});
