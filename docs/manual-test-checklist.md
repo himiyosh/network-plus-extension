@@ -42,6 +42,7 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 
 - [ ] With DevTools undocked into its own window, clicking 🪟 opens the mirror tab and minimizes the DevTools window automatically; capture continues (new page requests keep streaming into the tab) and the window restores normally from the taskbar.
 - [ ] With DevTools docked, clicking 🪟 opens the mirror tab and the browser window does not minimize or move.
+- [ ] In that docked case the mirror tab shows the "Keep DevTools open" dialog exactly once per load: it warns that closing DevTools stops capture and freezes the tab, and lists the undock steps. Plain "Got it" lets it return on the next pop-out; "Don't show this again" keeps it away for good. An undocked pop-out (window minimized) never shows it.
 - [ ] In the mirror tab, pause/resume, Clear (and the Undo that then appears), the Retention dialog (opens with the session's current values), and the Stream capture toggle all act on the DevTools session, and the tab's buttons match the session state within a second.
 - [ ] Importing a HAR or SAZ from the mirror tab replaces the session's capture exactly like a DevTools-side import, and both windows show the imported rows; a file over 64 MiB is refused with a visible reason.
 - [ ] `Resend unchanged` / `Edit and resend...` from the mirror tab execute in the DevTools session (status names the session) and the result row appears in both windows; while disconnected, every remote control reports a failure status instead of acting locally.
@@ -69,7 +70,7 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 
 ## Edit and resend, and JWT decode
 
-- [ ] Inside a DevTools session, the row menu of an http(s) request offers `Resend unchanged` and `Edit and resend...`; a WS row offers neither, and the pop-out mirror tab offers neither on any row.
+- [ ] Inside a DevTools session, the row menu of an http(s) request offers `Resend unchanged` and `Edit and resend...`; a WS row offers neither. (The pop-out mirror tab offers both and executes them remotely — covered in the mirror section above.)
 - [ ] `Resend unchanged` on a GET immediately produces a new captured row for the same URL, and the status bar names the target; while recording is paused the status says the row will appear after resuming, and it does.
 - [ ] `Edit and resend...` opens the dialog prefilled with the row's method, URL, headers (no `:authority`-style pseudo-headers), and body; editing the URL and adding a header sends exactly the edited request (verify against an echo endpoint or the new row's request pane).
 - [ ] A header line without a colon blocks Send with a visible message and keeps the dialog open; a `Host:` or `Sec-*` line is silently not applied, as the dialog's hint states.

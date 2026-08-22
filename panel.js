@@ -107,6 +107,7 @@ const _NetworkPlus = (function () {
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
   const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';
+  const UNDOCK_HINT_KEY = 'networkPlus.undockHint.v1'; // '1' = mirror tab's undock explainer dismissed for good
   const LEGACY_FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1'; // retired multi-preset store
   const MAX_PRESET_TOTAL_BYTES = 64 * 1024; // 64 KiB — column/filter config only, no traffic data
 
@@ -12165,6 +12166,39 @@ const _NetworkPlus = (function () {
         },
       });
       const wsCaptureBtnViewer = $('#wsCaptureBtn');
+      // The host reports devtoolsMinimized:false when its DevTools is docked
+      // and therefore stayed visible next to this tab. That duplication is
+      // the one moment the undock explainer earns its interruption — once
+      // per page load, and never again after "Don't show this again".
+      let undockHintHandled = false;
+      const maybeShowUndockHint = () => {
+        if (undockHintHandled) return;
+        undockHintHandled = true;
+        try {
+          if (localStorage.getItem(UNDOCK_HINT_KEY) === '1') return;
+        } catch (_error) {
+          // Unreadable storage just means the hint shows once per page load.
+        }
+        const hintDialog = $('#undockHintDialog');
+        if (hintDialog && typeof hintDialog.showModal === 'function' && !hintDialog.open) {
+          hintDialog.showModal();
+        }
+      };
+      const undockHintCloseBtn = $('#undockHintCloseBtn');
+      if (undockHintCloseBtn) {
+        undockHintCloseBtn.addEventListener('click', () => {
+          const dontShowAgain = $('#undockHintDontShowAgain');
+          if (dontShowAgain && dontShowAgain.checked) {
+            try {
+              localStorage.setItem(UNDOCK_HINT_KEY, '1');
+            } catch (_error) {
+              // An unwritable store just means the hint returns next session.
+            }
+          }
+          const hintDialog = $('#undockHintDialog');
+          if (hintDialog && typeof hintDialog.close === 'function') hintDialog.close();
+        });
+      }
       const applyHostControlState = (control) => {
         if (!control || typeof control !== 'object') return;
         state.paused = control.paused === true;
@@ -12187,6 +12221,7 @@ const _NetworkPlus = (function () {
           wsCaptureBtnViewer.textContent = streamEnabled ? 'Stream capture: On' : 'Stream capture: Off';
           wsCaptureBtnViewer.setAttribute('aria-pressed', streamEnabled ? 'true' : 'false');
         }
+        if (control.devtoolsMinimized === false) maybeShowUndockHint();
       };
       const sendViewerCommand = (name, args, description, onDone) => {
         try {
@@ -12331,6 +12366,9 @@ const _NetworkPlus = (function () {
           : 0;
       const mirrorPortName = MIRROR_PORT_PREFIX + inspectedTabId;
       let popoutWindow = null;
+      // null until the background worker answers; the viewer uses an explicit
+      // false (docked DevTools stayed visible) to offer its undock explainer.
+      let popoutDevtoolsMinimized = null;
       let mirrorPort = null;
       let mirrorReconnectTimer = null;
       let mirrorSyncTimer = null;
@@ -12378,6 +12416,7 @@ const _NetworkPlus = (function () {
           },
           undoAvailable: !!state.clearUndoSnapshot,
           streamCapture: mirrorStreamCaptureState(),
+          devtoolsMinimized: popoutDevtoolsMinimized,
         }),
         // Remote commands reuse the host's own controls so undo snapshots,
         // announcements, and guards behave exactly like a local click.
@@ -12538,6 +12577,7 @@ const _NetworkPlus = (function () {
           try {
             mirrorRuntime.sendMessage({ type: 'networkplus-minimize-devtools' }, (response) => {
               void (mirrorRuntime.lastError && mirrorRuntime.lastError.message);
+              popoutDevtoolsMinimized = !!(response && response.minimized === true);
               setStatus(
                 response && response.minimized === true
                   ? 'Network+ opened in a browser tab; the DevTools window is minimized and keeps capturing (restore it from the taskbar).'
