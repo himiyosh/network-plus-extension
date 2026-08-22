@@ -3044,6 +3044,16 @@ describe('devtools-session mirror contracts', () => {
     expect(js).toContain("'Mirroring the DevTools session'");
     expect(js).toContain("'Mirroring the DevTools session (recording paused)'");
     expect(js).toContain("'The DevTools session disconnected; captured requests remain available. '");
+    // The viewer never runs automatic body prefetch: bodies cross the port
+    // only when a row asks, and a closed DevTools session must not turn the
+    // queued prefetches into logged failures on the extension-errors page.
+    expect(js).toContain(
+      "if (getMirrorViewParams(window.location ? window.location.search : '').viewerMode) {\n      state.automaticResponsePrefetchScheduler = null;\n    }",
+    );
+    // Live-row commits must tolerate the absent scheduler instead of crashing.
+    expect(js).toContain(
+      'if (state.automaticResponsePrefetchScheduler) {\n      for (const row of liveRows) {\n        state.automaticResponsePrefetchScheduler.enqueue(row);\n      }\n    }',
+    );
     // The disconnect message teaches the keep-capturing workaround instead
     // of leaving the viewer to discover why the stream stopped.
     expect(js).toContain(

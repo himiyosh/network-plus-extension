@@ -4757,8 +4757,10 @@ const _NetworkPlus = (function () {
     const queuedRows = state.pendingLiveRows.splice(0, state.pendingLiveRows.length);
     if (queuedRows.length === 0) return [];
     const liveRows = addRowsWithRetention(queuedRows, 'live');
-    for (const row of liveRows) {
-      state.automaticResponsePrefetchScheduler.enqueue(row);
+    if (state.automaticResponsePrefetchScheduler) {
+      for (const row of liveRows) {
+        state.automaticResponsePrefetchScheduler.enqueue(row);
+      }
     }
     state.liveRowsAwaitingRender.push(...liveRows);
     return liveRows;
@@ -11755,6 +11757,14 @@ const _NetworkPlus = (function () {
       onInternalError: () =>
         console.error('Network+ automatic response prefetch scheduler failed internally.'),
     });
+    // The pop-out mirror tab renders what the port delivers and pulls a body
+    // only when a row asks for it. Automatic prefetch there would mass-copy
+    // bodies over the port against that design and, once the DevTools
+    // session closes, turn every queued fetch into a logged failure that
+    // piles up on the browser's extension-errors page.
+    if (getMirrorViewParams(window.location ? window.location.search : '').viewerMode) {
+      state.automaticResponsePrefetchScheduler = null;
+    }
     // Reassigned by the mirror-host wiring below; the capture listener calls
     // it for every finished request so a connected pop-out tab stays live.
     let notifyMirrorRowCaptured = () => {};
