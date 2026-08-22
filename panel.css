@@ -16,6 +16,8 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --dur-ok-text:#3f6212;--dur-med-text:#854d0e;--dur-slow-text:#b91c1c;
   --method-get-fg:#047857;--method-post-fg:#92400e;--method-put-fg:#1d4ed8;
   --method-patch-fg:#6d28d9;--method-delete-fg:#b91c1c;--method-head-fg:#0f766e;--method-options-fg:#4338ca;
+  --method-get-bg:#d1fae5;--method-post-bg:#fef3c7;--method-put-bg:#dbeafe;
+  --method-patch-bg:#ede9fe;--method-delete-bg:#fee2e2;--method-head-bg:#ccfbf1;--method-options-bg:#e0e7ff;
   --syn-key:#6d28d9;--syn-str:#0369a1;--syn-num:#047857;--syn-bool:#4338ca;--syn-null:#526170;
   --syn-status:#9a3412;--syn-hdr-name:#6d28d9;--syn-hdr-val:#334155;
   --topbar-bg:linear-gradient(180deg,#f8f9fb 0%,#eef0f4 100%);
@@ -39,6 +41,8 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --dur-ok-text:#bef264;--dur-med-text:#fde047;--dur-slow-text:#fca5a5;
   --method-get-fg:#6ee7b7;--method-post-fg:#fde68a;--method-put-fg:#93c5fd;
   --method-patch-fg:#c4b5fd;--method-delete-fg:#fca5a5;--method-head-fg:#5eead4;--method-options-fg:#a5b4fc;
+  --method-get-bg:#064e3b;--method-post-bg:#78350f;--method-put-bg:#1e3a8a;
+  --method-patch-bg:#4c1d95;--method-delete-bg:#7f1d1d;--method-head-bg:#134e4a;--method-options-bg:#312e81;
   --syn-key:#c4b5fd;--syn-str:#fdba74;--syn-num:#86efac;--syn-bool:#a5b4fc;--syn-null:#a8b4c5;
   --syn-status:#fcd34d;--syn-hdr-name:#c4b5fd;--syn-hdr-val:#cbd5e1;
   --topbar-bg:linear-gradient(180deg,#1e293b 0%,#172033 100%);
@@ -62,6 +66,8 @@ html[data-theme="dark"]{
   --dur-ok-text:#bef264;--dur-med-text:#fde047;--dur-slow-text:#fca5a5;
   --method-get-fg:#6ee7b7;--method-post-fg:#fde68a;--method-put-fg:#93c5fd;
   --method-patch-fg:#c4b5fd;--method-delete-fg:#fca5a5;--method-head-fg:#5eead4;--method-options-fg:#a5b4fc;
+  --method-get-bg:#064e3b;--method-post-bg:#78350f;--method-put-bg:#1e3a8a;
+  --method-patch-bg:#4c1d95;--method-delete-bg:#7f1d1d;--method-head-bg:#134e4a;--method-options-bg:#312e81;
   --syn-key:#c4b5fd;--syn-str:#fdba74;--syn-num:#86efac;--syn-bool:#a5b4fc;--syn-null:#a8b4c5;
   --syn-status:#fcd34d;--syn-hdr-name:#c4b5fd;--syn-hdr-val:#cbd5e1;
   --topbar-bg:linear-gradient(180deg,#1e293b 0%,#172033 100%);
@@ -85,6 +91,8 @@ html[data-theme="light"]{
   --dur-ok-text:#3f6212;--dur-med-text:#854d0e;--dur-slow-text:#b91c1c;
   --method-get-fg:#047857;--method-post-fg:#92400e;--method-put-fg:#1d4ed8;
   --method-patch-fg:#6d28d9;--method-delete-fg:#b91c1c;--method-head-fg:#0f766e;--method-options-fg:#4338ca;
+  --method-get-bg:#d1fae5;--method-post-bg:#fef3c7;--method-put-bg:#dbeafe;
+  --method-patch-bg:#ede9fe;--method-delete-bg:#fee2e2;--method-head-bg:#ccfbf1;--method-options-bg:#e0e7ff;
   --syn-key:#6d28d9;--syn-str:#0369a1;--syn-num:#047857;--syn-bool:#4338ca;--syn-null:#526170;
   --syn-status:#9a3412;--syn-hdr-name:#6d28d9;--syn-hdr-val:#334155;
   --topbar-bg:linear-gradient(180deg,#f8f9fb 0%,#eef0f4 100%);
@@ -335,13 +343,14 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 
 /* Method colors */
 .grid tbody tr .method-cell{font-weight:700;font-size:11px}
-.grid tbody tr.method-GET .method-cell{color:var(--method-get-fg)}
-.grid tbody tr.method-POST .method-cell{color:var(--method-post-fg)}
-.grid tbody tr.method-PUT .method-cell{color:var(--method-put-fg)}
-.grid tbody tr.method-DELETE .method-cell{color:var(--method-delete-fg)}
-.grid tbody tr.method-PATCH .method-cell{color:var(--method-patch-fg)}
-.grid tbody tr.method-OPTIONS .method-cell{color:var(--method-options-fg)}
-.grid tbody tr.method-HEAD .method-cell{color:var(--method-head-fg)}
+.method-badge{display:inline-block;min-width:34px;text-align:center;padding:1px 4px;border-radius:5px;font-weight:700;font-size:10.5px;line-height:1.5}
+.grid tbody tr.method-GET .method-badge{color:var(--method-get-fg);background:var(--method-get-bg)}
+.grid tbody tr.method-POST .method-badge{color:var(--method-post-fg);background:var(--method-post-bg)}
+.grid tbody tr.method-PUT .method-badge{color:var(--method-put-fg);background:var(--method-put-bg)}
+.grid tbody tr.method-DELETE .method-badge{color:var(--method-delete-fg);background:var(--method-delete-bg)}
+.grid tbody tr.method-PATCH .method-badge{color:var(--method-patch-fg);background:var(--method-patch-bg)}
+.grid tbody tr.method-OPTIONS .method-badge{color:var(--method-options-fg);background:var(--method-options-bg)}
+.grid tbody tr.method-HEAD .method-badge{color:var(--method-head-fg);background:var(--method-head-bg)}
 
 /* Duration colors */
 .duration-cell{font-variant-numeric:tabular-nums}
