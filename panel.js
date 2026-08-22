@@ -5521,11 +5521,15 @@ const _NetworkPlus = (function () {
   // and max id; any mismatch makes the tab request a full snapshot, which is
   // how clears, undos, imports, and retention evictions propagate without
   // hooking each of those code paths.
-  const MIRROR_PROTOCOL_VERSION = 1;
+  const MIRROR_PROTOCOL_VERSION = 2;
   const MIRROR_PORT_PREFIX = 'networkplus-mirror:';
   const MIRROR_SNAPSHOT_CHUNK_SIZE = 500;
   const MIRROR_SYNC_INTERVAL_MS = 1000;
   const MIRROR_RECONNECT_INTERVAL_MS = 1500;
+  // Import files travel the port as base64 chunks; the byte cap keeps one
+  // transferred archive from dwarfing what the host itself would accept.
+  const MIRROR_IMPORT_MAX_BYTES = 64 * 1024 * 1024;
+  const MIRROR_IMPORT_CHUNK_CHARS = 512 * 1024;
 
   function getMirrorViewParams(search) {
     const params = new URLSearchParams(typeof search === 'string' ? search : '');
@@ -5828,8 +5832,34 @@ const _NetworkPlus = (function () {
     return Array.from(changedRows);
   }
 
-  function createMirrorHostSession({ postMessage, getRows, isPaused, fetchBodyForRow }) {
+  // Base64 travels the mirror port for import bytes; both directions stay
+  // chunk-safe so a large SAZ never builds one giant call-stack string.
+  function bytesToBase64(bytes) {
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += 8192) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 8192));
+    }
+    return btoa(binary);
+  }
+
+  function base64ToBytes(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+
+  function createMirrorHostSession({
+    postMessage,
+    getRows,
+    isPaused,
+    fetchBodyForRow,
+    getControlState,
+    executeCommand,
+    receiveImportFile,
+  }) {
     let snapshotGeneration = 0;
+    const importTransfers = new Map();
     const sendSnapshot = () => {
       snapshotGeneration += 1;
       const generation = snapshotGeneration;
@@ -5853,7 +5883,16 @@ const _NetworkPlus = (function () {
       const rows = getRows();
       let maxId = 0;
       for (const row of rows) if (row.id > maxId) maxId = row.id;
-      postMessage({ type: 'sync', count: rows.length, maxId, paused: isPaused() === true });
+      postMessage({
+        type: 'sync',
+        count: rows.length,
+        maxId,
+        paused: isPaused() === true,
+        control: typeof getControlState === 'function' ? getControlState() : null,
+      });
+    };
+    const sendCommandResult = (commandId, error) => {
+      postMessage({ type: 'command-result', commandId, ok: !error, error: error || '' });
     };
     const handleMessage = (message) => {
       if (!message || typeof message !== 'object') return;
@@ -5883,6 +5922,58 @@ const _NetworkPlus = (function () {
                 error: error && error.message ? error.message : 'Response content is unavailable.',
               }),
           );
+        return;
+      }
+      if (message.type === 'command') {
+        const commandId = message.commandId;
+        if (typeof executeCommand !== 'function') {
+          sendCommandResult(commandId, 'This DevTools session does not accept mirror commands.');
+          return;
+        }
+        executeCommand(String(message.name || ''), message.args || {}, (error) => {
+          sendCommandResult(commandId, error);
+          sendSync();
+        });
+        return;
+      }
+      if (message.type === 'import-begin') {
+        if (!Number.isFinite(message.size) || message.size > MIRROR_IMPORT_MAX_BYTES) {
+          sendCommandResult(
+            message.commandId,
+            'The file exceeds the ' + MIRROR_IMPORT_MAX_BYTES / (1024 * 1024) + ' MiB mirror transfer limit.',
+          );
+          return;
+        }
+        importTransfers.set(message.commandId, { fileName: String(message.fileName || 'import.har'), parts: [] });
+        return;
+      }
+      if (message.type === 'import-chunk') {
+        const transfer = importTransfers.get(message.commandId);
+        if (transfer) transfer.parts.push(String(message.data || ''));
+        return;
+      }
+      if (message.type === 'import-end') {
+        const transfer = importTransfers.get(message.commandId);
+        importTransfers.delete(message.commandId);
+        if (!transfer) {
+          sendCommandResult(message.commandId, 'The import transfer was interrupted.');
+          return;
+        }
+        let bytes;
+        try {
+          bytes = base64ToBytes(transfer.parts.join(''));
+        } catch (_error) {
+          sendCommandResult(message.commandId, 'The transferred file could not be decoded.');
+          return;
+        }
+        if (typeof receiveImportFile !== 'function') {
+          sendCommandResult(message.commandId, 'This DevTools session does not accept mirror imports.');
+          return;
+        }
+        receiveImportFile(transfer.fileName, bytes, (error) => {
+          sendCommandResult(message.commandId, error);
+          sendSync();
+        });
       }
     };
     return {
@@ -5899,11 +5990,13 @@ const _NetworkPlus = (function () {
     applyWireSnapshot,
     getLocalCount,
     getLocalMaxId,
-    onHostPausedChange,
+    onHostSync,
   }) {
     let pendingSnapshot = null;
     let nextBodyRequestId = 1;
+    let nextCommandId = 1;
     const pendingBodyCallbacks = new Map();
+    const pendingCommandCallbacks = new Map();
     const requestBody = (rowId, callback) => {
       const requestId = nextBodyRequestId;
       nextBodyRequestId += 1;
@@ -5912,6 +6005,39 @@ const _NetworkPlus = (function () {
         postMessage({ type: 'body-request', requestId, rowId });
       } catch (error) {
         pendingBodyCallbacks.delete(requestId);
+        throw error;
+      }
+    };
+    const trackCommand = (callback) => {
+      const commandId = nextCommandId;
+      nextCommandId += 1;
+      pendingCommandCallbacks.set(commandId, typeof callback === 'function' ? callback : () => {});
+      return commandId;
+    };
+    const sendCommand = (name, args, callback) => {
+      const commandId = trackCommand(callback);
+      try {
+        postMessage({ type: 'command', commandId, name, args: args || {} });
+      } catch (error) {
+        pendingCommandCallbacks.delete(commandId);
+        throw error;
+      }
+    };
+    const sendImportFile = (fileName, bytes, callback) => {
+      const commandId = trackCommand(callback);
+      try {
+        postMessage({ type: 'import-begin', commandId, fileName, size: bytes.length });
+        const base64 = bytesToBase64(bytes);
+        for (let index = 0; index < base64.length; index += MIRROR_IMPORT_CHUNK_CHARS) {
+          postMessage({
+            type: 'import-chunk',
+            commandId,
+            data: base64.slice(index, index + MIRROR_IMPORT_CHUNK_CHARS),
+          });
+        }
+        postMessage({ type: 'import-end', commandId });
+      } catch (error) {
+        pendingCommandCallbacks.delete(commandId);
         throw error;
       }
     };
@@ -5941,7 +6067,7 @@ const _NetworkPlus = (function () {
           if (message.row && typeof message.row === 'object') appendWireRow(message.row);
           break;
         case 'sync': {
-          if (typeof onHostPausedChange === 'function') onHostPausedChange(message.paused === true);
+          if (typeof onHostSync === 'function') onHostSync(message);
           const mismatch = message.count !== getLocalCount() || message.maxId !== getLocalMaxId();
           if (mismatch && !pendingSnapshot) postMessage({ type: 'snapshot-request' });
           break;
@@ -5954,14 +6080,24 @@ const _NetworkPlus = (function () {
           else callback(new Error(message.error || 'Response content is unavailable.'), null);
           break;
         }
+        case 'command-result': {
+          const callback = pendingCommandCallbacks.get(message.commandId);
+          if (!callback) return;
+          pendingCommandCallbacks.delete(message.commandId);
+          callback(message.ok ? null : new Error(message.error || 'The DevTools session rejected the command.'));
+          break;
+        }
       }
     };
     const failPendingBodyRequests = (reason) => {
       const failures = Array.from(pendingBodyCallbacks.values());
       pendingBodyCallbacks.clear();
       for (const callback of failures) callback(new Error(reason), null);
+      const commandFailures = Array.from(pendingCommandCallbacks.values());
+      pendingCommandCallbacks.clear();
+      for (const callback of commandFailures) callback(new Error(reason));
     };
-    return { handleMessage, requestBody, failPendingBodyRequests };
+    return { handleMessage, requestBody, sendCommand, sendImportFile, failPendingBodyRequests };
   }
 
   function fetchResponsePayload(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
@@ -10060,6 +10196,12 @@ const _NetworkPlus = (function () {
 
     // Request-retention settings
     const retentionButton = $('#retentionBtn');
+    // Assigned below once the retention form exists; the mirror-host
+    // command executor calls it for the tab's remote retention changes.
+    let applyRetentionSetting = null;
+    // Assigned by the import wiring; shared by the file picker and the
+    // mirror tab's transferred imports.
+    let importCapturedFile = null;
     const retentionDialog = $('#retentionDialog');
     const retentionLimitInput = $('#retentionLimit');
     const retentionUnlimitedInput = $('#retentionUnlimited');
@@ -10090,31 +10232,28 @@ const _NetworkPlus = (function () {
       retentionButton.focus();
     });
     $('#retentionCancelBtn').addEventListener('click', () => retentionDialog.close());
-    $('#retentionSaveBtn').addEventListener('click', () => {
+    // Shared by the dialog Save button and the mirror tab's remote
+    // retention command; returns an error string instead of applying when
+    // the requested limit is out of range.
+    applyRetentionSetting = (requestedSetting) => {
       commitPendingLiveRows();
       const normalized = normalizeRetentionSetting({
-        unlimited: retentionUnlimitedInput.checked,
-        requestLimit: Number(retentionLimitInput.value),
+        unlimited: requestedSetting.unlimited === true,
+        requestLimit: Number(requestedSetting.requestLimit),
       });
-      if (normalized.warning && !retentionUnlimitedInput.checked) {
-        retentionLimitInput.setAttribute('aria-invalid', 'true');
-        retentionError.textContent =
-          'The request limit must be a whole number from 100 to 100,000. Enter a value in that range.';
-        retentionError.hidden = false;
-        setStatus(
+      if (normalized.warning && requestedSetting.unlimited !== true) {
+        return (
           'Retention limit must be a whole number from ' +
-            MIN_REQUEST_RETENTION_LIMIT.toLocaleString() +
-            ' to ' +
-            MAX_REQUEST_RETENTION_LIMIT.toLocaleString() +
-            '.',
+          MIN_REQUEST_RETENTION_LIMIT.toLocaleString() +
+          ' to ' +
+          MAX_REQUEST_RETENTION_LIMIT.toLocaleString() +
+          '.'
         );
-        return;
       }
       state.retention.requestLimit = normalized.setting.requestLimit;
       state.retention.unlimited = normalized.setting.unlimited;
       const settingSaved = saveRetentionSetting();
       addRowsWithRetention([], 'settings');
-      retentionDialog.close();
       renderBody();
       updateRetentionStatus();
       queueRetentionSummary(
@@ -10129,6 +10268,22 @@ const _NetworkPlus = (function () {
             : 'Retention setting saved'
           : state.retention.settingWarning,
       );
+      return '';
+    };
+    $('#retentionSaveBtn').addEventListener('click', () => {
+      const applyError = applyRetentionSetting({
+        unlimited: retentionUnlimitedInput.checked,
+        requestLimit: Number(retentionLimitInput.value),
+      });
+      if (applyError) {
+        retentionLimitInput.setAttribute('aria-invalid', 'true');
+        retentionError.textContent =
+          'The request limit must be a whole number from 100 to 100,000. Enter a value in that range.';
+        retentionError.hidden = false;
+        setStatus(applyError);
+        return;
+      }
+      retentionDialog.close();
     });
     updateRetentionStatus();
     if (state.retention.settingWarning) queueRetentionSummary(state.retention.settingWarning);
@@ -11652,12 +11807,10 @@ const _NetworkPlus = (function () {
         importFile.click();
       });
 
-      importFile.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file || importInProgress) {
-          importFile.value = '';
-          return;
-        }
+      // Shared by the local file picker and the mirror tab's transferred
+      // imports; resolves with '' on success or the user-facing reason.
+      importCapturedFile = async (file) => {
+        if (importInProgress) return 'Another import is already in progress.';
         const sourceValidation = validateImportSource(file.name, file.size);
         setImportBusy(true);
         try {
@@ -11671,15 +11824,26 @@ const _NetworkPlus = (function () {
           setStatus(
             `Imported ${stagedImport.totalCount} requests from ${stagedImport.format}; retained ${retainedCount}`,
           );
+          return '';
         } catch (error) {
           const message =
             error && error.name === 'ImportError' ? error.message : 'The selected file could not be imported.';
           setStatus('Import failed: ' + message);
           console.error('Network+ import failed: ' + message);
+          return message;
         } finally {
-          importFile.value = '';
           setImportBusy(false);
         }
+      };
+
+      importFile.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file || importInProgress) {
+          importFile.value = '';
+          return;
+        }
+        await importCapturedFile(file);
+        importFile.value = '';
       });
     }
 
@@ -11768,6 +11932,12 @@ const _NetworkPlus = (function () {
     // Reassigned by the mirror-host wiring below; the capture listener calls
     // it for every finished request so a connected pop-out tab stays live.
     let notifyMirrorRowCaptured = () => {};
+    // Late-bound bridges between the mirror wiring and the stream/resend
+    // wiring that runs later in init: the host command executor reads them
+    // at command time, and the viewer wiring fills its own resend channel.
+    let mirrorStreamCaptureState = () => ({ supported: false, enabled: false });
+    let mirrorViewerResendDispatch = null;
+    let mirrorHostResendDispatch = null;
 
     const scheduleLiveRows = (scrollToBottom) => {
       if (scrollToBottom) pendingScrollToBottom = true;
@@ -11881,12 +12051,12 @@ const _NetworkPlus = (function () {
 
     if (mirrorViewerActive) {
       document.documentElement.setAttribute('data-view', 'window');
-      // Capture, retention, and import belong to the DevTools session; the
-      // mirror tab only renders, so its capture-owning controls disappear.
-      for (const hiddenControlId of ['pauseBtn', 'clearBtn', 'importBtn', 'retentionBtn', 'popoutBtn']) {
-        const hiddenControl = $('#' + hiddenControlId);
-        if (hiddenControl) hiddenControl.hidden = true;
-      }
+      // Capture still lives in the DevTools session, but the tab's own
+      // toolbar drives it remotely over the port: pause, clear, undo,
+      // retention, import, stream capture, and resend all execute in the
+      // host. Only the pop-out button itself has no meaning here.
+      const popoutControl = $('#popoutBtn');
+      if (popoutControl) popoutControl.hidden = true;
       let activeMirrorPort = null;
       let mirrorHostPaused = false;
       let mirrorEverConnected = false;
@@ -11985,12 +12155,130 @@ const _NetworkPlus = (function () {
           for (const row of pendingLiveRows) if (row.id > maxId) maxId = row.id;
           return maxId;
         },
-        onHostPausedChange: (paused) => {
-          if (paused === mirrorHostPaused) return;
-          mirrorHostPaused = paused;
-          updateMirrorStatus();
+        onHostSync: (message) => {
+          const paused = message.paused === true;
+          if (paused !== mirrorHostPaused) {
+            mirrorHostPaused = paused;
+            updateMirrorStatus();
+          }
+          applyHostControlState(message.control);
         },
       });
+      const wsCaptureBtnViewer = $('#wsCaptureBtn');
+      const applyHostControlState = (control) => {
+        if (!control || typeof control !== 'object') return;
+        state.paused = control.paused === true;
+        // Announce nothing: the mirror status line owns the viewer's story.
+        updateRecordState(false);
+        if (control.retention && typeof control.retention === 'object') {
+          const requestLimit = Number(control.retention.requestLimit);
+          if (Number.isFinite(requestLimit)) state.retention.requestLimit = requestLimit;
+          state.retention.unlimited = control.retention.unlimited === true;
+          updateRetentionStatus();
+        }
+        const undoButton = $('#undoClearBtn');
+        if (undoButton) {
+          undoButton.hidden = control.undoAvailable !== true;
+          undoButton.disabled = control.undoAvailable !== true;
+        }
+        if (wsCaptureBtnViewer && control.streamCapture && typeof control.streamCapture === 'object') {
+          wsCaptureBtnViewer.hidden = control.streamCapture.supported !== true;
+          const streamEnabled = control.streamCapture.enabled === true;
+          wsCaptureBtnViewer.textContent = streamEnabled ? 'Stream capture: On' : 'Stream capture: Off';
+          wsCaptureBtnViewer.setAttribute('aria-pressed', streamEnabled ? 'true' : 'false');
+        }
+      };
+      const sendViewerCommand = (name, args, description, onDone) => {
+        try {
+          viewerSession.sendCommand(name, args, (error) => {
+            if (error) setStatus(description + ' failed: ' + error.message);
+            if (typeof onDone === 'function') onDone(error || null);
+          });
+        } catch (error) {
+          setStatus(description + ' failed: ' + (error && error.message ? error.message : 'not connected'));
+          if (typeof onDone === 'function') onDone(error);
+        }
+      };
+      const viewerImportInput = document.createElement('input');
+      viewerImportInput.type = 'file';
+      viewerImportInput.accept = '.har,.saz';
+      viewerImportInput.id = 'viewerImportFile';
+      viewerImportInput.hidden = true;
+      document.body.appendChild(viewerImportInput);
+      const viewerControlCommands = {
+        pauseBtn: () => sendViewerCommand('pause-toggle', {}, 'Pause/resume'),
+        clearBtn: () => sendViewerCommand('clear', {}, 'Clear'),
+        undoClearBtn: () => sendViewerCommand('undo-clear', {}, 'Undo clear'),
+        wsCaptureBtn: () => sendViewerCommand('stream-toggle', {}, 'Stream capture'),
+        importBtn: () => viewerImportInput.click(),
+        retentionSaveBtn: () =>
+          sendViewerCommand(
+            'retention-set',
+            {
+              unlimited: $('#retentionUnlimited').checked,
+              requestLimit: Number($('#retentionLimit').value),
+            },
+            'Retention change',
+            (error) => {
+              const retentionErrorEl = $('#retentionError');
+              if (error) {
+                if (retentionErrorEl) {
+                  retentionErrorEl.textContent = error.message;
+                  retentionErrorEl.hidden = false;
+                }
+                return;
+              }
+              const dialog = $('#retentionDialog');
+              if (dialog && typeof dialog.close === 'function') dialog.close();
+            },
+          ),
+      };
+      // Same-element listeners fire in registration order regardless of the
+      // capture flag, so a per-button interceptor cannot beat the shared
+      // local handlers. A document-level capture listener runs before any
+      // target listener and stops the event there, which is what turns the
+      // tab's controls into pure remote controls.
+      document.addEventListener(
+        'click',
+        (event) => {
+          const target = event.target;
+          const control = target && typeof target.closest === 'function' ? target.closest('button, input') : null;
+          if (!control || !viewerControlCommands[control.id]) return;
+          event.preventDefault();
+          event.stopPropagation();
+          viewerControlCommands[control.id]();
+        },
+        true,
+      );
+      viewerImportInput.addEventListener('change', async () => {
+        const file = viewerImportInput.files && viewerImportInput.files[0];
+        viewerImportInput.value = '';
+        if (!file) return;
+        if (file.size > MIRROR_IMPORT_MAX_BYTES) {
+          setStatus('Import failed: the file exceeds the 64 MiB mirror transfer limit.');
+          return;
+        }
+        setStatus('Sending ' + file.name + ' to the DevTools session...');
+        let importBytes;
+        try {
+          importBytes = new Uint8Array(await file.arrayBuffer());
+        } catch (_error) {
+          setStatus('Import failed: the selected file could not be read.');
+          return;
+        }
+        try {
+          viewerSession.sendImportFile(file.name, importBytes, (error) => {
+            setStatus(
+              error
+                ? 'Import failed: ' + error.message
+                : 'Import finished in the DevTools session; the table resyncs momentarily.',
+            );
+          });
+        } catch (error) {
+          setStatus('Import failed: ' + (error && error.message ? error.message : 'not connected'));
+        }
+      });
+      mirrorViewerResendDispatch = (spec, done) => viewerSession.sendCommand('resend', { spec }, done);
       mirrorRuntime.onConnect.addListener((port) => {
         if (!port || typeof port.name !== 'string' || !port.name.startsWith(MIRROR_PORT_PREFIX)) return;
         if (mirrorParams.sourceTabId && port.name !== MIRROR_PORT_PREFIX + mirrorParams.sourceTabId) return;
@@ -12081,6 +12369,95 @@ const _NetworkPlus = (function () {
             content: payload.content,
             encoding: payload.encoding,
           }));
+        },
+        getControlState: () => ({
+          paused: state.paused === true,
+          retention: {
+            requestLimit: state.retention.requestLimit,
+            unlimited: state.retention.unlimited === true,
+          },
+          undoAvailable: !!state.clearUndoSnapshot,
+          streamCapture: mirrorStreamCaptureState(),
+        }),
+        // Remote commands reuse the host's own controls so undo snapshots,
+        // announcements, and guards behave exactly like a local click.
+        executeCommand: (name, args, done) => {
+          try {
+            if (name === 'pause-toggle') {
+              if (state.sampleCaptureActive) {
+                done('Clear the local sample capture in DevTools before resuming live recording.');
+                return;
+              }
+              $('#pauseBtn').click();
+              done('');
+              return;
+            }
+            if (name === 'clear') {
+              $('#clearBtn').click();
+              done('');
+              return;
+            }
+            if (name === 'undo-clear') {
+              const undoButton = $('#undoClearBtn');
+              if (!undoButton || undoButton.hidden || undoButton.disabled) {
+                done('There is no clear to undo in the DevTools session.');
+                return;
+              }
+              undoButton.click();
+              done('');
+              return;
+            }
+            if (name === 'retention-set') {
+              done(
+                typeof applyRetentionSetting === 'function'
+                  ? applyRetentionSetting(args || {})
+                  : 'Retention is not available in this DevTools session.',
+              );
+              return;
+            }
+            if (name === 'stream-toggle') {
+              if (mirrorStreamCaptureState().supported !== true) {
+                done('Stream capture is not available in this DevTools session.');
+                return;
+              }
+              $('#wsCaptureBtn').click();
+              done('');
+              return;
+            }
+            if (name === 'resend') {
+              const spec = args && args.spec && typeof args.spec === 'object' ? args.spec : null;
+              if (
+                !spec ||
+                !RESEND_METHOD_PATTERN.test(String(spec.method || '')) ||
+                !/^https?:\/\//i.test(String(spec.url || ''))
+              ) {
+                done('The re-send request was not valid.');
+                return;
+              }
+              if (typeof mirrorHostResendDispatch !== 'function') {
+                done('Re-send is not available in this DevTools session.');
+                return;
+              }
+              mirrorHostResendDispatch(spec);
+              done('');
+              return;
+            }
+            done('Unknown mirror command: ' + name);
+          } catch (error) {
+            done(error && error.message ? error.message : 'The command failed in the DevTools session.');
+          }
+        },
+        receiveImportFile: (fileName, bytes, done) => {
+          if (typeof importCapturedFile !== 'function') {
+            done('Import is not available in this DevTools session.');
+            return;
+          }
+          Promise.resolve()
+            .then(() => importCapturedFile(new File([bytes], fileName)))
+            .then(
+              (importError) => done(importError || ''),
+              (error) => done(error && error.message ? error.message : 'The transferred file could not be imported.'),
+            );
         },
       });
       const stopMirrorSync = () => {
@@ -12281,6 +12658,7 @@ const _NetworkPlus = (function () {
         updateStreamCaptureButton();
       });
       updateStreamCaptureButton();
+      mirrorStreamCaptureState = () => ({ supported: true, enabled: streamCapture.enabled === true });
       if (
         chrome.devtools.network &&
         chrome.devtools.network.onNavigated &&
@@ -12299,9 +12677,10 @@ const _NetworkPlus = (function () {
       }
     }
 
-    // --- Edit-and-resend wiring (DevTools sessions only) ---
+    // --- Edit-and-resend wiring (DevTools sessions, and the mirror tab
+    // through its command channel) ---
     const resendDialog = $('#resendDialog');
-    if (resendDialog && inspectedEval && !mirrorViewerActive) {
+    if (resendDialog && (mirrorViewerResendDispatch || (inspectedEval && !mirrorViewerActive))) {
       const resendMethodInput = $('#resendMethod');
       const resendUrlInput = $('#resendUrl');
       const resendHeadersInput = $('#resendHeaders');
@@ -12322,6 +12701,20 @@ const _NetworkPlus = (function () {
         }
       };
       const dispatchResendSpec = (spec) => {
+        if (mirrorViewerResendDispatch) {
+          mirrorViewerResendDispatch(spec, (error) => {
+            setStatus(
+              error
+                ? 'Re-send failed: ' + error.message
+                : 'Re-sent ' +
+                    spec.method +
+                    ' to ' +
+                    describeResendTarget(spec.url) +
+                    ' from the DevTools session; the result appears once it is captured.',
+            );
+          });
+          return;
+        }
         inspectedEval(buildResendEvalSource(spec), (result, errorInfo) => {
           if (errorInfo || (result && result.ok === false)) {
             const reason =
@@ -12342,6 +12735,7 @@ const _NetworkPlus = (function () {
           );
         });
       };
+      if (!mirrorViewerResendDispatch) mirrorHostResendDispatch = dispatchResendSpec;
       resendActions = {
         sendNow: (row) => {
           const spec = buildResendSpecFromRow(row);
@@ -12609,6 +13003,10 @@ const _NetworkPlus = (function () {
     MIRROR_PROTOCOL_VERSION,
     MIRROR_PORT_PREFIX,
     MIRROR_SNAPSHOT_CHUNK_SIZE,
+    MIRROR_IMPORT_MAX_BYTES,
+    MIRROR_IMPORT_CHUNK_CHARS,
+    bytesToBase64,
+    base64ToBytes,
     getMirrorViewParams,
     serializeRowForMirror,
     buildMirrorEntryFromWire,

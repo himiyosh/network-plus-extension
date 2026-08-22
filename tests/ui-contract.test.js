@@ -1233,9 +1233,11 @@ describe('capture retention static contracts', () => {
     expect(js).toContain('MAX_SAZ_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024');
     expect(js).toContain('MAX_SAZ_CONCURRENT_EXTRACTIONS = 4');
     expect(js).not.toContain("console.error('Failed to parse SAZ pair'");
+    // The shared import routine (file picker and mirror transfers alike)
+    // must fail without touching capture state.
     const catchBlock = js.slice(
-      js.indexOf('} catch (error) {', js.indexOf("importFile.addEventListener('change'")),
-      js.indexOf('} finally {', js.indexOf("importFile.addEventListener('change'")),
+      js.indexOf('} catch (error) {', js.indexOf('importCapturedFile = async (file)')),
+      js.indexOf('} finally {', js.indexOf('importCapturedFile = async (file)')),
     );
     expect(catchBlock).not.toContain('clearStoredRows');
     expect(catchBlock).not.toContain('state.paused');
@@ -1525,7 +1527,9 @@ describe('scale trust static contracts', () => {
   });
 
   test('commits pending live rows before stateful action boundaries inspect capture state', () => {
-    const retentionSaveStart = js.indexOf("$('#retentionSaveBtn').addEventListener('click'");
+    // The dialog Save button routes through applyRetentionSetting, which is
+    // also the mirror tab's remote retention entry point.
+    const retentionSaveStart = js.indexOf('applyRetentionSetting = (requestedSetting) => {');
     const retentionSaveEnd = js.indexOf('// [U4] Clear', retentionSaveStart);
     const clearStart = js.indexOf("clearButton.addEventListener('click'");
     const clearEnd = js.indexOf("undoClearButton.addEventListener('click'", clearStart);
@@ -3035,8 +3039,27 @@ describe('devtools-session mirror contracts', () => {
     expect(js).toContain('popoutBtn.hidden = false;');
   });
 
-  test('the mirror tab hides capture-owning controls and reports its session state', () => {
-    expect(js).toContain("['pauseBtn', 'clearBtn', 'importBtn', 'retentionBtn', 'popoutBtn']");
+  test('the mirror tab drives capture remotely and reports its session state', () => {
+    // Only the pop-out button itself is meaningless inside the tab; every
+    // capture control stays visible and executes in the host over the port.
+    expect(js).toContain('const popoutControl = $(\'#popoutBtn\');\n      if (popoutControl) popoutControl.hidden = true;');
+    expect(js).toContain("pauseBtn: () => sendViewerCommand('pause-toggle', {}, 'Pause/resume'),");
+    expect(js).toContain("clearBtn: () => sendViewerCommand('clear', {}, 'Clear'),");
+    expect(js).toContain("undoClearBtn: () => sendViewerCommand('undo-clear', {}, 'Undo clear'),");
+    expect(js).toContain("wsCaptureBtn: () => sendViewerCommand('stream-toggle', {}, 'Stream capture'),");
+    expect(js).toContain('retentionSaveBtn: () =>');
+    expect(js).toContain("viewerSession.sendImportFile(file.name, importBytes, (error) => {");
+    expect(js).toContain("mirrorViewerResendDispatch = (spec, done) => viewerSession.sendCommand('resend', { spec }, done);");
+    // Same-element listeners fire in registration order, so remote control
+    // must intercept at the document capture phase, ahead of any target
+    // listener, and stop the event there.
+    expect(js).toContain('viewerControlCommands[control.id]();');
+    expect(js).toContain('event.stopPropagation();');
+    // Host-side execution reuses the real controls so undo snapshots and
+    // guards behave exactly like a local click, and every command answers.
+    expect(js).toContain("done('Unknown mirror command: ' + name);");
+    expect(js).toContain('streamCapture: mirrorStreamCaptureState(),');
+    expect(js).toContain('undoAvailable: !!state.clearUndoSnapshot,');
     // The toolbar display rule would defeat the hidden attribute without this
     // guard, leaving "hidden" controls visible (caught by browser smoke).
     expect(css).toContain('.topbar button[hidden]{display:none}');
@@ -3250,7 +3273,7 @@ describe('edit-and-resend contracts', () => {
   });
 
   test('resend rides the DevTools eval channel and stays out of the mirror viewer', () => {
-    expect(js).toContain("if (resendDialog && inspectedEval && !mirrorViewerActive) {");
+    expect(js).toContain('if (resendDialog && (mirrorViewerResendDispatch || (inspectedEval && !mirrorViewerActive))) {');
     expect(js).toContain('inspectedEval(buildResendEvalSource(spec), (result, errorInfo) => {');
     expect(js).toContain('if (resendActions && canResendRow(contextMenuRow)) {');
     expect(js).toContain("createRowMenuButton('Resend unchanged', () => {");

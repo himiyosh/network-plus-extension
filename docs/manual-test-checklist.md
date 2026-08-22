@@ -42,6 +42,9 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 
 - [ ] With DevTools undocked into its own window, clicking 🪟 opens the mirror tab and minimizes the DevTools window automatically; capture continues (new page requests keep streaming into the tab) and the window restores normally from the taskbar.
 - [ ] With DevTools docked, clicking 🪟 opens the mirror tab and the browser window does not minimize or move.
+- [ ] In the mirror tab, pause/resume, Clear (and the Undo that then appears), the Retention dialog (opens with the session's current values), and the Stream capture toggle all act on the DevTools session, and the tab's buttons match the session state within a second.
+- [ ] Importing a HAR or SAZ from the mirror tab replaces the session's capture exactly like a DevTools-side import, and both windows show the imported rows; a file over 64 MiB is refused with a visible reason.
+- [ ] `Resend unchanged` / `Edit and resend...` from the mirror tab execute in the DevTools session (status names the session) and the result row appears in both windows; while disconnected, every remote control reports a failure status instead of acting locally.
 
 ## Navigation persistence
 
