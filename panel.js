@@ -5663,6 +5663,92 @@ const _NetworkPlus = (function () {
     return '(' + String(pageWebSocketWrapper) + ')(' + WS_QUEUE_CAP + ',' + WS_FRAME_PREVIEW_CHARS + ')';
   }
 
+  // The SSE wrapper speaks the same ws-* event dialect as the WebSocket
+  // wrapper so ingestWsEvents applies unchanged: every server event is a
+  // received frame, and open/error/close become the same lifecycle marks.
+  // Named events (event: foo) are observable only once the page registers a
+  // listener for them, which the wrapped addEventListener surfaces.
+  function pageEventSourceWrapper(queueCap, previewChars) {
+    if (window.__networkPlusSSE__) {
+      window.__networkPlusSSE__.setEnabled(true);
+      return 'already-installed';
+    }
+    if (!window.EventSource) return 'no-eventsource';
+    const queue = [];
+    let enabled = true;
+    let nextSocketId = 1;
+    const preview = function (data) {
+      try {
+        return typeof data === 'string' ? data.slice(0, previewChars) : String(data).slice(0, previewChars);
+      } catch (_error) {
+        return '[unreadable event]';
+      }
+    };
+    const record = function (entry) {
+      if (!enabled) return;
+      entry.at = Date.now();
+      queue.push(entry);
+      if (queue.length > queueCap) queue.splice(0, queue.length - queueCap);
+    };
+    const Native = window.EventSource;
+    const Wrapped = function (url, config) {
+      const source = config === undefined ? new Native(url) : new Native(url, config);
+      const socketId = nextSocketId;
+      nextSocketId += 1;
+      record({ kind: 'ws-open-attempt', socketId, url: String(url), protocols: '' });
+      const nativeAdd = source.addEventListener.bind(source);
+      const seenTypes = {};
+      const observe = function (type) {
+        if (seenTypes[type]) return;
+        seenTypes[type] = true;
+        nativeAdd(type, function (event) {
+          record({
+            kind: 'ws-received',
+            socketId,
+            preview: (type === 'message' ? '' : type + ': ') + preview(event && event.data),
+          });
+        });
+      };
+      observe('message');
+      nativeAdd('open', function () {
+        record({ kind: 'ws-open', socketId });
+      });
+      nativeAdd('error', function () {
+        record({ kind: 'ws-error', socketId });
+      });
+      source.addEventListener = function (type, listener, options) {
+        const name = String(type);
+        // 64 keeps a hostile page from registering unbounded observer types.
+        if (name && name !== 'message' && name !== 'open' && name !== 'error' && name.length <= 64) observe(name);
+        return nativeAdd(type, listener, options);
+      };
+      const nativeClose = source.close.bind(source);
+      source.close = function () {
+        record({ kind: 'ws-closed', socketId });
+        return nativeClose();
+      };
+      return source;
+    };
+    Wrapped.prototype = Native.prototype;
+    Wrapped.CONNECTING = 0;
+    Wrapped.OPEN = 1;
+    Wrapped.CLOSED = 2;
+    window.EventSource = Wrapped;
+    window.__networkPlusSSE__ = {
+      drain: function () {
+        return queue.splice(0, queue.length);
+      },
+      setEnabled: function (value) {
+        enabled = value === true;
+      },
+    };
+    return 'installed';
+  }
+
+  function buildSseWrapperSource() {
+    return '(' + String(pageEventSourceWrapper) + ')(' + WS_QUEUE_CAP + ',' + WS_FRAME_PREVIEW_CHARS + ')';
+  }
+
   function formatWsFrameLine(event) {
     const stamp = Number.isFinite(event.at) ? new Date(event.at).toISOString().slice(11, 23) : '??:??:??.???';
     if (event.kind === 'ws-sent') return '↑ ' + stamp + ' ' + (event.preview || '');
@@ -5670,6 +5756,8 @@ const _NetworkPlus = (function () {
     if (event.kind === 'ws-open') return '— ' + stamp + ' connection open';
     if (event.kind === 'ws-error') return '— ' + stamp + ' connection error';
     if (event.kind === 'ws-closed') {
+      // SSE close carries no close code; WebSocket close always does.
+      if (event.code == null) return '— ' + stamp + ' closed';
       return '— ' + stamp + ' closed (code ' + event.code + (event.reason ? ', ' + event.reason : '') + ')';
     }
     return '';
@@ -6540,7 +6628,7 @@ const _NetworkPlus = (function () {
     }
     if (row.method) {
       const method = row.method.toUpperCase();
-      if (HTTP_METHODS.indexOf(method) > -1 || method === 'WS') tr.classList.add('method-' + method);
+      if (HTTP_METHODS.indexOf(method) > -1 || method === 'WS' || method === 'SSE') tr.classList.add('method-' + method);
     }
     // Status code row class
     const statusClass = classifyStatusClass(row.status);
@@ -12056,7 +12144,7 @@ const _NetworkPlus = (function () {
       });
     }
 
-    // --- WebSocket capture wiring (opt-in; DevTools sessions only) ---
+    // --- Stream capture wiring (WebSocket + SSE; opt-in; DevTools sessions only) ---
     const wsCaptureBtn = $('#wsCaptureBtn');
     const inspectedEval =
       typeof chrome !== 'undefined' &&
@@ -12067,104 +12155,122 @@ const _NetworkPlus = (function () {
         : null;
     if (wsCaptureBtn && inspectedEval && !mirrorViewerActive) {
       wsCaptureBtn.hidden = false;
-      const wsCapture = { enabled: false, timer: null, socketRows: new Map() };
-      const updateWsCaptureButton = () => {
-        wsCaptureBtn.textContent = wsCapture.enabled ? 'WS capture: On' : 'WS capture: Off';
-        wsCaptureBtn.setAttribute('aria-pressed', wsCapture.enabled ? 'true' : 'false');
+      const streamCapture = { enabled: false, timer: null, socketRows: new Map(), sseRows: new Map() };
+      const updateStreamCaptureButton = () => {
+        wsCaptureBtn.textContent = streamCapture.enabled ? 'Stream capture: On' : 'Stream capture: Off';
+        wsCaptureBtn.setAttribute('aria-pressed', streamCapture.enabled ? 'true' : 'false');
       };
-      const injectWsWrapper = () => {
+      const injectStreamWrappers = () => {
         inspectedEval(buildWsWrapperSource(), () => {});
+        inspectedEval(buildSseWrapperSource(), () => {});
       };
-      const createWsRow = (event) => {
+      const createStreamRow = (event, variant) => {
+        const isSse = variant === 'sse';
         const row = buildRowFromRequest({
           startedDateTime: Number.isFinite(event.at) ? new Date(event.at).toISOString() : '',
           time: 0,
           request: {
-            method: 'WS',
+            method: isSse ? 'SSE' : 'WS',
             url: event.url,
-            headers: event.protocols ? [{ name: 'Sec-WebSocket-Protocol', value: event.protocols }] : [],
+            headers:
+              !isSse && event.protocols ? [{ name: 'Sec-WebSocket-Protocol', value: event.protocols }] : [],
             postData: { mimeType: 'text/plain', text: '' },
           },
           response: {
             status: 0,
             statusText: 'Connecting',
-            httpVersion: 'WS',
+            httpVersion: isSse ? 'SSE' : 'WS',
             headers: [],
             bodySize: 0,
-            content: { mimeType: 'websocket', size: 0, text: '' },
+            content: { mimeType: isSse ? 'text/event-stream' : 'websocket', size: 0, text: '' },
           },
           timings: {},
         });
         // The wrapper sees no HTTP handshake, so no status is claimed.
         row.status = '';
-        row.initiator = { text: 'WebSocket', typeLabel: 'WS' };
+        row.initiator = isSse ? { text: 'EventSource', typeLabel: 'SSE' } : { text: 'WebSocket', typeLabel: 'WS' };
         row._wsSocketId = event.socketId;
-        wsCapture.socketRows.set(event.socketId, row);
+        (isSse ? streamCapture.sseRows : streamCapture.socketRows).set(event.socketId, row);
         pendingLiveRows.push(row);
         return row;
       };
-      const drainWsQueue = () => {
+      const ingestDrainedStream = (result, variant) => {
+        if (!Array.isArray(result) || result.length === 0) return;
+        // Recording discipline matches live capture: while paused or in a
+        // sample session, drained events are dropped, not queued.
+        if (state.paused || state.sampleCaptureActive) return;
+        const rowsByVariant = variant === 'sse' ? streamCapture.sseRows : streamCapture.socketRows;
+        let createdCount = 0;
+        const changedRows = ingestWsEvents(result, {
+          createRow: (event) => {
+            if (createdCount === 0) {
+              disposeClearUndoSnapshot(
+                'live',
+                'Undo for the cleared local sample was closed before live capture to keep sample and live traffic separate.',
+              );
+            }
+            createdCount += 1;
+            return createStreamRow(event, variant);
+          },
+          getRow: (socketId) => {
+            const row = rowsByVariant.get(socketId);
+            if (!row) return null;
+            // A connection's first frames often share a drain batch with its
+            // open-attempt, while the row still sits in the live-flush queue
+            // rather than in activeRows. Only rows actually gone from the
+            // table are dead; treating queued rows as dead dropped those
+            // frames and deleted the map entry, silencing the connection.
+            if (row._retentionDisposed || (!state.activeRows.has(row) && !pendingLiveRows.includes(row))) {
+              rowsByVariant.delete(socketId);
+              return null;
+            }
+            return row;
+          },
+        });
+        if (createdCount > 0) scheduleLiveRows(false);
+        const renderedRows = changedRows.filter((row) => state.activeRows.has(row));
+        if (renderedRows.length > 0 && !replaceRenderedRowStates(renderedRows)) renderBody();
+      };
+      const drainStreamQueues = () => {
         inspectedEval('window.__networkPlusWS__ ? window.__networkPlusWS__.drain() : []', (result, errorInfo) => {
-          if (errorInfo || !Array.isArray(result) || result.length === 0) return;
-          // Recording discipline matches live capture: while paused or in a
-          // sample session, drained events are dropped, not queued.
-          if (state.paused || state.sampleCaptureActive) return;
-          let createdCount = 0;
-          const changedRows = ingestWsEvents(result, {
-            createRow: (event) => {
-              if (createdCount === 0) {
-                disposeClearUndoSnapshot(
-                  'live',
-                  'Undo for the cleared local sample was closed before live capture to keep sample and live traffic separate.',
-                );
-              }
-              createdCount += 1;
-              return createWsRow(event);
-            },
-            getRow: (socketId) => {
-              const row = wsCapture.socketRows.get(socketId);
-              if (!row) return null;
-              if (row._retentionDisposed || !state.activeRows.has(row)) {
-                wsCapture.socketRows.delete(socketId);
-                return null;
-              }
-              return row;
-            },
-          });
-          if (createdCount > 0) scheduleLiveRows(false);
-          const renderedRows = changedRows.filter((row) => state.activeRows.has(row));
-          if (renderedRows.length > 0 && !replaceRenderedRowStates(renderedRows)) renderBody();
+          if (!errorInfo) ingestDrainedStream(result, 'ws');
+        });
+        inspectedEval('window.__networkPlusSSE__ ? window.__networkPlusSSE__.drain() : []', (result, errorInfo) => {
+          if (!errorInfo) ingestDrainedStream(result, 'sse');
         });
       };
       wsCaptureBtn.addEventListener('click', () => {
-        wsCapture.enabled = !wsCapture.enabled;
-        if (wsCapture.enabled) {
-          injectWsWrapper();
-          if (!wsCapture.timer) wsCapture.timer = setInterval(drainWsQueue, WS_POLL_INTERVAL_MS);
-          setStatus('WebSocket capture on; sockets created from now on are recorded.');
+        streamCapture.enabled = !streamCapture.enabled;
+        if (streamCapture.enabled) {
+          injectStreamWrappers();
+          if (!streamCapture.timer) streamCapture.timer = setInterval(drainStreamQueues, WS_POLL_INTERVAL_MS);
+          setStatus('Stream capture on; WebSocket and SSE connections created from now on are recorded.');
         } else {
-          if (wsCapture.timer) {
-            clearInterval(wsCapture.timer);
-            wsCapture.timer = null;
+          if (streamCapture.timer) {
+            clearInterval(streamCapture.timer);
+            streamCapture.timer = null;
           }
           inspectedEval('window.__networkPlusWS__ && window.__networkPlusWS__.setEnabled(false)', () => {});
-          setStatus('WebSocket capture off; recorded connections stay in the table.');
+          inspectedEval('window.__networkPlusSSE__ && window.__networkPlusSSE__.setEnabled(false)', () => {});
+          setStatus('Stream capture off; recorded connections stay in the table.');
         }
-        updateWsCaptureButton();
+        updateStreamCaptureButton();
       });
-      updateWsCaptureButton();
+      updateStreamCaptureButton();
       if (
         chrome.devtools.network &&
         chrome.devtools.network.onNavigated &&
         typeof chrome.devtools.network.onNavigated.addListener === 'function'
       ) {
         chrome.devtools.network.onNavigated.addListener(() => {
-          // The old document took the wrapper and its sockets with it.
-          for (const row of wsCapture.socketRows.values()) {
-            if (row.statusText !== 'Closed') row.statusText = 'Navigated';
+          // The old document took the wrappers and their connections with it.
+          for (const rowsByVariant of [streamCapture.socketRows, streamCapture.sseRows]) {
+            for (const row of rowsByVariant.values()) {
+              if (row.statusText !== 'Closed') row.statusText = 'Navigated';
+            }
+            rowsByVariant.clear();
           }
-          wsCapture.socketRows.clear();
-          if (wsCapture.enabled) injectWsWrapper();
+          if (streamCapture.enabled) injectStreamWrappers();
         });
       }
     }
@@ -12467,6 +12573,7 @@ const _NetworkPlus = (function () {
     WS_DIRECTION_TEXT_LIMIT_CHARS,
     WS_POLL_INTERVAL_MS,
     buildWsWrapperSource,
+    buildSseWrapperSource,
     formatWsFrameLine,
     appendBoundedWsText,
     ingestWsEvents,

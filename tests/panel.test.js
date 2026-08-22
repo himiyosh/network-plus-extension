@@ -5816,3 +5816,60 @@ describe('jwt decoding and display', () => {
     expect(np.createJwtDetailsSection([{ name: 'Accept', value: 'text/html' }])).toBeNull();
   });
 });
+
+describe('sse capture pieces', () => {
+  test('buildSseWrapperSource is a self-contained page IIFE with the shared caps', () => {
+    const source = np.buildSseWrapperSource();
+    expect(source.startsWith('(function pageEventSourceWrapper(')).toBe(true);
+    expect(source.endsWith(')(' + np.WS_QUEUE_CAP + ',' + np.WS_FRAME_PREVIEW_CHARS + ')')).toBe(true);
+    expect(source).toContain('window.__networkPlusSSE__');
+    expect(source).toContain("kind: 'ws-open-attempt'");
+    expect(source).toContain("kind: 'ws-received'");
+    expect(source).toContain('Wrapped.prototype = Native.prototype;');
+    // Observation only: the wrapped addEventListener always forwards to the native one.
+    expect(source).toContain('return nativeAdd(type, listener, options);');
+    expect(source).toContain('source.close = function () {');
+  });
+
+  test('formatWsFrameLine renders an SSE close without a close code', () => {
+    const at = Date.parse('2026-08-22T10:00:00.123Z');
+    expect(np.formatWsFrameLine({ kind: 'ws-closed', at })).toBe('— 10:00:00.123 closed');
+    expect(np.formatWsFrameLine({ kind: 'ws-closed', at, code: 1000 })).toBe('— 10:00:00.123 closed (code 1000)');
+  });
+
+  test('ingestWsEvents threads SSE-dialect events into a receive-only row', () => {
+    const row = {
+      startedDateTime: '2026-08-22T10:00:00.000Z',
+      statusText: 'Connecting',
+      responseContent: '',
+      size: 0,
+    };
+    const created = [];
+    const changed = np.ingestWsEvents(
+      [
+        { kind: 'ws-open-attempt', socketId: 1, url: 'https://api.example.test/stream', protocols: '', at: 1 },
+        { kind: 'ws-open', socketId: 1, at: Date.parse('2026-08-22T10:00:00.200Z') },
+        { kind: 'ws-received', socketId: 1, preview: 'hello', at: Date.parse('2026-08-22T10:00:00.300Z') },
+        { kind: 'ws-received', socketId: 1, preview: 'update: {"n":1}', at: Date.parse('2026-08-22T10:00:00.400Z') },
+        { kind: 'ws-closed', socketId: 1, at: Date.parse('2026-08-22T10:00:01.000Z') },
+      ],
+      {
+        createRow: (event) => {
+          created.push(event.url);
+          return row;
+        },
+        getRow: () => row,
+      },
+    );
+    expect(created).toEqual(['https://api.example.test/stream']);
+    expect(changed).toEqual([row]);
+    expect(row.statusText).toBe('Closed');
+    expect(row.responseContent).toContain('connection open');
+    expect(row.responseContent).toContain('↓ 10:00:00.300 hello');
+    expect(row.responseContent).toContain('↓ 10:00:00.400 update: {"n":1}');
+    expect(row.responseContent).toContain('10:00:01.000 closed');
+    expect(row.responseContent).not.toContain('code undefined');
+    expect(row.duration).toBe(1000);
+    expect(row.size).toBe('hello'.length + 'update: {"n":1}'.length);
+  });
+});

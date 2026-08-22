@@ -3111,7 +3111,7 @@ describe('export scope contracts', () => {
 });
 
 describe('method badge contracts', () => {
-  const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'ws'];
+  const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'ws', 'sse'];
 
   test('every method badge pair meets WCAG AA in every theme state', () => {
     for (const [name, theme] of [
@@ -3134,7 +3134,7 @@ describe('method badge contracts', () => {
   });
 
   test('badges color through row method classes so unknown methods stay plain', () => {
-    for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD', 'WS']) {
+    for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD', 'WS', 'SSE']) {
       const lower = method.toLowerCase();
       expect(css).toContain(
         '.grid tbody tr.method-' +
@@ -3151,25 +3151,45 @@ describe('method badge contracts', () => {
   });
 });
 
-describe('websocket capture contracts', () => {
+describe('stream capture contracts (WebSocket + SSE)', () => {
   test('capture is an explicit statusbar opt-in that names its own limits', () => {
     expect(html).toContain('id="wsCaptureBtn"');
-    expect(html).toContain('only sockets created while capture is on are seen, and traffic is never altered');
+    expect(html).toContain('only connections created while capture is on are seen, and traffic is never altered');
     expect(html).toMatch(/id="wsCaptureBtn"[^>]*aria-pressed="false"[^>]*hidden/);
+    expect(html).toContain('>Stream capture: Off</button>');
     expect(css).toContain('.ws-capture-btn[aria-pressed="true"]{');
-    expect(js).toContain("wsCaptureBtn.textContent = wsCapture.enabled ? 'WS capture: On' : 'WS capture: Off';");
-    expect(js).toContain("setStatus('WebSocket capture on; sockets created from now on are recorded.');");
-    expect(js).toContain("setStatus('WebSocket capture off; recorded connections stay in the table.');");
+    expect(js).toContain(
+      "wsCaptureBtn.textContent = streamCapture.enabled ? 'Stream capture: On' : 'Stream capture: Off';",
+    );
+    expect(js).toContain("setStatus('Stream capture on; WebSocket and SSE connections created from now on are recorded.');");
+    expect(js).toContain("setStatus('Stream capture off; recorded connections stay in the table.');");
   });
 
-  test('the wrapper injects through inspectedWindow.eval and survives navigation', () => {
+  test('both wrappers inject through inspectedWindow.eval and survive navigation', () => {
     expect(js).toContain('chrome.devtools.inspectedWindow.eval.bind(chrome.devtools.inspectedWindow)');
     expect(js).toContain('inspectedEval(buildWsWrapperSource(), () => {});');
+    expect(js).toContain('inspectedEval(buildSseWrapperSource(), () => {});');
     expect(js).toContain("inspectedEval('window.__networkPlusWS__ ? window.__networkPlusWS__.drain() : []'");
-    expect(js).toContain('if (wsCapture.enabled) injectWsWrapper();');
+    expect(js).toContain("inspectedEval('window.__networkPlusSSE__ ? window.__networkPlusSSE__.drain() : []'");
+    expect(js).toContain('if (streamCapture.enabled) injectStreamWrappers();');
     // Recording discipline matches live capture: paused and sample sessions
     // drop drained events instead of recording them.
     expect(js).toContain('if (state.paused || state.sampleCaptureActive) return;');
+    // First-batch frames arrive while the row still sits in the live-flush
+    // queue; queued rows must count as alive or the connection goes silent.
+    expect(js).toContain('(!state.activeRows.has(row) && !pendingLiveRows.includes(row))');
+  });
+
+  test('the SSE wrapper observes without altering and reuses the ws event dialect', () => {
+    // Named events are seen only once the page listens for them; the wrapped
+    // addEventListener records the type and always forwards to the native.
+    expect(js).toContain('source.addEventListener = function (type, listener, options) {');
+    expect(js).toContain('return nativeAdd(type, listener, options);');
+    expect(js).toContain("record({ kind: 'ws-open-attempt', socketId, url: String(url), protocols: '' });");
+    expect(js).toContain('Wrapped.prototype = Native.prototype;');
+    expect(js).toContain("window.EventSource = Wrapped;");
+    // SSE close carries no code, so the shared line formatter renders a bare close.
+    expect(js).toContain("if (event.code == null) return '— ' + stamp + ' closed';");
   });
 });
 

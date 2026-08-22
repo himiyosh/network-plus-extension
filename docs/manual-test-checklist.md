@@ -47,17 +47,19 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] A body that was not retrieved in time shows `The inspected page navigated away before this response body was retrieved.` in the Body tab immediately — no 10-second timeout — and the status counts those bodies. The same reason reaches a connected mirror tab.
 - [ ] SPA route changes (history.pushState) mark nothing: bodies stay fetchable.
 
-## Export scope, operation labels, and WebSocket capture
+## Export scope, operation labels, and stream capture
 
 - [ ] With rows selected (Ctrl/⌘-click or Shift-click), the export dialog shows `All displayed requests (N)` pre-checked and `Selected requests only (M)` with live counts; without any selection the scope chooser is absent.
 - [ ] A selected-scope sanitized export downloads `network-plus-sanitized-selected.har` containing exactly the selected entries in capture order; reopening the dialog resets the default to all displayed rows. The full-HAR path honors the same captured scope after its one-time confirmation.
-- [ ] Known methods render as colored badges (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS and WS) that stay legible in System / Dark / Light; an unknown method stays plain bold text.
+- [ ] Known methods render as colored badges (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS plus WS and SSE) that stay legible in System / Dark / Light; an unknown method stays plain bold text.
 - [ ] The Operation column (off by default in Columns) shows GraphQL `operationName` or parsed query names (`Name (+2)` for batches) and JSON-RPC methods, sorts and filters like any column, and appears in the request Headers pane.
-- [ ] `WS capture: Off` sits in the status bar only inside a DevTools session; its tooltip states that only sockets created while capture is on are seen and traffic is never altered.
+- [ ] `Stream capture: Off` sits in the status bar only inside a DevTools session; its tooltip states that only connections created while capture is on are seen and traffic is never altered.
 - [ ] Turning it on and creating a WebSocket on the page adds a WS-badged row: sent frames appear in the request Body pane (`↑` lines), received frames and open/close events in the response Body pane (`↓` / `—` lines), and both are searchable and included, sanitized, in exports.
+- [ ] With capture on, a page `EventSource` adds an SSE-badged row: default messages appear as `↓` lines, a named event (`event: foo`) appears as `↓ … foo: …` once the page has registered a listener for it, and `close()` adds a codeless `— … closed` mark.
+- [ ] A WebSocket or EventSource that connects and receives within the same second keeps every frame (nothing is lost while the row is still flushing into the grid).
 - [ ] Binary frames appear as `[binary N bytes]`; very long frame logs trim from the front with a visible `… earlier frames trimmed …` marker.
-- [ ] Turning capture off stops recording without removing existing rows; a navigation while capture is on marks unclosed connections `Navigated` and keeps recording sockets created by the new page.
-- [ ] While paused or during the local sample, WebSocket events are not recorded.
+- [ ] Turning capture off stops recording without removing existing rows; a navigation while capture is on marks unclosed connections `Navigated` and keeps recording connections created by the new page.
+- [ ] While paused or during the local sample, WebSocket and SSE events are not recorded.
 
 ## Edit and resend, and JWT decode
 
