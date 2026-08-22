@@ -344,7 +344,9 @@ describe('extension source integrity', () => {
     expect(validateExtension(root)).toEqual(
       expect.arrayContaining([
         'manifest contains unapproved top-level key: minimum_chrome_version',
-        'manifest privileged surface is not allowed: background',
+        // The background surface is allowed for exactly one audited worker;
+        // anything else about its shape is rejected.
+        'manifest background must be exactly: { "service_worker": "background.js" }',
         'manifest privileged surface is not allowed: content_scripts',
         'manifest privileged surface is not allowed: externally_connectable',
         'manifest privileged surface is not allowed: host_permissions',
@@ -357,6 +359,14 @@ describe('extension source integrity', () => {
         'manifest version must be a stable MAJOR.MINOR.PATCH value',
         'manifest icons must reference the audited 16, 48, and 128 PNG files',
       ]),
+    );
+
+    const swappedWorker = readManifest(createFixture());
+    const swappedRoot = createFixture();
+    swappedWorker.background = { service_worker: 'panel.js' };
+    writeManifest(swappedRoot, swappedWorker);
+    expect(validateExtension(swappedRoot)).toContain(
+      'manifest background must be exactly: { "service_worker": "background.js" }',
     );
   });
 

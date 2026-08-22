@@ -3,6 +3,9 @@
   "version": "1.11.0",
   "manifest_version": 3,
   "devtools_page": "devtools.html",
+  "background": {
+    "service_worker": "background.js"
+  },
   "description": "Network analysis with sanitized HAR, retention limits, integrated search, accessible UI, and keyboard controls.",
   "permissions": ["storage"],
   "icons": {

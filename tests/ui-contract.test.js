@@ -3044,6 +3044,18 @@ describe('devtools-session mirror contracts', () => {
     expect(js).toContain("'Mirroring the DevTools session'");
     expect(js).toContain("'Mirroring the DevTools session (recording paused)'");
     expect(js).toContain("'The DevTools session disconnected; captured requests remain available. '");
+    // Opening the pop-out asks the background worker to tuck an undocked
+    // DevTools window away; the worker reads no tab data and answers a
+    // docked session with minimized: false.
+    const backgroundJs = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
+    expect(js).toContain("mirrorRuntime.sendMessage({ type: 'networkplus-minimize-devtools' }, () => {");
+    expect(backgroundJs).toContain("message.type !== 'networkplus-minimize-devtools'");
+    expect(backgroundJs).toContain("chrome.windows.getLastFocused({ windowTypes: ['devtools'] }");
+    expect(backgroundJs).toContain("chrome.windows.update(devtoolsWindow.id, { state: 'minimized' }");
+    expect(backgroundJs).not.toContain('tabs');
+    const manifestJson = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+    expect(manifestJson.background).toEqual({ service_worker: 'background.js' });
+    expect(manifestJson.permissions).toEqual(['storage']);
     // The viewer never runs automatic body prefetch: bodies cross the port
     // only when a row asks, and a closed DevTools session must not turn the
     // queued prefetches into logged failures on the extension-errors page.
