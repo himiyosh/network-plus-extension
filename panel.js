@@ -295,6 +295,7 @@ const _NetworkPlus = (function () {
     { id: 'domain', label: 'Domain', width: 180, visible: true },
     { id: 'path', label: 'Path', width: 260, visible: true },
     { id: 'type', label: 'Type', width: 150, visible: true },
+    { id: 'operation', label: 'Operation', width: 150, visible: false },
     { id: 'duration', label: 'Duration', width: 110, visible: true },
     { id: 'size', label: 'Size', width: 90, visible: true },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
@@ -5288,6 +5289,59 @@ const _NetworkPlus = (function () {
     return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
 
+  // GraphQL and JSON-RPC traffic all reads as "POST /api" in URL columns;
+  // the operation label pulls the request's real name out of its body so
+  // API calls can be scanned, sorted, and filtered by what they do.
+  const OPERATION_BODY_PARSE_LIMIT_CHARS = 262144;
+
+  function matchGraphQlOperation(source) {
+    const named = /\b(?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(source);
+    if (named) return named[1];
+    const keyword = /^\s*(query|mutation|subscription)\b/.exec(source);
+    if (keyword) return keyword[1];
+    return /^\s*\{/.test(source) ? 'query' : '';
+  }
+
+  function extractOperationLabel(postData) {
+    if (!postData || typeof postData !== 'object') return '';
+    const text = typeof postData.text === 'string' ? postData.text : '';
+    if (!text) return '';
+    const mime = typeof postData.mimeType === 'string' ? postData.mimeType.toLowerCase() : '';
+    if (mime.includes('application/graphql')) return matchGraphQlOperation(text);
+    if (!mime.includes('json')) return '';
+    if (text.length > OPERATION_BODY_PARSE_LIMIT_CHARS) return '';
+    // A cheap substring gate keeps large imports from paying JSON.parse for
+    // bodies that cannot possibly carry an operation.
+    if (!text.includes('"operationName"') && !text.includes('"query"') && !text.includes('"method"')) {
+      return '';
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (_error) {
+      return '';
+    }
+    const describeEntry = (entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return '';
+      if (typeof entry.operationName === 'string' && entry.operationName) return entry.operationName;
+      if (typeof entry.query === 'string' && entry.query.trim()) return matchGraphQlOperation(entry.query);
+      if (
+        typeof entry.method === 'string' &&
+        entry.method &&
+        ('jsonrpc' in entry || ('id' in entry && 'params' in entry))
+      ) {
+        return entry.method;
+      }
+      return '';
+    };
+    if (Array.isArray(parsed)) {
+      const labels = parsed.map(describeEntry).filter(Boolean);
+      if (labels.length === 0) return '';
+      return labels.length > 1 ? labels[0] + ' (+' + (labels.length - 1) + ')' : labels[0];
+    }
+    return describeEntry(parsed);
+  }
+
   function buildRowFromRequest(req, assignedId) {
     const isoStr = (req && req.startedDateTime) || '';
     const durationMs = req && Number.isFinite(req.time) ? req.time : 0;
@@ -5324,6 +5378,7 @@ const _NetworkPlus = (function () {
       requestHeaders: (req && req.request && req.request.headers) || [],
       responseHeaders: (req && req.response && req.response.headers) || [],
       requestPostData: (req && req.request && req.request.postData) || null,
+      operation: extractOperationLabel((req && req.request && req.request.postData) || null),
       timings: (req && req.timings) || {},
       initiator: formatInitiator(req.initiator),
       responseContent: embeddedResponseContent,
@@ -5406,6 +5461,170 @@ const _NetworkPlus = (function () {
       response: wire.response && typeof wire.response === 'object' ? wire.response : {},
       timings: wire.timings && typeof wire.timings === 'object' ? wire.timings : {},
     };
+  }
+
+  // ---- WebSocket capture (opt-in, no extra permissions) ----
+  // chrome.devtools.network never surfaces WebSocket traffic to extensions,
+  // and the chrome.debugger alternative cannot even attach while DevTools is
+  // open on the tab. Capture therefore wraps the inspected page's WebSocket
+  // constructor through inspectedWindow.eval: the wrapper queues connection
+  // events and frame previews inside the page, and the panel drains the
+  // queue once a second. Honest limits: only sockets created while capture
+  // is on are seen, the wrapper lives in the page's JS environment (traffic
+  // itself is never altered), and a navigation wipes it until reinjection.
+  const WS_QUEUE_CAP = 5000;
+  const WS_FRAME_PREVIEW_CHARS = 2048;
+  const WS_DIRECTION_TEXT_LIMIT_CHARS = 262144;
+  const WS_POLL_INTERVAL_MS = 1000;
+
+  function pageWebSocketWrapper(queueCap, previewChars) {
+    if (window.__networkPlusWS__) {
+      window.__networkPlusWS__.setEnabled(true);
+      return 'already-installed';
+    }
+    const queue = [];
+    let enabled = true;
+    let nextSocketId = 1;
+    const preview = function (data) {
+      try {
+        if (typeof data === 'string') return data.slice(0, previewChars);
+        if (data && typeof data.byteLength === 'number') return '[binary ' + data.byteLength + ' bytes]';
+        if (data && typeof data.size === 'number') return '[binary ' + data.size + ' bytes]';
+        return '[unsupported frame]';
+      } catch (_error) {
+        return '[unreadable frame]';
+      }
+    };
+    const record = function (entry) {
+      if (!enabled) return;
+      entry.at = Date.now();
+      queue.push(entry);
+      if (queue.length > queueCap) queue.splice(0, queue.length - queueCap);
+    };
+    const Native = window.WebSocket;
+    const Wrapped = function (url, protocols) {
+      const socket = protocols === undefined ? new Native(url) : new Native(url, protocols);
+      const socketId = nextSocketId;
+      nextSocketId += 1;
+      record({
+        kind: 'ws-open-attempt',
+        socketId,
+        url: String(url),
+        protocols: protocols === undefined ? '' : String(protocols),
+      });
+      const nativeSend = socket.send.bind(socket);
+      socket.send = function (data) {
+        record({ kind: 'ws-sent', socketId, preview: preview(data) });
+        return nativeSend(data);
+      };
+      socket.addEventListener('open', function () {
+        record({ kind: 'ws-open', socketId });
+      });
+      socket.addEventListener('message', function (event) {
+        record({ kind: 'ws-received', socketId, preview: preview(event.data) });
+      });
+      socket.addEventListener('error', function () {
+        record({ kind: 'ws-error', socketId });
+      });
+      socket.addEventListener('close', function (event) {
+        record({ kind: 'ws-closed', socketId, code: event.code, reason: String(event.reason || '').slice(0, 256) });
+      });
+      return socket;
+    };
+    Wrapped.prototype = Native.prototype;
+    Wrapped.CONNECTING = 0;
+    Wrapped.OPEN = 1;
+    Wrapped.CLOSING = 2;
+    Wrapped.CLOSED = 3;
+    window.WebSocket = Wrapped;
+    window.__networkPlusWS__ = {
+      drain: function () {
+        return queue.splice(0, queue.length);
+      },
+      setEnabled: function (value) {
+        enabled = value === true;
+      },
+    };
+    return 'installed';
+  }
+
+  function buildWsWrapperSource() {
+    return '(' + String(pageWebSocketWrapper) + ')(' + WS_QUEUE_CAP + ',' + WS_FRAME_PREVIEW_CHARS + ')';
+  }
+
+  function formatWsFrameLine(event) {
+    const stamp = Number.isFinite(event.at) ? new Date(event.at).toISOString().slice(11, 23) : '??:??:??.???';
+    if (event.kind === 'ws-sent') return '↑ ' + stamp + ' ' + (event.preview || '');
+    if (event.kind === 'ws-received') return '↓ ' + stamp + ' ' + (event.preview || '');
+    if (event.kind === 'ws-open') return '— ' + stamp + ' connection open';
+    if (event.kind === 'ws-error') return '— ' + stamp + ' connection error';
+    if (event.kind === 'ws-closed') {
+      return '— ' + stamp + ' closed (code ' + event.code + (event.reason ? ', ' + event.reason : '') + ')';
+    }
+    return '';
+  }
+
+  function appendBoundedWsText(existing, line, limitChars) {
+    const next = existing ? existing + '\n' + line : line;
+    if (next.length <= limitChars) return next;
+    const tail = next.slice(next.length - limitChars);
+    const firstBreak = tail.indexOf('\n');
+    return '… earlier frames trimmed …\n' + (firstBreak >= 0 ? tail.slice(firstBreak + 1) : tail);
+  }
+
+  // Applies drained wrapper events to rows. The context supplies row lookup
+  // and creation so the same logic is testable without a DevTools session.
+  function ingestWsEvents(events, context) {
+    const changedRows = new Set();
+    for (const event of Array.isArray(events) ? events : []) {
+      if (!event || typeof event !== 'object' || typeof event.socketId !== 'number') continue;
+      if (event.kind === 'ws-open-attempt') {
+        context.createRow(event);
+        continue;
+      }
+      const row = context.getRow(event.socketId);
+      if (!row) continue;
+      if (event.kind === 'ws-sent') {
+        if (!row.requestPostData || typeof row.requestPostData !== 'object') {
+          row.requestPostData = { mimeType: 'text/plain', text: '' };
+        }
+        row.requestPostData.text = appendBoundedWsText(
+          row.requestPostData.text || '',
+          formatWsFrameLine(event),
+          WS_DIRECTION_TEXT_LIMIT_CHARS,
+        );
+        row._wsSentCount = (row._wsSentCount || 0) + 1;
+      } else {
+        const line = formatWsFrameLine(event);
+        if (line) {
+          row.responseContent = appendBoundedWsText(
+            typeof row.responseContent === 'string' ? row.responseContent : '',
+            line,
+            WS_DIRECTION_TEXT_LIMIT_CHARS,
+          );
+          row.responseContentState = 'pending-admission';
+          row.responseContentEncoding = '';
+          row.responseContentText = null;
+          row.responseContentBytes = 0;
+        }
+        if (event.kind === 'ws-open') row.statusText = 'Open';
+        if (event.kind === 'ws-received') {
+          row._wsReceivedCount = (row._wsReceivedCount || 0) + 1;
+          row.size = (row.size || 0) + (event.preview ? event.preview.length : 0);
+        }
+        if (event.kind === 'ws-closed') {
+          row.statusText = 'Closed';
+          if (Number.isFinite(event.at)) {
+            const startedEpoch = getRequestEpoch(row.startedDateTime, INVALID_REQUEST_EPOCH);
+            if (startedEpoch !== INVALID_REQUEST_EPOCH && event.at >= startedEpoch) {
+              row.duration = event.at - startedEpoch;
+            }
+          }
+        }
+      }
+      changedRows.add(row);
+    }
+    return Array.from(changedRows);
   }
 
   function createMirrorHostSession({ postMessage, getRows, isPaused, fetchBodyForRow }) {
@@ -5967,7 +6186,7 @@ const _NetworkPlus = (function () {
     }
     if (row.method) {
       const method = row.method.toUpperCase();
-      if (HTTP_METHODS.indexOf(method) > -1) tr.classList.add('method-' + method);
+      if (HTTP_METHODS.indexOf(method) > -1 || method === 'WS') tr.classList.add('method-' + method);
     }
     // Status code row class
     const statusClass = classifyStatusClass(row.status);
@@ -8669,6 +8888,7 @@ const _NetworkPlus = (function () {
     reqHeadersPane.textContent = '';
     const reqInfo = createKvGrid([
       { key: 'Method', value: row.method || '' },
+      ...(row.operation ? [{ key: 'Operation', value: row.operation }] : []),
       { key: 'URL', value: row.url || '' },
       { key: 'Protocol', value: row.protocol || '' },
     ]);
@@ -11201,6 +11421,8 @@ const _NetworkPlus = (function () {
       const buildViewerRowFromWire = (wireRow) => {
         const row = buildRowFromRequest(buildMirrorEntryFromWire(wireRow), wireRow.id);
         if (wireRow.initiator && typeof wireRow.initiator === 'object') row.initiator = wireRow.initiator;
+        // WebSocket rows claim no HTTP status; keep the blank instead of a 0.
+        if (wireRow.response && wireRow.response.status === '') row.status = '';
         row._reqObj = null;
         row._mirrorFetchBody = () =>
           new Promise((resolve, reject) => {
@@ -11443,6 +11665,119 @@ const _NetworkPlus = (function () {
         startMirrorReconnect();
       });
     }
+
+    // --- WebSocket capture wiring (opt-in; DevTools sessions only) ---
+    const wsCaptureBtn = $('#wsCaptureBtn');
+    const inspectedEval =
+      typeof chrome !== 'undefined' &&
+      chrome.devtools &&
+      chrome.devtools.inspectedWindow &&
+      typeof chrome.devtools.inspectedWindow.eval === 'function'
+        ? chrome.devtools.inspectedWindow.eval.bind(chrome.devtools.inspectedWindow)
+        : null;
+    if (wsCaptureBtn && inspectedEval && !mirrorViewerActive) {
+      wsCaptureBtn.hidden = false;
+      const wsCapture = { enabled: false, timer: null, socketRows: new Map() };
+      const updateWsCaptureButton = () => {
+        wsCaptureBtn.textContent = wsCapture.enabled ? 'WS capture: On' : 'WS capture: Off';
+        wsCaptureBtn.setAttribute('aria-pressed', wsCapture.enabled ? 'true' : 'false');
+      };
+      const injectWsWrapper = () => {
+        inspectedEval(buildWsWrapperSource(), () => {});
+      };
+      const createWsRow = (event) => {
+        const row = buildRowFromRequest({
+          startedDateTime: Number.isFinite(event.at) ? new Date(event.at).toISOString() : '',
+          time: 0,
+          request: {
+            method: 'WS',
+            url: event.url,
+            headers: event.protocols ? [{ name: 'Sec-WebSocket-Protocol', value: event.protocols }] : [],
+            postData: { mimeType: 'text/plain', text: '' },
+          },
+          response: {
+            status: 0,
+            statusText: 'Connecting',
+            httpVersion: 'WS',
+            headers: [],
+            bodySize: 0,
+            content: { mimeType: 'websocket', size: 0, text: '' },
+          },
+          timings: {},
+        });
+        // The wrapper sees no HTTP handshake, so no status is claimed.
+        row.status = '';
+        row.initiator = { text: 'WebSocket', typeLabel: 'WS' };
+        row._wsSocketId = event.socketId;
+        wsCapture.socketRows.set(event.socketId, row);
+        pendingLiveRows.push(row);
+        return row;
+      };
+      const drainWsQueue = () => {
+        inspectedEval('window.__networkPlusWS__ ? window.__networkPlusWS__.drain() : []', (result, errorInfo) => {
+          if (errorInfo || !Array.isArray(result) || result.length === 0) return;
+          // Recording discipline matches live capture: while paused or in a
+          // sample session, drained events are dropped, not queued.
+          if (state.paused || state.sampleCaptureActive) return;
+          let createdCount = 0;
+          const changedRows = ingestWsEvents(result, {
+            createRow: (event) => {
+              if (createdCount === 0) {
+                disposeClearUndoSnapshot(
+                  'live',
+                  'Undo for the cleared local sample was closed before live capture to keep sample and live traffic separate.',
+                );
+              }
+              createdCount += 1;
+              return createWsRow(event);
+            },
+            getRow: (socketId) => {
+              const row = wsCapture.socketRows.get(socketId);
+              if (!row) return null;
+              if (row._retentionDisposed || !state.activeRows.has(row)) {
+                wsCapture.socketRows.delete(socketId);
+                return null;
+              }
+              return row;
+            },
+          });
+          if (createdCount > 0) scheduleLiveRows(false);
+          const renderedRows = changedRows.filter((row) => state.activeRows.has(row));
+          if (renderedRows.length > 0 && !replaceRenderedRowStates(renderedRows)) renderBody();
+        });
+      };
+      wsCaptureBtn.addEventListener('click', () => {
+        wsCapture.enabled = !wsCapture.enabled;
+        if (wsCapture.enabled) {
+          injectWsWrapper();
+          if (!wsCapture.timer) wsCapture.timer = setInterval(drainWsQueue, WS_POLL_INTERVAL_MS);
+          setStatus('WebSocket capture on; sockets created from now on are recorded.');
+        } else {
+          if (wsCapture.timer) {
+            clearInterval(wsCapture.timer);
+            wsCapture.timer = null;
+          }
+          inspectedEval('window.__networkPlusWS__ && window.__networkPlusWS__.setEnabled(false)', () => {});
+          setStatus('WebSocket capture off; recorded connections stay in the table.');
+        }
+        updateWsCaptureButton();
+      });
+      updateWsCaptureButton();
+      if (
+        chrome.devtools.network &&
+        chrome.devtools.network.onNavigated &&
+        typeof chrome.devtools.network.onNavigated.addListener === 'function'
+      ) {
+        chrome.devtools.network.onNavigated.addListener(() => {
+          // The old document took the wrapper and its sockets with it.
+          for (const row of wsCapture.socketRows.values()) {
+            if (row.statusText !== 'Closed') row.statusText = 'Navigated';
+          }
+          wsCapture.socketRows.clear();
+          if (wsCapture.enabled) injectWsWrapper();
+        });
+      }
+    }
   }
 
   document.addEventListener('DOMContentLoaded', init);
@@ -11638,6 +11973,16 @@ const _NetworkPlus = (function () {
     NAVIGATION_BODY_UNAVAILABLE_REASON,
     markUnfetchedRowsForNavigation,
     planSelectedExportRows,
+    extractOperationLabel,
+    matchGraphQlOperation,
+    WS_QUEUE_CAP,
+    WS_FRAME_PREVIEW_CHARS,
+    WS_DIRECTION_TEXT_LIMIT_CHARS,
+    WS_POLL_INTERVAL_MS,
+    buildWsWrapperSource,
+    formatWsFrameLine,
+    appendBoundedWsText,
+    ingestWsEvents,
     MIRROR_PROTOCOL_VERSION,
     MIRROR_PORT_PREFIX,
     MIRROR_SNAPSHOT_CHUNK_SIZE,
