@@ -381,6 +381,23 @@
       </div>
     </form>
   </dialog>
+  <dialog id="undockHintDialog" aria-labelledby="undockHintDialogTitle" aria-describedby="undockHintIntro">
+    <form method="dialog" class="undock-hint-form">
+      <h2 id="undockHintDialogTitle">Keep DevTools open</h2>
+      <p id="undockHintIntro">This tab mirrors the Network+ panel in the original tab's DevTools — the capture itself runs there. Closing DevTools stops capture and freezes this tab.</p>
+      <p class="undock-hint-warning">Don't close DevTools; undock it instead.</p>
+      <p>DevTools is docked inside the page right now, which is why both views stay visible. Undock it once and every future pop-out minimizes the DevTools window automatically while capture keeps running:</p>
+      <ol class="undock-hint-steps">
+        <li>In DevTools, open the ⋮ menu (top right).</li>
+        <li>Under "Dock side", choose "Undock into separate window".</li>
+      </ol>
+      <p>DevTools remembers the dock choice, so this is a one-time step.</p>
+      <label class="undock-hint-dismiss"><input type="checkbox" id="undockHintDontShowAgain"> Don't show this again</label>
+      <div class="undock-hint-actions">
+        <button id="undockHintCloseBtn" type="button" class="undock-hint-primary">Got it</button>
+      </div>
+    </form>
+  </dialog>
   <div id="copyToast" class="copy-toast" aria-hidden="true"></div>
   <span id="dataSafetyStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
   <dialog id="shortcutDialog" aria-labelledby="shortcutDialogTitle">

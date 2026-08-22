@@ -479,6 +479,23 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .resend-actions .data-safety-primary{border-color:var(--accent);background:var(--accent-fill);color:var(--on-accent)}
 .resend-actions .data-safety-primary:hover{background:var(--accent-fill);color:var(--on-accent)}
 
+/* === Undock hint (mirror tab, docked DevTools) === */
+#undockHintDialog{position:fixed;inset:0;margin:auto;width:min(440px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
+#undockHintDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
+.undock-hint-form{display:grid;gap:10px;padding:16px}
+.undock-hint-form h2{margin:0;font-size:15px;font-style:normal}
+.undock-hint-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45}
+.undock-hint-form .undock-hint-warning{color:var(--status-5xx-text);font-weight:600;font-size:12px}
+.undock-hint-steps{display:grid;gap:6px;margin:0;padding-left:20px;color:var(--fg);font-size:12px;line-height:1.45}
+.undock-hint-dismiss{display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
+.undock-hint-dismiss input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+.undock-hint-actions{display:flex;justify-content:flex-end;gap:8px}
+.undock-hint-actions button{min-height:32px;padding:5px 12px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer;font:inherit}
+.undock-hint-actions button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
+.undock-hint-actions button:active{background:var(--accent-dim);color:var(--text-accent)}
+.undock-hint-actions .undock-hint-primary{border-color:var(--accent);background:var(--accent-fill);color:var(--on-accent)}
+.undock-hint-actions .undock-hint-primary:hover{background:var(--accent-fill);color:var(--on-accent)}
+
 /* === JWT decode (header panes) === */
 .jwt-section{margin-top:8px}
 .jwt-details{margin-top:6px;border:1px solid var(--control-border);border-radius:8px;padding:6px 10px;background:var(--bg)}

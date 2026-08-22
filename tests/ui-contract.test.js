@@ -3076,6 +3076,19 @@ describe('devtools-session mirror contracts', () => {
     // never leaves the user guessing why DevTools did not move.
     expect(js).toContain('the DevTools window is minimized and keeps capturing');
     expect(js).toContain('DevTools stayed put — undock it into its own window');
+    // The minimize outcome also rides the sync control payload, so the
+    // mirror tab can explain the docked duplication itself: a one-time
+    // dialog warns that closing DevTools stops capture and teaches the
+    // single undock that makes future pop-outs tidy.
+    expect(js).toContain('popoutDevtoolsMinimized = !!(response && response.minimized === true);');
+    expect(js).toContain('devtoolsMinimized: popoutDevtoolsMinimized,');
+    expect(js).toContain('if (control.devtoolsMinimized === false) maybeShowUndockHint();');
+    expect(js).toContain("const UNDOCK_HINT_KEY = 'networkPlus.undockHint.v1';");
+    expect(js).toContain("localStorage.getItem(UNDOCK_HINT_KEY) === '1'");
+    expect(js).toContain("localStorage.setItem(UNDOCK_HINT_KEY, '1');");
+    expect(html).toContain('<dialog id="undockHintDialog"');
+    expect(html).toContain('Closing DevTools stops capture and freezes this tab.');
+    expect(html).toContain('id="undockHintDontShowAgain"');
     expect(backgroundJs).toContain("message.type !== 'networkplus-minimize-devtools'");
     // windowTypes is ignored by getLastFocused (deprecated since Chrome 46)
     // and the fresh tab steals focus before the worker answers, so getAll
