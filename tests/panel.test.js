@@ -5172,11 +5172,18 @@ describe('devtools-session mirror', () => {
     expect(viewerRow.responseContentState).toBe('not-loaded');
   });
 
-  const createLinkedSessions = ({ rows, fetchBodyForRow, paused = () => false }) => {
+  const createLinkedSessions = ({
+    rows,
+    fetchBodyForRow,
+    paused = () => false,
+    getControlState,
+    executeCommand,
+    receiveImportFile,
+  }) => {
     // The fake viewer state mirrors the production ingestion contract: rows
     // are unique by id, whether they arrive appended or via snapshot.
     const viewerRowsById = new Map();
-    const viewerReceived = { snapshots: [], appended: [], pausedChanges: [] };
+    const viewerReceived = { snapshots: [], appended: [], pausedChanges: [], syncs: [] };
     let host;
     const viewer = np.createMirrorViewerSession({
       postMessage: (message) => host.handleMessage(message),
@@ -5195,13 +5202,19 @@ describe('devtools-session mirror', () => {
         for (const id of viewerRowsById.keys()) if (id > maxId) maxId = id;
         return maxId;
       },
-      onHostPausedChange: (value) => viewerReceived.pausedChanges.push(value),
+      onHostSync: (message) => {
+        viewerReceived.pausedChanges.push(message.paused === true);
+        viewerReceived.syncs.push(message);
+      },
     });
     host = np.createMirrorHostSession({
       postMessage: (message) => viewer.handleMessage(message),
       getRows: () => rows,
       isPaused: paused,
       fetchBodyForRow: fetchBodyForRow || (() => Promise.reject(new Error('no body fetcher'))),
+      getControlState,
+      executeCommand,
+      receiveImportFile,
     });
     return { host, viewer, viewerReceived };
   };
@@ -5871,5 +5884,170 @@ describe('sse capture pieces', () => {
     expect(row.responseContent).not.toContain('code undefined');
     expect(row.duration).toBe(1000);
     expect(row.size).toBe('hello'.length + 'update: {"n":1}'.length);
+  });
+});
+
+describe('mirror remote control (command channel + import transfer)', () => {
+  const link = (options) => {
+    const executed = [];
+    const imports = [];
+    let host;
+    const viewer = np.createMirrorViewerSession({
+      postMessage: (message) => host.handleMessage(message),
+      appendWireRow: () => {},
+      applyWireSnapshot: () => {},
+      getLocalCount: () => 0,
+      getLocalMaxId: () => 0,
+      onHostSync: () => {},
+    });
+    host = np.createMirrorHostSession({
+      postMessage: (message) => viewer.handleMessage(message),
+      getRows: () => [],
+      isPaused: () => false,
+      fetchBodyForRow: () => Promise.reject(new Error('unused')),
+      getControlState:
+        (options && options.getControlState) ||
+        (() => ({
+          paused: false,
+          retention: { requestLimit: 20000, unlimited: false },
+          undoAvailable: true,
+          streamCapture: { supported: true, enabled: false },
+        })),
+      executeCommand:
+        (options && options.executeCommand) ||
+        ((name, args, done) => {
+          executed.push({ name, args });
+          done(name === 'clear' ? 'nothing to clear' : '');
+        }),
+      receiveImportFile:
+        (options && options.receiveImportFile) ||
+        ((fileName, bytes, done) => {
+          imports.push({ fileName, bytes: Array.from(bytes) });
+          done('');
+        }),
+    });
+    return { host, viewer, executed, imports };
+  };
+
+  test('sync carries the host control state to the viewer', () => {
+    const syncs = [];
+    let host;
+    const viewer = np.createMirrorViewerSession({
+      postMessage: (message) => host.handleMessage(message),
+      appendWireRow: () => {},
+      applyWireSnapshot: () => {},
+      getLocalCount: () => 0,
+      getLocalMaxId: () => 0,
+      onHostSync: (message) => syncs.push(message),
+    });
+    host = np.createMirrorHostSession({
+      postMessage: (message) => viewer.handleMessage(message),
+      getRows: () => [],
+      isPaused: () => true,
+      fetchBodyForRow: () => Promise.reject(new Error('unused')),
+      getControlState: () => ({
+        paused: true,
+        retention: { requestLimit: 500, unlimited: false },
+        undoAvailable: false,
+        streamCapture: { supported: true, enabled: true },
+      }),
+    });
+    host.sendSync();
+    expect(syncs).toHaveLength(1);
+    expect(syncs[0].paused).toBe(true);
+    expect(syncs[0].control).toEqual({
+      paused: true,
+      retention: { requestLimit: 500, unlimited: false },
+      undoAvailable: false,
+      streamCapture: { supported: true, enabled: true },
+    });
+  });
+
+  test('commands round-trip with per-command success and failure results', () => {
+    const { viewer, executed } = link();
+    const results = [];
+    viewer.sendCommand('pause-toggle', {}, (error) => results.push(error));
+    viewer.sendCommand('clear', {}, (error) => results.push(error && error.message));
+    expect(executed.map((entry) => entry.name)).toEqual(['pause-toggle', 'clear']);
+    expect(results[0]).toBeNull();
+    expect(results[1]).toBe('nothing to clear');
+  });
+
+  test('a host without an executor refuses commands instead of dropping them', () => {
+    let host;
+    const viewer = np.createMirrorViewerSession({
+      postMessage: (message) => host.handleMessage(message),
+      appendWireRow: () => {},
+      applyWireSnapshot: () => {},
+      getLocalCount: () => 0,
+      getLocalMaxId: () => 0,
+    });
+    host = np.createMirrorHostSession({
+      postMessage: (message) => viewer.handleMessage(message),
+      getRows: () => [],
+      isPaused: () => false,
+      fetchBodyForRow: () => Promise.reject(new Error('unused')),
+    });
+    let refusal = null;
+    viewer.sendCommand('pause-toggle', {}, (error) => {
+      refusal = error;
+    });
+    expect(refusal.message).toBe('This DevTools session does not accept mirror commands.');
+  });
+
+  test('import files chunk over the port and reassemble byte-for-byte', () => {
+    const { viewer, imports } = link();
+    const bytes = new Uint8Array(np.MIRROR_IMPORT_CHUNK_CHARS + 1024);
+    for (let index = 0; index < bytes.length; index++) bytes[index] = index % 251;
+    let result = 'pending';
+    viewer.sendImportFile('capture.saz', bytes, (error) => {
+      result = error;
+    });
+    expect(result).toBeNull();
+    expect(imports).toHaveLength(1);
+    expect(imports[0].fileName).toBe('capture.saz');
+    expect(imports[0].bytes).toEqual(Array.from(bytes));
+  });
+
+  test('base64 helpers round-trip arbitrary bytes', () => {
+    const bytes = new Uint8Array([0, 1, 127, 128, 255, 66, 10, 13]);
+    expect(Array.from(np.base64ToBytes(np.bytesToBase64(bytes)))).toEqual(Array.from(bytes));
+  });
+
+  test('oversized transfers and interrupted transfers fail with reasons', () => {
+    // The oversize begin and the orphan end both produce command-result
+    // errors on the wire instead of being dropped.
+    const wire = [];
+    const host = np.createMirrorHostSession({
+      postMessage: (message) => wire.push(message),
+      getRows: () => [],
+      isPaused: () => false,
+      fetchBodyForRow: () => Promise.reject(new Error('unused')),
+      receiveImportFile: (fileName, bytes, done) => done(''),
+    });
+    host.handleMessage({ type: 'import-begin', commandId: 1, fileName: 'big.har', size: np.MIRROR_IMPORT_MAX_BYTES + 1 });
+    host.handleMessage({ type: 'import-end', commandId: 2 });
+    const results = wire.filter((message) => message.type === 'command-result');
+    expect(results).toHaveLength(2);
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toContain('64 MiB');
+    expect(results[1].ok).toBe(false);
+    expect(results[1].error).toBe('The import transfer was interrupted.');
+  });
+
+  test('a disconnect fails pending commands as well as pending bodies', () => {
+    const viewer = np.createMirrorViewerSession({
+      postMessage: () => {},
+      appendWireRow: () => {},
+      applyWireSnapshot: () => {},
+      getLocalCount: () => 0,
+      getLocalMaxId: () => 0,
+    });
+    let commandError = null;
+    viewer.sendCommand('pause-toggle', {}, (error) => {
+      commandError = error;
+    });
+    viewer.failPendingBodyRequests('The DevTools session disconnected.');
+    expect(commandError.message).toBe('The DevTools session disconnected.');
   });
 });

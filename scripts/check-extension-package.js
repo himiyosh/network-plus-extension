@@ -7,6 +7,7 @@ const EXPECTED_MANIFEST_NAME = 'Network+ for DevTools';
 const EXPECTED_CSP = "script-src 'self'; object-src 'self'";
 const EXPECTED_PERMISSIONS = Object.freeze(['storage']);
 const ALLOWED_MANIFEST_KEYS = Object.freeze([
+  'background',
   'content_security_policy',
   'description',
   'devtools_page',
@@ -17,7 +18,6 @@ const ALLOWED_MANIFEST_KEYS = Object.freeze([
   'version',
 ]);
 const PRIVILEGED_MANIFEST_SURFACES = Object.freeze([
-  'background',
   'content_scripts',
   'externally_connectable',
   'host_permissions',
@@ -40,6 +40,7 @@ const HTML_RESOURCE_ATTRIBUTES = Object.freeze({
   video: 'src',
 });
 const RUNTIME_FILES = Object.freeze([
+  'background.js',
   'devtools.html',
   'devtools.js',
   'icons/icon128.png',
@@ -259,7 +260,7 @@ const validateExtension = (root, archiveFiles = RUNTIME_FILES) => {
     errors.push(`manifest permissions must be exactly: ${EXPECTED_PERMISSIONS.join(', ')}`);
   }
 
-  const javascript = ['devtools.js', 'panel.js'].map((file) => runtimeText.get(file) ?? '').join('\n');
+  const javascript = ['background.js', 'devtools.js', 'panel.js'].map((file) => runtimeText.get(file) ?? '').join('\n');
   const permissions = Array.isArray(manifest.permissions) ? manifest.permissions : [];
   for (const permission of permissions) {
     const usage = PERMISSION_USAGE[permission];
@@ -275,6 +276,16 @@ const validateExtension = (root, archiveFiles = RUNTIME_FILES) => {
   if (!isLocalReference(manifest.devtools_page)) errors.push('manifest devtools_page must be a local file');
   else if (!archiveFiles.includes(manifest.devtools_page)) {
     errors.push(`manifest devtools_page is not in the archive allowlist: ${manifest.devtools_page}`);
+  }
+
+  // The background surface is allowed for exactly one audited worker whose
+  // single job is minimizing the undocked DevTools window on pop-out.
+  if (JSON.stringify(manifest.background) !== JSON.stringify({ service_worker: 'background.js' })) {
+    errors.push('manifest background must be exactly: { "service_worker": "background.js" }');
+  } else if (!archiveFiles.includes(manifest.background.service_worker)) {
+    errors.push(
+      `manifest background service worker is not in the archive allowlist: ${manifest.background.service_worker}`,
+    );
   }
 
   const expectedIcons = {

@@ -35,6 +35,13 @@ profile によっては配布されないファイルがある。存在しない
 - 導入 profile: `core`（platform: `claude-code`）
 - ローカル逸脱: `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` §6.10 から、レビューコメント marker・レビュアー session UUID・repository variables による merge ゲート手続きの bullet 3 件を削除している（#129 で本リポジトリでは廃止済み。merge 可否は branch protection と通常の CI quality gates で判定する）。bundle 更新時は再取得後に同じ削除を再適用すること。
 
+### prettier の対象は許可リストが正
+
+`panel.js`・`tests/panel.test.js`・`tests/ui-contract.test.js` は**意図的に prettier 管理外**
+(契約テストがソース原文のインデントごとピンするため)。`prettier --write panel.js` を直接叩くと
+約 700 行が再整形されて契約ピンが大量に壊れる(2026-08-22 に実証)。整形の正は package.json の
+`format` script の明示リストのみ。管理外ファイルは手整形で周囲の流儀に合わせる。
+
 ### テスト実行の絶対則
 
 この Claude Code リモート環境でフルスイートを回すときは必ず `CHROME_BIN=/opt/pw-browsers/chromium npm test`。
