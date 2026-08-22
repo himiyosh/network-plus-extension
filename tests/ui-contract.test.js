@@ -3043,7 +3043,12 @@ describe('devtools-session mirror contracts', () => {
     expect(js).toContain("'Waiting for the DevTools session...'");
     expect(js).toContain("'Mirroring the DevTools session'");
     expect(js).toContain("'Mirroring the DevTools session (recording paused)'");
-    expect(js).toContain("'The DevTools session disconnected; captured requests remain available.'");
+    expect(js).toContain("'The DevTools session disconnected; captured requests remain available. '");
+    // The disconnect message teaches the keep-capturing workaround instead
+    // of leaving the viewer to discover why the stream stopped.
+    expect(js).toContain(
+      "'To capture without interruption, keep DevTools open — undocked into its own window and minimized is fine.'",
+    );
   });
 
   test('mirror transport stays inside the extension with no new permissions', () => {

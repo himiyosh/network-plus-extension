@@ -11888,7 +11888,10 @@ const _NetworkPlus = (function () {
               : 'Mirroring the DevTools session',
           );
         } else if (mirrorEverConnected) {
-          setStatus('The DevTools session disconnected; captured requests remain available.');
+          setStatus(
+            'The DevTools session disconnected; captured requests remain available. ' +
+              'To capture without interruption, keep DevTools open — undocked into its own window and minimized is fine.',
+          );
         } else {
           setStatus('Waiting for the DevTools session...');
         }
