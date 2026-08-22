@@ -1022,7 +1022,7 @@ describe('sample evidence guide static contracts', () => {
 
   test('keeps prompt, reveal, and close controls narrow-safe and at least 24px', () => {
     expect(css).toMatch(
-      /\.sample-guide-btn,\.sample-exit-btn,\.status-details-toggle\{[^}]*min-height:24px[^}]*white-space:nowrap/,
+      /\.sample-guide-btn,\.sample-exit-btn,\.status-details-toggle,\.ws-capture-btn\{[^}]*min-height:24px[^}]*white-space:nowrap/,
     );
     expect(css).toMatch(
       /#sampleGuideDialog\{[^}]*width:min\(480px,calc\(100vw - 16px\)\)[^}]*max-height:min\(calc\(100vh - 16px\),calc\(100dvh - 16px\)\)[^}]*overflow:auto/,
@@ -3111,7 +3111,7 @@ describe('export scope contracts', () => {
 });
 
 describe('method badge contracts', () => {
-  const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
+  const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'ws'];
 
   test('every method badge pair meets WCAG AA in every theme state', () => {
     for (const [name, theme] of [
@@ -3134,7 +3134,7 @@ describe('method badge contracts', () => {
   });
 
   test('badges color through row method classes so unknown methods stay plain', () => {
-    for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD']) {
+    for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD', 'WS']) {
       const lower = method.toLowerCase();
       expect(css).toContain(
         '.grid tbody tr.method-' +
@@ -3148,5 +3148,27 @@ describe('method badge contracts', () => {
     }
     expect(css).toContain('.method-badge{display:inline-block;min-width:34px;');
     expect(js).toContain("contentHost.className = 'method-badge';");
+  });
+});
+
+describe('websocket capture contracts', () => {
+  test('capture is an explicit statusbar opt-in that names its own limits', () => {
+    expect(html).toContain('id="wsCaptureBtn"');
+    expect(html).toContain('only sockets created while capture is on are seen, and traffic is never altered');
+    expect(html).toMatch(/id="wsCaptureBtn"[^>]*aria-pressed="false"[^>]*hidden/);
+    expect(css).toContain('.ws-capture-btn[aria-pressed="true"]{');
+    expect(js).toContain("wsCaptureBtn.textContent = wsCapture.enabled ? 'WS capture: On' : 'WS capture: Off';");
+    expect(js).toContain("setStatus('WebSocket capture on; sockets created from now on are recorded.');");
+    expect(js).toContain("setStatus('WebSocket capture off; recorded connections stay in the table.');");
+  });
+
+  test('the wrapper injects through inspectedWindow.eval and survives navigation', () => {
+    expect(js).toContain('chrome.devtools.inspectedWindow.eval.bind(chrome.devtools.inspectedWindow)');
+    expect(js).toContain('inspectedEval(buildWsWrapperSource(), () => {});');
+    expect(js).toContain("inspectedEval('window.__networkPlusWS__ ? window.__networkPlusWS__.drain() : []'");
+    expect(js).toContain('if (wsCapture.enabled) injectWsWrapper();');
+    // Recording discipline matches live capture: paused and sample sessions
+    // drop drained events instead of recording them.
+    expect(js).toContain('if (state.paused || state.sampleCaptureActive) return;');
   });
 });

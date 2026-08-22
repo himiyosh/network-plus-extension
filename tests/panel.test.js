@@ -5423,3 +5423,144 @@ describe('selected-rows export scope', () => {
     expect(np.planSelectedExportRows(rows, new Set([evicted]), null)).toEqual([]);
   });
 });
+
+describe('operation label extraction', () => {
+  const json = (obj) => ({ mimeType: 'application/json', text: JSON.stringify(obj) });
+
+  test('GraphQL operationName wins over query parsing', () => {
+    expect(np.extractOperationLabel(json({ operationName: 'GetOrders', query: 'query Other { x }' }))).toBe('GetOrders');
+  });
+
+  test('named and anonymous GraphQL queries parse from the document', () => {
+    expect(np.extractOperationLabel(json({ query: 'mutation CreateOrder($in: In!) { createOrder }' }))).toBe('CreateOrder');
+    expect(np.extractOperationLabel(json({ query: 'query { viewer { id } }' }))).toBe('query');
+    expect(np.extractOperationLabel(json({ query: '{ viewer { id } }' }))).toBe('query');
+    expect(np.extractOperationLabel(json({ query: 'subscription OnPing { ping }' }))).toBe('OnPing');
+  });
+
+  test('application/graphql bodies parse directly', () => {
+    expect(np.extractOperationLabel({ mimeType: 'application/graphql', text: 'query Dashboard { widgets }' })).toBe('Dashboard');
+  });
+
+  test('batched GraphQL and JSON-RPC report the first label with a count', () => {
+    expect(
+      np.extractOperationLabel(json([{ operationName: 'A', query: 'query A{x}' }, { operationName: 'B', query: 'query B{y}' }])),
+    ).toBe('A (+1)');
+    expect(
+      np.extractOperationLabel(json([
+        { jsonrpc: '2.0', method: 'eth_blockNumber', id: 1 },
+        { jsonrpc: '2.0', method: 'eth_getBalance', id: 2 },
+        { jsonrpc: '2.0', method: 'eth_call', id: 3 },
+      ])),
+    ).toBe('eth_blockNumber (+2)');
+  });
+
+  test('JSON-RPC requires the protocol shape, not just a method field', () => {
+    expect(np.extractOperationLabel(json({ jsonrpc: '2.0', method: 'user.get', id: 7 }))).toBe('user.get');
+    expect(np.extractOperationLabel(json({ method: 'POST', body: 'x' }))).toBe('');
+  });
+
+  test('non-candidates and malformed bodies stay blank', () => {
+    expect(np.extractOperationLabel(null)).toBe('');
+    expect(np.extractOperationLabel({ mimeType: 'application/json', text: '' })).toBe('');
+    expect(np.extractOperationLabel({ mimeType: 'text/plain', text: 'query X { a }' })).toBe('');
+    expect(np.extractOperationLabel({ mimeType: 'application/json', text: '{"query":broken' })).toBe('');
+    expect(np.extractOperationLabel({ mimeType: 'application/json', text: '{"unrelated":1}' })).toBe('');
+    expect(np.extractOperationLabel({ mimeType: 'application/json', text: '{"query":"' + 'a'.repeat(262200) + '"}' })).toBe('');
+  });
+
+  test('rows built from requests carry the operation label end to end', () => {
+    const row = np.buildRowFromRequest(
+      {
+        startedDateTime: '2026-08-22T01:00:00.000Z',
+        time: 12,
+        request: {
+          method: 'POST',
+          url: 'https://api.example.test/graphql',
+          headers: [],
+          postData: { mimeType: 'application/json', text: '{"operationName":"GetCart","query":"query GetCart{cart}"}' },
+        },
+        response: { status: 200, statusText: 'OK', headers: [], bodySize: 10, content: { mimeType: 'application/json', size: 10 } },
+        timings: {},
+        getContent: () => {},
+      },
+      41,
+    );
+    expect(row.operation).toBe('GetCart');
+    const wire = JSON.parse(JSON.stringify(np.serializeRowForMirror(row)));
+    const viewerRow = np.buildRowFromRequest(np.buildMirrorEntryFromWire(wire), wire.id);
+    expect(viewerRow.operation).toBe('GetCart');
+  });
+});
+
+describe('websocket capture pieces', () => {
+  test('the wrapper source is self-contained and carries its bounds', () => {
+    const source = np.buildWsWrapperSource();
+    expect(source.startsWith('(function pageWebSocketWrapper(')).toBe(true);
+    expect(source.endsWith(')(' + np.WS_QUEUE_CAP + ',' + np.WS_FRAME_PREVIEW_CHARS + ')')).toBe(true);
+    expect(source).toContain('window.__networkPlusWS__');
+    expect(source).toContain("kind: 'ws-open-attempt'");
+    // Self-contained: nothing from panel scope may leak into the page code.
+    expect(source).not.toContain('state.');
+    expect(source).not.toContain('chrome.');
+  });
+
+  test('frame lines carry direction arrows and bounded text trims from the front', () => {
+    const at = Date.parse('2026-08-22T01:02:03.456Z');
+    expect(np.formatWsFrameLine({ kind: 'ws-sent', at, preview: 'hello' })).toBe('↑ 01:02:03.456 hello');
+    expect(np.formatWsFrameLine({ kind: 'ws-received', at, preview: 'world' })).toBe('↓ 01:02:03.456 world');
+    expect(np.formatWsFrameLine({ kind: 'ws-closed', at, code: 1006, reason: 'gone' })).toBe(
+      '— 01:02:03.456 closed (code 1006, gone)',
+    );
+    let text = '';
+    for (let i = 0; i < 10; i++) text = np.appendBoundedWsText(text, 'line-' + i, 40);
+    expect(text.startsWith('… earlier frames trimmed …')).toBe(true);
+    expect(text.endsWith('line-9')).toBe(true);
+    expect(text).not.toContain('line-0');
+  });
+
+  test('ingest creates rows on open attempts and threads frames into both directions', () => {
+    const at = Date.parse('2026-08-22T02:00:00.000Z');
+    const rows = new Map();
+    const makeRow = (event) => {
+      const row = {
+        startedDateTime: new Date(event.at).toISOString(),
+        requestPostData: { mimeType: 'text/plain', text: '' },
+        responseContent: '',
+        responseContentState: 'pending-admission',
+        size: 0,
+        duration: 0,
+        statusText: 'Connecting',
+      };
+      rows.set(event.socketId, row);
+      return row;
+    };
+    const context = { createRow: makeRow, getRow: (id) => rows.get(id) || null };
+    const changed = np.ingestWsEvents(
+      [
+        { kind: 'ws-open-attempt', socketId: 1, url: 'wss://x.test/live', at },
+        { kind: 'ws-open', socketId: 1, at: at + 20 },
+        { kind: 'ws-sent', socketId: 1, preview: '{"subscribe":true}', at: at + 40 },
+        { kind: 'ws-received', socketId: 1, preview: '{"data":1}', at: at + 60 },
+        { kind: 'ws-received', socketId: 99, preview: 'orphan', at: at + 70 },
+        { kind: 'ws-closed', socketId: 1, code: 1000, reason: '', at: at + 5000 },
+        null,
+        { kind: 'ws-open', socketId: 'bad' },
+      ],
+      context,
+    );
+    const row = rows.get(1);
+    expect(changed).toEqual([row]);
+    expect(row.requestPostData.text).toContain('↑');
+    expect(row.requestPostData.text).toContain('{"subscribe":true}');
+    expect(row.responseContent).toContain('connection open');
+    expect(row.responseContent).toContain('↓');
+    expect(row.responseContent).toContain('closed (code 1000)');
+    expect(row.responseContentState).toBe('pending-admission');
+    expect(row._wsSentCount).toBe(1);
+    expect(row._wsReceivedCount).toBe(1);
+    expect(row.size).toBe('{"data":1}'.length);
+    expect(row.statusText).toBe('Closed');
+    expect(row.duration).toBe(5000);
+  });
+});
