@@ -300,7 +300,7 @@
       </div>
     </aside>
   </main>
-  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" hidden disabled>Exit · restore prior recording state</button><button id="wsCaptureBtn" type="button" class="ws-capture-btn" title="Capture WebSocket frames by wrapping this page's WebSocket constructor; only sockets created while capture is on are seen, and traffic is never altered" aria-pressed="false" hidden>WS capture: Off</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus" title="Retention: 20,000 requests. body cache 0 B / 32 MB">cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 requests</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
+  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" hidden disabled>Exit · restore prior recording state</button><button id="wsCaptureBtn" type="button" class="ws-capture-btn" title="Capture WebSocket and Server-Sent-Event streams by wrapping this page's WebSocket and EventSource constructors; only connections created while capture is on are seen, and traffic is never altered" aria-pressed="false" hidden>Stream capture: Off</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus" title="Retention: 20,000 requests. body cache 0 B / 32 MB">cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 requests</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
   <dialog id="retentionDialog" aria-labelledby="retentionDialogTitle" aria-describedby="retentionHelp">
     <form method="dialog" class="retention-form">
       <h2 id="retentionDialogTitle">Capture retention</h2>
@@ -357,6 +357,27 @@
       <div class="data-safety-actions">
         <button id="dataSafetyCancelBtn" type="button">Cancel</button>
         <button id="dataSafetyConfirmBtn" type="button" class="data-safety-danger" hidden>Confirm full output</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="resendDialog" aria-labelledby="resendDialogTitle" aria-describedby="resendDialogIntro">
+    <form method="dialog" class="resend-form">
+      <h2 id="resendDialogTitle">Edit and resend request</h2>
+      <p id="resendDialogIntro">Send composes a new request from these fields, and the inspected page itself issues it — so cookies, CORS, and the page's security policies apply as usual. The reply arrives as a new captured row.</p>
+      <label for="resendMethod">Method</label>
+      <input id="resendMethod" name="resendMethod" autocomplete="off" spellcheck="false">
+      <label for="resendUrl">URL</label>
+      <input id="resendUrl" name="resendUrl" autocomplete="off" spellcheck="false">
+      <label for="resendHeaders">Headers (one per line, Name: value)</label>
+      <textarea id="resendHeaders" name="resendHeaders" rows="6" spellcheck="false"></textarea>
+      <label for="resendBody">Body (ignored for GET and HEAD)</label>
+      <textarea id="resendBody" name="resendBody" rows="4" spellcheck="false"></textarea>
+      <label class="resend-credentials"><input type="checkbox" id="resendCredentials" checked> Send this site's cookies with the request</label>
+      <p class="resend-hint">Browser-managed headers (Host, Cookie, Content-Length, Origin, Referer, and the Sec-* and Proxy-* families) are set by the browser and cannot be overridden here.</p>
+      <p id="resendError" class="resend-error" role="alert" hidden></p>
+      <div class="resend-actions">
+        <button id="resendSendBtn" type="button" class="data-safety-primary">Send request</button>
+        <button id="resendCancelBtn" value="cancel">Cancel</button>
       </div>
     </form>
   </dialog>

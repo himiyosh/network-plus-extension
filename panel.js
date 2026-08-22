@@ -5663,6 +5663,92 @@ const _NetworkPlus = (function () {
     return '(' + String(pageWebSocketWrapper) + ')(' + WS_QUEUE_CAP + ',' + WS_FRAME_PREVIEW_CHARS + ')';
   }
 
+  // The SSE wrapper speaks the same ws-* event dialect as the WebSocket
+  // wrapper so ingestWsEvents applies unchanged: every server event is a
+  // received frame, and open/error/close become the same lifecycle marks.
+  // Named events (event: foo) are observable only once the page registers a
+  // listener for them, which the wrapped addEventListener surfaces.
+  function pageEventSourceWrapper(queueCap, previewChars) {
+    if (window.__networkPlusSSE__) {
+      window.__networkPlusSSE__.setEnabled(true);
+      return 'already-installed';
+    }
+    if (!window.EventSource) return 'no-eventsource';
+    const queue = [];
+    let enabled = true;
+    let nextSocketId = 1;
+    const preview = function (data) {
+      try {
+        return typeof data === 'string' ? data.slice(0, previewChars) : String(data).slice(0, previewChars);
+      } catch (_error) {
+        return '[unreadable event]';
+      }
+    };
+    const record = function (entry) {
+      if (!enabled) return;
+      entry.at = Date.now();
+      queue.push(entry);
+      if (queue.length > queueCap) queue.splice(0, queue.length - queueCap);
+    };
+    const Native = window.EventSource;
+    const Wrapped = function (url, config) {
+      const source = config === undefined ? new Native(url) : new Native(url, config);
+      const socketId = nextSocketId;
+      nextSocketId += 1;
+      record({ kind: 'ws-open-attempt', socketId, url: String(url), protocols: '' });
+      const nativeAdd = source.addEventListener.bind(source);
+      const seenTypes = {};
+      const observe = function (type) {
+        if (seenTypes[type]) return;
+        seenTypes[type] = true;
+        nativeAdd(type, function (event) {
+          record({
+            kind: 'ws-received',
+            socketId,
+            preview: (type === 'message' ? '' : type + ': ') + preview(event && event.data),
+          });
+        });
+      };
+      observe('message');
+      nativeAdd('open', function () {
+        record({ kind: 'ws-open', socketId });
+      });
+      nativeAdd('error', function () {
+        record({ kind: 'ws-error', socketId });
+      });
+      source.addEventListener = function (type, listener, options) {
+        const name = String(type);
+        // 64 keeps a hostile page from registering unbounded observer types.
+        if (name && name !== 'message' && name !== 'open' && name !== 'error' && name.length <= 64) observe(name);
+        return nativeAdd(type, listener, options);
+      };
+      const nativeClose = source.close.bind(source);
+      source.close = function () {
+        record({ kind: 'ws-closed', socketId });
+        return nativeClose();
+      };
+      return source;
+    };
+    Wrapped.prototype = Native.prototype;
+    Wrapped.CONNECTING = 0;
+    Wrapped.OPEN = 1;
+    Wrapped.CLOSED = 2;
+    window.EventSource = Wrapped;
+    window.__networkPlusSSE__ = {
+      drain: function () {
+        return queue.splice(0, queue.length);
+      },
+      setEnabled: function (value) {
+        enabled = value === true;
+      },
+    };
+    return 'installed';
+  }
+
+  function buildSseWrapperSource() {
+    return '(' + String(pageEventSourceWrapper) + ')(' + WS_QUEUE_CAP + ',' + WS_FRAME_PREVIEW_CHARS + ')';
+  }
+
   function formatWsFrameLine(event) {
     const stamp = Number.isFinite(event.at) ? new Date(event.at).toISOString().slice(11, 23) : '??:??:??.???';
     if (event.kind === 'ws-sent') return '↑ ' + stamp + ' ' + (event.preview || '');
@@ -5670,6 +5756,8 @@ const _NetworkPlus = (function () {
     if (event.kind === 'ws-open') return '— ' + stamp + ' connection open';
     if (event.kind === 'ws-error') return '— ' + stamp + ' connection error';
     if (event.kind === 'ws-closed') {
+      // SSE close carries no close code; WebSocket close always does.
+      if (event.code == null) return '— ' + stamp + ' closed';
       return '— ' + stamp + ' closed (code ' + event.code + (event.reason ? ', ' + event.reason : '') + ')';
     }
     return '';
@@ -6076,6 +6164,249 @@ const _NetworkPlus = (function () {
     };
   }
 
+  // ---- Edit-and-resend (DevTools sessions only) ----
+  // A captured request is only a template here: Send composes a brand-new
+  // request from the dialog fields and executes it as a fetch() inside the
+  // inspected page through the DevTools eval API — the same zero-permission
+  // channel WebSocket capture uses. Cookies, CORS, and the page's security
+  // policies therefore apply exactly as if the page had issued the call,
+  // the reply arrives through normal capture as a new row, and the original
+  // traffic is never touched.
+  const RESEND_BROWSER_MANAGED_HEADERS = Object.freeze([
+    'accept-charset',
+    'accept-encoding',
+    'access-control-request-headers',
+    'access-control-request-method',
+    'connection',
+    'content-length',
+    'cookie',
+    'cookie2',
+    'date',
+    'dnt',
+    'expect',
+    'host',
+    'keep-alive',
+    'origin',
+    'referer',
+    'te',
+    'trailer',
+    'transfer-encoding',
+    'upgrade',
+    'via',
+  ]);
+  const RESEND_METHOD_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+  function isBrowserManagedHeaderName(name) {
+    const normalized = String(name || '').toLowerCase();
+    return (
+      RESEND_BROWSER_MANAGED_HEADERS.indexOf(normalized) > -1 ||
+      normalized.startsWith('proxy-') ||
+      normalized.startsWith('sec-')
+    );
+  }
+
+  function canResendRow(row) {
+    return !!(row && row.method !== 'WS' && /^https?:\/\//i.test(row.url || ''));
+  }
+
+  function buildResendSpecFromRow(row) {
+    const headers = [];
+    for (const header of (row && row.requestHeaders) || []) {
+      const name = String((header && header.name) || '');
+      if (!name || name.startsWith(':')) continue; // HTTP/2 pseudo-headers are not settable request headers.
+      headers.push({ name, value: String((header && header.value) || '') });
+    }
+    return {
+      method: (row && row.method) || 'GET',
+      url: (row && row.url) || '',
+      headers,
+      body:
+        row && row.requestPostData && typeof row.requestPostData.text === 'string'
+          ? row.requestPostData.text
+          : '',
+    };
+  }
+
+  function formatHeaderLines(headers) {
+    return (headers || []).map((header) => header.name + ': ' + header.value).join('\n');
+  }
+
+  function parseHeaderLines(text) {
+    const headers = [];
+    const invalidLines = [];
+    for (const rawLine of String(text || '').split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const colonAt = line.indexOf(':');
+      if (colonAt < 1) {
+        invalidLines.push(line);
+        continue;
+      }
+      headers.push({ name: line.slice(0, colonAt).trim(), value: line.slice(colonAt + 1).trim() });
+    }
+    return { headers, invalidLines };
+  }
+
+  function pageResendRunner(spec) {
+    // Runs inside the inspected page; must stay self-contained.
+    try {
+      var headers = {};
+      for (var i = 0; i < spec.headers.length; i++) headers[spec.headers[i][0]] = spec.headers[i][1];
+      var init = {
+        method: spec.method,
+        headers: headers,
+        credentials: spec.credentials ? 'include' : 'same-origin',
+      };
+      if (spec.body && spec.method !== 'GET' && spec.method !== 'HEAD') init.body = spec.body;
+      fetch(spec.url, init).catch(function () {});
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String((error && error.message) || error) };
+    }
+  }
+
+  function buildResendEvalSource(spec) {
+    const wireSpec = {
+      method: String(spec.method || 'GET'),
+      url: String(spec.url || ''),
+      headers: ((spec && spec.headers) || [])
+        .filter((header) => !isBrowserManagedHeaderName(header.name))
+        .map((header) => [String(header.name), String(header.value)]),
+      body: typeof spec.body === 'string' ? spec.body : '',
+      credentials: spec.credentials !== false,
+    };
+    return '(' + pageResendRunner.toString() + ')(' + JSON.stringify(wireSpec) + ')';
+  }
+
+  // ---- JWT decoding (display only; no verification) ----
+  // Any header value can carry a JWT: Authorization: Bearer, custom auth
+  // headers, or a response header minting a fresh token. Detection is a
+  // strict local base64url + JSON parse of the first two segments — the
+  // signature is never checked — and the result renders only inside the
+  // header panes: decoded claims never join clipboard copies or exports.
+  const JWT_TOKEN_PATTERN = /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*/g;
+  const JWT_MAX_TOKEN_CHARS = 8192;
+  const JWT_MAX_FINDINGS = 4;
+  const JWT_DISPLAY_NOTE = 'Decoded locally for display; the signature is not verified.';
+
+  function decodeBase64UrlJson(segment) {
+    if (typeof segment !== 'string' || segment.length === 0) return null;
+    try {
+      const base64 = segment.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+      const raw = atob(padded);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      const parsed = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function decodeJwt(token) {
+    if (typeof token !== 'string' || token.length === 0 || token.length > JWT_MAX_TOKEN_CHARS) return null;
+    const segments = token.split('.');
+    if (segments.length !== 3) return null;
+    const header = decodeBase64UrlJson(segments[0]);
+    if (!header || (typeof header.alg !== 'string' && typeof header.typ !== 'string')) return null;
+    const payload = decodeBase64UrlJson(segments[1]);
+    if (!payload) return null;
+    return { header, payload, signaturePresent: segments[2].length > 0 };
+  }
+
+  function humanizeJwtDelta(deltaMs) {
+    const abs = Math.abs(deltaMs);
+    if (abs < 60000) return Math.round(abs / 1000) + ' s';
+    if (abs < 3600000) return Math.round(abs / 60000) + ' min';
+    if (abs < 86400000) return Math.round(abs / 3600000) + ' h';
+    return Math.round(abs / 86400000) + ' d';
+  }
+
+  function describeJwtEpochClaim(key, seconds, nowEpochMs) {
+    if (!Number.isFinite(seconds)) return null;
+    const atMs = seconds * 1000;
+    const iso = new Date(atMs).toISOString();
+    const delta = atMs - nowEpochMs;
+    if (key === 'exp') {
+      return delta < 0
+        ? iso + ' (expired ' + humanizeJwtDelta(delta) + ' ago)'
+        : iso + ' (expires in ' + humanizeJwtDelta(delta) + ')';
+    }
+    return delta < 0 ? iso + ' (' + humanizeJwtDelta(delta) + ' ago)' : iso + ' (in ' + humanizeJwtDelta(delta) + ')';
+  }
+
+  function getJwtExpiryState(payload, nowEpochMs) {
+    const exp = payload ? payload.exp : undefined;
+    if (!Number.isFinite(exp)) return { expired: false, label: '' };
+    const delta = exp * 1000 - nowEpochMs;
+    return {
+      expired: delta < 0,
+      label: delta < 0 ? 'expired ' + humanizeJwtDelta(delta) + ' ago' : 'expires in ' + humanizeJwtDelta(delta),
+    };
+  }
+
+  function findJwtsInHeaders(headers) {
+    const findings = [];
+    const seenTokens = new Set();
+    for (const header of headers || []) {
+      const value = String((header && header.value) || '');
+      if (value.indexOf('eyJ') === -1) continue;
+      for (const token of value.match(JWT_TOKEN_PATTERN) || []) {
+        if (seenTokens.has(token)) continue;
+        seenTokens.add(token);
+        const decoded = decodeJwt(token);
+        if (!decoded) continue;
+        findings.push({ headerName: String((header && header.name) || ''), decoded });
+        if (findings.length >= JWT_MAX_FINDINGS) return findings;
+      }
+    }
+    return findings;
+  }
+
+  function createJwtDetailsSection(headers, nowEpochMs) {
+    const findings = findJwtsInHeaders(headers);
+    if (findings.length === 0) return null;
+    const now = Number.isFinite(nowEpochMs) ? nowEpochMs : Date.now();
+    const container = document.createElement('div');
+    container.className = 'jwt-section';
+    for (const finding of findings) {
+      const details = document.createElement('details');
+      details.className = 'jwt-details';
+      const summary = document.createElement('summary');
+      const expiry = getJwtExpiryState(finding.decoded.payload, now);
+      summary.textContent = 'JWT in ' + finding.headerName + (expiry.label ? ' · ' + expiry.label : '');
+      if (expiry.expired) summary.classList.add('jwt-expired');
+      details.appendChild(summary);
+      const timeItems = [];
+      for (const key of ['exp', 'nbf', 'iat']) {
+        const described = describeJwtEpochClaim(key, finding.decoded.payload[key], now);
+        if (described) timeItems.push({ key, value: described });
+      }
+      if (timeItems.length > 0) details.appendChild(createKvGrid(timeItems));
+      for (const [label, part] of [
+        ['Header', finding.decoded.header],
+        ['Payload', finding.decoded.payload],
+      ]) {
+        const heading = document.createElement('strong');
+        heading.className = 'jwt-part-heading';
+        heading.textContent = label;
+        details.appendChild(heading);
+        const pre = document.createElement('pre');
+        pre.className = 'code-block';
+        pre.textContent = JSON.stringify(part, null, 2);
+        details.appendChild(pre);
+      }
+      const note = document.createElement('p');
+      note.className = 'jwt-note';
+      note.textContent =
+        JWT_DISPLAY_NOTE + (finding.decoded.signaturePresent ? '' : ' This token carries no signature segment.');
+      details.appendChild(note);
+      container.appendChild(details);
+    }
+    return container;
+  }
+
   // ============================================================
   // Section 9: Safe DOM Rendering [S1][S2][S3] — NO innerHTML with user data
   // ============================================================
@@ -6297,7 +6628,7 @@ const _NetworkPlus = (function () {
     }
     if (row.method) {
       const method = row.method.toUpperCase();
-      if (HTTP_METHODS.indexOf(method) > -1 || method === 'WS') tr.classList.add('method-' + method);
+      if (HTTP_METHODS.indexOf(method) > -1 || method === 'WS' || method === 'SSE') tr.classList.add('method-' + method);
     }
     // Status code row class
     const statusClass = classifyStatusClass(row.status);
@@ -9011,6 +9342,8 @@ const _NetworkPlus = (function () {
       title.style.marginTop = '8px';
       reqHeadersPane.appendChild(title);
       reqHeadersPane.appendChild(createKvGrid(row.requestHeaders.map((h) => ({ key: h.name, value: h.value }))));
+      const requestJwtSection = createJwtDetailsSection(row.requestHeaders);
+      if (requestJwtSection) reqHeadersPane.appendChild(requestJwtSection);
     }
 
     // Request > Body
@@ -9100,6 +9433,8 @@ const _NetworkPlus = (function () {
       title.style.marginTop = '8px';
       resHeadersPane.appendChild(title);
       resHeadersPane.appendChild(createKvGrid(row.responseHeaders.map((h) => ({ key: h.name, value: h.value }))));
+      const responseJwtSection = createJwtDetailsSection(row.responseHeaders);
+      if (responseJwtSection) resHeadersPane.appendChild(responseJwtSection);
     }
 
     // Response > Body, Preview, Raw — populated from the shared response cache
@@ -10403,6 +10738,9 @@ const _NetworkPlus = (function () {
     let contextMenuRow = null;
     let contextMenuInvokerRowId = null;
     let suppressNextNativeContextMenuRowId = null;
+    // Assigned by the resend wiring at the end of init when a DevTools
+    // session is present; stays null in the mirror viewer and in tests.
+    let resendActions = null;
     const restoreContextMenuFocus = () => {
       const invokingRow = contextMenuInvokerRowId
         ? tableWrap.querySelector('tr[data-row-id="' + contextMenuInvokerRowId + '"]')
@@ -10478,6 +10816,21 @@ const _NetworkPlus = (function () {
       contextMenu.appendChild(createRowMenuButton('Copy full request...', () => {
         setTimeout(() => requestFullRequestCopy(fullCopyRow, invokingRow), 0);
       }));
+
+      if (resendActions && canResendRow(contextMenuRow)) {
+        const resendLabel = document.createElement('div');
+        resendLabel.className = 'context-menu-label';
+        resendLabel.setAttribute('role', 'presentation');
+        resendLabel.textContent = 'Resend';
+        contextMenu.appendChild(resendLabel);
+        const resendRow = contextMenuRow;
+        contextMenu.appendChild(createRowMenuButton('Resend unchanged', () => {
+          resendActions.sendNow(resendRow);
+        }));
+        contextMenu.appendChild(createRowMenuButton('Edit and resend...', () => {
+          setTimeout(() => resendActions.openDialog(resendRow, resendRow.id), 0);
+        }));
+      }
 
       const hlLabel = document.createElement('div');
       hlLabel.className = 'context-menu-label';
@@ -11791,7 +12144,7 @@ const _NetworkPlus = (function () {
       });
     }
 
-    // --- WebSocket capture wiring (opt-in; DevTools sessions only) ---
+    // --- Stream capture wiring (WebSocket + SSE; opt-in; DevTools sessions only) ---
     const wsCaptureBtn = $('#wsCaptureBtn');
     const inspectedEval =
       typeof chrome !== 'undefined' &&
@@ -11802,106 +12155,221 @@ const _NetworkPlus = (function () {
         : null;
     if (wsCaptureBtn && inspectedEval && !mirrorViewerActive) {
       wsCaptureBtn.hidden = false;
-      const wsCapture = { enabled: false, timer: null, socketRows: new Map() };
-      const updateWsCaptureButton = () => {
-        wsCaptureBtn.textContent = wsCapture.enabled ? 'WS capture: On' : 'WS capture: Off';
-        wsCaptureBtn.setAttribute('aria-pressed', wsCapture.enabled ? 'true' : 'false');
+      const streamCapture = { enabled: false, timer: null, socketRows: new Map(), sseRows: new Map() };
+      const updateStreamCaptureButton = () => {
+        wsCaptureBtn.textContent = streamCapture.enabled ? 'Stream capture: On' : 'Stream capture: Off';
+        wsCaptureBtn.setAttribute('aria-pressed', streamCapture.enabled ? 'true' : 'false');
       };
-      const injectWsWrapper = () => {
+      const injectStreamWrappers = () => {
         inspectedEval(buildWsWrapperSource(), () => {});
+        inspectedEval(buildSseWrapperSource(), () => {});
       };
-      const createWsRow = (event) => {
+      const createStreamRow = (event, variant) => {
+        const isSse = variant === 'sse';
         const row = buildRowFromRequest({
           startedDateTime: Number.isFinite(event.at) ? new Date(event.at).toISOString() : '',
           time: 0,
           request: {
-            method: 'WS',
+            method: isSse ? 'SSE' : 'WS',
             url: event.url,
-            headers: event.protocols ? [{ name: 'Sec-WebSocket-Protocol', value: event.protocols }] : [],
+            headers:
+              !isSse && event.protocols ? [{ name: 'Sec-WebSocket-Protocol', value: event.protocols }] : [],
             postData: { mimeType: 'text/plain', text: '' },
           },
           response: {
             status: 0,
             statusText: 'Connecting',
-            httpVersion: 'WS',
+            httpVersion: isSse ? 'SSE' : 'WS',
             headers: [],
             bodySize: 0,
-            content: { mimeType: 'websocket', size: 0, text: '' },
+            content: { mimeType: isSse ? 'text/event-stream' : 'websocket', size: 0, text: '' },
           },
           timings: {},
         });
         // The wrapper sees no HTTP handshake, so no status is claimed.
         row.status = '';
-        row.initiator = { text: 'WebSocket', typeLabel: 'WS' };
+        row.initiator = isSse ? { text: 'EventSource', typeLabel: 'SSE' } : { text: 'WebSocket', typeLabel: 'WS' };
         row._wsSocketId = event.socketId;
-        wsCapture.socketRows.set(event.socketId, row);
+        (isSse ? streamCapture.sseRows : streamCapture.socketRows).set(event.socketId, row);
         pendingLiveRows.push(row);
         return row;
       };
-      const drainWsQueue = () => {
+      const ingestDrainedStream = (result, variant) => {
+        if (!Array.isArray(result) || result.length === 0) return;
+        // Recording discipline matches live capture: while paused or in a
+        // sample session, drained events are dropped, not queued.
+        if (state.paused || state.sampleCaptureActive) return;
+        const rowsByVariant = variant === 'sse' ? streamCapture.sseRows : streamCapture.socketRows;
+        let createdCount = 0;
+        const changedRows = ingestWsEvents(result, {
+          createRow: (event) => {
+            if (createdCount === 0) {
+              disposeClearUndoSnapshot(
+                'live',
+                'Undo for the cleared local sample was closed before live capture to keep sample and live traffic separate.',
+              );
+            }
+            createdCount += 1;
+            return createStreamRow(event, variant);
+          },
+          getRow: (socketId) => {
+            const row = rowsByVariant.get(socketId);
+            if (!row) return null;
+            // A connection's first frames often share a drain batch with its
+            // open-attempt, while the row still sits in the live-flush queue
+            // rather than in activeRows. Only rows actually gone from the
+            // table are dead; treating queued rows as dead dropped those
+            // frames and deleted the map entry, silencing the connection.
+            if (row._retentionDisposed || (!state.activeRows.has(row) && !pendingLiveRows.includes(row))) {
+              rowsByVariant.delete(socketId);
+              return null;
+            }
+            return row;
+          },
+        });
+        if (createdCount > 0) scheduleLiveRows(false);
+        const renderedRows = changedRows.filter((row) => state.activeRows.has(row));
+        if (renderedRows.length > 0 && !replaceRenderedRowStates(renderedRows)) renderBody();
+      };
+      const drainStreamQueues = () => {
         inspectedEval('window.__networkPlusWS__ ? window.__networkPlusWS__.drain() : []', (result, errorInfo) => {
-          if (errorInfo || !Array.isArray(result) || result.length === 0) return;
-          // Recording discipline matches live capture: while paused or in a
-          // sample session, drained events are dropped, not queued.
-          if (state.paused || state.sampleCaptureActive) return;
-          let createdCount = 0;
-          const changedRows = ingestWsEvents(result, {
-            createRow: (event) => {
-              if (createdCount === 0) {
-                disposeClearUndoSnapshot(
-                  'live',
-                  'Undo for the cleared local sample was closed before live capture to keep sample and live traffic separate.',
-                );
-              }
-              createdCount += 1;
-              return createWsRow(event);
-            },
-            getRow: (socketId) => {
-              const row = wsCapture.socketRows.get(socketId);
-              if (!row) return null;
-              if (row._retentionDisposed || !state.activeRows.has(row)) {
-                wsCapture.socketRows.delete(socketId);
-                return null;
-              }
-              return row;
-            },
-          });
-          if (createdCount > 0) scheduleLiveRows(false);
-          const renderedRows = changedRows.filter((row) => state.activeRows.has(row));
-          if (renderedRows.length > 0 && !replaceRenderedRowStates(renderedRows)) renderBody();
+          if (!errorInfo) ingestDrainedStream(result, 'ws');
+        });
+        inspectedEval('window.__networkPlusSSE__ ? window.__networkPlusSSE__.drain() : []', (result, errorInfo) => {
+          if (!errorInfo) ingestDrainedStream(result, 'sse');
         });
       };
       wsCaptureBtn.addEventListener('click', () => {
-        wsCapture.enabled = !wsCapture.enabled;
-        if (wsCapture.enabled) {
-          injectWsWrapper();
-          if (!wsCapture.timer) wsCapture.timer = setInterval(drainWsQueue, WS_POLL_INTERVAL_MS);
-          setStatus('WebSocket capture on; sockets created from now on are recorded.');
+        streamCapture.enabled = !streamCapture.enabled;
+        if (streamCapture.enabled) {
+          injectStreamWrappers();
+          if (!streamCapture.timer) streamCapture.timer = setInterval(drainStreamQueues, WS_POLL_INTERVAL_MS);
+          setStatus('Stream capture on; WebSocket and SSE connections created from now on are recorded.');
         } else {
-          if (wsCapture.timer) {
-            clearInterval(wsCapture.timer);
-            wsCapture.timer = null;
+          if (streamCapture.timer) {
+            clearInterval(streamCapture.timer);
+            streamCapture.timer = null;
           }
           inspectedEval('window.__networkPlusWS__ && window.__networkPlusWS__.setEnabled(false)', () => {});
-          setStatus('WebSocket capture off; recorded connections stay in the table.');
+          inspectedEval('window.__networkPlusSSE__ && window.__networkPlusSSE__.setEnabled(false)', () => {});
+          setStatus('Stream capture off; recorded connections stay in the table.');
         }
-        updateWsCaptureButton();
+        updateStreamCaptureButton();
       });
-      updateWsCaptureButton();
+      updateStreamCaptureButton();
       if (
         chrome.devtools.network &&
         chrome.devtools.network.onNavigated &&
         typeof chrome.devtools.network.onNavigated.addListener === 'function'
       ) {
         chrome.devtools.network.onNavigated.addListener(() => {
-          // The old document took the wrapper and its sockets with it.
-          for (const row of wsCapture.socketRows.values()) {
-            if (row.statusText !== 'Closed') row.statusText = 'Navigated';
+          // The old document took the wrappers and their connections with it.
+          for (const rowsByVariant of [streamCapture.socketRows, streamCapture.sseRows]) {
+            for (const row of rowsByVariant.values()) {
+              if (row.statusText !== 'Closed') row.statusText = 'Navigated';
+            }
+            rowsByVariant.clear();
           }
-          wsCapture.socketRows.clear();
-          if (wsCapture.enabled) injectWsWrapper();
+          if (streamCapture.enabled) injectStreamWrappers();
         });
       }
+    }
+
+    // --- Edit-and-resend wiring (DevTools sessions only) ---
+    const resendDialog = $('#resendDialog');
+    if (resendDialog && inspectedEval && !mirrorViewerActive) {
+      const resendMethodInput = $('#resendMethod');
+      const resendUrlInput = $('#resendUrl');
+      const resendHeadersInput = $('#resendHeaders');
+      const resendBodyInput = $('#resendBody');
+      const resendCredentialsInput = $('#resendCredentials');
+      const resendErrorEl = $('#resendError');
+      let resendInvokerRowId = null;
+      const showResendError = (message) => {
+        resendErrorEl.textContent = message;
+        resendErrorEl.hidden = !message;
+      };
+      const describeResendTarget = (url) => {
+        try {
+          const parsed = new URL(url);
+          return parsed.origin + parsed.pathname;
+        } catch (_error) {
+          return url;
+        }
+      };
+      const dispatchResendSpec = (spec) => {
+        inspectedEval(buildResendEvalSource(spec), (result, errorInfo) => {
+          if (errorInfo || (result && result.ok === false)) {
+            const reason =
+              (result && result.error) ||
+              (errorInfo && (errorInfo.description || errorInfo.value || errorInfo.code)) ||
+              'evaluation failed';
+            setStatus('Re-send failed: ' + reason);
+            return;
+          }
+          setStatus(
+            'Re-sent ' +
+              spec.method +
+              ' to ' +
+              describeResendTarget(spec.url) +
+              (state.paused
+                ? '; recording is paused, so resume it to see the result row.'
+                : '; the result will appear as a new captured row.'),
+          );
+        });
+      };
+      resendActions = {
+        sendNow: (row) => {
+          const spec = buildResendSpecFromRow(row);
+          spec.credentials = true;
+          dispatchResendSpec(spec);
+        },
+        openDialog: (row, invokerRowId) => {
+          const spec = buildResendSpecFromRow(row);
+          resendMethodInput.value = spec.method;
+          resendUrlInput.value = spec.url;
+          resendHeadersInput.value = formatHeaderLines(spec.headers);
+          resendBodyInput.value = spec.body;
+          resendCredentialsInput.checked = true;
+          showResendError('');
+          resendInvokerRowId = invokerRowId == null ? null : String(invokerRowId);
+          resendDialog.showModal();
+        },
+      };
+      $('#resendSendBtn').addEventListener('click', () => {
+        const method = resendMethodInput.value.trim() || 'GET';
+        if (!RESEND_METHOD_PATTERN.test(method)) {
+          showResendError('The method contains characters that are not allowed in an HTTP method token.');
+          return;
+        }
+        const url = resendUrlInput.value.trim();
+        if (!/^https?:\/\//i.test(url)) {
+          showResendError('The URL must be absolute and use http or https.');
+          return;
+        }
+        const parsedHeaders = parseHeaderLines(resendHeadersInput.value);
+        if (parsedHeaders.invalidLines.length > 0) {
+          showResendError(
+            'Each header line needs a "Name: value" shape. First problem: ' + parsedHeaders.invalidLines[0],
+          );
+          return;
+        }
+        dispatchResendSpec({
+          method,
+          url,
+          headers: parsedHeaders.headers,
+          body: resendBodyInput.value,
+          credentials: resendCredentialsInput.checked,
+        });
+        resendDialog.close();
+      });
+      resendDialog.addEventListener('close', () => {
+        const invokerRow = resendInvokerRowId
+          ? tableWrap.querySelector('tr[data-row-id="' + resendInvokerRowId + '"]')
+          : null;
+        resendInvokerRowId = null;
+        if (invokerRow) invokerRow.focus({ preventScroll: false });
+      });
     }
   }
 
@@ -12105,6 +12573,7 @@ const _NetworkPlus = (function () {
     WS_DIRECTION_TEXT_LIMIT_CHARS,
     WS_POLL_INTERVAL_MS,
     buildWsWrapperSource,
+    buildSseWrapperSource,
     formatWsFrameLine,
     appendBoundedWsText,
     ingestWsEvents,
@@ -12121,6 +12590,22 @@ const _NetworkPlus = (function () {
     buildMirrorEntryFromWire,
     createMirrorHostSession,
     createMirrorViewerSession,
+    RESEND_BROWSER_MANAGED_HEADERS,
+    isBrowserManagedHeaderName,
+    canResendRow,
+    buildResendSpecFromRow,
+    formatHeaderLines,
+    parseHeaderLines,
+    buildResendEvalSource,
+    JWT_MAX_TOKEN_CHARS,
+    JWT_DISPLAY_NOTE,
+    decodeBase64UrlJson,
+    decodeJwt,
+    humanizeJwtDelta,
+    describeJwtEpochClaim,
+    getJwtExpiryState,
+    findJwtsInHeaders,
+    createJwtDetailsSection,
   };
 })();
 

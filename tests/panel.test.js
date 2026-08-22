@@ -5657,3 +5657,219 @@ describe('markdown copy and HAR websocket import', () => {
     expect(np.applyHarWebSocketMessages(null, [{ type: 'send', time: 1, data: 'x' }])).toBe(0);
   });
 });
+
+describe('edit-and-resend helpers', () => {
+  const httpRow = {
+    method: 'POST',
+    url: 'https://api.example.test/v1/orders?id=1',
+    requestHeaders: [
+      { name: ':authority', value: 'api.example.test' },
+      { name: 'Content-Type', value: 'application/json' },
+      { name: 'Authorization', value: 'Bearer abc' },
+    ],
+    requestPostData: { mimeType: 'application/json', text: '{"q":1}' },
+  };
+
+  test('canResendRow gates on protocol and WS rows', () => {
+    expect(np.canResendRow(httpRow)).toBe(true);
+    expect(np.canResendRow({ method: 'WS', url: 'https://x.test/socket' })).toBe(false);
+    expect(np.canResendRow({ method: 'GET', url: 'file:///etc/hosts' })).toBe(false);
+    expect(np.canResendRow({ method: 'GET', url: '' })).toBe(false);
+    expect(np.canResendRow(null)).toBe(false);
+  });
+
+  test('buildResendSpecFromRow copies the request and drops HTTP/2 pseudo-headers', () => {
+    const spec = np.buildResendSpecFromRow(httpRow);
+    expect(spec.method).toBe('POST');
+    expect(spec.url).toBe('https://api.example.test/v1/orders?id=1');
+    expect(spec.headers.map((h) => h.name)).toEqual(['Content-Type', 'Authorization']);
+    expect(spec.body).toBe('{"q":1}');
+    expect(np.buildResendSpecFromRow({ method: 'GET', url: 'https://x.test/' }).body).toBe('');
+  });
+
+  test('header lines round-trip and invalid lines are reported', () => {
+    const text = np.formatHeaderLines([{ name: 'A', value: 'b' }, { name: 'C', value: 'd: e' }]);
+    expect(text).toBe('A: b\nC: d: e');
+    const parsed = np.parseHeaderLines('A: b\n\n  C:d: e  \nbroken-line\n');
+    expect(parsed.headers).toEqual([{ name: 'A', value: 'b' }, { name: 'C', value: 'd: e' }]);
+    expect(parsed.invalidLines).toEqual(['broken-line']);
+    expect(np.parseHeaderLines('').headers).toEqual([]);
+  });
+
+  test('isBrowserManagedHeaderName covers the fetch-forbidden families', () => {
+    for (const name of ['Host', 'cookie', 'Origin', 'Content-Length', 'Sec-Fetch-Mode', 'Proxy-Authorization']) {
+      expect(np.isBrowserManagedHeaderName(name)).toBe(true);
+    }
+    for (const name of ['Content-Type', 'Authorization', 'X-Request-Id']) {
+      expect(np.isBrowserManagedHeaderName(name)).toBe(false);
+    }
+  });
+
+  test('buildResendEvalSource produces a self-contained page IIFE with managed headers filtered', () => {
+    const source = np.buildResendEvalSource({
+      method: 'POST',
+      url: 'https://api.example.test/echo?q="quote"',
+      headers: [
+        { name: 'Content-Type', value: 'application/json' },
+        { name: 'Host', value: 'unsettable.test' },
+        { name: 'Sec-Fetch-Site', value: 'none' },
+      ],
+      body: '{"a":"b"}',
+      credentials: true,
+    });
+    expect(source.startsWith('(function pageResendRunner(')).toBe(true);
+    expect(source.endsWith(')')).toBe(true);
+    expect(source).toContain('fetch(spec.url');
+    expect(source).toContain('"credentials":true');
+    expect(source).toContain('Content-Type');
+    expect(source).not.toContain('unsettable.test');
+    expect(source).not.toContain('Sec-Fetch-Site');
+    expect(source).toContain('\\"quote\\"');
+    expect(source).toContain('\\"a\\"');
+  });
+
+  test('the page runner skips the body for GET and HEAD', () => {
+    const source = np.buildResendEvalSource({ method: 'GET', url: 'https://x.test/', headers: [], body: 'ignored' });
+    expect(source).toContain("spec.method !== 'GET' && spec.method !== 'HEAD'");
+    expect(source).toContain('"credentials":true');
+    const sameOrigin = np.buildResendEvalSource({ method: 'GET', url: 'https://x.test/', headers: [], credentials: false });
+    expect(sameOrigin).toContain('"credentials":false');
+  });
+});
+
+describe('jwt decoding and display', () => {
+  const b64url = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+  const makeToken = (payload, header = { alg: 'HS256', typ: 'JWT' }, signature = 'sig-Az_09') =>
+    b64url(header) + '.' + b64url(payload) + '.' + signature;
+
+  test('decodeJwt decodes header and payload without verifying', () => {
+    const token = makeToken({ sub: 'user-1', exp: 1755750000, name: '試験ユーザー' });
+    const decoded = np.decodeJwt(token);
+    expect(decoded.header).toEqual({ alg: 'HS256', typ: 'JWT' });
+    expect(decoded.payload.sub).toBe('user-1');
+    expect(decoded.payload.name).toBe('試験ユーザー');
+    expect(decoded.signaturePresent).toBe(true);
+  });
+
+  test('decodeJwt rejects non-JWT shapes', () => {
+    expect(np.decodeJwt('')).toBeNull();
+    expect(np.decodeJwt('a.b')).toBeNull();
+    expect(np.decodeJwt('eyJ.x.y')).toBeNull();
+    expect(np.decodeJwt(b64url({ notalg: 1 }) + '.' + b64url({ a: 1 }) + '.s')).toBeNull();
+    expect(np.decodeJwt(makeToken({ a: 1 }).slice(0, 20))).toBeNull();
+    expect(np.decodeJwt('x'.repeat(np.JWT_MAX_TOKEN_CHARS + 1))).toBeNull();
+    const unsigned = b64url({ alg: 'none' }) + '.' + b64url({ a: 1 }) + '.';
+    expect(np.decodeJwt(unsigned).signaturePresent).toBe(false);
+  });
+
+  test('findJwtsInHeaders extracts tokens from header values and dedupes', () => {
+    const token = makeToken({ exp: 1755750000 });
+    const findings = np.findJwtsInHeaders([
+      { name: 'Authorization', value: 'Bearer ' + token },
+      { name: 'X-Duplicate', value: token },
+      { name: 'Accept', value: 'application/json' },
+      { name: 'X-Not-Jwt', value: 'eyJ%%%%broken' },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].headerName).toBe('Authorization');
+    expect(findings[0].decoded.payload.exp).toBe(1755750000);
+    expect(np.findJwtsInHeaders([])).toEqual([]);
+    expect(np.findJwtsInHeaders(null)).toEqual([]);
+  });
+
+  test('expiry state and claim times humanize around now', () => {
+    const now = 1755750000000;
+    expect(np.getJwtExpiryState({ exp: now / 1000 - 300 }, now)).toEqual({ expired: true, label: 'expired 5 min ago' });
+    expect(np.getJwtExpiryState({ exp: now / 1000 + 7200 }, now)).toEqual({ expired: false, label: 'expires in 2 h' });
+    expect(np.getJwtExpiryState({}, now)).toEqual({ expired: false, label: '' });
+    expect(np.describeJwtEpochClaim('exp', now / 1000 + 90, now)).toContain('(expires in 2 min)');
+    expect(np.describeJwtEpochClaim('iat', now / 1000 - 45, now)).toContain('(45 s ago)');
+    expect(np.describeJwtEpochClaim('exp', undefined, now)).toBeNull();
+  });
+
+  test('createJwtDetailsSection renders decoded sections with the non-verification note', () => {
+    // The loadViewPreset suite earlier in this file runs jest.resetAllMocks(),
+    // which strips the setup.js createElement implementation for everything
+    // after it; reinstall a local element factory before touching the DOM.
+    const makeEl = () => ({
+      className: '',
+      textContent: '',
+      style: {},
+      appendChild: jest.fn(),
+      setAttribute: jest.fn(),
+      classList: { add: jest.fn(), remove: jest.fn(), contains: jest.fn(() => false) },
+    });
+    document.createElement.mockImplementation(makeEl);
+    document.createElement.mockClear();
+    const expired = makeToken({ exp: Math.floor(Date.now() / 1000) - 600, sub: 'user-1' });
+    const section = np.createJwtDetailsSection([{ name: 'Authorization', value: 'Bearer ' + expired }]);
+    expect(section).not.toBeNull();
+    const created = document.createElement.mock.results.map((result) => result.value);
+    const summary = created.find((el) => String(el.textContent).startsWith('JWT in Authorization'));
+    expect(summary).toBeDefined();
+    expect(summary.textContent).toContain('expired');
+    expect(summary.classList.add).toHaveBeenCalledWith('jwt-expired');
+    const note = created.find((el) => el.className === 'jwt-note');
+    expect(note.textContent).toContain(np.JWT_DISPLAY_NOTE);
+    const codeBlocks = created.filter((el) => el.className === 'code-block');
+    expect(codeBlocks.some((el) => String(el.textContent).includes('"sub": "user-1"'))).toBe(true);
+    expect(np.createJwtDetailsSection([{ name: 'Accept', value: 'text/html' }])).toBeNull();
+  });
+});
+
+describe('sse capture pieces', () => {
+  test('buildSseWrapperSource is a self-contained page IIFE with the shared caps', () => {
+    const source = np.buildSseWrapperSource();
+    expect(source.startsWith('(function pageEventSourceWrapper(')).toBe(true);
+    expect(source.endsWith(')(' + np.WS_QUEUE_CAP + ',' + np.WS_FRAME_PREVIEW_CHARS + ')')).toBe(true);
+    expect(source).toContain('window.__networkPlusSSE__');
+    expect(source).toContain("kind: 'ws-open-attempt'");
+    expect(source).toContain("kind: 'ws-received'");
+    expect(source).toContain('Wrapped.prototype = Native.prototype;');
+    // Observation only: the wrapped addEventListener always forwards to the native one.
+    expect(source).toContain('return nativeAdd(type, listener, options);');
+    expect(source).toContain('source.close = function () {');
+  });
+
+  test('formatWsFrameLine renders an SSE close without a close code', () => {
+    const at = Date.parse('2026-08-22T10:00:00.123Z');
+    expect(np.formatWsFrameLine({ kind: 'ws-closed', at })).toBe('— 10:00:00.123 closed');
+    expect(np.formatWsFrameLine({ kind: 'ws-closed', at, code: 1000 })).toBe('— 10:00:00.123 closed (code 1000)');
+  });
+
+  test('ingestWsEvents threads SSE-dialect events into a receive-only row', () => {
+    const row = {
+      startedDateTime: '2026-08-22T10:00:00.000Z',
+      statusText: 'Connecting',
+      responseContent: '',
+      size: 0,
+    };
+    const created = [];
+    const changed = np.ingestWsEvents(
+      [
+        { kind: 'ws-open-attempt', socketId: 1, url: 'https://api.example.test/stream', protocols: '', at: 1 },
+        { kind: 'ws-open', socketId: 1, at: Date.parse('2026-08-22T10:00:00.200Z') },
+        { kind: 'ws-received', socketId: 1, preview: 'hello', at: Date.parse('2026-08-22T10:00:00.300Z') },
+        { kind: 'ws-received', socketId: 1, preview: 'update: {"n":1}', at: Date.parse('2026-08-22T10:00:00.400Z') },
+        { kind: 'ws-closed', socketId: 1, at: Date.parse('2026-08-22T10:00:01.000Z') },
+      ],
+      {
+        createRow: (event) => {
+          created.push(event.url);
+          return row;
+        },
+        getRow: () => row,
+      },
+    );
+    expect(created).toEqual(['https://api.example.test/stream']);
+    expect(changed).toEqual([row]);
+    expect(row.statusText).toBe('Closed');
+    expect(row.responseContent).toContain('connection open');
+    expect(row.responseContent).toContain('↓ 10:00:00.300 hello');
+    expect(row.responseContent).toContain('↓ 10:00:00.400 update: {"n":1}');
+    expect(row.responseContent).toContain('10:00:01.000 closed');
+    expect(row.responseContent).not.toContain('code undefined');
+    expect(row.duration).toBe(1000);
+    expect(row.size).toBe('hello'.length + 'update: {"n":1}'.length);
+  });
+});
