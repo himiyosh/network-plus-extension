@@ -100,9 +100,11 @@ const _NetworkPlus = (function () {
   const JSON_TREE_PREVIEW_KEYS = 3;
 
   const THEME_KEY = 'networkPlus.theme';
+  const LANG_KEY = 'networkPlus.lang';
   const SEARCH_PREFS_KEY = 'networkPlus.searchPrefs';
   const RETENTION_KEY = 'networkPlus.retention.v1';
   const THEMES = ['system', 'dark', 'light'];
+  const LANGS = ['system', 'en', 'ja'];
   const COL_PREF_KEY = 'networkPlus.cols';
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
@@ -5037,14 +5039,160 @@ const _NetworkPlus = (function () {
     html.removeAttribute('data-theme');
     if (pref === 'light') html.setAttribute('data-theme', 'light');
     if (pref === 'dark') html.setAttribute('data-theme', 'dark');
-    const b = $('#themeBtn');
-    if (b) b.textContent = 'Theme: ' + pref.charAt(0).toUpperCase() + pref.slice(1);
+    const select = $('#themeSelect');
+    if (select) select.value = THEMES.includes(pref) ? pref : 'system';
     setStatus('Theme=' + pref);
   }
 
-  function nextTheme(cur) {
-    const i = THEMES.indexOf(cur);
-    return THEMES[(i + 1) % THEMES.length] || 'system';
+  // ============================================================
+  // Section 5b: Language (explanatory text only)
+  // ============================================================
+  // The language preference persists exactly like the theme: extension
+  // storage first, localStorage as the fallback. Only explanations and
+  // guide dialogs translate — control labels stay English by design.
+  function loadLangPref(cb) {
+    let called = false;
+    let fallbackAttempted = false;
+    const done = (v, warn) => {
+      if (called) return;
+      called = true;
+      cb(v, warn);
+    };
+    try {
+      chrome.storage.local.get([LANG_KEY], (obj) => {
+        if (called) return;
+        const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+        if (runtimeErr) {
+          if (fallbackAttempted) return;
+          fallbackAttempted = true;
+          try {
+            done(localStorage.getItem(LANG_KEY) || 'system');
+          } catch (_e) {
+            done('system', 'Language preference could not be loaded.');
+          }
+          return;
+        }
+        try {
+          done(obj && obj[LANG_KEY] ? obj[LANG_KEY] : localStorage.getItem(LANG_KEY) || 'system');
+        } catch (_e) {
+          done('system');
+        }
+      });
+    } catch (_e) {
+      if (called || fallbackAttempted) return;
+      fallbackAttempted = true;
+      try {
+        done(localStorage.getItem(LANG_KEY) || 'system');
+      } catch (_err) {
+        done('system', 'Language preference could not be loaded.');
+      }
+    }
+  }
+
+  function saveLangPref(v) {
+    let saved = false;
+    let fallbackAttempted = false;
+    try {
+      const data = {};
+      data[LANG_KEY] = v;
+      chrome.storage.local.set(data, () => {
+        if (saved || fallbackAttempted) return;
+        const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+        if (!runtimeErr) {
+          saved = true;
+          return;
+        }
+        fallbackAttempted = true;
+        try {
+          localStorage.setItem(LANG_KEY, v);
+          saved = true;
+        } catch (_e) {
+          setStatus('Language preference could not be saved.');
+        }
+      });
+    } catch (_e) {
+      if (saved || fallbackAttempted) return;
+      fallbackAttempted = true;
+      try {
+        localStorage.setItem(LANG_KEY, v);
+        saved = true;
+      } catch (_err) {
+        setStatus('Language preference could not be saved.');
+      }
+    }
+  }
+
+  function resolveLanguage(pref) {
+    if (pref === 'en' || pref === 'ja') return pref;
+    const nav =
+      typeof navigator !== 'undefined' && navigator
+        ? navigator.language || (Array.isArray(navigator.languages) ? navigator.languages[0] : '')
+        : '';
+    return /^ja([-_]|$)/i.test(String(nav || '')) ? 'ja' : 'en';
+  }
+
+  // Every entry carries both languages; the English text doubles as the
+  // authored fallback in panel.html, so the two must stay in sync.
+  const UI_TEXT = {
+    undockHintTitle: {
+      en: '🪟 Keep DevTools open',
+      ja: '🪟 DevTools は閉じないでください',
+    },
+    undockHintIntro: {
+      en: "Capture runs inside the original tab's DevTools — this tab is a live mirror of it.",
+      ja: 'キャプチャは元のタブの DevTools 内で動いています。このタブはそのライブミラーです。',
+    },
+    undockHintWarning: {
+      en: '⚠️ Closing DevTools stops capture and freezes this tab.',
+      ja: '⚠️ DevTools を閉じるとキャプチャが止まり、このタブの更新も停止します。',
+    },
+    undockHintStepsTitle: {
+      en: 'DevTools is docked, so both stay visible. Tidy it away with a one-time setup:',
+      ja: '現在 DevTools はドック表示のため、両方が見えています。次の一度きりの設定で片付きます:',
+    },
+    undockHintStep1: {
+      en: 'Open the ⋮ menu at the top right of DevTools.',
+      ja: 'DevTools 右上の ⋮ メニューを開く。',
+    },
+    undockHintStep2: {
+      en: 'Under "Dock side", choose "Undock into separate window".',
+      ja: '「固定サイド (Dock side)」で「別ウィンドウに固定解除 (Undock into separate window)」を選ぶ。',
+    },
+    undockHintPick: {
+      en: 'It is the highlighted icon — the first of the four.',
+      ja: '4 つ並んだアイコンの先頭、ハイライトされているものです。',
+    },
+    undockHintOutro: {
+      en: '✅ DevTools remembers this choice: every future pop-out then minimizes the DevTools window automatically while capture keeps running.',
+      ja: '✅ この選択は DevTools が記憶します。以後はポップアウトのたびに DevTools ウィンドウが自動で最小化され、キャプチャは動き続けます。',
+    },
+    langHelp: {
+      en: 'Applies to explanations and guide dialogs; control labels stay in English.',
+      ja: '説明文とガイドに適用されます。ボタンなどの項目名は英語のままです。',
+    },
+    retentionHelp: {
+      en: 'Oldest requests are removed after this limit. Response bodies use a separate 1 MiB per-body and 32 MiB total cache.',
+      ja: '上限を超えると古いリクエストから削除されます。レスポンスボディは別枠(1 リクエストあたり 1 MiB・全体 32 MiB)のキャッシュを使います。',
+    },
+    retentionWarning: {
+      en: 'Unlimited request retention can exhaust DevTools memory. Response-body limits remain active.',
+      ja: '無制限保持は DevTools のメモリを使い切るおそれがあります。レスポンスボディの上限は引き続き有効です。',
+    },
+  };
+
+  let activeLanguage = 'en';
+
+  function applyLanguage(pref) {
+    const normalized = LANGS.includes(pref) ? pref : 'system';
+    activeLanguage = resolveLanguage(normalized);
+    const elements = document.querySelectorAll('[data-i18n]');
+    for (const el of elements) {
+      const entry = UI_TEXT[el.getAttribute('data-i18n')];
+      if (entry && typeof entry[activeLanguage] === 'string') el.textContent = entry[activeLanguage];
+    }
+    const select = $('#langSelect');
+    if (select) select.value = normalized;
+    setStatus('Language=' + normalized);
   }
 
   // ============================================================
@@ -8321,8 +8469,9 @@ const _NetworkPlus = (function () {
     if (retention.settingWarning) detailParts.push(retention.settingWarning);
     // Visible text stays short; the full bookkeeping lives in the tooltip.
     // Retention events themselves are announced via queueRetentionSummary.
-    // The retention limit already sits on its own toolbar button, so the status
-    // bar shows only what changes on its own: the body cache and any warning.
+    // The current limit lives in the Settings dialog and this tooltip, so
+    // the status bar shows only what changes on its own: the body cache
+    // and any warning.
     const visibleParts = [
       'cache ' + fmtBytes(retention.responseCacheBytes) + ' / ' + fmtBytes(MAX_RESPONSE_CACHE_BYTES),
     ];
@@ -8331,11 +8480,6 @@ const _NetworkPlus = (function () {
     if (status) {
       status.textContent = visibleParts.join(' · ');
       status.title = detailParts.join('. ');
-    }
-    const button = $('#retentionBtn');
-    if (button) {
-      button.textContent = presentation.buttonLabel;
-      button.setAttribute('aria-label', presentation.accessibleName);
     }
   }
 
@@ -10182,28 +10326,42 @@ const _NetworkPlus = (function () {
       pendingScrollToBottom = false;
     };
 
-    // Theme init
+    // Theme and language init; both selects live in the Settings dialog
+    // and apply immediately on change (retention keeps its explicit Save).
     loadThemePref((pref, warn) => {
       applyTheme(pref);
       if (warn) setStatus(warn);
     });
-    $('#themeBtn').addEventListener('click', () => {
-      loadThemePref((cur, _warn) => {
-        const nxt = nextTheme(cur);
-        saveThemePref(nxt);
-        applyTheme(nxt);
+    const themeSelect = $('#themeSelect');
+    if (themeSelect) {
+      themeSelect.addEventListener('change', () => {
+        const chosen = THEMES.includes(themeSelect.value) ? themeSelect.value : 'system';
+        saveThemePref(chosen);
+        applyTheme(chosen);
       });
+    }
+    loadLangPref((pref, warn) => {
+      applyLanguage(pref);
+      if (warn) setStatus(warn);
     });
+    const langSelect = $('#langSelect');
+    if (langSelect) {
+      langSelect.addEventListener('change', () => {
+        const chosen = LANGS.includes(langSelect.value) ? langSelect.value : 'system';
+        saveLangPref(chosen);
+        applyLanguage(chosen);
+      });
+    }
 
-    // Request-retention settings
-    const retentionButton = $('#retentionBtn');
+    // Settings dialog (language, theme, and request retention)
+    const settingsButton = $('#settingsBtn');
     // Assigned below once the retention form exists; the mirror-host
     // command executor calls it for the tab's remote retention changes.
     let applyRetentionSetting = null;
     // Assigned by the import wiring; shared by the file picker and the
     // mirror tab's transferred imports.
     let importCapturedFile = null;
-    const retentionDialog = $('#retentionDialog');
+    const settingsDialog = $('#settingsDialog');
     const retentionLimitInput = $('#retentionLimit');
     const retentionUnlimitedInput = $('#retentionUnlimited');
     const retentionWarning = $('#retentionWarning');
@@ -10217,22 +10375,22 @@ const _NetworkPlus = (function () {
       retentionError.textContent = '';
       retentionError.hidden = true;
     };
-    retentionButton.addEventListener('click', () => {
+    settingsButton.addEventListener('click', () => {
       syncRetentionForm();
-      retentionButton.setAttribute('aria-expanded', 'true');
-      retentionDialog.showModal();
-      if (state.retention.unlimited) retentionUnlimitedInput.focus();
-      else retentionLimitInput.focus();
+      settingsButton.setAttribute('aria-expanded', 'true');
+      settingsDialog.showModal();
+      const langControl = $('#langSelect');
+      if (langControl) langControl.focus();
     });
     retentionUnlimitedInput.addEventListener('change', () => {
       retentionLimitInput.disabled = retentionUnlimitedInput.checked;
       retentionWarning.hidden = !retentionUnlimitedInput.checked;
     });
-    retentionDialog.addEventListener('close', () => {
-      retentionButton.setAttribute('aria-expanded', 'false');
-      retentionButton.focus();
+    settingsDialog.addEventListener('close', () => {
+      settingsButton.setAttribute('aria-expanded', 'false');
+      settingsButton.focus();
     });
-    $('#retentionCancelBtn').addEventListener('click', () => retentionDialog.close());
+    $('#settingsCloseBtn').addEventListener('click', () => settingsDialog.close());
     // Shared by the dialog Save button and the mirror tab's remote
     // retention command; returns an error string instead of applying when
     // the requested limit is out of range.
@@ -10284,7 +10442,7 @@ const _NetworkPlus = (function () {
         setStatus(applyError);
         return;
       }
-      retentionDialog.close();
+      settingsDialog.close();
     });
     updateRetentionStatus();
     if (state.retention.settingWarning) queueRetentionSummary(state.retention.settingWarning);
@@ -12263,7 +12421,7 @@ const _NetworkPlus = (function () {
                 }
                 return;
               }
-              const dialog = $('#retentionDialog');
+              const dialog = $('#settingsDialog');
               if (dialog && typeof dialog.close === 'function') dialog.close();
             },
           ),
@@ -13012,6 +13170,10 @@ const _NetworkPlus = (function () {
     computeWaterfallRange,
     loadThemePref,
     saveThemePref,
+    loadLangPref,
+    saveLangPref,
+    resolveLanguage,
+    LANG_KEY,
     loadSearchPrefs,
     saveSearchPrefs,
     serializeFilterState,

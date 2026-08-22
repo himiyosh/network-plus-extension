@@ -71,7 +71,7 @@ Clipboard copy and HAR export are user-initiated. Sanitized output is the defaul
 
 An empty panel offers three deterministic, local-only sample requests under reserved `.test` domains. The sample sends no network traffic, pauses live capture to avoid mixing evidence, and includes a prompt-first guide for identifying a 503 request, its dominant Wait (TTFB) phase, a Retry-After header, and the limits of browser-observed timing. No account or test credentials are required.
 
-Network+ supports System, Dark, and Light themes, keyboard navigation, visible focus, screen-reader status announcements, responsive panel layouts, and reduced-motion preferences. It runs from packaged extension code without remote code, telemetry, analytics, advertising, or an external service. Network+ reports browser-observed HTTP timing; it does not prove packet loss, cabling or radio-frequency faults, or a definitive server root cause.
+Network+ supports System, Dark, and Light themes, keyboard navigation, visible focus, screen-reader status announcements, responsive panel layouts, and reduced-motion preferences. A Settings dialog gathers language, theme, and capture retention; explanations and guide dialogs are available in Japanese, while control labels stay in English so instructions always match the UI. It runs from packaged extension code without remote code, telemetry, analytics, advertising, or an external service. Network+ reports browser-observed HTTP timing; it does not prove packet loss, cabling or radio-frequency faults, or a definitive server root cause.
 <!-- store-description:end -->
 
 ### Search terms
@@ -92,7 +92,7 @@ The current Microsoft Learn publication guide allows at most seven terms and 21 
 
 **Single-purpose statement:** Network+ provides a local Microsoft Edge DevTools workbench for capturing, filtering, searching, comparing, inspecting, user-initiated exporting, and user-initiated re-sending of HTTP request and response evidence from the inspected page.
 
-**Permission justification (`storage`):** Stores the user-selected System, Dark, or Light theme and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.
+**Permission justification (`storage`):** Stores the user-selected System, Dark, or Light theme, the language for explanatory text (System, English, or Japanese), and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.
 
 **Remote code answer:** `No, I am not using remote code.`
 
@@ -110,7 +110,7 @@ All executable JavaScript and CSS are included in the uploaded package. The Mani
 | Outbound links | The optional support entry — the Network+ brand button in the toolbar (the mark with the pixel otter and coffee cup) — opens a Support dialog listing https://github.com/sponsors/himiyosh and https://ko-fi.com/studio344. The dialog issues no network request, embeds no payment form, checkout, or third-party script, gates no functionality, and stores no state. Each link opens a normal browser tab where that site's own practices apply and where any payment is completed; no payment or account data is entered into or handled by the extension. |
 | Sale, lending, advertising, or unrelated use | None. |
 | Human access by the developer | None through the extension. A user independently choosing to post information to the public GitHub support route is outside the extension's automatic data flow and should avoid sensitive traffic. |
-| Persistent local data | UI preferences only: theme, retention setting, column order/visibility/widths, and one saved view preset (column visibility + filter rules). Filter-rule values can include text entered by the user, but Network+ does not persist captured traffic records, headers, or bodies as presets. |
+| Persistent local data | UI preferences only: theme, explanatory-text language, retention setting, column order/visibility/widths, and one saved view preset (column visibility + filter rules). Filter-rule values can include text entered by the user, but Network+ does not persist captured traffic records, headers, or bodies as presets. |
 | User-created output | Clipboard payloads and HAR files are created only after a user action. Sanitized output is the default; full output requires one-time confirmation and can contain sensitive information. |
 
 **Privacy policy URL:** https://github.com/himiyosh/network-plus-extension/blob/main/docs/privacy.md

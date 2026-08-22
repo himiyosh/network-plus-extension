@@ -39,6 +39,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 - **Share without leaking.** Every copy and every HAR export is sanitized by default; full output requires a per-action confirmation that is never remembered.
 - **Stay bounded.** Request retention and the response-body cache have explicit limits, visible counters, and predictable eviction — no silent unbounded growth.
 - **Work by keyboard.** Every control is reachable without a mouse, in System / Dark / Light themes that all meet WCAG 2.2 AA contrast.
+- **Settings in one place.** The 🎛️ Settings dialog gathers language, theme, and capture retention. Explanations and guide dialogs are available in Japanese (System / English / 日本語); control labels stay in English so instructions always match.
 - **No build, no telemetry, no network.** Plain files loaded straight into Edge or Chrome; the extension holds a single permission (`storage`) and sends nothing anywhere.
 
 <details>
@@ -159,7 +160,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 The panel can also run as a regular browser tab that mirrors the DevTools session — useful when the docked panel is too small for an investigation.
 
 1. Open DevTools on the page you are inspecting and switch to the **Network+** tab.
-2. Click the **🪟 button** on the right side of the toolbar, between the theme toggle and the `⌨️ ?` button (tooltip: "Open Network+ in a browser tab").
+2. Click the **🪟 button** on the right side of the toolbar, between the `🎛️ Settings` button and the `⌨️ ?` button (tooltip: "Open Network+ in a browser tab").
 3. A new tab opens and mirrors the session immediately: existing rows appear first, new requests stream in live, and response bodies load on demand from the DevTools side.
 
 Capture stays with DevTools, so keep it open while you work — it does not have to stay visible. When DevTools is undocked into its own window (⋮ menu → Dock side → separate window), clicking 🪟 minimizes that window automatically; restore it from the taskbar whenever you want the panel back. A docked DevTools is part of the page's window and cannot be minimized on its own, so it stays put — undock first for the tidiest setup. In that docked case the mirror tab shows a one-time explainer with the same steps and the close-DevTools warning; tick "Don't show this again" to dismiss it for good. Capture continues uninterrupted while minimized (Stream-capture polling may deliver WS/SSE frames in batches; regular HTTP rows are unaffected). If you close DevTools, the tab keeps its rows and shows "The DevTools session disconnected"; reopening DevTools starts a fresh capture session that resyncs the tab to it. The 🪟 button exists only inside DevTools, and if the browser blocks the new tab, allow pop-ups for DevTools pages and click again.
@@ -234,7 +235,7 @@ Edge / Chrome DevTools
 | Import file | 32 MiB per file |
 | SAZ archive | 20,000 entries · 4 MiB per expanded entry · 64 MiB expanded in total |
 
-The status bar continuously shows the active retention policy, body cache usage, and cumulative row-eviction, body-omission, body-eviction, and preview-omission counts. See [docs/architecture.md](docs/architecture.md) for the rendering pipeline, eviction rules, import validation, and UI stability rules.
+The status bar continuously shows body cache usage, with the active retention policy and the cumulative row-eviction, body-omission, body-eviction, and preview-omission counts in its tooltip; the retention limit itself is set from the 🎛️ Settings dialog. See [docs/architecture.md](docs/architecture.md) for the rendering pipeline, eviction rules, import validation, and UI stability rules.
 
 ## 🧪 Development
 

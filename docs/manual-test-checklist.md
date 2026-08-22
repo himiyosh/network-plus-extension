@@ -35,7 +35,7 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] The 🪟 toolbar button appears only inside a DevTools session — never when `panel.html` is opened as a plain page — and its tooltip explains that the tab mirrors this DevTools session.
 - [ ] Clicking it opens `panel.html?view=window` as a browser tab; existing rows appear via the snapshot, new requests stream in live, and the row count matches the panel within one second.
 - [ ] Clicking again while the tab is open focuses the existing tab instead of opening a second one.
-- [ ] In the tab, Pause / Clear / Import / Retention / 🪟 are hidden, the status line reports `Mirroring the DevTools session` (with `(recording paused)` while the panel is paused), and selecting a row loads its response body on demand from the DevTools side.
+- [ ] In the tab, only 🪟 is hidden — every other toolbar control stays visible and drives the DevTools session remotely (see the remote-control items below) — the status line reports `Mirroring the DevTools session` (with `(recording paused)` while the panel is paused), and selecting a row loads its response body on demand from the DevTools side.
 - [ ] Clear, Undo clear, an import, and retention evictions performed in the panel reach the tab within about a second (sync resync).
 - [ ] Closing DevTools leaves the tab's rows in place with `The DevTools session disconnected; captured requests remain available.`, and a body that was never fetched reports its unavailability immediately instead of timing out. Reopening DevTools and the Network+ panel reconnects the same tab.
 - [ ] If the browser blocks the pop-out, the status explains it and a second click after allowing pop-ups succeeds.
@@ -43,9 +43,17 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] With DevTools undocked into its own window, clicking 🪟 opens the mirror tab and minimizes the DevTools window automatically; capture continues (new page requests keep streaming into the tab) and the window restores normally from the taskbar.
 - [ ] With DevTools docked, clicking 🪟 opens the mirror tab and the browser window does not minimize or move.
 - [ ] In that docked case the mirror tab shows the "Keep DevTools open" dialog exactly once per load: it warns that closing DevTools stops capture and freezes the tab, and lists the undock steps. Plain "Got it" lets it return on the next pop-out; "Don't show this again" keeps it away for good. An undocked pop-out (window minimized) never shows it.
-- [ ] In the mirror tab, pause/resume, Clear (and the Undo that then appears), the Retention dialog (opens with the session's current values), and the Stream capture toggle all act on the DevTools session, and the tab's buttons match the session state within a second.
+- [ ] In the mirror tab, pause/resume, Clear (and the Undo that then appears), the Settings dialog's Retention section (opens with the session's current values), and the Stream capture toggle all act on the DevTools session, and the tab's buttons match the session state within a second. Language and Theme in that same dialog act on the tab itself, not the DevTools session.
 - [ ] Importing a HAR or SAZ from the mirror tab replaces the session's capture exactly like a DevTools-side import, and both windows show the imported rows; a file over 64 MiB is refused with a visible reason.
 - [ ] `Resend unchanged` / `Edit and resend...` from the mirror tab execute in the DevTools session (status names the session) and the result row appears in both windows; while disconnected, every remote control reports a failure status instead of acting locally.
+
+## Settings and language
+
+- [ ] The 🎛️ Settings button opens one dialog with Language, Theme, and Retention sections; <kbd>Esc</kbd> and Close both dismiss it and return focus to the button.
+- [ ] Selecting 日本語 immediately switches explanations and guide dialogs (the language help line, the retention help and unlimited warning, the whole undock explainer) to Japanese, while every control label, button, and section name stays English; selecting English switches back, and System follows the browser language.
+- [ ] The language choice survives a DevTools reopen and applies in both the panel and the mirror tab (each reads the same stored preference).
+- [ ] The Theme select applies System / Dark / Light instantly and persists like before; the retention section still validates (out-of-range shows the inline error and keeps the dialog open) and Save closes the dialog.
+- [ ] In the redesigned undock explainer, the red warning card, the bordered steps card with the Dock side icon row (first icon highlighted), and the ✅ summary line render correctly in Light and Dark, in both languages, with no horizontal scrolling at narrow widths.
 
 ## Navigation persistence
 
@@ -102,7 +110,7 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] The `Columns` menu ends with a `Preset` section: `Update` saves the current columns + filters, `Apply` restores them (or the default view before anything is saved), `Forget saved preset` removes the saved state, and `Filters (N)` reflects the applied rules.
 - [ ] The `Filters` popup opens with every column section expanded; Method / Status / URL rules read as single rows without stray wrapping, and a section header click collapses and re-expands it.
 - [ ] The `Filters` popup lists every filterable column as a collapsed row; clicking a row expands only that column's rule editor, editing a rule shows an `Active` chip and updates the header count live, and reopening the popup keeps active columns expanded.
-- [ ] The status bar shows only `cache <n>/<max>`, the status chips, `avg <t>`, and the transferred size — no retention limit, which lives on its own toolbar button; hovering cache, latency, and size reveals the full details in tooltips.
+- [ ] The status bar shows only `cache <n>/<max>`, the status chips, `avg <t>`, and the transferred size — no retention limit, which lives in the 🎛️ Settings dialog and the cache tooltip; hovering cache, latency, and size reveals the full details in tooltips.
 - [ ] The request counter matches the grid in every state: `N requests` with nothing narrowing it, `N / M requests` when column filters narrow it (plus `· K column filter(s)`), `· N matching` while a search highlights without hiding rows, and `· matches only` when `Matches only` is on.
 
 ## Keyboard

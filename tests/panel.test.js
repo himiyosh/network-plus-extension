@@ -4285,6 +4285,126 @@ describe('saveThemePref', () => {
   });
 });
 
+describe('loadLangPref / saveLangPref', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    chrome.runtime.lastError = null;
+  });
+
+  test('reads value from extension storage when no error', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      cb({ 'networkPlus.lang': 'ja' });
+    });
+    np.loadLangPref((lang) => {
+      expect(lang).toBe('ja');
+      done();
+    });
+  });
+
+  test('first-run default is system without warning', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      cb({});
+    });
+    localStorage.getItem.mockReturnValue(null);
+    np.loadLangPref((lang, warn) => {
+      expect(lang).toBe('system');
+      expect(warn).toBeUndefined();
+      done();
+    });
+  });
+
+  test('async read failure falls back to localStorage value', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb({});
+      chrome.runtime.lastError = null;
+    });
+    localStorage.getItem.mockReturnValue('ja');
+    np.loadLangPref((lang) => {
+      expect(lang).toBe('ja');
+      done();
+    });
+  });
+
+  test('total read failure returns system with a load warning', (done) => {
+    chrome.storage.local.get.mockImplementation((_keys, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb({});
+      chrome.runtime.lastError = null;
+    });
+    localStorage.getItem.mockImplementation(() => {
+      throw new Error('localStorage unavailable');
+    });
+    np.loadLangPref((lang, warn) => {
+      expect(lang).toBe('system');
+      expect(warn).toBe('Language preference could not be loaded.');
+      done();
+    });
+  });
+
+  test('save prefers extension storage and skips localStorage on success', (done) => {
+    chrome.storage.local.set.mockImplementation((_data, cb) => cb());
+    np.saveLangPref('ja');
+    setTimeout(() => {
+      expect(chrome.storage.local.set).toHaveBeenCalledWith({ 'networkPlus.lang': 'ja' }, expect.any(Function));
+      expect(localStorage.setItem).not.toHaveBeenCalled();
+      done();
+    }, 0);
+  });
+
+  test('async write failure falls back to localStorage', (done) => {
+    chrome.storage.local.set.mockImplementation((_data, cb) => {
+      chrome.runtime.lastError = { message: 'Storage unavailable' };
+      cb();
+      chrome.runtime.lastError = null;
+    });
+    np.saveLangPref('en');
+    setTimeout(() => {
+      expect(localStorage.setItem).toHaveBeenCalledWith('networkPlus.lang', 'en');
+      done();
+    }, 0);
+  });
+});
+
+describe('resolveLanguage', () => {
+  const originalNavigator = global.navigator;
+  afterEach(() => {
+    global.navigator = originalNavigator;
+  });
+
+  test('explicit choices pass through untouched', () => {
+    expect(np.resolveLanguage('ja')).toBe('ja');
+    expect(np.resolveLanguage('en')).toBe('en');
+  });
+
+  test('system resolves to ja for Japanese browser locales', () => {
+    global.navigator = { language: 'ja' };
+    expect(np.resolveLanguage('system')).toBe('ja');
+    global.navigator = { language: 'ja-JP' };
+    expect(np.resolveLanguage('system')).toBe('ja');
+  });
+
+  test('system resolves to en for every other locale, including lookalikes', () => {
+    global.navigator = { language: 'en-US' };
+    expect(np.resolveLanguage('system')).toBe('en');
+    // "jam" must not match the ja prefix test.
+    global.navigator = { language: 'jam' };
+    expect(np.resolveLanguage('system')).toBe('en');
+  });
+
+  test('system falls back to the languages list, then to en without a navigator', () => {
+    global.navigator = { language: '', languages: ['ja-JP', 'en-US'] };
+    expect(np.resolveLanguage('system')).toBe('ja');
+    global.navigator = undefined;
+    expect(np.resolveLanguage('system')).toBe('en');
+  });
+
+  test('junk preferences behave like system', () => {
+    global.navigator = { language: 'en-US' };
+    expect(np.resolveLanguage('klingon')).toBe('en');
+  });
+});
+
 describe('serializeFilterState', () => {
   test('returns empty object for empty input', () => {
     expect(np.serializeFilterState({})).toEqual({});
