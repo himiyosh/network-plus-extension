@@ -12529,18 +12529,25 @@ const _NetworkPlus = (function () {
           return;
         }
         popoutWindow = opened;
+        setStatus('Network+ opened in a browser tab; it mirrors this DevTools session.');
         // Ask the background worker to tuck an undocked DevTools window
         // away; a docked session has no window of its own and stays put.
+        // The answer refines the status either way, so a silent no-op
+        // never leaves the user guessing.
         if (typeof mirrorRuntime.sendMessage === 'function') {
           try {
-            mirrorRuntime.sendMessage({ type: 'networkplus-minimize-devtools' }, () => {
+            mirrorRuntime.sendMessage({ type: 'networkplus-minimize-devtools' }, (response) => {
               void (mirrorRuntime.lastError && mirrorRuntime.lastError.message);
+              setStatus(
+                response && response.minimized === true
+                  ? 'Network+ opened in a browser tab; the DevTools window is minimized and keeps capturing (restore it from the taskbar).'
+                  : 'Network+ opened in a browser tab; DevTools stayed put — undock it into its own window to have it minimized automatically.',
+              );
             });
           } catch (_error) {
             // A session running an older package without the worker just skips the tidy-up.
           }
         }
-        setStatus('Network+ opened in a browser tab; it mirrors this DevTools session.');
         startMirrorReconnect();
       });
     }

@@ -3071,10 +3071,19 @@ describe('devtools-session mirror contracts', () => {
     // DevTools window away; the worker reads no tab data and answers a
     // docked session with minimized: false.
     const backgroundJs = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
-    expect(js).toContain("mirrorRuntime.sendMessage({ type: 'networkplus-minimize-devtools' }, () => {");
+    expect(js).toContain("mirrorRuntime.sendMessage({ type: 'networkplus-minimize-devtools' }, (response) => {");
+    // The pop-out status reports the outcome either way; a silent no-op
+    // never leaves the user guessing why DevTools did not move.
+    expect(js).toContain('the DevTools window is minimized and keeps capturing');
+    expect(js).toContain('DevTools stayed put — undock it into its own window');
     expect(backgroundJs).toContain("message.type !== 'networkplus-minimize-devtools'");
-    expect(backgroundJs).toContain("chrome.windows.getLastFocused({ windowTypes: ['devtools'] }");
-    expect(backgroundJs).toContain("chrome.windows.update(devtoolsWindow.id, { state: 'minimized' }");
+    // windowTypes is ignored by getLastFocused (deprecated since Chrome 46)
+    // and the fresh tab steals focus before the worker answers, so getAll
+    // filters by type and focus only breaks ties between DevTools windows.
+    expect(backgroundJs).toContain("chrome.windows.getAll({ windowTypes: ['devtools'] }");
+    expect(backgroundJs).toContain('devtoolsWindows.find((candidate) => candidate.focused === true)');
+    expect(backgroundJs).toContain("(devtoolsWindows.length === 1 ? devtoolsWindows[0] : null)");
+    expect(backgroundJs).toContain("chrome.windows.update(target.id, { state: 'minimized' }");
     expect(backgroundJs).not.toContain('tabs');
     const manifestJson = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
     expect(manifestJson.background).toEqual({ service_worker: 'background.js' });

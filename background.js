@@ -7,12 +7,22 @@
 // own, so the request answers { minimized: false } and nothing moves.
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.type !== 'networkplus-minimize-devtools') return undefined;
-  chrome.windows.getLastFocused({ windowTypes: ['devtools'] }, (devtoolsWindow) => {
-    if (chrome.runtime.lastError || !devtoolsWindow || devtoolsWindow.type !== 'devtools') {
+  // windowTypes is ignored by getLastFocused (deprecated since Chrome 46),
+  // and by reply time the fresh pop-out tab already stole the focus, so
+  // getAll does the type filtering and focus only breaks ties.
+  chrome.windows.getAll({ windowTypes: ['devtools'] }, (devtoolsWindows) => {
+    if (chrome.runtime.lastError || !Array.isArray(devtoolsWindows) || devtoolsWindows.length === 0) {
       sendResponse({ minimized: false });
       return;
     }
-    chrome.windows.update(devtoolsWindow.id, { state: 'minimized' }, () => {
+    const target =
+      devtoolsWindows.find((candidate) => candidate.focused === true) ||
+      (devtoolsWindows.length === 1 ? devtoolsWindows[0] : null);
+    if (!target) {
+      sendResponse({ minimized: false });
+      return;
+    }
+    chrome.windows.update(target.id, { state: 'minimized' }, () => {
       sendResponse({ minimized: !chrome.runtime.lastError });
     });
   });
