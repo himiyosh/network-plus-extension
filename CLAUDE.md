@@ -35,6 +35,12 @@ profile によっては配布されないファイルがある。存在しない
 - 導入 profile: `core`（platform: `claude-code`）
 - ローカル逸脱: `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` §6.10 から、レビューコメント marker・レビュアー session UUID・repository variables による merge ゲート手続きの bullet 3 件を削除している（#129 で本リポジトリでは廃止済み。merge 可否は branch protection と通常の CI quality gates で判定する）。bundle 更新時は再取得後に同じ削除を再適用すること。
 
+### テスト実行の絶対則
+
+この Claude Code リモート環境でフルスイートを回すときは必ず `CHROME_BIN=/opt/pw-browsers/chromium npm test`。
+CHROME_BIN が無いと実ブラウザ回帰(status-summary-browser)が**黙ってスキップ**され、常に実行される CI とだけ食い違う
+「ローカル green・CI 赤」が起きる(PR #159 で実証)。`set -o pipefail` で `Tests:` 行を読む規律とセットで使うこと。
+
 ### リリースとストア再申請
 
 手順は skill `.claude/skills/store-release/SKILL.md`(`/store-release`)に集約してある。リリース・再申請・store-submit の失敗診断はまずそれを開く。
