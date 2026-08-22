@@ -11,7 +11,7 @@ const ASSET_DIRECTORY = 'docs/store-assets';
 // The synthetic store assets and the privacy notice are reviewed independently.
 // Keep the dates separate so a privacy-text change does not imply the PNG
 // inventory was re-reviewed on the same day.
-const ASSET_REVIEW_DATE = '2026-08-21';
+const ASSET_REVIEW_DATE = '2026-08-22';
 const PRIVACY_REVIEW_DATE = '2026-08-18';
 const MIN_DESCRIPTION_CHARACTERS = 250;
 const MAX_DESCRIPTION_CHARACTERS = 10000;

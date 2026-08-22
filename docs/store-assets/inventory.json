@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewedOn": "2026-08-21",
+  "reviewedOn": "2026-08-22",
   "assets": [
     {
       "file": "logo-300.png",
@@ -47,7 +47,7 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: synthetic request grid with the 503 request selected and response headers visible"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: synthetic request grid with color-coded method badges, the 503 request selected, and response headers visible"
     },
     {
       "file": "screenshot-2-timing-guidance-1280x800.png",
@@ -92,7 +92,7 @@
         "checkout.network-plus.test",
         "static.network-plus.test"
       ],
-      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: user-initiated export dialog with Export sanitized HAR as the safe default"
+      "state": "Numbered dark composition (step eyebrow, white headline, gradient-ring frame) over an unscaled dark-theme panel capture: user-initiated export dialog with the displayed-or-selected scope choice and Export sanitized HAR as the safe default"
     }
   ]
 }
