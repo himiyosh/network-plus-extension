@@ -35,6 +35,13 @@ profile によっては配布されないファイルがある。存在しない
 - 導入 profile: `core`（platform: `claude-code`）
 - ローカル逸脱: `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` §6.10 から、レビューコメント marker・レビュアー session UUID・repository variables による merge ゲート手続きの bullet 3 件を削除している（#129 で本リポジトリでは廃止済み。merge 可否は branch protection と通常の CI quality gates で判定する）。bundle 更新時は再取得後に同じ削除を再適用すること。
 
+### PR マージは承認依頼なしで進めてよい
+
+ユーザーのローカル動作確認は `develop` からの pull が前提のため、**CI green+全ゲート通過を確認した PR は、
+都度の承認を求めずマージしてよい**(2026-08-22 ユーザー指示)。マージ後は毎回
+`git push origin origin/main:refs/heads/develop` で develop を同期し、作業ブランチを origin/main から再スタートする。
+リリース(バージョンを切る・ストアへ出す)は従来どおり明示指示があるまで行わない。
+
 ### prettier の対象は許可リストが正
 
 `panel.js`・`tests/panel.test.js`・`tests/ui-contract.test.js` は**意図的に prettier 管理外**
