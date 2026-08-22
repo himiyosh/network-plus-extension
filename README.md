@@ -106,7 +106,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 - Retention defaults to the newest 20,000 requests, configurable from 100 to 100,000. Unlimited request rows are available only after you confirm an explicit warning.
 - Response bodies are capped independently at 1 MiB per body and 32 MiB across the shared cache, with least-recently-used eviction that keeps the rows themselves.
 - Pause / Resume recording, auto-scroll that switches itself off when you scroll up, and `Clear` with a 10-second **Undo clear**.
-- Import HAR (`.har`) and Fiddler SAZ (`.saz`) archives; import is atomic and never destroys the current capture if the file is rejected.
+- Import HAR (`.har`) and Fiddler SAZ (`.saz`) archives; import is atomic and never destroys the current capture if the file is rejected. Chrome HAR files that carry `_webSocketMessages` get those frames threaded into the same request/response Body panes that live WebSocket capture uses.
 - **Opt-in WebSocket capture.** The **WS capture** toggle in the status bar wraps the page's `WebSocket` constructor through the DevTools eval API — no extra permissions — and records each connection as a row: sent frames land in the request Body pane, received frames and lifecycle events in the response Body pane, all searchable and export-sanitized like any other body. Only sockets created while capture is on are seen, the wrapper never alters traffic, and a navigation reinstalls it automatically.
 - **Navigation does not clear the capture.** Rows persist across page navigations, bodies already prefetched into the bounded cache stay readable, and bodies the page navigated away from before retrieval are marked with an explicit notice instead of failing later — the status bar reports both counts.
 
@@ -130,6 +130,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 
 ### Share safely
 
+- **Copy as Markdown.** The row menu copies a sanitized, issue-ready Markdown block (method, redacted URL, status, operation, timing); with several rows selected it also offers one compact Markdown table. The unsanitized variant sits behind the same full-output confirmation as everything else.
 - **Sanitized HAR** (`network-plus-sanitized.har`) is the normal export. **Full HAR** is a separate action gated behind a warning you confirm every single time.
 - **Export only the selected rows.** When rows are selected (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>-click, <kbd>Shift</kbd>-click), the export dialog offers a "Selected requests only" scope with live counts; the file gains a `-selected` suffix so exports are never confused. "All displayed requests" stays the pre-checked default on every open.
 - Copy actions — Summary, URL, request/response body, raw request/response, cURL, fetch, PowerShell — are sanitized by default and keep valid command syntax after redaction.

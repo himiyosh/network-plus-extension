@@ -3172,3 +3172,18 @@ describe('websocket capture contracts', () => {
     expect(js).toContain('if (state.paused || state.sampleCaptureActive) return;');
   });
 });
+
+describe('markdown copy and HAR websocket import contracts', () => {
+  test('markdown copy is offered sanitized in the menu and as a full format', () => {
+    expect(js).toContain("['markdown', 'Copy sanitized Markdown'],");
+    expect(js).toContain("'Copy sanitized Markdown table (' + targetRows.length + ' rows)'");
+    expect(js).toContain("if (action === 'markdown') return formatRowMarkdown(targetRow);");
+    expect(js).toContain("action === 'markdown' || REQUEST_CLIPBOARD_ACTIONS.has(action)");
+    expect(html).toContain('<option value="markdown">Markdown</option>');
+  });
+
+  test('HAR imports thread _webSocketMessages through the shared frame pipeline', () => {
+    expect(js).toContain('applyHarWebSocketMessages(row, entries[index] ? entries[index]._webSocketMessages : null);');
+    expect(js).toContain('const HAR_WS_MESSAGE_IMPORT_LIMIT = 1000;');
+  });
+});
