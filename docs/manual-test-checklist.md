@@ -30,6 +30,35 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] `Undo clear` can be run exactly once by keyboard and restores the three samples, details, filters, search terms and scope, selection and highlights, sort order, the original recording state, and a predictable row focus. If live traffic arrived first the sample is not restored, and a normal Clear restores while keeping new traffic within the retention limit.
 - [ ] In System / Dark / Light, the default, hover, active, focus, and disabled states of the action are all distinguishable.
 
+## Pop-out mirror tab
+
+- [ ] The 🪟 toolbar button appears only inside a DevTools session — never when `panel.html` is opened as a plain page — and its tooltip explains that the tab mirrors this DevTools session.
+- [ ] Clicking it opens `panel.html?view=window` as a browser tab; existing rows appear via the snapshot, new requests stream in live, and the row count matches the panel within one second.
+- [ ] Clicking again while the tab is open focuses the existing tab instead of opening a second one.
+- [ ] In the tab, Pause / Clear / Import / Retention / 🪟 are hidden, the status line reports `Mirroring the DevTools session` (with `(recording paused)` while the panel is paused), and selecting a row loads its response body on demand from the DevTools side.
+- [ ] Clear, Undo clear, an import, and retention evictions performed in the panel reach the tab within about a second (sync resync).
+- [ ] Closing DevTools leaves the tab's rows in place with `The DevTools session disconnected; captured requests remain available.`, and a body that was never fetched reports its unavailability immediately instead of timing out. Reopening DevTools and the Network+ panel reconnects the same tab.
+- [ ] If the browser blocks the pop-out, the status explains it and a second click after allowing pop-ups succeeds.
+
+## Navigation persistence
+
+- [ ] Navigating the inspected page never clears the table; the status reports `Page navigated; kept N requests` with the pre-navigation rows intact.
+- [ ] A body opened (or prefetched) before the navigation stays readable afterwards.
+- [ ] A body that was not retrieved in time shows `The inspected page navigated away before this response body was retrieved.` in the Body tab immediately — no 10-second timeout — and the status counts those bodies. The same reason reaches a connected mirror tab.
+- [ ] SPA route changes (history.pushState) mark nothing: bodies stay fetchable.
+
+## Export scope, operation labels, and WebSocket capture
+
+- [ ] With rows selected (Ctrl/⌘-click or Shift-click), the export dialog shows `All displayed requests (N)` pre-checked and `Selected requests only (M)` with live counts; without any selection the scope chooser is absent.
+- [ ] A selected-scope sanitized export downloads `network-plus-sanitized-selected.har` containing exactly the selected entries in capture order; reopening the dialog resets the default to all displayed rows. The full-HAR path honors the same captured scope after its one-time confirmation.
+- [ ] Known methods render as colored badges (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS and WS) that stay legible in System / Dark / Light; an unknown method stays plain bold text.
+- [ ] The Operation column (off by default in Columns) shows GraphQL `operationName` or parsed query names (`Name (+2)` for batches) and JSON-RPC methods, sorts and filters like any column, and appears in the request Headers pane.
+- [ ] `WS capture: Off` sits in the status bar only inside a DevTools session; its tooltip states that only sockets created while capture is on are seen and traffic is never altered.
+- [ ] Turning it on and creating a WebSocket on the page adds a WS-badged row: sent frames appear in the request Body pane (`↑` lines), received frames and open/close events in the response Body pane (`↓` / `—` lines), and both are searchable and included, sanitized, in exports.
+- [ ] Binary frames appear as `[binary N bytes]`; very long frame logs trim from the front with a visible `… earlier frames trimmed …` marker.
+- [ ] Turning capture off stops recording without removing existing rows; a navigation while capture is on marks unclosed connections `Navigated` and keeps recording sockets created by the new page.
+- [ ] While paused or during the local sample, WebSocket events are not recorded.
+
 ## Search and detail-pane search
 
 - [ ] In the dark theme, rows matching a search keyword are clearly distinguishable at a glance for every keyword color via their tint alone (no outline). Selecting any row — hit or not — draws a 2px accent outline around it that reads instantly as selection. The ID column shows no K-badge, while screen readers still announce "Matches search keyword N".
