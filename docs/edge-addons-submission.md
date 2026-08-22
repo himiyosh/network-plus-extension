@@ -63,6 +63,8 @@ Selecting a request opens request and response inspectors for headers, bodies, q
 
 The panel is not confined to the DevTools window. A pop-out action opens Network+ in a full browser tab that mirrors the live capture session, keeping rows, details, and the paused state in sync, which helps on small screens or a second monitor. An opt-in WebSocket capture mode records the messages the inspected page sends and receives on sockets opened while the mode is on and lists them as directional frames in the inspectors; capture is observation only and never alters traffic. HAR files that include WebSocket messages recorded by Chromium-based DevTools are restored the same way on import.
 
+A captured request can also be re-sent, either unchanged or after editing the method, URL, headers, and body in a dialog. The composed request is issued by the inspected page itself through the DevTools evaluation API, so cookies, CORS, and the page's security policies apply exactly as if the page had made the call, browser-managed headers remain browser-managed, and the reply arrives as a new captured row. JWT-shaped header values such as Bearer tokens decode inline in the header panes with humanized expiry times, locally and for display only; signatures are not verified, and decoded claims never join copies or exports.
+
 Network+ applies bounded local retention. The default request limit is 20,000, configurable from 100 to 100,000; an explicitly confirmed unlimited request mode is also available. Response bodies remain subject to a 1 MiB per-body limit and a 32 MiB shared cache limit. The status bar reports retention and body-cache conditions so omitted or evicted content is not presented as complete evidence. Clear removes the current working set and offers a bounded 10-second Undo action while retained data remains available.
 
 Clipboard copy and HAR export are user-initiated. Sanitized output is the default and redacts or omits sensitive fields according to the documented policy: a request can be copied as a sanitized one-line summary, a Markdown report ready for a bug tracker or chat, or a cURL, fetch, or PowerShell command, and exports can cover the rows currently displayed or only the selected rows. Full output requires a warning and one-time confirmation for that action, and Network+ does not save a full-output preference. Users should still review any exported or copied data before sharing it.
@@ -88,7 +90,7 @@ The current Microsoft Learn publication guide allows at most seven terms and 21 
 
 ## Privacy declarations
 
-**Single-purpose statement:** Network+ provides a local Microsoft Edge DevTools workbench for capturing, filtering, searching, comparing, inspecting, and user-initiated exporting of HTTP request and response evidence from the inspected page.
+**Single-purpose statement:** Network+ provides a local Microsoft Edge DevTools workbench for capturing, filtering, searching, comparing, inspecting, user-initiated exporting, and user-initiated re-sending of HTTP request and response evidence from the inspected page.
 
 **Permission justification (`storage`):** Stores the user-selected System, Dark, or Light theme and boolean search preferences (scope checkboxes, case / whole-word / regular-expression options, and the Matches only state) in `chrome.storage.local` so these settings persist between DevTools sessions. This permission is not used to store search keyword text, captured URLs, headers, request bodies, response bodies, cookies, or request records.
 

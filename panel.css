@@ -458,6 +458,34 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .data-safety-actions{display:flex;justify-content:flex-end;gap:8px}
 @media (max-width:420px){.data-safety-choices{grid-template-columns:1fr}.data-safety-actions{flex-wrap:wrap}.data-safety-actions button{flex:1 1 auto}.timing-guidance-list{grid-template-columns:minmax(0,1fr)}}
 
+/* === Edit and resend === */
+#resendDialog{position:fixed;inset:0;margin:auto;width:min(560px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
+#resendDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
+.resend-form{display:grid;gap:6px;padding:16px}
+.resend-form h2{margin:0;font-size:15px;font-style:normal}
+.resend-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45}
+.resend-form label{font-size:12px;font-weight:600}
+.resend-form input:not([type="checkbox"]),.resend-form textarea{min-height:28px;width:100%;padding:5px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+.resend-form textarea{font-family:'Cascadia Code',Consolas,'Courier New',monospace;font-size:11px;resize:vertical}
+.resend-credentials{display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
+.resend-credentials input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+.resend-error{color:var(--status-5xx-text);font-weight:600}
+.resend-error[hidden]{display:none}
+.resend-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.resend-actions button{min-height:32px;padding:5px 12px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer;font:inherit}
+.resend-actions button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
+.resend-actions button:active{background:var(--accent-dim);color:var(--text-accent)}
+.resend-actions .data-safety-primary{border-color:var(--accent);background:var(--accent-fill);color:var(--on-accent)}
+.resend-actions .data-safety-primary:hover{background:var(--accent-fill);color:var(--on-accent)}
+
+/* === JWT decode (header panes) === */
+.jwt-section{margin-top:8px}
+.jwt-details{margin-top:6px;border:1px solid var(--control-border);border-radius:8px;padding:6px 10px;background:var(--bg)}
+.jwt-details summary{cursor:pointer;font-size:12px;font-weight:600}
+.jwt-details summary.jwt-expired{color:var(--status-5xx-text)}
+.jwt-part-heading{display:block;margin-top:8px;font-size:11px}
+.jwt-note{margin:8px 0 2px;color:var(--text-muted);font-size:11px;line-height:1.45}
+
 /* === View preset (inside the Columns menu) === */
 .columns-preset-section{border-top:1px solid var(--border);margin-top:6px;padding:8px 4px 2px}
 .columns-preset-hint{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:6px}

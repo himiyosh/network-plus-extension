@@ -360,6 +360,27 @@
       </div>
     </form>
   </dialog>
+  <dialog id="resendDialog" aria-labelledby="resendDialogTitle" aria-describedby="resendDialogIntro">
+    <form method="dialog" class="resend-form">
+      <h2 id="resendDialogTitle">Edit and resend request</h2>
+      <p id="resendDialogIntro">Send composes a new request from these fields, and the inspected page itself issues it — so cookies, CORS, and the page's security policies apply as usual. The reply arrives as a new captured row.</p>
+      <label for="resendMethod">Method</label>
+      <input id="resendMethod" name="resendMethod" autocomplete="off" spellcheck="false">
+      <label for="resendUrl">URL</label>
+      <input id="resendUrl" name="resendUrl" autocomplete="off" spellcheck="false">
+      <label for="resendHeaders">Headers (one per line, Name: value)</label>
+      <textarea id="resendHeaders" name="resendHeaders" rows="6" spellcheck="false"></textarea>
+      <label for="resendBody">Body (ignored for GET and HEAD)</label>
+      <textarea id="resendBody" name="resendBody" rows="4" spellcheck="false"></textarea>
+      <label class="resend-credentials"><input type="checkbox" id="resendCredentials" checked> Send this site's cookies with the request</label>
+      <p class="resend-hint">Browser-managed headers (Host, Cookie, Content-Length, Origin, Referer, and the Sec-* and Proxy-* families) are set by the browser and cannot be overridden here.</p>
+      <p id="resendError" class="resend-error" role="alert" hidden></p>
+      <div class="resend-actions">
+        <button id="resendSendBtn" type="button" class="data-safety-primary">Send request</button>
+        <button id="resendCancelBtn" value="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
   <div id="copyToast" class="copy-toast" aria-hidden="true"></div>
   <span id="dataSafetyStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
   <dialog id="shortcutDialog" aria-labelledby="shortcutDialogTitle">

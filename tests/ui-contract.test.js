@@ -3187,3 +3187,41 @@ describe('markdown copy and HAR websocket import contracts', () => {
     expect(js).toContain('const HAR_WS_MESSAGE_IMPORT_LIMIT = 1000;');
   });
 });
+
+describe('edit-and-resend contracts', () => {
+  test('the resend dialog states the page-context boundary and the managed-header limit', () => {
+    expect(html).toContain('<dialog id="resendDialog"');
+    expect(html).toContain('the inspected page itself issues it');
+    expect(html).toContain(
+      'Browser-managed headers (Host, Cookie, Content-Length, Origin, Referer, and the Sec-* and Proxy-* families) are set by the browser and cannot be overridden here.',
+    );
+    for (const id of ['resendMethod', 'resendUrl', 'resendHeaders', 'resendBody', 'resendCredentials', 'resendSendBtn']) {
+      expect(html).toContain('id="' + id + '"');
+    }
+    expect(html).toContain('<p id="resendError" class="resend-error" role="alert" hidden></p>');
+    expect(css).toContain('.resend-error[hidden]{display:none}');
+  });
+
+  test('resend rides the DevTools eval channel and stays out of the mirror viewer', () => {
+    expect(js).toContain("if (resendDialog && inspectedEval && !mirrorViewerActive) {");
+    expect(js).toContain('inspectedEval(buildResendEvalSource(spec), (result, errorInfo) => {');
+    expect(js).toContain('if (resendActions && canResendRow(contextMenuRow)) {');
+    expect(js).toContain("createRowMenuButton('Resend unchanged', () => {");
+    expect(js).toContain("createRowMenuButton('Edit and resend...', () => {");
+    // The composed request is a new fetch in the page; nothing in-flight is touched.
+    expect(js).toContain('fetch(spec.url, init).catch(function () {});');
+    expect(js).toContain("row.method !== 'WS'");
+  });
+});
+
+describe('jwt decode display contracts', () => {
+  test('JWT sections decode into both header panes and disclaim verification', () => {
+    expect(js).toContain("const JWT_DISPLAY_NOTE = 'Decoded locally for display; the signature is not verified.';");
+    expect(js).toContain('createJwtDetailsSection(row.requestHeaders)');
+    expect(js).toContain('createJwtDetailsSection(row.responseHeaders)');
+    expect(css).toContain('.jwt-details summary.jwt-expired{color:var(--status-5xx-text)}');
+    // Display only: the decoder never feeds the clipboard/export pipeline.
+    expect(js).not.toContain('decodeJwt(sanitize');
+    expect(js).toContain('const JWT_MAX_TOKEN_CHARS = 8192;');
+  });
+});

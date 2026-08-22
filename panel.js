@@ -6076,6 +6076,249 @@ const _NetworkPlus = (function () {
     };
   }
 
+  // ---- Edit-and-resend (DevTools sessions only) ----
+  // A captured request is only a template here: Send composes a brand-new
+  // request from the dialog fields and executes it as a fetch() inside the
+  // inspected page through the DevTools eval API — the same zero-permission
+  // channel WebSocket capture uses. Cookies, CORS, and the page's security
+  // policies therefore apply exactly as if the page had issued the call,
+  // the reply arrives through normal capture as a new row, and the original
+  // traffic is never touched.
+  const RESEND_BROWSER_MANAGED_HEADERS = Object.freeze([
+    'accept-charset',
+    'accept-encoding',
+    'access-control-request-headers',
+    'access-control-request-method',
+    'connection',
+    'content-length',
+    'cookie',
+    'cookie2',
+    'date',
+    'dnt',
+    'expect',
+    'host',
+    'keep-alive',
+    'origin',
+    'referer',
+    'te',
+    'trailer',
+    'transfer-encoding',
+    'upgrade',
+    'via',
+  ]);
+  const RESEND_METHOD_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+  function isBrowserManagedHeaderName(name) {
+    const normalized = String(name || '').toLowerCase();
+    return (
+      RESEND_BROWSER_MANAGED_HEADERS.indexOf(normalized) > -1 ||
+      normalized.startsWith('proxy-') ||
+      normalized.startsWith('sec-')
+    );
+  }
+
+  function canResendRow(row) {
+    return !!(row && row.method !== 'WS' && /^https?:\/\//i.test(row.url || ''));
+  }
+
+  function buildResendSpecFromRow(row) {
+    const headers = [];
+    for (const header of (row && row.requestHeaders) || []) {
+      const name = String((header && header.name) || '');
+      if (!name || name.startsWith(':')) continue; // HTTP/2 pseudo-headers are not settable request headers.
+      headers.push({ name, value: String((header && header.value) || '') });
+    }
+    return {
+      method: (row && row.method) || 'GET',
+      url: (row && row.url) || '',
+      headers,
+      body:
+        row && row.requestPostData && typeof row.requestPostData.text === 'string'
+          ? row.requestPostData.text
+          : '',
+    };
+  }
+
+  function formatHeaderLines(headers) {
+    return (headers || []).map((header) => header.name + ': ' + header.value).join('\n');
+  }
+
+  function parseHeaderLines(text) {
+    const headers = [];
+    const invalidLines = [];
+    for (const rawLine of String(text || '').split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const colonAt = line.indexOf(':');
+      if (colonAt < 1) {
+        invalidLines.push(line);
+        continue;
+      }
+      headers.push({ name: line.slice(0, colonAt).trim(), value: line.slice(colonAt + 1).trim() });
+    }
+    return { headers, invalidLines };
+  }
+
+  function pageResendRunner(spec) {
+    // Runs inside the inspected page; must stay self-contained.
+    try {
+      var headers = {};
+      for (var i = 0; i < spec.headers.length; i++) headers[spec.headers[i][0]] = spec.headers[i][1];
+      var init = {
+        method: spec.method,
+        headers: headers,
+        credentials: spec.credentials ? 'include' : 'same-origin',
+      };
+      if (spec.body && spec.method !== 'GET' && spec.method !== 'HEAD') init.body = spec.body;
+      fetch(spec.url, init).catch(function () {});
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String((error && error.message) || error) };
+    }
+  }
+
+  function buildResendEvalSource(spec) {
+    const wireSpec = {
+      method: String(spec.method || 'GET'),
+      url: String(spec.url || ''),
+      headers: ((spec && spec.headers) || [])
+        .filter((header) => !isBrowserManagedHeaderName(header.name))
+        .map((header) => [String(header.name), String(header.value)]),
+      body: typeof spec.body === 'string' ? spec.body : '',
+      credentials: spec.credentials !== false,
+    };
+    return '(' + pageResendRunner.toString() + ')(' + JSON.stringify(wireSpec) + ')';
+  }
+
+  // ---- JWT decoding (display only; no verification) ----
+  // Any header value can carry a JWT: Authorization: Bearer, custom auth
+  // headers, or a response header minting a fresh token. Detection is a
+  // strict local base64url + JSON parse of the first two segments — the
+  // signature is never checked — and the result renders only inside the
+  // header panes: decoded claims never join clipboard copies or exports.
+  const JWT_TOKEN_PATTERN = /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*/g;
+  const JWT_MAX_TOKEN_CHARS = 8192;
+  const JWT_MAX_FINDINGS = 4;
+  const JWT_DISPLAY_NOTE = 'Decoded locally for display; the signature is not verified.';
+
+  function decodeBase64UrlJson(segment) {
+    if (typeof segment !== 'string' || segment.length === 0) return null;
+    try {
+      const base64 = segment.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+      const raw = atob(padded);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      const parsed = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function decodeJwt(token) {
+    if (typeof token !== 'string' || token.length === 0 || token.length > JWT_MAX_TOKEN_CHARS) return null;
+    const segments = token.split('.');
+    if (segments.length !== 3) return null;
+    const header = decodeBase64UrlJson(segments[0]);
+    if (!header || (typeof header.alg !== 'string' && typeof header.typ !== 'string')) return null;
+    const payload = decodeBase64UrlJson(segments[1]);
+    if (!payload) return null;
+    return { header, payload, signaturePresent: segments[2].length > 0 };
+  }
+
+  function humanizeJwtDelta(deltaMs) {
+    const abs = Math.abs(deltaMs);
+    if (abs < 60000) return Math.round(abs / 1000) + ' s';
+    if (abs < 3600000) return Math.round(abs / 60000) + ' min';
+    if (abs < 86400000) return Math.round(abs / 3600000) + ' h';
+    return Math.round(abs / 86400000) + ' d';
+  }
+
+  function describeJwtEpochClaim(key, seconds, nowEpochMs) {
+    if (!Number.isFinite(seconds)) return null;
+    const atMs = seconds * 1000;
+    const iso = new Date(atMs).toISOString();
+    const delta = atMs - nowEpochMs;
+    if (key === 'exp') {
+      return delta < 0
+        ? iso + ' (expired ' + humanizeJwtDelta(delta) + ' ago)'
+        : iso + ' (expires in ' + humanizeJwtDelta(delta) + ')';
+    }
+    return delta < 0 ? iso + ' (' + humanizeJwtDelta(delta) + ' ago)' : iso + ' (in ' + humanizeJwtDelta(delta) + ')';
+  }
+
+  function getJwtExpiryState(payload, nowEpochMs) {
+    const exp = payload ? payload.exp : undefined;
+    if (!Number.isFinite(exp)) return { expired: false, label: '' };
+    const delta = exp * 1000 - nowEpochMs;
+    return {
+      expired: delta < 0,
+      label: delta < 0 ? 'expired ' + humanizeJwtDelta(delta) + ' ago' : 'expires in ' + humanizeJwtDelta(delta),
+    };
+  }
+
+  function findJwtsInHeaders(headers) {
+    const findings = [];
+    const seenTokens = new Set();
+    for (const header of headers || []) {
+      const value = String((header && header.value) || '');
+      if (value.indexOf('eyJ') === -1) continue;
+      for (const token of value.match(JWT_TOKEN_PATTERN) || []) {
+        if (seenTokens.has(token)) continue;
+        seenTokens.add(token);
+        const decoded = decodeJwt(token);
+        if (!decoded) continue;
+        findings.push({ headerName: String((header && header.name) || ''), decoded });
+        if (findings.length >= JWT_MAX_FINDINGS) return findings;
+      }
+    }
+    return findings;
+  }
+
+  function createJwtDetailsSection(headers, nowEpochMs) {
+    const findings = findJwtsInHeaders(headers);
+    if (findings.length === 0) return null;
+    const now = Number.isFinite(nowEpochMs) ? nowEpochMs : Date.now();
+    const container = document.createElement('div');
+    container.className = 'jwt-section';
+    for (const finding of findings) {
+      const details = document.createElement('details');
+      details.className = 'jwt-details';
+      const summary = document.createElement('summary');
+      const expiry = getJwtExpiryState(finding.decoded.payload, now);
+      summary.textContent = 'JWT in ' + finding.headerName + (expiry.label ? ' · ' + expiry.label : '');
+      if (expiry.expired) summary.classList.add('jwt-expired');
+      details.appendChild(summary);
+      const timeItems = [];
+      for (const key of ['exp', 'nbf', 'iat']) {
+        const described = describeJwtEpochClaim(key, finding.decoded.payload[key], now);
+        if (described) timeItems.push({ key, value: described });
+      }
+      if (timeItems.length > 0) details.appendChild(createKvGrid(timeItems));
+      for (const [label, part] of [
+        ['Header', finding.decoded.header],
+        ['Payload', finding.decoded.payload],
+      ]) {
+        const heading = document.createElement('strong');
+        heading.className = 'jwt-part-heading';
+        heading.textContent = label;
+        details.appendChild(heading);
+        const pre = document.createElement('pre');
+        pre.className = 'code-block';
+        pre.textContent = JSON.stringify(part, null, 2);
+        details.appendChild(pre);
+      }
+      const note = document.createElement('p');
+      note.className = 'jwt-note';
+      note.textContent =
+        JWT_DISPLAY_NOTE + (finding.decoded.signaturePresent ? '' : ' This token carries no signature segment.');
+      details.appendChild(note);
+      container.appendChild(details);
+    }
+    return container;
+  }
+
   // ============================================================
   // Section 9: Safe DOM Rendering [S1][S2][S3] — NO innerHTML with user data
   // ============================================================
@@ -9011,6 +9254,8 @@ const _NetworkPlus = (function () {
       title.style.marginTop = '8px';
       reqHeadersPane.appendChild(title);
       reqHeadersPane.appendChild(createKvGrid(row.requestHeaders.map((h) => ({ key: h.name, value: h.value }))));
+      const requestJwtSection = createJwtDetailsSection(row.requestHeaders);
+      if (requestJwtSection) reqHeadersPane.appendChild(requestJwtSection);
     }
 
     // Request > Body
@@ -9100,6 +9345,8 @@ const _NetworkPlus = (function () {
       title.style.marginTop = '8px';
       resHeadersPane.appendChild(title);
       resHeadersPane.appendChild(createKvGrid(row.responseHeaders.map((h) => ({ key: h.name, value: h.value }))));
+      const responseJwtSection = createJwtDetailsSection(row.responseHeaders);
+      if (responseJwtSection) resHeadersPane.appendChild(responseJwtSection);
     }
 
     // Response > Body, Preview, Raw — populated from the shared response cache
@@ -10403,6 +10650,9 @@ const _NetworkPlus = (function () {
     let contextMenuRow = null;
     let contextMenuInvokerRowId = null;
     let suppressNextNativeContextMenuRowId = null;
+    // Assigned by the resend wiring at the end of init when a DevTools
+    // session is present; stays null in the mirror viewer and in tests.
+    let resendActions = null;
     const restoreContextMenuFocus = () => {
       const invokingRow = contextMenuInvokerRowId
         ? tableWrap.querySelector('tr[data-row-id="' + contextMenuInvokerRowId + '"]')
@@ -10478,6 +10728,21 @@ const _NetworkPlus = (function () {
       contextMenu.appendChild(createRowMenuButton('Copy full request...', () => {
         setTimeout(() => requestFullRequestCopy(fullCopyRow, invokingRow), 0);
       }));
+
+      if (resendActions && canResendRow(contextMenuRow)) {
+        const resendLabel = document.createElement('div');
+        resendLabel.className = 'context-menu-label';
+        resendLabel.setAttribute('role', 'presentation');
+        resendLabel.textContent = 'Resend';
+        contextMenu.appendChild(resendLabel);
+        const resendRow = contextMenuRow;
+        contextMenu.appendChild(createRowMenuButton('Resend unchanged', () => {
+          resendActions.sendNow(resendRow);
+        }));
+        contextMenu.appendChild(createRowMenuButton('Edit and resend...', () => {
+          setTimeout(() => resendActions.openDialog(resendRow, resendRow.id), 0);
+        }));
+      }
 
       const hlLabel = document.createElement('div');
       hlLabel.className = 'context-menu-label';
@@ -11903,6 +12168,103 @@ const _NetworkPlus = (function () {
         });
       }
     }
+
+    // --- Edit-and-resend wiring (DevTools sessions only) ---
+    const resendDialog = $('#resendDialog');
+    if (resendDialog && inspectedEval && !mirrorViewerActive) {
+      const resendMethodInput = $('#resendMethod');
+      const resendUrlInput = $('#resendUrl');
+      const resendHeadersInput = $('#resendHeaders');
+      const resendBodyInput = $('#resendBody');
+      const resendCredentialsInput = $('#resendCredentials');
+      const resendErrorEl = $('#resendError');
+      let resendInvokerRowId = null;
+      const showResendError = (message) => {
+        resendErrorEl.textContent = message;
+        resendErrorEl.hidden = !message;
+      };
+      const describeResendTarget = (url) => {
+        try {
+          const parsed = new URL(url);
+          return parsed.origin + parsed.pathname;
+        } catch (_error) {
+          return url;
+        }
+      };
+      const dispatchResendSpec = (spec) => {
+        inspectedEval(buildResendEvalSource(spec), (result, errorInfo) => {
+          if (errorInfo || (result && result.ok === false)) {
+            const reason =
+              (result && result.error) ||
+              (errorInfo && (errorInfo.description || errorInfo.value || errorInfo.code)) ||
+              'evaluation failed';
+            setStatus('Re-send failed: ' + reason);
+            return;
+          }
+          setStatus(
+            'Re-sent ' +
+              spec.method +
+              ' to ' +
+              describeResendTarget(spec.url) +
+              (state.paused
+                ? '; recording is paused, so resume it to see the result row.'
+                : '; the result will appear as a new captured row.'),
+          );
+        });
+      };
+      resendActions = {
+        sendNow: (row) => {
+          const spec = buildResendSpecFromRow(row);
+          spec.credentials = true;
+          dispatchResendSpec(spec);
+        },
+        openDialog: (row, invokerRowId) => {
+          const spec = buildResendSpecFromRow(row);
+          resendMethodInput.value = spec.method;
+          resendUrlInput.value = spec.url;
+          resendHeadersInput.value = formatHeaderLines(spec.headers);
+          resendBodyInput.value = spec.body;
+          resendCredentialsInput.checked = true;
+          showResendError('');
+          resendInvokerRowId = invokerRowId == null ? null : String(invokerRowId);
+          resendDialog.showModal();
+        },
+      };
+      $('#resendSendBtn').addEventListener('click', () => {
+        const method = resendMethodInput.value.trim() || 'GET';
+        if (!RESEND_METHOD_PATTERN.test(method)) {
+          showResendError('The method contains characters that are not allowed in an HTTP method token.');
+          return;
+        }
+        const url = resendUrlInput.value.trim();
+        if (!/^https?:\/\//i.test(url)) {
+          showResendError('The URL must be absolute and use http or https.');
+          return;
+        }
+        const parsedHeaders = parseHeaderLines(resendHeadersInput.value);
+        if (parsedHeaders.invalidLines.length > 0) {
+          showResendError(
+            'Each header line needs a "Name: value" shape. First problem: ' + parsedHeaders.invalidLines[0],
+          );
+          return;
+        }
+        dispatchResendSpec({
+          method,
+          url,
+          headers: parsedHeaders.headers,
+          body: resendBodyInput.value,
+          credentials: resendCredentialsInput.checked,
+        });
+        resendDialog.close();
+      });
+      resendDialog.addEventListener('close', () => {
+        const invokerRow = resendInvokerRowId
+          ? tableWrap.querySelector('tr[data-row-id="' + resendInvokerRowId + '"]')
+          : null;
+        resendInvokerRowId = null;
+        if (invokerRow) invokerRow.focus({ preventScroll: false });
+      });
+    }
   }
 
   document.addEventListener('DOMContentLoaded', init);
@@ -12121,6 +12483,22 @@ const _NetworkPlus = (function () {
     buildMirrorEntryFromWire,
     createMirrorHostSession,
     createMirrorViewerSession,
+    RESEND_BROWSER_MANAGED_HEADERS,
+    isBrowserManagedHeaderName,
+    canResendRow,
+    buildResendSpecFromRow,
+    formatHeaderLines,
+    parseHeaderLines,
+    buildResendEvalSource,
+    JWT_MAX_TOKEN_CHARS,
+    JWT_DISPLAY_NOTE,
+    decodeBase64UrlJson,
+    decodeJwt,
+    humanizeJwtDelta,
+    describeJwtEpochClaim,
+    getJwtExpiryState,
+    findJwtsInHeaders,
+    createJwtDetailsSection,
   };
 })();
 

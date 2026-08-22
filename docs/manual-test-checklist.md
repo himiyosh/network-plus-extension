@@ -59,6 +59,17 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] Turning capture off stops recording without removing existing rows; a navigation while capture is on marks unclosed connections `Navigated` and keeps recording sockets created by the new page.
 - [ ] While paused or during the local sample, WebSocket events are not recorded.
 
+## Edit and resend, and JWT decode
+
+- [ ] Inside a DevTools session, the row menu of an http(s) request offers `Resend unchanged` and `Edit and resend...`; a WS row offers neither, and the pop-out mirror tab offers neither on any row.
+- [ ] `Resend unchanged` on a GET immediately produces a new captured row for the same URL, and the status bar names the target; while recording is paused the status says the row will appear after resuming, and it does.
+- [ ] `Edit and resend...` opens the dialog prefilled with the row's method, URL, headers (no `:authority`-style pseudo-headers), and body; editing the URL and adding a header sends exactly the edited request (verify against an echo endpoint or the new row's request pane).
+- [ ] A header line without a colon blocks Send with a visible message and keeps the dialog open; a `Host:` or `Sec-*` line is silently not applied, as the dialog's hint states.
+- [ ] Unchecking the cookies toggle re-sends without credentials (verify a logged-in endpoint returns 401/anonymous), and re-checking restores the logged-in behavior.
+- [ ] A resent POST actually re-executes the server action — use a harmless endpoint when verifying, and confirm CORS- or CSP-blocked targets surface as a failed row or console error rather than a silent success.
+- [ ] A request whose Authorization header carries a Bearer JWT shows a `JWT in Authorization` section in the request Headers pane: expanding it shows the decoded header and claims, `exp` with a humanized `expires in … / expired … ago` label (red when expired), and the note that the signature is not verified.
+- [ ] A JWT-shaped value in any other header (request or response side) gets the same treatment; sanitized copies still redact the raw token, and the decoded claims appear nowhere in copies or exports.
+
 ## Search and detail-pane search
 
 - [ ] In the dark theme, rows matching a search keyword are clearly distinguishable at a glance for every keyword color via their tint alone (no outline). Selecting any row — hit or not — draws a 2px accent outline around it that reads instantly as selection. The ID column shows no K-badge, while screen readers still announce "Matches search keyword N".
