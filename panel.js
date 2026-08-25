@@ -5723,6 +5723,7 @@ const _NetworkPlus = (function () {
   function applyLanguage(pref) {
     const normalized = LANGS.includes(pref) ? pref : 'system';
     activeLanguage = resolveLanguage(normalized);
+    document.documentElement.lang = activeLanguage;
     const elements = document.querySelectorAll('[data-i18n]');
     for (const el of elements) {
       const entry = UI_TEXT[el.getAttribute('data-i18n')];
