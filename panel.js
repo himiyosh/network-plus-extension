@@ -5679,6 +5679,15 @@ const _NetworkPlus = (function () {
   // transferred archive from dwarfing what the host itself would accept.
   const MIRROR_IMPORT_MAX_BYTES = 64 * 1024 * 1024;
   const MIRROR_IMPORT_CHUNK_CHARS = 512 * 1024;
+  // Commands answer or fail — a host that is gone without a disconnect (or
+  // drops a result) must not strand a tab affordance forever. The import
+  // budget is generous because a 64 MiB decode + parse on a busy host is
+  // legitimate work, not a hang.
+  const MIRROR_COMMAND_TIMEOUT_MS = 30 * 1000;
+  const MIRROR_IMPORT_RESULT_TIMEOUT_MS = 120 * 1000;
+  // How many reconnect ticks the host spends probing for a mirror tab that
+  // outlived an earlier DevTools session before giving up.
+  const MIRROR_ADOPT_PROBE_ATTEMPTS = 5;
 
   function getMirrorViewParams(search) {
     const params = new URLSearchParams(typeof search === 'string' ? search : '');
@@ -6093,12 +6102,28 @@ const _NetworkPlus = (function () {
           );
           return;
         }
-        importTransfers.set(message.commandId, { fileName: String(message.fileName || 'import.har'), parts: [] });
+        importTransfers.set(message.commandId, {
+          fileName: String(message.fileName || 'import.har'),
+          parts: [],
+          receivedChars: 0,
+          // base64 of the declared byte size, plus one padding quantum —
+          // the declared-size check is a fiction unless accumulation
+          // enforces it too.
+          maxChars: Math.ceil(message.size / 3) * 4 + 4,
+        });
         return;
       }
       if (message.type === 'import-chunk') {
         const transfer = importTransfers.get(message.commandId);
-        if (transfer) transfer.parts.push(String(message.data || ''));
+        if (!transfer) return;
+        const data = String(message.data || '');
+        transfer.receivedChars += data.length;
+        if (transfer.receivedChars > transfer.maxChars) {
+          importTransfers.delete(message.commandId);
+          sendCommandResult(message.commandId, 'The transfer exceeded its declared size and was refused.');
+          return;
+        }
+        transfer.parts.push(data);
         return;
       }
       if (message.type === 'import-end') {
@@ -6130,6 +6155,9 @@ const _NetworkPlus = (function () {
       sendSync,
       handleMessage,
       pushRow: (row) => postMessage({ type: 'row', row: serializeRowForMirror(row) }),
+      // A viewer that disconnects mid-transfer would otherwise leave its
+      // accumulated chunks (up to the full cap) parked in this map forever.
+      dropImportTransfers: () => importTransfers.clear(),
     };
   }
 
@@ -6157,23 +6185,45 @@ const _NetworkPlus = (function () {
         throw error;
       }
     };
-    const trackCommand = (callback) => {
+    const settleCommand = (commandId, error) => {
+      const pending = pendingCommandCallbacks.get(commandId);
+      if (!pending) return;
+      pendingCommandCallbacks.delete(commandId);
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.callback(error);
+    };
+    const discardCommand = (commandId) => {
+      const pending = pendingCommandCallbacks.get(commandId);
+      if (!pending) return;
+      pendingCommandCallbacks.delete(commandId);
+      if (pending.timer) clearTimeout(pending.timer);
+    };
+    const trackCommand = (callback, timeoutMs) => {
       const commandId = nextCommandId;
       nextCommandId += 1;
-      pendingCommandCallbacks.set(commandId, typeof callback === 'function' ? callback : () => {});
+      const pending = { callback: typeof callback === 'function' ? callback : () => {}, timer: null };
+      pendingCommandCallbacks.set(commandId, pending);
+      pending.timer = setTimeout(() => {
+        settleCommand(
+          commandId,
+          new Error('The DevTools session did not answer in time; the command may still have applied.'),
+        );
+      }, timeoutMs);
+      // Node timers would otherwise hold the jest process open.
+      if (pending.timer && typeof pending.timer.unref === 'function') pending.timer.unref();
       return commandId;
     };
     const sendCommand = (name, args, callback) => {
-      const commandId = trackCommand(callback);
+      const commandId = trackCommand(callback, MIRROR_COMMAND_TIMEOUT_MS);
       try {
         postMessage({ type: 'command', commandId, name, args: args || {} });
       } catch (error) {
-        pendingCommandCallbacks.delete(commandId);
+        discardCommand(commandId);
         throw error;
       }
     };
     const sendImportFile = (fileName, bytes, callback) => {
-      const commandId = trackCommand(callback);
+      const commandId = trackCommand(callback, MIRROR_IMPORT_RESULT_TIMEOUT_MS);
       try {
         postMessage({ type: 'import-begin', commandId, fileName, size: bytes.length });
         const base64 = bytesToBase64(bytes);
@@ -6186,7 +6236,7 @@ const _NetworkPlus = (function () {
         }
         postMessage({ type: 'import-end', commandId });
       } catch (error) {
-        pendingCommandCallbacks.delete(commandId);
+        discardCommand(commandId);
         throw error;
       }
     };
@@ -6230,10 +6280,10 @@ const _NetworkPlus = (function () {
           break;
         }
         case 'command-result': {
-          const callback = pendingCommandCallbacks.get(message.commandId);
-          if (!callback) return;
-          pendingCommandCallbacks.delete(message.commandId);
-          callback(message.ok ? null : new Error(message.error || 'The DevTools session rejected the command.'));
+          settleCommand(
+            message.commandId,
+            message.ok ? null : new Error(message.error || 'The DevTools session rejected the command.'),
+          );
           break;
         }
       }
@@ -6244,7 +6294,10 @@ const _NetworkPlus = (function () {
       for (const callback of failures) callback(new Error(reason), null);
       const commandFailures = Array.from(pendingCommandCallbacks.values());
       pendingCommandCallbacks.clear();
-      for (const callback of commandFailures) callback(new Error(reason));
+      for (const pending of commandFailures) {
+        if (pending.timer) clearTimeout(pending.timer);
+        pending.callback(new Error(reason));
+      }
     };
     return { handleMessage, requestBody, sendCommand, sendImportFile, failPendingBodyRequests };
   }
@@ -8426,9 +8479,14 @@ const _NetworkPlus = (function () {
       } else {
         icon.textContent = '📡';
         title.textContent = state.paused ? 'Recording is paused.' : 'Recording network activity...';
-        description.textContent = state.paused
-          ? 'Resume recording to capture real requests, or explore three local-only sample requests. No network request is sent.'
-          : 'Perform a request or reload the page, or explore three local-only sample requests. No network request is sent.';
+        // The mirror tab captures nothing itself, and its local sample rows
+        // would collide with the DevTools session's row ids over the port.
+        description.textContent = getMirrorViewParams(window.location ? window.location.search : '')
+          .viewerMode
+          ? 'Requests stream in from the DevTools session; the guided local sample stays DevTools-side.'
+          : state.paused
+            ? 'Resume recording to capture real requests, or explore three local-only sample requests. No network request is sent.'
+            : 'Perform a request or reload the page, or explore three local-only sample requests. No network request is sent.';
       }
       emptyState.appendChild(icon);
       emptyState.appendChild(title);
@@ -8442,7 +8500,7 @@ const _NetworkPlus = (function () {
         action.addEventListener('click', clearColumnFilters);
         emptyState.appendChild(action);
       }
-      if (mode === 'capture') {
+      if (mode === 'capture' && !getMirrorViewParams(window.location ? window.location.search : '').viewerMode) {
         const action = document.createElement('button');
         action.type = 'button';
         action.className = 'empty-state-action';
@@ -10351,6 +10409,24 @@ const _NetworkPlus = (function () {
         saveLangPref(chosen);
         applyLanguage(chosen);
       });
+    }
+    // The DevTools panel and the mirror tab share chrome.storage.local, but
+    // a DevTools panel only reloads by closing DevTools — so preference
+    // changes made in one page apply to the other live instead of never.
+    try {
+      if (chrome.storage && chrome.storage.onChanged && typeof chrome.storage.onChanged.addListener === 'function') {
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+          if (areaName !== 'local' || !changes) return;
+          if (changes[THEME_KEY] && typeof changes[THEME_KEY].newValue === 'string') {
+            applyTheme(changes[THEME_KEY].newValue);
+          }
+          if (changes[LANG_KEY] && typeof changes[LANG_KEY].newValue === 'string') {
+            applyLanguage(changes[LANG_KEY].newValue);
+          }
+        });
+      }
+    } catch (_error) {
+      // Without observable storage each page simply keeps its own copy.
     }
 
     // Settings dialog (language, theme, and request retention)
@@ -12528,6 +12604,13 @@ const _NetworkPlus = (function () {
       // false (docked DevTools stayed visible) to offer its undock explainer.
       let popoutDevtoolsMinimized = null;
       let mirrorPort = null;
+      // A port counts as confirmed once the peer said anything; probing for
+      // a surviving mirror tab otherwise looks identical to a dead port.
+      let mirrorPortConfirmed = false;
+      // A mirror tab can outlive its DevTools session. On startup (and when
+      // an adopted tab reloads) the host probes the scoped port briefly so
+      // the surviving tab reattaches instead of stranding behind a duplicate.
+      let mirrorProbeAttemptsLeft = MIRROR_ADOPT_PROBE_ATTEMPTS;
       let mirrorReconnectTimer = null;
       let mirrorSyncTimer = null;
       const hostSession = createMirrorHostSession({
@@ -12674,8 +12757,11 @@ const _NetworkPlus = (function () {
       const tryMirrorConnect = () => {
         if (mirrorPort) return;
         if (!popoutWindow || popoutWindow.closed) {
-          stopMirrorReconnect();
-          return;
+          if (mirrorProbeAttemptsLeft <= 0) {
+            stopMirrorReconnect();
+            return;
+          }
+          mirrorProbeAttemptsLeft -= 1;
         }
         let port = null;
         try {
@@ -12684,7 +12770,14 @@ const _NetworkPlus = (function () {
           return;
         }
         mirrorPort = port;
+        mirrorPortConfirmed = false;
         port.onMessage.addListener((message) => {
+          if (mirrorPort === port && !mirrorPortConfirmed) {
+            mirrorPortConfirmed = true;
+            if (!popoutWindow || popoutWindow.closed) {
+              setStatus('An existing Network+ tab reattached and mirrors this DevTools session again.');
+            }
+          }
           if (message && message.type === 'hello') startMirrorSync();
           hostSession.handleMessage(message);
         });
@@ -12693,8 +12786,17 @@ const _NetworkPlus = (function () {
           // not exist" while the tab is still loading.
           void (mirrorRuntime.lastError && mirrorRuntime.lastError.message);
           if (mirrorPort !== port) return;
+          const wasConfirmed = mirrorPortConfirmed;
           mirrorPort = null;
+          mirrorPortConfirmed = false;
           stopMirrorSync();
+          hostSession.dropImportTransfers();
+          if (wasConfirmed && (!popoutWindow || popoutWindow.closed)) {
+            // An adopted tab dropped — usually a reload. Probe again briefly
+            // so it reattaches without needing a duplicate pop-out.
+            mirrorProbeAttemptsLeft = MIRROR_ADOPT_PROBE_ATTEMPTS;
+            startMirrorReconnect();
+          }
         });
       };
       const startMirrorReconnect = () => {
@@ -12707,6 +12809,23 @@ const _NetworkPlus = (function () {
         if (mirrorPort) hostSession.pushRow(row);
       };
       popoutBtn.addEventListener('click', () => {
+        if (mirrorPort && mirrorPortConfirmed && (!popoutWindow || popoutWindow.closed)) {
+          // An adopted tab (opened by an earlier DevTools session) already
+          // mirrors this one; a duplicate would fight it over the port, and
+          // without the tabs permission it cannot be focused from here.
+          setStatus('A Network+ tab is already mirroring this session; switch to it in the tab strip.');
+          return;
+        }
+        if (mirrorPort && !mirrorPortConfirmed) {
+          // A dangling probe port must not block a fresh pop-out.
+          try {
+            mirrorPort.disconnect();
+          } catch (_error) {
+            // A dead port needs no cleanup beyond the local reference.
+          }
+          mirrorPort = null;
+          stopMirrorSync();
+        }
         if (popoutWindow && !popoutWindow.closed) {
           try {
             popoutWindow.focus();
@@ -12748,6 +12867,9 @@ const _NetworkPlus = (function () {
         }
         startMirrorReconnect();
       });
+      // Probe for a mirror tab that outlived an earlier DevTools session;
+      // with none listening the bounded attempts fizzle out silently.
+      startMirrorReconnect();
     }
 
     // --- Stream capture wiring (WebSocket + SSE; opt-in; DevTools sessions only) ---
@@ -12905,20 +13027,29 @@ const _NetworkPlus = (function () {
           return url;
         }
       };
+      // Returns null on dispatch, or the Error when the mirror port is
+      // already gone — the disconnected postMessage throws synchronously,
+      // and an uncaught throw would strand the resend dialog open.
       const dispatchResendSpec = (spec) => {
         if (mirrorViewerResendDispatch) {
-          mirrorViewerResendDispatch(spec, (error) => {
-            setStatus(
-              error
-                ? 'Re-send failed: ' + error.message
-                : 'Re-sent ' +
-                    spec.method +
-                    ' to ' +
-                    describeResendTarget(spec.url) +
-                    ' from the DevTools session; the result appears once it is captured.',
-            );
-          });
-          return;
+          try {
+            mirrorViewerResendDispatch(spec, (error) => {
+              setStatus(
+                error
+                  ? 'Re-send failed: ' + error.message
+                  : 'Re-sent ' +
+                      spec.method +
+                      ' to ' +
+                      describeResendTarget(spec.url) +
+                      ' from the DevTools session; the result appears once it is captured.',
+              );
+            });
+          } catch (error) {
+            const reason = error && error.message ? error.message : 'the DevTools session is not connected';
+            setStatus('Re-send failed: ' + reason);
+            return error instanceof Error ? error : new Error(reason);
+          }
+          return null;
         }
         inspectedEval(buildResendEvalSource(spec), (result, errorInfo) => {
           if (errorInfo || (result && result.ok === false)) {
@@ -12939,6 +13070,7 @@ const _NetworkPlus = (function () {
                 : '; the result will appear as a new captured row.'),
           );
         });
+        return null;
       };
       if (!mirrorViewerResendDispatch) mirrorHostResendDispatch = dispatchResendSpec;
       resendActions = {
@@ -12977,13 +13109,18 @@ const _NetworkPlus = (function () {
           );
           return;
         }
-        dispatchResendSpec({
+        const dispatchError = dispatchResendSpec({
           method,
           url,
           headers: parsedHeaders.headers,
           body: resendBodyInput.value,
           credentials: resendCredentialsInput.checked,
         });
+        if (dispatchError) {
+          // Keep the dialog open so the edited request is not lost.
+          showResendError('Re-send failed: ' + dispatchError.message);
+          return;
+        }
         resendDialog.close();
       });
       resendDialog.addEventListener('close', () => {
@@ -13214,6 +13351,8 @@ const _NetworkPlus = (function () {
     MIRROR_SNAPSHOT_CHUNK_SIZE,
     MIRROR_IMPORT_MAX_BYTES,
     MIRROR_IMPORT_CHUNK_CHARS,
+    MIRROR_COMMAND_TIMEOUT_MS,
+    MIRROR_IMPORT_RESULT_TIMEOUT_MS,
     bytesToBase64,
     base64ToBytes,
     getMirrorViewParams,

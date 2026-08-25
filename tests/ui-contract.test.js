@@ -486,7 +486,11 @@ describe('guided sample capture static contracts', () => {
       js.indexOf('function updateRetentionStatus'),
     );
     expect(emptyStateBlock).not.toContain('innerHTML');
-    expect(emptyStateBlock).toContain("if (mode === 'capture')");
+    // The sample action is DevTools-only: the mirror tab captures nothing
+    // itself and its local sample ids would collide with the host's rows.
+    expect(emptyStateBlock).toContain(
+      "if (mode === 'capture' && !getMirrorViewParams(window.location ? window.location.search : '').viewerMode)",
+    );
   });
 
   test('reclaims the narrow inspector only for a genuine capture-empty state', () => {
@@ -3159,6 +3163,31 @@ describe('devtools-session mirror contracts', () => {
     expect(js).toContain(
       "'To capture without interruption, keep DevTools open — undocked into its own window and minimized is fine.'",
     );
+  });
+
+  test('the mirror link survives real life: reattach, timeouts, leaks, and disconnected controls', () => {
+    // A mirror tab that outlived its DevTools session reattaches through a
+    // bounded startup probe instead of stranding behind a duplicate tab.
+    expect(js).toContain('let mirrorProbeAttemptsLeft = MIRROR_ADOPT_PROBE_ATTEMPTS;');
+    expect(js).toContain("setStatus('An existing Network+ tab reattached and mirrors this DevTools session again.');");
+    expect(js).toContain("setStatus('A Network+ tab is already mirroring this session; switch to it in the tab strip.');");
+    // An adopted tab that reloads gets fresh probe attempts.
+    expect(js).toContain('mirrorProbeAttemptsLeft = MIRROR_ADOPT_PROBE_ATTEMPTS;\n            startMirrorReconnect();');
+    // Commands time out instead of hanging their affordance, with a budget
+    // that respects a legitimate 64 MiB import decode.
+    expect(js).toContain('const MIRROR_COMMAND_TIMEOUT_MS = 30 * 1000;');
+    expect(js).toContain('const MIRROR_IMPORT_RESULT_TIMEOUT_MS = 120 * 1000;');
+    expect(js).toContain("'The DevTools session did not answer in time; the command may still have applied.'");
+    // A disconnected viewer's accumulated import chunks are dropped, and a
+    // transfer lying about its size is refused during accumulation.
+    expect(js).toContain('hostSession.dropImportTransfers();');
+    expect(js).toContain("'The transfer exceeded its declared size and was refused.'");
+    // A disconnected remote resend reports inside the dialog instead of
+    // throwing with the dialog stuck open.
+    expect(js).toContain("showResendError('Re-send failed: ' + dispatchError.message);");
+    // Theme and language changes propagate live between the panel and the
+    // mirror tab over the shared extension storage.
+    expect(js).toContain('chrome.storage.onChanged.addListener((changes, areaName) => {');
   });
 
   test('mirror transport stays inside the extension with no new permissions', () => {

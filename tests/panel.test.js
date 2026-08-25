@@ -6170,4 +6170,93 @@ describe('mirror remote control (command channel + import transfer)', () => {
     viewer.failPendingBodyRequests('The DevTools session disconnected.');
     expect(commandError.message).toBe('The DevTools session disconnected.');
   });
+
+  test('a command with no answer times out instead of hanging its affordance', () => {
+    jest.useFakeTimers();
+    try {
+      const viewer = np.createMirrorViewerSession({
+        postMessage: () => {},
+        appendWireRow: () => {},
+        applyWireSnapshot: () => {},
+        getLocalCount: () => 0,
+        getLocalMaxId: () => 0,
+      });
+      const results = [];
+      viewer.sendCommand('pause-toggle', {}, (error) => results.push(error));
+      expect(results).toHaveLength(0);
+      jest.advanceTimersByTime(np.MIRROR_COMMAND_TIMEOUT_MS + 1);
+      expect(results).toHaveLength(1);
+      expect(results[0].message).toContain('did not answer in time');
+      // A late result must not double-fire the callback.
+      viewer.handleMessage({ type: 'command-result', commandId: 1, ok: true, error: '' });
+      expect(results).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('an import result gets the generous budget, not the command timeout', () => {
+    jest.useFakeTimers();
+    try {
+      const wire = [];
+      const viewer = np.createMirrorViewerSession({
+        postMessage: (message) => wire.push(message),
+        appendWireRow: () => {},
+        applyWireSnapshot: () => {},
+        getLocalCount: () => 0,
+        getLocalMaxId: () => 0,
+      });
+      const results = [];
+      viewer.sendImportFile('capture.har', new Uint8Array([1, 2, 3]), (error) => results.push(error));
+      jest.advanceTimersByTime(np.MIRROR_COMMAND_TIMEOUT_MS + 1);
+      expect(results).toHaveLength(0);
+      jest.advanceTimersByTime(np.MIRROR_IMPORT_RESULT_TIMEOUT_MS);
+      expect(results).toHaveLength(1);
+      expect(results[0].message).toContain('did not answer in time');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('a transfer that exceeds its declared size is refused mid-flight', () => {
+    const wire = [];
+    const host = np.createMirrorHostSession({
+      postMessage: (message) => wire.push(message),
+      getRows: () => [],
+      isPaused: () => false,
+      fetchBodyForRow: () => Promise.reject(new Error('unused')),
+      receiveImportFile: (fileName, bytes, done) => done(''),
+    });
+    host.handleMessage({ type: 'import-begin', commandId: 7, fileName: 'lie.har', size: 30 });
+    host.handleMessage({ type: 'import-chunk', commandId: 7, data: 'A'.repeat(100) });
+    host.handleMessage({ type: 'import-end', commandId: 7 });
+    const results = wire.filter((message) => message.type === 'command-result');
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toBe('The transfer exceeded its declared size and was refused.');
+    // The follow-up end for the refused transfer reports the interruption
+    // and the viewer ignores it as an already-settled command.
+    expect(results[1].error).toBe('The import transfer was interrupted.');
+  });
+
+  test('dropImportTransfers abandons an in-flight transfer on disconnect', () => {
+    const wire = [];
+    const imports = [];
+    const host = np.createMirrorHostSession({
+      postMessage: (message) => wire.push(message),
+      getRows: () => [],
+      isPaused: () => false,
+      fetchBodyForRow: () => Promise.reject(new Error('unused')),
+      receiveImportFile: (fileName, bytes, done) => {
+        imports.push(fileName);
+        done('');
+      },
+    });
+    host.handleMessage({ type: 'import-begin', commandId: 9, fileName: 'orphan.har', size: 10 });
+    host.handleMessage({ type: 'import-chunk', commandId: 9, data: np.bytesToBase64(new Uint8Array([1, 2])) });
+    host.dropImportTransfers();
+    host.handleMessage({ type: 'import-end', commandId: 9 });
+    expect(imports).toHaveLength(0);
+    const results = wire.filter((message) => message.type === 'command-result');
+    expect(results[0].error).toBe('The import transfer was interrupted.');
+  });
 });
