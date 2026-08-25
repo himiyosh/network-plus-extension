@@ -1359,9 +1359,12 @@ describe('settings and language contracts', () => {
     // The authored English fallback matches the dictionary for the same key.
     expect(html).toContain('⚠️ Closing DevTools stops capture and freezes this tab.');
     expect(js).toContain("en: '⚠️ Closing DevTools stops capture and freezes this tab.',");
-    // Language persists like the theme: extension storage, localStorage fallback.
-    expect(js).toContain("done(localStorage.getItem(LANG_KEY) || 'system');");
-    expect(js).toContain('localStorage.setItem(LANG_KEY, v);');
+    // Language persists like the theme through one shared preference
+    // machine: extension storage first, localStorage fallback.
+    expect(js).toContain("loadStoredPref(LANG_KEY, 'Language', cb);");
+    expect(js).toContain("saveStoredPref(LANG_KEY, 'Language', v);");
+    expect(js).toContain("done(localStorage.getItem(key) || 'system');");
+    expect(js).toContain('localStorage.setItem(key, v);');
   });
 
   test('every data-i18n key resolves to a complete dictionary entry', () => {
@@ -1841,9 +1844,18 @@ describe('outbound data-safety static contracts', () => {
   test('fails clipboard, download, and sanitizer errors closed without secret-bearing logs', () => {
     expect(js).toContain('Clipboard copy failed. No data was copied.');
     expect(js).toContain('Sanitized copy failed closed. No data was copied.');
-    expect(js).toContain('HAR export failed. No file was downloaded.');
+    // Failure categories stay static text: the sanitizer fail-closed case
+    // and the generic build failure each get their own message, and the
+    // raw error never reaches the status line.
+    expect(js).toContain(
+      'HAR export failed: sanitization failed closed, so nothing left the sanitizer. No file was downloaded.',
+    );
+    expect(js).toContain(
+      'HAR export failed while building the file; retry or narrow the scope. No file was downloaded.',
+    );
     expect(js).not.toContain("console.error('HAR export failed'");
     expect(js).not.toContain("setStatus('HAR export failed: ' + message)");
+    expect(js).not.toMatch(/HAR export failed[^']*' \+ error/);
     expect(js).toContain('return failClosed();');
   });
 

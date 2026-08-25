@@ -960,19 +960,6 @@ describe('response content helpers', () => {
     });
   });
 
-  test('settles successful and failed response content preparation independently', async () => {
-    const rows = [{ id: 1 }, { id: 2 }];
-    const loadResponseContent = jest.fn((row) =>
-      row.id === 1 ? Promise.resolve(row) : Promise.reject(new Error('body unavailable')),
-    );
-
-    const result = await np.settleResponseContentForHar(rows, loadResponseContent);
-
-    expect(result.unavailableCount).toBe(1);
-    expect(result.settlements.map((settlement) => settlement.status)).toEqual(['fulfilled', 'rejected']);
-    expect(loadResponseContent).toHaveBeenCalledTimes(2);
-  });
-
   test('clears a timed-out content promise so a later attempt can succeed', async () => {
     jest.useFakeTimers();
     try {
@@ -1099,22 +1086,6 @@ describe('automatic live response prefetch', () => {
     _responseContentPromise: null,
     _responsePayloadPromise: null,
     _reqObj: { getContent },
-  });
-
-  test('publishes a four-slot background budget and documents foreground overlap', () => {
-    expect(np.AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY).toBe(4);
-    expect(np.getAutomaticResponsePrefetchCapacity(4, 0)).toEqual({
-      availableBackgroundSlots: 0,
-      maximumTotalInFlight: 4,
-    });
-    expect(np.getAutomaticResponsePrefetchCapacity(4, 2)).toEqual({
-      availableBackgroundSlots: 0,
-      maximumTotalInFlight: 6,
-    });
-    expect(np.getAutomaticResponsePrefetchCapacity(2, 3)).toEqual({
-      availableBackgroundSlots: 2,
-      maximumTotalInFlight: 7,
-    });
   });
 
   test('drains a 5,000-row burst FIFO with exactly four background operations and bounded storage', async () => {
@@ -1629,33 +1600,6 @@ describe('capture retention helpers', () => {
     },
   );
 
-  test('evicts only the oldest overflow and honors the exact boundary', () => {
-    const current = rows(3);
-    const incoming = [{ id: 4 }, { id: 5 }];
-    expect(np.appendRowsWithRetention(current, incoming, 5, false)).toEqual({
-      retainedRows: current.concat(incoming),
-      evictedRows: [],
-    });
-    const overflow = np.appendRowsWithRetention(current, incoming, 4, false);
-    expect(overflow.retainedRows.map((row) => row.id)).toEqual([2, 3, 4, 5]);
-    expect(overflow.evictedRows.map((row) => row.id)).toEqual([1]);
-  });
-
-  test('keeps imported batches and iterative live appends policy-equivalent', () => {
-    const incoming = rows(8);
-    const imported = np.appendRowsWithRetention([], incoming, 3, false);
-    let liveRows = [];
-    const liveEvictions = [];
-    for (const row of incoming) {
-      const result = np.appendRowsWithRetention(liveRows, [row], 3, false);
-      liveRows = result.retainedRows;
-      liveEvictions.push(...result.evictedRows);
-    }
-    expect(liveRows.map((row) => row.id)).toEqual(imported.retainedRows.map((row) => row.id));
-    expect(liveEvictions.map((row) => row.id)).toEqual(imported.evictedRows.map((row) => row.id));
-    expect(np.appendRowsWithRetention([], incoming, 3, true).evictedRows).toEqual([]);
-  });
-
   test('keeps one 5,000-row live frame batch identity-equivalent to iterative retention', () => {
     const retained = rows(5000);
     const incoming = Array.from({ length: 100 }, (_, index) => ({ id: 5001 + index }));
@@ -1831,22 +1775,6 @@ describe('capture retention helpers', () => {
     const measured = np.measureResponsePayload(base64, 'base64');
     expect(measured.text).toBe('hello');
     expect(measured.bytes).toBe(Buffer.byteLength(base64) + Buffer.byteLength('hello'));
-  });
-
-  test('admits exact-budget bodies and evicts oldest cache entries for overflow', () => {
-    const first = { row: { id: 1 }, bytes: 10 };
-    const second = { row: { id: 2 }, bytes: 15 };
-    expect(np.planResponseCacheAdmission([first, second], 5, 30)).toEqual({
-      accepted: true,
-      evictedEntries: [],
-      resultingBytes: 30,
-    });
-    expect(np.planResponseCacheAdmission([first, second], 6, 30)).toEqual({
-      accepted: true,
-      evictedEntries: [first],
-      resultingBytes: 21,
-    });
-    expect(np.planResponseCacheAdmission([], 31, 30).accepted).toBe(false);
   });
 
   test('counts response bodies that deep search cannot inspect', () => {
@@ -3211,19 +3139,6 @@ describe('outbound sensitive-data policy', () => {
     expect(contentResult.value._networkPlus).toEqual(expect.objectContaining({ status: 'omitted' }));
     expect(postData).toEqual(postSnapshot);
     expect(content).toEqual(contentSnapshot);
-  });
-
-  test('returns an outbound row with no captured request object or unknown raw properties', () => {
-    const row = makeSensitiveRow();
-    row._reqObj = { request: { headers: [{ name: 'Authorization', value: 'nested-secret' }] } };
-    row.unknownMetadata = { password: 'metadata-secret' };
-    const result = np.sanitizeRowForOutbound(row, row.responseContent);
-    const serialized = JSON.stringify(result.value);
-    expect(result.value._reqObj).toBeUndefined();
-    expect(result.value.unknownMetadata).toBeUndefined();
-    expect(serialized).not.toContain('nested-secret');
-    expect(serialized).not.toContain('metadata-secret');
-    expect(row._reqObj.request.headers[0].value).toBe('nested-secret');
   });
 
   test('keeps cURL, fetch, and PowerShell syntax valid after default sanitization', () => {

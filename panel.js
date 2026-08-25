@@ -42,6 +42,10 @@ const _NetworkPlus = (function () {
   const RESPONSE_CONTENT_TIMEOUT_MS = 10000;
   // Foreground details and HAR work bypass these slots, so the total can be 4 plus distinct foreground operations.
   const AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY = 4;
+  // HAR export resolves missing bodies through this many parallel workers:
+  // enough to stop a serial walk from multiplying getContent round-trips
+  // into minutes, small enough to bound in-flight body memory.
+  const HAR_EXPORT_BODY_CONCURRENCY = 4;
   const AUTOMATIC_RESPONSE_PREFETCH_FAILURE_DEBOUNCE_MS = 750;
   const AUTOMATIC_RESPONSE_PREFETCH_FAILURE_MAX_WAIT_MS = 5000;
   const AUTOMATIC_RESPONSE_PREFETCH_QUEUE_COMPACT_THRESHOLD = 512;
@@ -2034,22 +2038,6 @@ const _NetworkPlus = (function () {
     return { value, responseBody: sanitizedResponseBody, summary };
   }
 
-  function sanitizeRowForOutbound(row, responseBody, options) {
-    const request = sanitizeClipboardRow('rawRequest', row, responseBody, options);
-    const response = sanitizeClipboardRow('rawResponse', row, responseBody, options);
-    return {
-      value: {
-        ...request.value,
-        responseHeaders: response.value.responseHeaders,
-        responseContent: response.responseBody,
-        responseContentText: response.responseBody,
-        responseContentEncoding: '',
-      },
-      responseBody: response.responseBody,
-      summary: mergeSanitizationSummaries(request.summary, response.summary),
-    };
-  }
-
   function quoteShell(value) {
     const backslash = String.fromCharCode(92);
     return "'" + String(value == null ? '' : value).replace(/'/g, "'" + backslash + "''") + "'";
@@ -2746,18 +2734,6 @@ const _NetworkPlus = (function () {
     };
   }
 
-  function appendRowsWithRetention(currentRows, incomingRows, requestLimit, unlimited) {
-    const combinedRows = (currentRows || []).concat(incomingRows || []);
-    if (unlimited || combinedRows.length <= requestLimit) {
-      return { retainedRows: combinedRows, evictedRows: [] };
-    }
-    const evictionCount = combinedRows.length - requestLimit;
-    return {
-      retainedRows: combinedRows.slice(evictionCount),
-      evictedRows: combinedRows.slice(0, evictionCount),
-    };
-  }
-
   function planClearUndoRetention(heldRows, activeRows, incomingRows, requestLimit, unlimited) {
     const held = Array.isArray(heldRows) ? heldRows : [];
     const active = Array.isArray(activeRows) ? activeRows : [];
@@ -2899,26 +2875,6 @@ const _NetworkPlus = (function () {
 
   function isActiveRetainedRow(row, retainedRows, activeRows) {
     return isRetainedRow(row, retainedRows) && !!activeRows && activeRows.has(row);
-  }
-
-  function getAutomaticResponsePrefetchCapacity(
-    backgroundInFlight,
-    foregroundInFlight,
-    concurrency = AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY,
-  ) {
-    const budget = Number.isInteger(concurrency) && concurrency > 0
-      ? concurrency
-      : AUTOMATIC_RESPONSE_PREFETCH_CONCURRENCY;
-    const background = Number.isInteger(backgroundInFlight) && backgroundInFlight > 0
-      ? Math.min(backgroundInFlight, budget)
-      : 0;
-    const foreground = Number.isInteger(foregroundInFlight) && foregroundInFlight > 0
-      ? foregroundInFlight
-      : 0;
-    return {
-      availableBackgroundSlots: budget - background,
-      maximumTotalInFlight: budget + foreground,
-    };
   }
 
   function formatAutomaticResponsePrefetchFailureSummary(failureCount) {
@@ -3493,22 +3449,6 @@ const _NetworkPlus = (function () {
     };
   }
 
-  function planResponseCacheAdmission(entries, incomingBytes, budgetBytes) {
-    const normalizedEntries = (entries || []).filter((entry) => entry && Number.isFinite(entry.bytes));
-    const currentBytes = normalizedEntries.reduce((total, entry) => total + Math.max(0, entry.bytes), 0);
-    if (!Number.isFinite(incomingBytes) || incomingBytes < 0 || incomingBytes > budgetBytes) {
-      return { accepted: false, evictedEntries: [], resultingBytes: currentBytes };
-    }
-    const evictedEntries = [];
-    let resultingBytes = currentBytes + incomingBytes;
-    for (const entry of normalizedEntries) {
-      if (resultingBytes <= budgetBytes) break;
-      evictedEntries.push(entry);
-      resultingBytes -= Math.max(0, entry.bytes);
-    }
-    return { accepted: resultingBytes <= budgetBytes, evictedEntries, resultingBytes };
-  }
-
   /** Debounce wrapper */
   function debounce(fn, ms) {
     let timer = null;
@@ -3526,47 +3466,6 @@ const _NetworkPlus = (function () {
     if (key === 'ArrowRight') return (index + 1) % itemCount;
     if (key === 'ArrowLeft') return (index - 1 + itemCount) % itemCount;
     return index;
-  }
-
-  /**
-   * Highlight search matches in text (XSS-safe, DOM-only)
-   * @param {string} text - Text to search in
-   * @param {string} query - Search query
-   * @returns {DocumentFragment} - Text with <mark> elements for matches
-   */
-  function highlightText(text, query) {
-    const fragment = document.createDocumentFragment();
-    if (!query || !text) {
-      fragment.appendChild(document.createTextNode(text || ''));
-      return fragment;
-    }
-
-    const lcText = text.toLowerCase();
-    const lcQuery = query.toLowerCase();
-    let lastIndex = 0;
-    let index = lcText.indexOf(lcQuery);
-
-    while (index !== -1) {
-      // Before match
-      if (index > lastIndex) {
-        fragment.appendChild(document.createTextNode(text.substring(lastIndex, index)));
-      }
-      // Match
-      const mark = document.createElement('mark');
-      mark.className = 'search-highlight';
-      mark.textContent = text.substring(index, index + query.length);
-      fragment.appendChild(mark);
-
-      lastIndex = index + query.length;
-      index = lcText.indexOf(lcQuery, lastIndex);
-    }
-
-    // After last match
-    if (lastIndex < text.length) {
-      fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
-    }
-
-    return fragment;
   }
 
   /**
@@ -4926,7 +4825,11 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 5: Theme
   // ============================================================
-  function loadThemePref(cb) {
+  // One tricky called/fallbackAttempted state machine serves every simple
+  // string preference (theme, language): extension storage first, panel
+  // localStorage as the fallback, 'system' as the default, and the named
+  // wrappers keep the public (and tested) API stable.
+  function loadStoredPref(key, label, cb) {
     let called = false;
     let fallbackAttempted = false;
     const done = (v, warn) => {
@@ -4935,21 +4838,21 @@ const _NetworkPlus = (function () {
       cb(v, warn);
     };
     try {
-      chrome.storage.local.get([THEME_KEY], (obj) => {
+      chrome.storage.local.get([key], (obj) => {
         if (called) return;
         const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
         if (runtimeErr) {
           if (fallbackAttempted) return;
           fallbackAttempted = true;
           try {
-            done(localStorage.getItem(THEME_KEY) || 'system');
+            done(localStorage.getItem(key) || 'system');
           } catch (_e) {
-            done('system', 'Theme preference could not be loaded.');
+            done('system', label + ' preference could not be loaded.');
           }
           return;
         }
         try {
-          done(obj && obj[THEME_KEY] ? obj[THEME_KEY] : localStorage.getItem(THEME_KEY) || 'system');
+          done(obj && obj[key] ? obj[key] : localStorage.getItem(key) || 'system');
         } catch (_e) {
           // Primary storage succeeded; localStorage probe failure is a first-run default, not a total failure
           done('system');
@@ -4959,11 +4862,48 @@ const _NetworkPlus = (function () {
       if (called || fallbackAttempted) return;
       fallbackAttempted = true;
       try {
-        done(localStorage.getItem(THEME_KEY) || 'system');
+        done(localStorage.getItem(key) || 'system');
       } catch (_err) {
-        done('system', 'Theme preference could not be loaded.');
+        done('system', label + ' preference could not be loaded.');
       }
     }
+  }
+
+  function saveStoredPref(key, label, v) {
+    let saved = false;
+    let fallbackAttempted = false;
+    try {
+      const data = {};
+      data[key] = v;
+      chrome.storage.local.set(data, () => {
+        if (saved || fallbackAttempted) return;
+        const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+        if (!runtimeErr) {
+          saved = true;
+          return;
+        }
+        fallbackAttempted = true;
+        try {
+          localStorage.setItem(key, v);
+          saved = true;
+        } catch (_e) {
+          setStatus(label + ' preference could not be saved.');
+        }
+      });
+    } catch (_e) {
+      if (saved || fallbackAttempted) return;
+      fallbackAttempted = true;
+      try {
+        localStorage.setItem(key, v);
+        saved = true;
+      } catch (_err) {
+        setStatus(label + ' preference could not be saved.');
+      }
+    }
+  }
+
+  function loadThemePref(cb) {
+    loadStoredPref(THEME_KEY, 'Theme', cb);
   }
 
   // Search preferences persist like the theme: booleans only, never keyword
@@ -5002,36 +4942,7 @@ const _NetworkPlus = (function () {
   }
 
   function saveThemePref(v) {
-    let saved = false;
-    let fallbackAttempted = false;
-    try {
-      const data = {};
-      data[THEME_KEY] = v;
-      chrome.storage.local.set(data, () => {
-        if (saved || fallbackAttempted) return;
-        const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
-        if (!runtimeErr) {
-          saved = true;
-          return;
-        }
-        fallbackAttempted = true;
-        try {
-          localStorage.setItem(THEME_KEY, v);
-          saved = true;
-        } catch (_e) {
-          setStatus('Theme preference could not be saved.');
-        }
-      });
-    } catch (_e) {
-      if (saved || fallbackAttempted) return;
-      fallbackAttempted = true;
-      try {
-        localStorage.setItem(THEME_KEY, v);
-        saved = true;
-      } catch (_err) {
-        setStatus('Theme preference could not be saved.');
-      }
-    }
+    saveStoredPref(THEME_KEY, 'Theme', v);
   }
 
   function applyTheme(pref) {
@@ -5047,79 +4958,15 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 5b: Language (explanatory text only)
   // ============================================================
-  // The language preference persists exactly like the theme: extension
-  // storage first, localStorage as the fallback. Only explanations and
+  // The language preference persists exactly like the theme through the
+  // shared loadStoredPref/saveStoredPref machinery. Only explanations and
   // guide dialogs translate — control labels stay English by design.
   function loadLangPref(cb) {
-    let called = false;
-    let fallbackAttempted = false;
-    const done = (v, warn) => {
-      if (called) return;
-      called = true;
-      cb(v, warn);
-    };
-    try {
-      chrome.storage.local.get([LANG_KEY], (obj) => {
-        if (called) return;
-        const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
-        if (runtimeErr) {
-          if (fallbackAttempted) return;
-          fallbackAttempted = true;
-          try {
-            done(localStorage.getItem(LANG_KEY) || 'system');
-          } catch (_e) {
-            done('system', 'Language preference could not be loaded.');
-          }
-          return;
-        }
-        try {
-          done(obj && obj[LANG_KEY] ? obj[LANG_KEY] : localStorage.getItem(LANG_KEY) || 'system');
-        } catch (_e) {
-          done('system');
-        }
-      });
-    } catch (_e) {
-      if (called || fallbackAttempted) return;
-      fallbackAttempted = true;
-      try {
-        done(localStorage.getItem(LANG_KEY) || 'system');
-      } catch (_err) {
-        done('system', 'Language preference could not be loaded.');
-      }
-    }
+    loadStoredPref(LANG_KEY, 'Language', cb);
   }
 
   function saveLangPref(v) {
-    let saved = false;
-    let fallbackAttempted = false;
-    try {
-      const data = {};
-      data[LANG_KEY] = v;
-      chrome.storage.local.set(data, () => {
-        if (saved || fallbackAttempted) return;
-        const runtimeErr = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
-        if (!runtimeErr) {
-          saved = true;
-          return;
-        }
-        fallbackAttempted = true;
-        try {
-          localStorage.setItem(LANG_KEY, v);
-          saved = true;
-        } catch (_e) {
-          setStatus('Language preference could not be saved.');
-        }
-      });
-    } catch (_e) {
-      if (saved || fallbackAttempted) return;
-      fallbackAttempted = true;
-      try {
-        localStorage.setItem(LANG_KEY, v);
-        saved = true;
-      } catch (_err) {
-        setStatus('Language preference could not be saved.');
-      }
-    }
+    saveStoredPref(LANG_KEY, 'Language', v);
   }
 
   function resolveLanguage(pref) {
@@ -6492,16 +6339,6 @@ const _NetworkPlus = (function () {
       row.responseContentReason = row.responseContentReason || error.message;
       return buildHarResponseContent(row);
     }
-  }
-
-  async function settleResponseContentForHar(rows, loadResponseContent = cacheResponseContent) {
-    const settlements = await Promise.allSettled(
-      rows.map((row) => Promise.resolve().then(() => loadResponseContent(row))),
-    );
-    return {
-      settlements,
-      unavailableCount: settlements.filter((result) => result.status === 'rejected').length,
-    };
   }
 
   // ---- Edit-and-resend (DevTools sessions only) ----
@@ -8646,7 +8483,15 @@ const _NetworkPlus = (function () {
     ) {
       return false;
     }
-    const renderedRowIds = $all('tr[data-row-id]', tbody).map((rowElement) => rowElement.dataset.rowId);
+    // This runs once per animation frame while traffic streams; a direct
+    // sibling walk skips the selector engine and the intermediate array
+    // that a 20k-row query would otherwise pay every frame. The full walk
+    // itself stays: it is the duplicate guard for a competing render that
+    // committed first.
+    const renderedRowIds = [];
+    for (let element = tbody.firstElementChild; element; element = element.nextElementSibling) {
+      if (element.dataset && element.dataset.rowId != null) renderedRowIds.push(element.dataset.rowId);
+    }
     const rowsToAppend = getIncrementalAppendBatch(liveRows, renderedRowIds);
     refreshSearchMatches();
     if (rowsToAppend.length === 0) {
@@ -8693,29 +8538,38 @@ const _NetworkPlus = (function () {
     const focusRowId = state.pendingRowFocusId || (activeRow ? activeRow.dataset.rowId : null);
     state.pendingRowFocusId = null;
     const affectedRows = Array.from(new Set(rows.filter(Boolean)));
-    const tabStopRow = state.filteredRows.includes(state.focusedRow)
+    // Clicking away from a large multi-selection routes every previously
+    // selected row through here; per-row tbody.querySelector plus
+    // filteredRows.includes made that quadratic. One DOM pass builds an
+    // id→element map (kept current as rows are replaced) and one Set
+    // answers membership.
+    const rowElementById = new Map();
+    for (const element of $all('tr[data-row-id]', tbody)) {
+      rowElementById.set(element.dataset.rowId, element);
+    }
+    const filteredRowSet = new Set(state.filteredRows);
+    const tabStopRow = filteredRowSet.has(state.focusedRow)
       ? state.focusedRow
-      : state.filteredRows.includes(state.selectedRow)
+      : filteredRowSet.has(state.selectedRow)
         ? state.selectedRow
         : state.filteredRows[0];
     for (const row of affectedRows) {
-      const renderedRow = tbody.querySelector(`tr[data-row-id="${row.id}"]`);
+      const renderedRow = rowElementById.get(String(row.id));
       if (!renderedRow) {
-        if (state.filteredRows.includes(row)) return false;
+        if (filteredRowSet.has(row)) return false;
         continue;
       }
       const replacement = createTableRow(row, (event) => selectRow(row, event), row === tabStopRow);
       renderedRow.replaceWith(replacement);
+      rowElementById.set(String(row.id), replacement);
     }
-    const nextTabStop = tabStopRow
-      ? tbody.querySelector(`tr[data-row-id="${tabStopRow.id}"]`)
-      : null;
+    const nextTabStop = (tabStopRow && rowElementById.get(String(tabStopRow.id))) || null;
     if (previousTabStop && previousTabStop !== nextTabStop && previousTabStop.isConnected !== false) {
       previousTabStop.tabIndex = -1;
     }
     if (nextTabStop) nextTabStop.tabIndex = 0;
     if (focusRowId) {
-      const rowToFocus = tbody.querySelector(`tr[data-row-id="${focusRowId}"]`);
+      const rowToFocus = rowElementById.get(String(focusRowId));
       if (rowToFocus) rowToFocus.focus({ preventScroll: true });
     }
     updateTableSummary(countVisibleRows());
@@ -10302,11 +10156,21 @@ const _NetworkPlus = (function () {
     try {
       const responseContents = new Map();
       let unavailableCount = 0;
-      for (const row of rows) {
-        const content = await resolveHarResponseContent(row);
-        responseContents.set(row, content);
-        if (content._networkPlus) unavailableCount += 1;
-      }
+      // Bodies resolve with small bounded concurrency: a serial walk turns
+      // thousands of uncached DevTools round-trips (10 s timeout each)
+      // into minutes, while an unbounded fan-out would spike memory with
+      // in-flight bodies. Four matches the prefetch background budget.
+      const pendingRows = rows.slice();
+      await Promise.all(
+        Array.from({ length: Math.min(HAR_EXPORT_BODY_CONCURRENCY, pendingRows.length) }, async () => {
+          while (pendingRows.length > 0) {
+            const row = pendingRows.shift();
+            const content = await resolveHarResponseContent(row);
+            responseContents.set(row, content);
+            if (content._networkPlus) unavailableCount += 1;
+          }
+        }),
+      );
       const fullHar = buildHarLogFromRows(rows, responseContents);
       const har = createOutboundPayload(
         outboundPolicy,
@@ -10345,8 +10209,16 @@ const _NetworkPlus = (function () {
             '.',
         );
       }
-    } catch (_error) {
-      setStatus('HAR export failed. No file was downloaded.');
+    } catch (error) {
+      // Two materially different next steps hide behind one generic line:
+      // a sanitizer fail-closed must be reported (retrying cannot help),
+      // while a build failure is worth retrying or narrowing the scope.
+      // Static text only — never the raw error message.
+      setStatus(
+        error && error.message === 'sanitization-failed-closed'
+          ? 'HAR export failed: sanitization failed closed, so nothing left the sanitizer. No file was downloaded.'
+          : 'HAR export failed while building the file; retry or narrow the scope. No file was downloaded.',
+      );
     } finally {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       exportButton.disabled = false;
@@ -13166,7 +13038,6 @@ const _NetworkPlus = (function () {
     deriveSampleGuideEvidence,
     planSampleEvidenceNavigation,
     debounce,
-    highlightText,
     getRowFilterValue,
     evaluateFilterRule,
     deepSearchMatch,
@@ -13181,7 +13052,6 @@ const _NetworkPlus = (function () {
     decodeResponseContent,
     buildHarResponseContent,
     cacheResponseContent,
-    settleResponseContentForHar,
     isValuelessFilterOperator,
     isRuleActive,
     countActiveColumnFilters,
@@ -13208,12 +13078,10 @@ const _NetworkPlus = (function () {
     createClearUndoRestorePlan,
     normalizeRetentionSetting,
     getRetentionPresentation,
-    appendRowsWithRetention,
     createRowEvictionPlan,
     isRetainedRow,
     planStatusAnnouncement,
     isActiveRetainedRow,
-    getAutomaticResponsePrefetchCapacity,
     formatAutomaticResponsePrefetchFailureSummary,
     createAutomaticResponsePrefetchScheduler,
     planImportRetention,
@@ -13237,7 +13105,6 @@ const _NetworkPlus = (function () {
     describeResponseContentState,
     getUtf8ByteLength,
     measureResponsePayload,
-    planResponseCacheAdmission,
     countUnsearchedResponseBodies,
     buildRowFromRequest,
     fetchResponsePayload,
@@ -13282,7 +13149,6 @@ const _NetworkPlus = (function () {
     sanitizeNetworkPlusMetadata,
     createOutboundRowView,
     sanitizeClipboardRow,
-    sanitizeRowForOutbound,
     generateCurl,
     generateFetch,
     generatePowerShell,
