@@ -576,27 +576,41 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .support-form{display:grid;gap:12px;padding:16px;min-width:0}
 .support-form h2{margin:0;font-size:15px;font-style:normal;text-align:center}
 .support-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
-.support-hero{display:flex;align-items:center;justify-content:center;padding:6px 0 2px;border-radius:10px;background:radial-gradient(60% 80% at 50% 65%,var(--accent-dim) 0%,transparent 70%)}
-.support-hero-art{width:184px;height:118px;overflow:visible}
-.support-otter-body,.support-otter-head,.support-otter-ear,.support-otter-paw{fill:var(--otter)}
+.support-hero{display:flex;align-items:center;justify-content:center;padding:8px 0 4px;border-radius:10px;background:radial-gradient(62% 82% at 50% 62%,var(--accent-dim) 0%,transparent 72%)}
+.support-hero-art{width:208px;height:129px;overflow:visible}
+/* Water the raft floats on. The otter, its cup and the steam share one group
+   so the whole raft rides a single bob — parts animated apart drift out of
+   register within a few cycles and the cup slides off the belly. */
+.support-water{fill:var(--accent-dim)}
+.support-ripple{fill:none;stroke:var(--accent);stroke-width:1.5;opacity:0;transform-box:fill-box;transform-origin:50% 50%;animation:support-ripple-out 4.4s ease-out infinite}
+.support-ripple--b{animation-delay:2.2s}
+.support-raft{transform-box:fill-box;transform-origin:50% 80%;animation:support-raft-float 4.6s ease-in-out infinite}
+.support-otter-body,.support-otter-skull,.support-otter-ear,.support-otter-foot{fill:var(--otter)}
+.support-otter-belly{fill:var(--otter-muzzle);opacity:.85}
 .support-otter-ear-inner{fill:var(--otter-deep)}
 .support-otter-muzzle{fill:var(--otter-muzzle)}
 .support-otter-nose{fill:var(--brew)}
-.support-otter-tail{fill:none;stroke:var(--otter-deep);stroke-width:8;stroke-linecap:round;transform-box:fill-box;transform-origin:100% 100%;animation:support-otter-tail 3.6s ease-in-out infinite}
-.support-otter-whisker{fill:none;stroke:var(--brew);stroke-width:1.3;stroke-linecap:round;opacity:.5}
+.support-otter-paw,.support-otter-tail{fill:var(--otter-deep)}
+.support-otter-tail{fill:none;stroke:var(--otter-deep);stroke-width:13;stroke-linecap:round;transform-box:fill-box;transform-origin:0% 100%;animation:support-otter-tail 5.2s ease-in-out infinite}
+.support-otter-feet{transform-box:fill-box;transform-origin:50% 100%;animation:support-otter-feet 3.8s ease-in-out infinite}
+.support-otter-mouth{fill:none;stroke:var(--brew);stroke-width:1.5;stroke-linecap:round;opacity:.8}
+.support-otter-whisker{fill:none;stroke:var(--brew);stroke-width:1.2;stroke-linecap:round;opacity:.45}
 .support-otter-eye{fill:var(--brew);transform-box:fill-box;transform-origin:50% 50%;animation:support-otter-blink 5.2s ease-in-out infinite}
 .support-otter-ear--left{transform-box:fill-box;transform-origin:50% 100%;animation:support-otter-ear 6.4s ease-in-out infinite}
-@keyframes support-otter-blink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(.12)}}
-@keyframes support-otter-tail{0%,100%{transform:rotate(0deg)}50%{transform:rotate(-13deg)}}
-@keyframes support-otter-ear{0%,86%,100%{transform:rotate(0deg)}90%{transform:rotate(-10deg)}95%{transform:rotate(5deg)}}
-.support-cup{fill:var(--accent-fill)}
-.support-handle{fill:none;stroke:var(--accent-fill);stroke-width:7;stroke-linecap:round}
+/* The cup is cream like the toolbar mark, not the accent — an accent-filled
+   mug read as an abstract shape rather than a drink. */
+.support-cup{fill:var(--cup)}
+.support-handle{fill:none;stroke:var(--cup);stroke-width:4;stroke-linecap:round}
 .support-brew{fill:var(--brew)}
-.support-saucer{fill:var(--accent-dim)}
-.support-steam{fill:none;stroke:var(--text-accent);stroke-width:3;stroke-linecap:round;opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:support-steam-rise 3.4s ease-in-out infinite}
+.support-cup-shadow{fill:var(--brew);opacity:.16}
+.support-steam{fill:none;stroke:var(--text-accent);stroke-width:2.6;stroke-linecap:round;opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:support-steam-rise 3.4s ease-in-out infinite}
 .support-steam--b{animation-delay:.6s}
 .support-steam--c{animation-delay:1.2s}
-.support-cup-group{transform-box:fill-box;transform-origin:50% 100%;animation:support-cup-bob 4.6s ease-in-out infinite}
+.support-heart{fill:var(--accent);opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:support-heart-rise 7.2s ease-in-out infinite}
+.support-heart--b{animation-delay:3.6s}
+/* Hovering either call to action sends the hearts up early: the reward for
+   reaching toward the button arrives before the click, not after it. */
+.support-form:has(.support-option-cta:hover,.support-option-cta:focus-visible) .support-heart{animation-duration:1.6s}
 .support-sparkle{fill:var(--text-accent);opacity:0;transform-box:fill-box;transform-origin:50% 50%;animation:support-sparkle-pop 3.8s ease-in-out infinite}
 .support-sparkle--b{animation-delay:1.3s}
 .support-sparkle--c{animation-delay:2.4s}
@@ -606,12 +620,23 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
   65%{opacity:.4}
   100%{opacity:0;transform:translateY(-9px) scaleY(1.2)}
 }
-@keyframes support-cup-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes support-raft-float{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-3.5px) rotate(-1.1deg)}}
+@keyframes support-ripple-out{0%{opacity:.55;transform:scale(.55)}70%{opacity:.12}100%{opacity:0;transform:scale(1.35)}}
+@keyframes support-otter-blink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(.12)}}
+@keyframes support-otter-tail{0%,100%{transform:rotate(0deg)}50%{transform:rotate(7deg)}}
+@keyframes support-otter-feet{0%,100%{transform:rotate(0deg)}50%{transform:rotate(-6deg)}}
+@keyframes support-otter-ear{0%,86%,100%{transform:rotate(0deg)}90%{transform:rotate(-10deg)}95%{transform:rotate(5deg)}}
+@keyframes support-heart-rise{0%,58%{opacity:0;transform:translateY(0) scale(.5)}70%{opacity:.95;transform:translateY(-9px) scale(1)}100%{opacity:0;transform:translateY(-22px) scale(.85)}}
 @keyframes support-sparkle-pop{0%,70%,100%{opacity:0;transform:scale(.4)}80%{opacity:.9;transform:scale(1)}90%{opacity:.35;transform:scale(.8)}}
 #supportDialog[open]{animation:support-dialog-in .3s cubic-bezier(.2,.8,.3,1)}
 #supportDialog[open]::backdrop{animation:support-backdrop-in .3s ease}
 @keyframes support-dialog-in{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
 @keyframes support-backdrop-in{from{opacity:0}to{opacity:1}}
+/* Three chips carry the disclosures the intro paragraph used to spell out.
+   Same facts, scannable in one pass instead of read as prose. */
+.support-facts{display:flex;flex-wrap:wrap;justify-content:center;gap:5px;margin:0;padding:0;list-style:none}
+.support-fact{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:1px solid var(--control-border);border-radius:999px;background:var(--content-bg);color:var(--text-muted);font-size:10px;line-height:1.3;white-space:nowrap}
+.support-fact-icon{font-size:11px;line-height:1}
 .support-options{display:grid;gap:8px;margin:0;padding:0;list-style:none}
 .support-option{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0;padding:10px;border:1px solid var(--control-border);border-radius:8px;background:var(--content-bg);transition:transform .18s ease,border-color .18s ease,background-color .18s ease,box-shadow .18s ease}
 .support-option:hover{transform:translateY(-2px);border-color:var(--accent);background:var(--accent-dim);box-shadow:var(--shadow-sm)}
@@ -836,13 +861,15 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .search-color-btn,.search-color-swatch,.hl-swatch,.timing-bar-seg,.json-tree-summary::before,.copy-toast,.sample-guide-btn,.sample-exit-btn,.status-details-toggle{transition:none}
   .search-color-btn:hover,.search-color-swatch:hover,.hl-swatch:hover{transform:none}
   .copy-toast,.copy-toast.show{transform:translateX(-50%)}
-  .support-steam,.support-cup-group,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-otter-tail,.support-otter-eye,.support-otter-ear--left,.brand-otter,.brand-otter-motion,.brand-otter-lid,.brand-otter-glint,.brand-heart-px,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
+  .support-steam,.support-raft,.support-ripple,.support-heart,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-otter-tail,.support-otter-feet,.support-otter-eye,.support-otter-ear--left,.brand-otter,.brand-otter-motion,.brand-otter-lid,.brand-otter-glint,.brand-heart-px,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
   .support-option-cta:hover{transform:none;filter:none}
   #supportDialog[open],#supportDialog[open]::backdrop{animation:none}
   .support-option:hover{transform:none}
   .support-option:hover .support-option-badge{transform:none}
   .support-steam{opacity:.55}
   .support-sparkle{opacity:.7}
+  .support-ripple{opacity:.3}
+  .support-heart{opacity:.9}
 }
 
 /* === Two-request Diff Comparison Panel === */

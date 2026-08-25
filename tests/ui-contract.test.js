@@ -2907,6 +2907,9 @@ describe('optional support dialog', () => {
     // without restoring opacity would erase them instead of stilling them.
     expect(reduced).toContain('.support-steam{opacity:.55}');
     expect(reduced).toContain('.support-sparkle{opacity:.7}');
+    // Same trap for the ripples and the rising hearts.
+    expect(reduced).toContain('.support-ripple{opacity:.3}');
+    expect(reduced).toContain('.support-heart{opacity:.9}');
   });
 
   test('support dialog CSS uses theme tokens and stays within the viewport', () => {

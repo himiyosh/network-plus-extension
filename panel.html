@@ -497,41 +497,59 @@
   <dialog id="supportDialog" aria-labelledby="supportDialogTitle" aria-describedby="supportDialogIntro">
     <form method="dialog" class="support-form">
       <div class="support-hero">
-        <svg class="support-hero-art" viewBox="0 0 168 108" aria-hidden="true" focusable="false">
-          <g class="support-steam-group">
-            <path class="support-steam support-steam--a" d="M97 34 C92 26 100 22 95 14 C93 10 96 7 97 5"/>
-            <path class="support-steam support-steam--b" d="M112 36 C107 27 115 23 110 14 C108 9 111 6 112 4"/>
-            <path class="support-steam support-steam--c" d="M127 34 C122 26 130 22 125 14 C123 10 126 7 127 5"/>
+        <svg class="support-hero-art" viewBox="0 0 200 124" aria-hidden="true" focusable="false">
+          <ellipse class="support-water" cx="100" cy="97" rx="94" ry="10"/>
+          <g class="support-ripples">
+            <ellipse class="support-ripple support-ripple--a" cx="36" cy="93" rx="20" ry="3.4"/>
+            <ellipse class="support-ripple support-ripple--b" cx="172" cy="95" rx="16" ry="3"/>
           </g>
-          <g class="support-otter">
-            <path class="support-otter-tail" d="M30 95 C15 93 12 79 21 72"/>
-            <circle class="support-otter-ear support-otter-ear--left" cx="31" cy="40" r="8"/>
-            <circle class="support-otter-ear" cx="57" cy="40" r="8"/>
-            <circle class="support-otter-ear-inner" cx="31" cy="40" r="3.5"/>
-            <circle class="support-otter-ear-inner" cx="57" cy="40" r="3.5"/>
-            <path class="support-otter-body" d="M28 97 C26 79 34 70 44 70 C54 70 62 79 60 97 Z"/>
-            <ellipse class="support-otter-paw" cx="36" cy="95" rx="5.4" ry="3.6"/>
-            <ellipse class="support-otter-paw" cx="52" cy="95" rx="5.4" ry="3.6"/>
-            <circle class="support-otter-head" cx="44" cy="56" r="19"/>
-            <ellipse class="support-otter-muzzle" cx="44" cy="63" rx="12" ry="8.5"/>
-            <ellipse class="support-otter-eye support-otter-eye--left" cx="37" cy="55" rx="2.8" ry="3.6"/>
-            <ellipse class="support-otter-eye support-otter-eye--right" cx="51" cy="55" rx="2.8" ry="3.6"/>
-            <path class="support-otter-nose" d="M44 63 l2.8 -2.6 h-5.6 z"/>
-            <path class="support-otter-whisker" d="M36 64 h-8 M37 67.5 h-7 M52 64 h8 M51 67.5 h7"/>
+          <g class="support-raft">
+            <path class="support-otter-tail" d="M150 80 C171 78 181 66 177 53"/>
+            <ellipse class="support-otter-body" cx="106" cy="78" rx="50" ry="21"/>
+            <ellipse class="support-otter-belly" cx="108" cy="75" rx="40" ry="15"/>
+            <g class="support-otter-feet">
+              <ellipse class="support-otter-foot" cx="148" cy="53" rx="6" ry="11" transform="rotate(-17 148 53)"/>
+              <ellipse class="support-otter-foot" cx="159" cy="59" rx="5.4" ry="9.5" transform="rotate(-5 159 59)"/>
+            </g>
+            <g class="support-otter-head">
+              <circle class="support-otter-ear support-otter-ear--left" cx="43" cy="50" r="4.6"/>
+              <circle class="support-otter-ear" cx="63" cy="48" r="4.6"/>
+              <circle class="support-otter-ear-inner" cx="43" cy="50" r="2"/>
+              <circle class="support-otter-ear-inner" cx="63" cy="48" r="2"/>
+              <circle class="support-otter-skull" cx="54" cy="62" r="18"/>
+              <ellipse class="support-otter-muzzle" cx="55" cy="70" rx="13.5" ry="9"/>
+              <ellipse class="support-otter-nose" cx="55" cy="64.5" rx="5.2" ry="3.6"/>
+              <path class="support-otter-mouth" d="M55 68.5 q-4 4 -7 .5 M55 68.5 q4 4 7 .5"/>
+              <circle class="support-otter-eye support-otter-eye--left" cx="46" cy="57" r="2.7"/>
+              <circle class="support-otter-eye" cx="63" cy="56" r="2.7"/>
+              <path class="support-otter-whisker" d="M42 71 h-11 M43 75 h-10 M68 70 h11 M67 74 h10"/>
+            </g>
+            <ellipse class="support-cup-shadow" cx="112" cy="63" rx="19" ry="4"/>
+            <path class="support-handle" d="M147 46 a9 9 0 0 1 0 14"/>
+            <path class="support-cup" d="M96 40 h48 v13 a24 15 0 0 1 -48 0 z"/>
+            <ellipse class="support-brew" cx="120" cy="40.5" rx="23.6" ry="4.4"/>
+            <ellipse class="support-otter-paw" cx="96" cy="55" rx="7.6" ry="5.8" transform="rotate(-18 96 55)"/>
+            <ellipse class="support-otter-paw" cx="144" cy="55" rx="7.6" ry="5.8" transform="rotate(18 144 55)"/>
+            <g class="support-steam-group">
+              <path class="support-steam support-steam--a" d="M108 30 C103 22 111 18 106 9"/>
+              <path class="support-steam support-steam--b" d="M121 28 C116 20 124 16 119 6"/>
+              <path class="support-steam support-steam--c" d="M134 30 C129 22 137 18 132 9"/>
+            </g>
           </g>
-          <g class="support-cup-group">
-            <ellipse class="support-saucer" cx="112" cy="93" rx="38" ry="7"/>
-            <path class="support-handle" d="M145 55 a13 13 0 0 1 0 21"/>
-            <path class="support-cup" d="M78 46 h68 v20 a34 26 0 0 1 -68 0 z"/>
-            <ellipse class="support-brew" cx="112" cy="46.5" rx="33.5" ry="5.5"/>
-            <circle class="support-sparkle support-sparkle--a" cx="152" cy="30" r="2.6"/>
-            <circle class="support-sparkle support-sparkle--b" cx="72" cy="32" r="2"/>
-            <circle class="support-sparkle support-sparkle--c" cx="159" cy="52" r="1.6"/>
-          </g>
+          <path class="support-heart support-heart--a" d="M0 4 a4 4 0 0 1 7 -2.4 a4 4 0 0 1 7 2.4 c0 4.6 -7 8.6 -7 8.6 S0 8.6 0 4 z" transform="translate(150 26)"/>
+          <path class="support-heart support-heart--b" d="M0 3 a3 3 0 0 1 5.2 -1.8 a3 3 0 0 1 5.2 1.8 c0 3.4 -5.2 6.4 -5.2 6.4 S0 6.4 0 3 z" transform="translate(78 30)"/>
+          <circle class="support-sparkle support-sparkle--a" cx="176" cy="24" r="2.6"/>
+          <circle class="support-sparkle support-sparkle--b" cx="26" cy="34" r="2"/>
+          <circle class="support-sparkle support-sparkle--c" cx="186" cy="46" r="1.6"/>
         </svg>
       </div>
       <h2 id="supportDialogTitle" data-i18n="supportTitle">Buy the developer a coffee</h2>
-      <p id="supportDialogIntro" data-i18n="supportIntro">Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or paid tier. If it saved you a debugging session, a coffee helps keep it maintained. Contributing is optional and never unlocks, limits, or changes any feature.</p>
+      <p id="supportDialogIntro" data-i18n="supportIntro">A solo, MIT-licensed project. If it saved you a debugging session, a coffee keeps it going.</p>
+      <ul class="support-facts">
+        <li class="support-fact"><span class="support-fact-icon" aria-hidden="true">🔓</span><span data-i18n="supportFactFree">Every feature, free</span></li>
+        <li class="support-fact"><span class="support-fact-icon" aria-hidden="true">🛡️</span><span data-i18n="supportFactPrivate">No ads, telemetry, or account</span></li>
+        <li class="support-fact"><span class="support-fact-icon" aria-hidden="true">💛</span><span data-i18n="supportFactOptional">Optional, no perks</span></li>
+      </ul>
       <ul class="support-options">
         <li class="support-option">
           <span class="support-option-badge" aria-hidden="true">💜</span>
@@ -550,7 +568,7 @@
           <a id="supportKofiLink" class="support-option-cta" href="https://ko-fi.com/studio344" target="_blank" rel="noopener noreferrer" aria-label="Buy a coffee on Ko-fi, opens a new browser tab">Buy a coffee</a>
         </li>
       </ul>
-      <p class="support-note" data-i18n="supportNote">The buttons open the payment page in a browser tab; the payment itself happens on that site, never inside DevTools. Network+ sends them no captured traffic and no usage data, and cannot tell whether you visited or contributed.</p>
+      <p class="support-note" data-i18n="supportNote">Contributing is optional and never unlocks, limits, or changes any feature. The buttons open the payment page in a browser tab; the payment itself happens on that site, never inside DevTools. Network+ sends them no captured traffic and no usage data, and cannot tell whether you contributed.</p>
       <div class="support-actions">
         <button id="supportCloseBtn" type="button" data-i18n="dialogClose">Close</button>
       </div>
