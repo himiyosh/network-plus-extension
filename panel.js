@@ -559,6 +559,11 @@ const _NetworkPlus = (function () {
       dialog.close('sanitized');
       exportHAR({ mode: 'sanitized', scope });
     });
+    $('#dataSafetyCsvBtn').addEventListener('click', () => {
+      const scope = readExportScopeChoice();
+      dialog.close('csv');
+      exportCsv(scope);
+    });
     $('#dataSafetyFullBtn').addEventListener('click', () => {
       // The full-HAR warning reuses this dialog, which hides the scope
       // chooser, so the choice is captured before the mode switches.
@@ -842,6 +847,20 @@ const _NetworkPlus = (function () {
     return isMac
       ? key === 'k' && event.metaKey === true && event.ctrlKey !== true
       : key === 'l' && event.ctrlKey === true && event.metaKey !== true;
+  }
+
+  // Panel-scoped: key events inside the DevTools panel iframe never reach
+  // the DevTools application document, so the chord cannot collide with
+  // DevTools' own bindings.
+  function isPopoutShortcut(event, platform) {
+    if (!event || typeof event.key !== 'string') return false;
+    if (event.repeat === true || event.isComposing === true) return false;
+    if (event.altKey === true || event.shiftKey !== true) return false;
+    const key = event.key.toLowerCase();
+    const isMac = typeof platform === 'string' && platform.toLowerCase().includes('mac');
+    return isMac
+      ? key === 'm' && event.metaKey === true && event.ctrlKey !== true
+      : key === 'm' && event.ctrlKey === true && event.metaKey !== true;
   }
 
   function fmtBytes(bytes) {
@@ -1984,6 +2003,9 @@ const _NetworkPlus = (function () {
       status: Number.isFinite(source.status) ? source.status : 0,
       statusText: String(source.statusText || ''),
       type: String(source.type || ''),
+      // The operation label is a derived name (GraphQL operationName or
+      // JSON-RPC method), never a payload value; CSV prints it for triage.
+      operation: String(source.operation || ''),
       protocol: String(source.protocol || ''),
       size: Number.isFinite(source.size) ? source.size : 0,
       duration: Number.isFinite(source.duration) ? source.duration : 0,
@@ -3633,6 +3655,48 @@ const _NetworkPlus = (function () {
         (row) => sanitizeClipboardRow('markdown', row, '', { mode: 'sanitized' }).value,
       );
       return { ok: true, text: formatRowsMarkdownTable(sanitizedRows) };
+    } catch (_error) {
+      return { ok: false, text: '' };
+    }
+  }
+
+  function escapeCsvField(value) {
+    const text = value == null ? '' : String(value);
+    return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  }
+
+  // Metadata-only spreadsheet view: numeric duration/size for pivoting,
+  // the redacted URL and its derived domain, and never a header or body.
+  function formatRowsCsv(rows) {
+    const lines = ['id,method,status,statusText,domain,type,operation,durationMs,sizeBytes,url'];
+    for (const row of Array.isArray(rows) ? rows : []) {
+      lines.push(
+        [
+          row.id,
+          row.method || '',
+          row.status || '',
+          row.statusText || '',
+          row.domain || '',
+          row.type || '',
+          row.operation || '',
+          Number.isFinite(row.duration) ? Math.round(row.duration) : '',
+          Number.isFinite(row.size) ? row.size : '',
+          row.url || '',
+        ]
+          .map(escapeCsvField)
+          .join(','),
+      );
+    }
+    return lines.join('\r\n') + '\r\n';
+  }
+
+  function buildCsvPayload(rows) {
+    try {
+      const orderedRows = (Array.isArray(rows) ? rows : []).slice().sort((a, b) => a.id - b.id);
+      const sanitizedRows = orderedRows.map(
+        (row) => sanitizeClipboardRow('markdown', row, '', { mode: 'sanitized' }).value,
+      );
+      return { ok: true, text: formatRowsCsv(sanitizedRows) };
     } catch (_error) {
       return { ok: false, text: '' };
     }
@@ -10137,6 +10201,33 @@ const _NetworkPlus = (function () {
     };
   }
 
+  // CSV is a sanitized-only, metadata-only view for spreadsheet triage
+  // (pivot by domain, histogram durations). Headers and bodies never join
+  // it; the full HAR stays the only complete-output path.
+  function exportCsv(scope) {
+    const exportScope = scope === 'selected' ? 'selected' : 'displayed';
+    const rows = (exportScope === 'selected' ? getSelectedExportRows() : getExportRows()).slice();
+    if (exportScope === 'selected' && rows.length === 0) {
+      setStatus('No selected requests to export.');
+      return;
+    }
+    const payload = buildCsvPayload(rows);
+    if (!payload.ok) {
+      setStatus('CSV export failed during sanitization. No file was downloaded.');
+      return;
+    }
+    const blob = new Blob([payload.text], { type: 'text/csv' });
+    triggerObjectUrlDownload(
+      URL.createObjectURL(blob),
+      'network-plus-sanitized' + (exportScope === 'selected' ? '-selected' : '') + '.csv',
+    );
+    setStatus(
+      'Exported sanitized CSV for ' +
+        rows.length +
+        (exportScope === 'selected' ? ' selected requests.' : ' requests.'),
+    );
+  }
+
   async function exportHAR(policy) {
     const outboundPolicy = policy || { mode: 'sanitized' };
     if (outboundPolicy.mode === 'full' && !isFullOutputAuthorized(outboundPolicy)) {
@@ -10557,6 +10648,19 @@ const _NetworkPlus = (function () {
         event.preventDefault();
         event.stopPropagation();
         clearButton.click();
+      },
+      true,
+    );
+    document.addEventListener(
+      'keydown',
+      (event) => {
+        if (!isPopoutShortcut(event, keyboardPlatform)) return;
+        const popoutControl = $('#popoutBtn');
+        // Hidden means no DevTools session here (mirror tab or plain page).
+        if (!popoutControl || popoutControl.hidden) return;
+        event.preventDefault();
+        event.stopPropagation();
+        popoutControl.click();
       },
       true,
     );
@@ -11094,6 +11198,45 @@ const _NetworkPlus = (function () {
         contextMenu.appendChild(createRowMenuButton('Edit and resend...', () => {
           setTimeout(() => resendActions.openDialog(resendRow, resendRow.id), 0);
         }));
+      }
+
+      // The fastest triage move on a noisy capture: isolate or exclude a
+      // domain straight from the row, feeding the same multiText rules the
+      // Filters popup edits (so it shows, counts, and clears them there).
+      const quickFilterDomain = String(contextMenuRow.domain || '').trim();
+      if (quickFilterDomain) {
+        const filterMenuLabel = document.createElement('div');
+        filterMenuLabel.className = 'context-menu-label';
+        filterMenuLabel.setAttribute('role', 'presentation');
+        filterMenuLabel.textContent = 'Filter';
+        contextMenu.appendChild(filterMenuLabel);
+        const applyDomainQuickFilter = (op) => {
+          const rule = state.columnFilterRules.domain;
+          let conditions =
+            rule && rule.mode === 'multiText' && Array.isArray(rule.conditions)
+              ? rule.conditions.filter((cond) => cond && String(cond.value || '').trim() !== '')
+              : [];
+          // "Only" replaces any previous inclusion so two quick picks never
+          // intersect down to zero rows; exclusions accumulate.
+          if (op === 'contains') conditions = conditions.filter((cond) => cond.op !== 'contains');
+          if (!conditions.some((cond) => cond.op === op && cond.value === quickFilterDomain)) {
+            conditions.push({ op, value: quickFilterDomain });
+          }
+          state.columnFilterRules.domain = { mode: 'multiText', conditions };
+          renderBody();
+          syncSearchUIAfterRender();
+          setStatus(
+            (op === 'contains' ? 'Showing only ' : 'Excluding ') +
+              quickFilterDomain +
+              '; manage it from the Filters popup.',
+          );
+        };
+        contextMenu.appendChild(
+          createRowMenuButton('Only domain ' + quickFilterDomain, () => applyDomainQuickFilter('contains')),
+        );
+        contextMenu.appendChild(
+          createRowMenuButton('Exclude domain ' + quickFilterDomain, () => applyDomainQuickFilter('notcontains')),
+        );
       }
 
       const hlLabel = document.createElement('div');
@@ -13023,6 +13166,7 @@ const _NetworkPlus = (function () {
     getNextMenuItemIndex,
     getAriaSortValue,
     isClearNetworkLogShortcut,
+    isPopoutShortcut,
     extractUrlParts,
     formatInitiator,
     parseQueryString,
@@ -13210,6 +13354,9 @@ const _NetworkPlus = (function () {
     escapeMarkdownTableCell,
     formatRowMarkdown,
     formatRowsMarkdownTable,
+    escapeCsvField,
+    formatRowsCsv,
+    buildCsvPayload,
     HAR_WS_MESSAGE_IMPORT_LIMIT,
     applyHarWebSocketMessages,
     MIRROR_PROTOCOL_VERSION,

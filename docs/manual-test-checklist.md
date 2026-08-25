@@ -50,6 +50,12 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] The mirror tab's empty state never offers `Explore sample capture` (its description points at the DevTools session instead).
 - [ ] Changing Theme or Language in the mirror tab applies to the DevTools panel within a moment without any reload, and vice versa.
 
+## Quick filters, CSV export, and the pop-out shortcut
+
+- [ ] Right-clicking a row offers `Only domain <domain>` and `Exclude domain <domain>`; "Only" narrows the grid to that domain (a second "Only" on another row replaces it instead of intersecting to zero rows), "Exclude" hides it and accumulates, and both appear as editable conditions in the Filters popup, whose badge counts them and whose Clear removes them.
+- [ ] The export dialog's `Export sanitized CSV` downloads a `.csv` honoring the displayed/selected scope choice with numeric duration and size columns and redacted URLs — no header or body values anywhere in the file; opening it in a spreadsheet shows one row per request.
+- [ ] <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> opens (or focuses) the mirror tab inside a DevTools session, does nothing in the mirror tab itself, and the binding is listed in the `?` shortcut dialog and on the 🪟 tooltip.
+
 ## Settings and language
 
 - [ ] The 🎛️ Settings button opens one dialog with Language, Theme, and Retention sections; <kbd>Esc</kbd> and Close both dismiss it and return focus to the button.

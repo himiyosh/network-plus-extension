@@ -2864,6 +2864,22 @@ describe('keyboard trust helpers', () => {
     expect(np.isClearNetworkLogShortcut(event, platform)).toBe(false);
   });
 
+  test('accepts Ctrl+Shift+M / ⌘+Shift+M as the pop-out shortcut', () => {
+    expect(np.isPopoutShortcut({ key: 'M', ctrlKey: true, shiftKey: true }, 'Win32')).toBe(true);
+    expect(np.isPopoutShortcut({ key: 'm', metaKey: true, shiftKey: true }, 'MacIntel')).toBe(true);
+  });
+
+  test.each([
+    ['a missing shift', { key: 'm', ctrlKey: true }, 'Win32'],
+    ['the wrong primary modifier', { key: 'm', metaKey: true, shiftKey: true }, 'Win32'],
+    ['both primary modifiers', { key: 'm', ctrlKey: true, metaKey: true, shiftKey: true }, 'MacIntel'],
+    ['an alt chord', { key: 'm', ctrlKey: true, shiftKey: true, altKey: true }, 'Win32'],
+    ['a repeated keydown', { key: 'm', ctrlKey: true, shiftKey: true, repeat: true }, 'Win32'],
+    ['a composing keydown', { key: 'm', metaKey: true, shiftKey: true, isComposing: true }, 'MacIntel'],
+  ])('rejects %s as the pop-out shortcut', (_label, event, platform) => {
+    expect(np.isPopoutShortcut(event, platform)).toBe(false);
+  });
+
   test('exposes valid aria-sort values', () => {
     expect(np.getAriaSortValue({ colId: 'status', direction: 'asc' }, 'status')).toBe('ascending');
     expect(np.getAriaSortValue({ colId: 'status', direction: 'desc' }, 'status')).toBe('descending');
@@ -4317,6 +4333,57 @@ describe('resolveLanguage', () => {
   test('junk preferences behave like system', () => {
     global.navigator = { language: 'en-US' };
     expect(np.resolveLanguage('klingon')).toBe('en');
+  });
+});
+
+describe('CSV export payload', () => {
+  test('escapes commas, quotes, and newlines per RFC 4180', () => {
+    expect(np.escapeCsvField('plain')).toBe('plain');
+    expect(np.escapeCsvField('a,b')).toBe('"a,b"');
+    expect(np.escapeCsvField('say "hi"')).toBe('"say ""hi"""');
+    expect(np.escapeCsvField('line\nbreak')).toBe('"line\nbreak"');
+    expect(np.escapeCsvField(null)).toBe('');
+  });
+
+  test('builds a sanitized metadata table with numeric duration and size', () => {
+    const rows = [
+      {
+        id: 2,
+        method: 'POST',
+        url: 'https://api.example.test/v1/users?token=secret-value',
+        status: 201,
+        statusText: 'Created',
+        type: 'xhr',
+        operation: 'CreateUser',
+        duration: 12.6,
+        size: 345,
+        requestHeaders: [],
+        responseHeaders: [],
+      },
+      {
+        id: 1,
+        method: 'GET',
+        url: 'https://cdn.example.test/app.js',
+        status: 200,
+        statusText: 'OK',
+        type: 'script',
+        duration: 3,
+        size: 1024,
+        requestHeaders: [],
+        responseHeaders: [],
+      },
+    ];
+    const payload = np.buildCsvPayload(rows);
+    expect(payload.ok).toBe(true);
+    const lines = payload.text.trim().split('\r\n');
+    expect(lines[0]).toBe('id,method,status,statusText,domain,type,operation,durationMs,sizeBytes,url');
+    // Rows sort by id like the Markdown table, and the query value is
+    // redacted before any CSV text exists.
+    expect(lines[1].startsWith('1,GET,200,OK,cdn.example.test,script,')).toBe(true);
+    expect(lines[2]).toContain('2,POST,201,Created,api.example.test,xhr,CreateUser,13,345,');
+    expect(payload.text).not.toContain('secret-value');
+    // The sanitizer's redaction marker survives URL re-encoding.
+    expect(lines[2]).toContain('%5BREDACTED%5D');
   });
 });
 
