@@ -226,7 +226,7 @@
       <button id="columnsBtn" aria-haspopup="menu" aria-controls="columnsMenu" aria-expanded="false">🗂️ Columns</button>
       <div class="separator"></div>
       <button id="settingsBtn" aria-haspopup="dialog" aria-controls="settingsDialog" aria-expanded="false">🎛️ Settings</button>
-      <button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" class="icon-btn" hidden>🪟</button>
+      <button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>
       <button id="shortcutBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutDialog">⌨️ ?</button>
     </div>
   </header>
@@ -351,6 +351,7 @@
       </fieldset>
       <div id="dataSafetyExportChoices" class="data-safety-choices">
         <button id="dataSafetySanitizedBtn" type="button" class="data-safety-primary">Export sanitized HAR</button>
+        <button id="dataSafetyCsvBtn" type="button">Export sanitized CSV</button>
         <button id="dataSafetyFullBtn" type="button">Review full HAR warning</button>
       </div>
       <div id="dataSafetyWarning" class="data-safety-warning" hidden>
@@ -445,6 +446,7 @@
           <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd></td><td>Select row / open details</td></tr>
           <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd></td><td>Toggle search panel</td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>L</kbd> (Windows/Linux) / <kbd>⌘</kbd>+<kbd>K</kbd> (macOS)</td><td>Clear all requests</td></tr>
+          <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd></td><td>Open the pop-out mirror tab (DevTools sessions only)</td></tr>
           <tr><td><kbd>?</kbd></td><td>Show keyboard shortcuts</td></tr>
           <tr><td><kbd>Esc</kbd></td><td>Close panel, popup, or search</td></tr>
           <tr><td><kbd>ContextMenu</kbd> / <kbd>Shift+F10</kbd></td><td>Row context menu</td></tr>

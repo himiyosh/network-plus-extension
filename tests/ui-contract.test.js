@@ -3111,7 +3111,7 @@ describe('search options and preference persistence contracts', () => {
 describe('devtools-session mirror contracts', () => {
   test('the toolbar offers a pop-out that opens this panel as a browser tab', () => {
     expect(html).toContain(
-      '<button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" class="icon-btn" hidden>🪟</button>',
+      '<button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>',
     );
     expect(js).toContain("window.open('panel.html?view=window&src=' + encodeURIComponent(String(inspectedTabId)))");
     // The button only appears where a DevTools session can host a mirror.
@@ -3263,6 +3263,36 @@ describe('navigation persistence contracts', () => {
 });
 
 describe('export scope contracts', () => {
+  test('CSV export is sanitized-only metadata riding the shared scope machinery', () => {
+    expect(html).toMatch(/id="dataSafetyCsvBtn"[^>]*>Export sanitized CSV</);
+    expect(js).toContain("$('#dataSafetyCsvBtn').addEventListener('click', () => {");
+    expect(js).toContain('exportCsv(scope);');
+    expect(js).toContain("'id,method,status,statusText,domain,type,operation,durationMs,sizeBytes,url'");
+    // Sanitize-first: rows route through the clipboard sanitizer before any
+    // CSV text exists, and no header or body fields join the line.
+    expect(js).toMatch(
+      /function buildCsvPayload[\s\S]{0,400}sanitizeClipboardRow\('markdown', row, '', \{ mode: 'sanitized' \}\)/,
+    );
+    const csvBlock = js.slice(js.indexOf('function formatRowsCsv'), js.indexOf('function buildCsvPayload'));
+    expect(csvBlock).not.toMatch(/requestHeaders|responseHeaders|requestPostData|responseContent/);
+  });
+
+  test('the pop-out has a panel-scoped keyboard shortcut that no-ops without a session', () => {
+    expect(html).toMatch(/id="popoutBtn"[^>]*aria-keyshortcuts="Control\+Shift\+M Meta\+Shift\+M"/);
+    expect(html).toContain('Open the pop-out mirror tab (DevTools sessions only)');
+    expect(js).toContain('function isPopoutShortcut(');
+    expect(js).toContain('if (!popoutControl || popoutControl.hidden) return;');
+  });
+
+  test('row quick filters feed the same multiText rules the Filters popup edits', () => {
+    expect(js).toContain("createRowMenuButton('Only domain ' + quickFilterDomain");
+    expect(js).toContain("createRowMenuButton('Exclude domain ' + quickFilterDomain");
+    // "Only" replaces earlier inclusions so two picks never intersect to
+    // zero rows; exclusions accumulate.
+    expect(js).toContain("if (op === 'contains') conditions = conditions.filter((cond) => cond.op !== 'contains');");
+    expect(js).toContain("state.columnFilterRules.domain = { mode: 'multiText', conditions };");
+  });
+
   test('the export dialog offers a selected-rows scope only when a selection exists', () => {
     expect(html).toContain('<fieldset id="dataSafetyScope" class="data-safety-scope" hidden>');
     expect(html).toContain(

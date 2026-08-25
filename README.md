@@ -33,10 +33,10 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 The stock Network panel is great at showing you traffic. Network+ is built for the moment **after** that — when you have 4,000 requests, a customer waiting, and one failing call to find and explain.
 
 - **Find the evidence.** Search several keywords at once across URLs, headers, and bodies, each with its own highlight color, match count, and next/previous navigation.
-- **Narrow without losing context.** Combine per-column filters (time range, method multi-select, `contains` / `notcontains` rules, include/exclude URL logic) and keep your standard setup one click away as a saved view preset.
+- **Narrow without losing context.** Combine per-column filters (time range, method multi-select, `contains` / `notcontains` rules, include/exclude URL logic), isolate or exclude a domain straight from a row's right-click menu, and keep your standard setup one click away as a saved view preset.
 - **Compare two requests directly.** Select exactly two rows and diff URL, query, method, status, headers, and body side by side.
 - **Pop out into a browser tab.** One click opens the same panel as a regular tab that live-mirrors the DevTools session — big-screen triage while DevTools stays docked, with no extra permissions.
-- **Share without leaking.** Every copy and every HAR export is sanitized by default; full output requires a per-action confirmation that is never remembered.
+- **Share without leaking.** Every copy and every export is sanitized by default — HAR, or a metadata-only CSV for spreadsheet triage; full output requires a per-action confirmation that is never remembered.
 - **Stay bounded.** Request retention and the response-body cache have explicit limits, visible counters, and predictable eviction — no silent unbounded growth.
 - **Work by keyboard.** Every control is reachable without a mouse, in System / Dark / Light themes that all meet WCAG 2.2 AA contrast.
 - **Settings in one place.** The 🎛️ Settings dialog gathers language, theme, and capture retention. Explanations and guide dialogs are available in Japanese (System / English / 日本語); control labels stay in English so instructions always match.
@@ -173,6 +173,7 @@ Capture stays with DevTools, so keep it open while you work — it does not have
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Select row / open details |
 | <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> | Toggle the search panel |
 | <kbd>Ctrl</kbd>+<kbd>L</kbd> (Windows/Linux) · <kbd>⌘</kbd>+<kbd>K</kbd> (macOS) | Clear all requests |
+| <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | Open the pop-out mirror tab (DevTools sessions only) |
 | <kbd>?</kbd> | Show the keyboard shortcut reference |
 | <kbd>Esc</kbd> | Close the current panel, popup, or search |
 | <kbd>ContextMenu</kbd> / <kbd>Shift</kbd>+<kbd>F10</kbd> | Row context menu |
