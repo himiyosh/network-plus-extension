@@ -673,3 +673,102 @@ browserTest(
   },
   TEST_TIMEOUT_MS,
 );
+
+browserTest(
+  'the undock explainer sizes itself to its text instead of wrapping it',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      query: '?view=window&src=7',
+      initScript: VIEWER_STUB,
+      width: 1440,
+      height: 900,
+    });
+    // Range.getClientRects() yields one rect per line box, so distinct rect
+    // tops count the real rendered lines. Prose only: the dismiss label wraps
+    // its checkbox into a second rect that is not a second line. The probe
+    // reports what the content wants with no wrapping at all.
+    const measureProse = `(() => {
+      const dialog = document.getElementById('undockHintDialog');
+      if (!dialog.open) dialog.showModal();
+      const form = dialog.querySelector('.undock-hint-form');
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:fixed;left:-99999px;top:0;width:max-content';
+      probe.appendChild(form.cloneNode(true));
+      document.body.appendChild(probe);
+      const wanted = Math.round(probe.getBoundingClientRect().width);
+      probe.remove();
+      let multiLine = 0;
+      let counted = 0;
+      for (const el of form.querySelectorAll('p, li')) {
+        if (!el.textContent.trim()) continue;
+        counted += 1;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const tops = new Set();
+        for (const rect of range.getClientRects()) {
+          if (rect.width > 0 || rect.height > 0) tops.add(Math.round(rect.top));
+        }
+        if (tops.size > 1) multiLine += 1;
+      }
+      return {
+        width: Math.round(dialog.getBoundingClientRect().width),
+        wanted,
+        multiLine,
+        counted,
+        viewport: window.innerWidth,
+      };
+    })()`;
+    // Absolute pixel thresholds are deliberately avoided: the text's intrinsic
+    // width depends on the fonts the runner happens to have, and a CI image
+    // without Japanese fonts measures the same sentences hundreds of pixels
+    // narrower than a desktop with them. What must hold everywhere is that the
+    // dialog is sized by its content (its own width plus the 1px borders)
+    // rather than pinned to a fixed cap, and that no prose wraps.
+    const expectContentSized = (measurement) => {
+      expect(measurement.counted).toBeGreaterThanOrEqual(7);
+      expect(measurement.multiLine).toBe(0);
+      expect(measurement.wanted).toBeLessThanOrEqual(960);
+      expect(measurement.width).toBeGreaterThanOrEqual(measurement.wanted);
+      expect(measurement.width).toBeLessThanOrEqual(measurement.wanted + 4);
+      expect(measurement.width).toBeLessThanOrEqual(measurement.viewport);
+    };
+    try {
+      await attachScriptedHostPort(page.cdp);
+      await evaluate(
+        page.cdp,
+        `window.__send({ type: 'sync', count: 0, maxId: 0, paused: false, control: ${JSON.stringify(
+          syncControl({ devtoolsMinimized: false }),
+        )} }); true`,
+      );
+      await delay(200);
+      expect(await evaluate(page.cdp, "document.getElementById('undockHintDialog').open")).toBe(true);
+
+      // English: the dialog grows past the old fixed cap so nothing wraps.
+      const english = await evaluate(page.cdp, measureProse);
+      expectContentSized(english);
+
+      // Japanese explanations run to a different length; the dialog
+      // re-measures itself rather than reflowing the text into wrapped lines.
+      await evaluate(
+        page.cdp,
+        `(() => {
+          const select = document.getElementById('langSelect');
+          select.value = 'ja';
+          select.dispatchEvent(new Event('change'));
+          return true;
+        })()`,
+      );
+      await delay(150);
+      const japanese = await evaluate(page.cdp, measureProse);
+      expectContentSized(japanese);
+
+      // The old defect was a width that ignored the content entirely, so the
+      // two languages rendered at the identical pinned width.
+      expect(english.wanted).not.toBe(japanese.wanted);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
