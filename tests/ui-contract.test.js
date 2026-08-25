@@ -3293,6 +3293,21 @@ describe('export scope contracts', () => {
     expect(js).toContain("state.columnFilterRules.domain = { mode: 'multiText', conditions };");
   });
 
+  test('a pasted cURL command fills the resend dialog and fails closed on the unknown', () => {
+    expect(html).toMatch(/id="resendCurlInput"/);
+    expect(html).toMatch(/id="resendCurlFillBtn"[^>]*>Fill fields from cURL</);
+    expect(js).toContain('const parsed = parseCurlCommand(resendCurlInput.value);');
+    expect(js).toContain("showResendError('cURL import failed: ' + parsed.error + '.');");
+    expect(js).toContain("return { ok: false, error: 'the cURL flag ' + token + ' is not supported here' };");
+    // The parser is pure string work: no network, DOM, or storage access.
+    const parserBlock = js.slice(
+      js.indexOf('function tokenizeShellCommand'),
+      js.indexOf('function pageResendRunner'),
+    );
+    expect(parserBlock.length).toBeGreaterThan(0);
+    expect(parserBlock).not.toMatch(/fetch\s*\(|XMLHttpRequest|document\.|localStorage|chrome\./);
+  });
+
   test('the export dialog offers a selected-rows scope only when a selection exists', () => {
     expect(html).toContain('<fieldset id="dataSafetyScope" class="data-safety-scope" hidden>');
     expect(html).toContain(

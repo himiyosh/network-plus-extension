@@ -472,6 +472,8 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .resend-form label{font-size:12px;font-weight:600}
 .resend-form input:not([type="checkbox"]),.resend-form textarea{min-height:28px;width:100%;padding:5px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
 .resend-form textarea{font-family:'Cascadia Code',Consolas,'Courier New',monospace;font-size:11px;resize:vertical}
+.resend-form .resend-curl-fill{justify-self:start;min-height:28px;padding:4px 10px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;cursor:pointer}
+.resend-form .resend-curl-fill:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
 .resend-credentials{display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
 .resend-credentials input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
 .resend-error{color:var(--status-5xx-text);font-weight:600}

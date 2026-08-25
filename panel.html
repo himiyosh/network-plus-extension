@@ -386,6 +386,9 @@
     <form method="dialog" class="resend-form">
       <h2 id="resendDialogTitle">Edit and resend request</h2>
       <p id="resendDialogIntro">Send composes a new request from these fields, and the inspected page itself issues it — so cookies, CORS, and the page's security policies apply as usual. The reply arrives as a new captured row.</p>
+      <label for="resendCurlInput">Paste a cURL command (optional)</label>
+      <textarea id="resendCurlInput" name="resendCurlInput" rows="2" spellcheck="false" placeholder="curl -H 'Accept: application/json' https://api.example.com/v1/users"></textarea>
+      <button id="resendCurlFillBtn" type="button" class="resend-curl-fill">Fill fields from cURL</button>
       <label for="resendMethod">Method</label>
       <input id="resendMethod" name="resendMethod" autocomplete="off" spellcheck="false">
       <label for="resendUrl">URL</label>

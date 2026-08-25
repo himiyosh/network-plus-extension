@@ -4336,6 +4336,69 @@ describe('resolveLanguage', () => {
   });
 });
 
+describe('cURL command import', () => {
+  test('tokenizes quoting styles, escapes, and line continuations', () => {
+    expect(np.tokenizeShellCommand("curl 'https://a.test/x y' -H \"Accept: a/b\"")).toEqual([
+      'curl',
+      'https://a.test/x y',
+      '-H',
+      'Accept: a/b',
+    ]);
+    expect(np.tokenizeShellCommand('curl \\\n  https://a.test/')).toEqual(['curl', 'https://a.test/']);
+    expect(np.tokenizeShellCommand("curl $'a\\nb'")).toEqual(['curl', 'a\nb']);
+    expect(np.tokenizeShellCommand('curl "say \\"hi\\""')).toEqual(['curl', 'say "hi"']);
+    expect(() => np.tokenizeShellCommand("curl 'unterminated")).toThrow('single-quoted');
+  });
+
+  test("parses Chrome's Copy-as-cURL shape into a resend spec", () => {
+    const parsed = np.parseCurlCommand(
+      "curl 'https://api.example.test/v1/users' \\\n" +
+        "  -H 'accept: application/json' \\\n" +
+        "  -H 'content-type: application/json' \\\n" +
+        "  --data-raw '{\"name\":\"a\"}' \\\n" +
+        '  --compressed',
+    );
+    expect(parsed.ok).toBe(true);
+    expect(parsed.spec.method).toBe('POST');
+    expect(parsed.spec.url).toBe('https://api.example.test/v1/users');
+    expect(parsed.spec.headers).toEqual([
+      { name: 'accept', value: 'application/json' },
+      { name: 'content-type', value: 'application/json' },
+    ]);
+    expect(parsed.spec.body).toBe('{"name":"a"}');
+    expect(parsed.notes.join(' ')).toContain('--compressed');
+  });
+
+  test('supports method flags, joined data, -G queries, and basic auth', () => {
+    expect(np.parseCurlCommand('curl -XDELETE https://a.test/x').spec.method).toBe('DELETE');
+    const joined = np.parseCurlCommand('curl -d a=1 -d b=2 https://a.test/x');
+    expect(joined.spec.body).toBe('a=1&b=2');
+    expect(joined.spec.method).toBe('POST');
+    const asQuery = np.parseCurlCommand('curl -G -d a=1 -d b=2 https://a.test/x');
+    expect(asQuery.spec.url).toBe('https://a.test/x?a=1&b=2');
+    expect(asQuery.spec.method).toBe('GET');
+    const auth = np.parseCurlCommand('curl -u user:pass https://a.test/x');
+    expect(auth.spec.headers).toEqual([{ name: 'Authorization', value: 'Basic dXNlcjpwYXNz' }]);
+    expect(np.parseCurlCommand('curl --head https://a.test/x').spec.method).toBe('HEAD');
+  });
+
+  test('fails closed on unsupported flags, file bodies, and bad shapes', () => {
+    expect(np.parseCurlCommand('curl -F field=@file https://a.test/').error).toContain('-F is not supported');
+    expect(np.parseCurlCommand('curl -d @body.json https://a.test/').error).toContain('paste the body itself');
+    expect(np.parseCurlCommand('curl https://a.test/ https://b.test/').error).toContain('more than one URL');
+    expect(np.parseCurlCommand('wget https://a.test/').error).toContain('must start with curl');
+    expect(np.parseCurlCommand('curl ftp://a.test/').error).toContain('absolute http(s) URL');
+    expect(np.parseCurlCommand('curl -H').error).toContain('missing its value');
+  });
+
+  test('notes browser-managed cookies and strips a leading prompt', () => {
+    const parsed = np.parseCurlCommand("$ curl -b 'sid=abc' https://a.test/x");
+    expect(parsed.ok).toBe(true);
+    expect(parsed.spec.headers).toEqual([{ name: 'Cookie', value: 'sid=abc' }]);
+    expect(parsed.notes.join(' ')).toContain('browser manages cookies');
+  });
+});
+
 describe('CSV export payload', () => {
   test('escapes commas, quotes, and newlines per RFC 4180', () => {
     expect(np.escapeCsvField('plain')).toBe('plain');
