@@ -47,7 +47,7 @@ Captured and imported traffic is held in the DevTools panel's memory while that 
 
 Network+ writes to the clipboard or creates a HAR download only after a user selects a copy or export action. Sanitized output is the default. It redacts URL query and form-like fragment values, URL credentials, cookie values, and header values outside a small structural allowlist; it defensively redacts selected JSON fields and omits body formats it cannot safely sanitize. Sanitization reduces accidental disclosure but cannot guarantee that every sensitive value is removed, so users should review output before sharing it.
 
-Full output can include URLs, headers, cookies, request bodies, response bodies, and authentication or personal information. It is available only after a warning and one-time confirmation for that action. Network+ does not save a preference to use full output automatically.
+Full output can include URLs, headers, cookies, request bodies, response bodies, captured WebSocket frames, and authentication or personal information. It is available only after a warning and one-time confirmation for that action. Network+ does not save a preference to use full output automatically.
 
 Edit and resend is likewise user-initiated. Send composes a new request from fields the user has reviewed in the dialog, and the inspected page itself issues it to the server named in its URL and to nowhere else; Network+ transmits nothing on its own and stores neither the composed request nor a resend preference. JWT-shaped header values decode locally for display only; the decoded claims are never verified, stored, copied, or exported.
 

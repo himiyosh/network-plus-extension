@@ -4336,6 +4336,96 @@ describe('resolveLanguage', () => {
   });
 });
 
+describe('WebSocket frame HAR export', () => {
+  const wsContext = (row) => ({ createRow: () => {}, getRow: () => row });
+
+  test('live capture retains a structured frame array on WS rows only', () => {
+    const wsRow = { method: 'WS', startedDateTime: new Date(1000).toISOString() };
+    np.ingestWsEvents(
+      [
+        { socketId: 1, kind: 'ws-sent', at: 2000, preview: 'hello' },
+        { socketId: 1, kind: 'ws-received', at: 3000, preview: '[binary 12 bytes]' },
+      ],
+      wsContext(wsRow),
+    );
+    expect(wsRow._wsFrames).toEqual([
+      { type: 'send', time: 2000, binary: false, data: 'hello' },
+      { type: 'receive', time: 3000, binary: true, data: '' },
+    ]);
+    const sseRow = { method: 'SSE', startedDateTime: new Date(1000).toISOString() };
+    np.ingestWsEvents([{ socketId: 2, kind: 'ws-received', at: 2000, preview: 'data: x' }], wsContext(sseRow));
+    expect(sseRow._wsFrames).toBeUndefined();
+  });
+
+  test('export writes Chrome-shaped _webSocketMessages with honest fidelity notes', () => {
+    const row = {
+      id: 1,
+      method: 'WS',
+      url: 'wss://live.example.test/socket',
+      startedDateTime: new Date(1000).toISOString(),
+      _wsFrames: [
+        { type: 'send', time: 2000, binary: false, data: 'ping' },
+        { type: 'receive', time: 2500, binary: true, data: '' },
+      ],
+      _wsFramesDropped: 3,
+    };
+    const har = np.buildHarLogFromRows([row], new Map());
+    const entry = har.log.entries[0];
+    expect(entry._webSocketMessages).toEqual([
+      { type: 'send', time: 2, opcode: 1, data: 'ping' },
+      { type: 'receive', time: 2.5, opcode: 2 },
+    ]);
+    expect(entry._networkPlus.webSocketExport).toEqual({
+      droppedFrames: 3,
+      binaryFramesWithoutPayload: 1,
+      textPreviewLimit: np.WS_FRAME_PREVIEW_CHARS,
+    });
+    // A row without frames never gets the key.
+    const plain = np.buildHarLogFromRows([{ id: 2, method: 'GET', url: 'https://a.test/' }], new Map());
+    expect(plain.log.entries[0]._webSocketMessages).toBeUndefined();
+  });
+
+  test('an imported conversation survives a re-export round-trip', () => {
+    const row = { id: 3, method: 'GET', url: 'wss://a.test/ws', startedDateTime: new Date(0).toISOString() };
+    np.applyHarWebSocketMessages(row, [
+      { type: 'send', time: 1.5, opcode: 1, data: 'one' },
+      { type: 'receive', time: 2.5, opcode: 1, data: 'two' },
+    ]);
+    const har = np.buildHarLogFromRows([row], new Map());
+    expect(har.log.entries[0]._webSocketMessages).toEqual([
+      { type: 'send', time: 1.5, opcode: 1, data: 'one' },
+      { type: 'receive', time: 2.5, opcode: 1, data: 'two' },
+    ]);
+  });
+
+  test('sanitized export omits the frames and marks the omission per entry', () => {
+    const har = {
+      log: {
+        version: '1.2',
+        entries: [
+          {
+            startedDateTime: new Date(0).toISOString(),
+            time: 1,
+            request: { method: 'GET', url: 'wss://a.test/ws', headers: [] },
+            response: { status: 101, statusText: '', headers: [], content: { mimeType: '', text: '' } },
+            timings: {},
+            _webSocketMessages: [
+              { type: 'send', time: 1, opcode: 1, data: 'token=secret' },
+              { type: 'receive', time: 2, opcode: 1, data: 'ok' },
+            ],
+          },
+        ],
+      },
+    };
+    const sanitized = np.sanitizeHar(har, { mode: 'sanitized' });
+    expect(sanitized.log._networkPlus.failedClosed).toBe(false);
+    const entry = sanitized.log.entries[0];
+    expect(entry._webSocketMessages).toBeUndefined();
+    expect(entry._networkPlus.webSocketFramesOmitted).toBe(2);
+    expect(JSON.stringify(sanitized)).not.toContain('token=secret');
+  });
+});
+
 describe('cURL command import', () => {
   test('tokenizes quoting styles, escapes, and line continuations', () => {
     expect(np.tokenizeShellCommand("curl 'https://a.test/x y' -H \"Accept: a/b\"")).toEqual([

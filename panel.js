@@ -2277,6 +2277,14 @@ const _NetworkPlus = (function () {
           sanitizedEntry._networkPlus = metadata.value;
           summary = mergeSanitizationSummaries(summary, metadata.summary);
         }
+        // Frame payloads are body-class data: the allowlist above already
+        // keeps _webSocketMessages out of sanitized output, and this marker
+        // makes the omission visible in the file instead of silent.
+        if (Array.isArray(entry._webSocketMessages) && entry._webSocketMessages.length > 0) {
+          sanitizedEntry._networkPlus = Object.assign({}, sanitizedEntry._networkPlus, {
+            webSocketFramesOmitted: entry._webSocketMessages.length,
+          });
+        }
         return sanitizedEntry;
       });
 
@@ -3706,6 +3714,24 @@ const _NetworkPlus = (function () {
   // importing them threads the frames into the same panes live capture uses.
   const HAR_WS_MESSAGE_IMPORT_LIMIT = 1000;
 
+  // Alongside the bounded display text, WS rows keep a bounded structured
+  // copy of the conversation — what HAR export writes back out as
+  // _webSocketMessages. SSE rows never get one: the key is a Chrome
+  // WebSocket-entry extension, and emitting it for SSE would make any
+  // importer mislabel the row as a websocket. Binary frames carry no
+  // captured payload (the page wrapper ships a size placeholder), so they
+  // export as opcode 2 without data and are counted honestly.
+  function recordWsFrame(row, frame) {
+    if (!row._wsFrames) row._wsFrames = [];
+    if (row._wsFrames.length >= HAR_WS_MESSAGE_IMPORT_LIMIT) {
+      row._wsFramesDropped = (row._wsFramesDropped || 0) + 1;
+      return;
+    }
+    row._wsFrames.push(frame);
+  }
+
+  const WS_BINARY_PREVIEW_PATTERN = /^\[binary \d+ bytes\]$/;
+
   function applyHarWebSocketMessages(row, messages) {
     if (!row || !Array.isArray(messages) || messages.length === 0) return 0;
     const usable = messages
@@ -3723,6 +3749,12 @@ const _NetworkPlus = (function () {
           ? '[binary frame' + (typeof message.data === 'string' ? ', ' + message.data.length + ' base64 chars' : '') + ']'
           : String(message.data == null ? '' : message.data).slice(0, WS_FRAME_PREVIEW_CHARS);
       const line = formatWsFrameLine({ kind: message.type === 'send' ? 'ws-sent' : 'ws-received', at, preview });
+      recordWsFrame(row, {
+        type: message.type,
+        time: at,
+        binary: message.opcode === 2,
+        data: message.opcode === 2 ? '' : String(message.data == null ? '' : message.data).slice(0, WS_FRAME_PREVIEW_CHARS),
+      });
       if (message.type === 'send') {
         if (!row.requestPostData || typeof row.requestPostData !== 'object') {
           row.requestPostData = { mimeType: 'text/plain', text: '' };
@@ -3749,6 +3781,7 @@ const _NetworkPlus = (function () {
         WS_DIRECTION_TEXT_LIMIT_CHARS,
       );
       row.responseContentState = 'pending-admission';
+      row._wsFramesDropped = (row._wsFramesDropped || 0) + (usable.length - limited.length);
     }
     if (applied > 0 && !row.type) row.type = 'websocket';
     return applied;
@@ -5868,6 +5901,11 @@ const _NetworkPlus = (function () {
           WS_DIRECTION_TEXT_LIMIT_CHARS,
         );
         row._wsSentCount = (row._wsSentCount || 0) + 1;
+        if (row.method !== 'SSE') {
+          const preview = event.preview || '';
+          const binary = WS_BINARY_PREVIEW_PATTERN.test(preview);
+          recordWsFrame(row, { type: 'send', time: event.at, binary, data: binary ? '' : preview });
+        }
       } else {
         const line = formatWsFrameLine(event);
         if (line) {
@@ -5885,6 +5923,11 @@ const _NetworkPlus = (function () {
         if (event.kind === 'ws-received') {
           row._wsReceivedCount = (row._wsReceivedCount || 0) + 1;
           row.size = (row.size || 0) + (event.preview ? event.preview.length : 0);
+          if (row.method !== 'SSE') {
+            const preview = event.preview || '';
+            const binary = WS_BINARY_PREVIEW_PATTERN.test(preview);
+            recordWsFrame(row, { type: 'receive', time: event.at, binary, data: binary ? '' : preview });
+          }
         }
         if (event.kind === 'ws-closed') {
           row.statusText = 'Closed';
@@ -10459,6 +10502,33 @@ const _NetworkPlus = (function () {
         timings,
       };
       if (postData) entry.request.postData = postData;
+      if (Array.isArray(r._wsFrames) && r._wsFrames.length > 0) {
+        // Chrome's WebSocket-entry extension key, written the way Chrome
+        // writes it (epoch seconds, opcode 1 text) so DevTools and other
+        // HAR tools read the conversation back. Binary frames were only
+        // captured as size placeholders, so they export as opcode 2
+        // without data, and every fidelity loss is declared on the entry.
+        entry._webSocketMessages = r._wsFrames.map((frame) => {
+          const message = {
+            type: frame.type,
+            time: Number.isFinite(frame.time) ? frame.time / 1000 : 0,
+            opcode: frame.binary ? 2 : 1,
+          };
+          if (!frame.binary) message.data = frame.data;
+          return message;
+        });
+        const droppedFrames = r._wsFramesDropped || 0;
+        const binaryFrames = r._wsFrames.filter((frame) => frame.binary).length;
+        if (droppedFrames > 0 || binaryFrames > 0) {
+          entry._networkPlus = {
+            webSocketExport: {
+              droppedFrames,
+              binaryFramesWithoutPayload: binaryFrames,
+              textPreviewLimit: WS_FRAME_PREVIEW_CHARS,
+            },
+          };
+        }
+      }
       entries.push(entry);
     }
     const now = new Date().toISOString();
