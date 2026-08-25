@@ -885,10 +885,18 @@ const _NetworkPlus = (function () {
     return ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(2) + ' s';
   }
 
+  // Opaque schemes — data:, blob:, about: — parse cleanly but carry no host,
+  // and their whole payload lands in pathname with the scheme dropped. Split
+  // naively, a local blob renders as a request to the origin embedded in it
+  // (blob:https://cdn.example/uuid showed a blank domain and a path reading
+  // https://cdn.example/uuid), which is the URL the browser never requested.
+  // Naming the scheme as the domain keeps the row honest and, unlike a blank,
+  // gives the domain summary and the domain filters something to group on.
   function extractUrlParts(url) {
     try {
       const u = new URL(url);
-      return { domain: u.host, path: u.pathname + (u.search || '') };
+      const path = u.pathname + (u.search || '');
+      return u.host ? { domain: u.host, path } : { domain: u.protocol, path };
     } catch (_e) {
       return { domain: '', path: url };
     }
@@ -10083,7 +10091,9 @@ const _NetworkPlus = (function () {
     let path;
     try {
       const u = new URL(url);
-      path = u.pathname + u.search;
+      // A host-less URL has no request line to reconstruct; its pathname is the
+      // payload, so echo the URL whole rather than a scheme-stripped fragment.
+      path = u.host ? u.pathname + u.search : url;
     } catch (_e) {
       path = url;
     }
@@ -10887,6 +10897,7 @@ const _NetworkPlus = (function () {
     if (!url) return '(no URL)';
     try {
       const u = new URL(url);
+      if (!u.host) return url.slice(0, 40);
       return (u.pathname + (u.search || '')).slice(0, 40) || u.host;
     } catch (_e) {
       return url.slice(0, 40);
@@ -14253,6 +14264,10 @@ const _NetworkPlus = (function () {
       const describeResendTarget = (url) => {
         try {
           const parsed = new URL(url);
+          // origin is the inner origin for blob: and the string 'null' for data:,
+          // so concatenating it onto pathname doubles the URL or prefixes it
+          // with 'null'. Host-less URLs describe themselves.
+          if (!parsed.host) return url;
           return parsed.origin + parsed.pathname;
         } catch (_error) {
           return url;
