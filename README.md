@@ -9,6 +9,8 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 
 [![Quality gates](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml/badge.svg)](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml)
 [![Latest release](https://img.shields.io/github/v/release/himiyosh/network-plus-extension?label=release)](https://github.com/himiyosh/network-plus-extension/releases/latest)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome%20Web%20Store-Install-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo)
+[![Edge Add-ons](https://img.shields.io/badge/Edge%20Add--ons-Install-0078D7?logo=microsoftedge&logoColor=white)](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241)
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-4caf50)](manifest.json)
 [![Node 22 | 24](https://img.shields.io/badge/Node-22%20%7C%2024-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
@@ -24,7 +26,7 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 
 </div>
 
-**Try it now:** [Download the latest release ZIP](https://github.com/himiyosh/network-plus-extension/releases/latest) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
+**Try it now:** [Download the latest release ZIP](https://github.com/himiyosh/network-plus-extension/releases/latest) · [Chrome Web Store](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) · [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
 
 ---
 
@@ -57,6 +59,15 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 
 ## 🚀 Quick start
 
+### Install from the browser store
+
+| Browser | Listing |
+|---|---|
+| Google Chrome | [Chrome Web Store](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) |
+| Microsoft Edge | [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241) |
+
+Open the listing for your browser, add the extension, then open DevTools (<kbd>F12</kbd>) — a **Network+** tab is now available. The store build updates itself, so this is the route to take unless you need a specific build.
+
 ### Install from the release ZIP
 
 1. Download the ZIP from the [latest release](https://github.com/himiyosh/network-plus-extension/releases/latest) — the release notes there list what changed.
@@ -66,7 +77,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 5. Open DevTools (<kbd>F12</kbd>) — a **Network+** tab is now available.
 
 > [!NOTE]
-> Network+ is not yet published on Microsoft Edge Add-ons or the Chrome Web Store. The steps above load an unpacked build in Developer mode. See the [privacy notice](docs/privacy.md), [Edge Add-ons submission dossier](docs/edge-addons-submission.md), and [Chrome Web Store submission dossier](docs/chrome-web-store-submission.md) for the reviewed data-handling and submission fields.
+> These steps load an unpacked build in Developer mode, which is what you want to try a build before it reaches the stores or to pin one exact version. A store install updates itself; an unpacked one does not. See the [privacy notice](docs/privacy.md), [Edge Add-ons submission dossier](docs/edge-addons-submission.md), and [Chrome Web Store submission dossier](docs/chrome-web-store-submission.md) for the reviewed data-handling and submission fields.
 
 ### Install from source
 
@@ -84,8 +95,8 @@ Then open `edge://extensions/` or `chrome://extensions/`, turn on **Developer mo
 
 | Browser | Status | Notes |
 |---|---|---|
-| Microsoft Edge | Primary | Reference environment for development and release verification; an Edge Add-ons submission dossier is prepared |
-| Google Chrome | Supported | Verified below; a Chrome Web Store submission dossier and required promotional tile are prepared |
+| Microsoft Edge | Primary | Reference environment for development and release verification; listed on [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241) |
+| Google Chrome | Supported | Verified below; listed on the [Chrome Web Store](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) |
 | Firefox / Safari | Not supported | Different DevTools extension APIs and Manifest V3 implementations |
 
 There is no browser-specific branch in the source. The only extension APIs used are `chrome.devtools.network`, `chrome.devtools.panels`, `chrome.storage.local`, and `chrome.runtime` — all Chromium standard.
