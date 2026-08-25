@@ -3414,7 +3414,7 @@ const _NetworkPlus = (function () {
     }
     return {
       state: 'unavailable',
-      reason: 'Imported HAR does not include response content or an explicit zero body size.',
+      reason: IMPORT_BODY_MISSING_REASON,
     };
   }
 
@@ -3422,7 +3422,7 @@ const _NetworkPlus = (function () {
     const rawState = row && row.responseContentState ? row.responseContentState : 'unavailable';
     const state = rawState === 'row-evicted' ? 'evicted' : rawState;
     const label = ['omitted', 'evicted', 'unavailable'].includes(state) ? state : 'error';
-    const fallback = label === 'error' ? 'Response content retrieval failed.' : 'Full response content is unavailable.';
+    const fallback = label === 'error' ? BODY_RETRIEVAL_FAILED_REASON : BODY_UNAVAILABLE_REASON;
     return {
       label,
       reason:
@@ -3439,6 +3439,16 @@ const _NetworkPlus = (function () {
   // timing out on a doomed getContent call later.
   const NAVIGATION_BODY_UNAVAILABLE_REASON =
     'The inspected page navigated away before this response body was retrieved.';
+
+  // Fixed body-unavailability reasons are stored on rows in English — they
+  // travel through the mirror protocol and into exports unchanged — and are
+  // translated only at display time via localizeBodyReason.
+  const BODY_RETRIEVAL_FAILED_REASON = 'Response content retrieval failed.';
+  const BODY_UNAVAILABLE_REASON = 'Full response content is unavailable.';
+  const BODY_EVICTED_REASON =
+    'Evicted from the bounded response-body cache; select or export to retry retrieval.';
+  const IMPORT_BODY_MISSING_REASON =
+    'Imported HAR does not include response content or an explicit zero body size.';
 
   function markUnfetchedRowsForNavigation(rows) {
     const markedRows = [];
@@ -4568,7 +4578,7 @@ const _NetworkPlus = (function () {
       const oldestRow = oldestEntry[0];
       releaseResponseContent(oldestRow, 'evicted', true);
       evictedBodyCount += 1;
-      oldestRow.responseContentReason = 'Evicted from the bounded response-body cache; select or export to retry retrieval.';
+      oldestRow.responseContentReason = BODY_EVICTED_REASON;
       if (state.onResponseContentChanged) state.onResponseContentChanged(oldestRow);
     }
     if (evictedBodyCount > 0) {
@@ -5124,9 +5134,284 @@ const _NetworkPlus = (function () {
       en: 'Unlimited request retention can exhaust DevTools memory. Response-body limits remain active.',
       ja: '無制限保持は DevTools のメモリを使い切るおそれがあります。レスポンスボディの上限は引き続き有効です。',
     },
+    dataSafetyDetail: {
+      en: 'Sanitized output is the safe default.',
+      ja: 'サニタイズ済み出力が安全な既定です。',
+    },
+    dataSafetyWarnRedacts: {
+      en: 'Sanitized output redacts every URL query and form-like fragment value, both URL userinfo components, Cookie values, and every header value outside a small structural allowlist.',
+      ja: 'サニタイズ済み出力では、URL クエリとフォーム形式のフラグメント値、URL のユーザー情報 2 要素、Cookie 値、そして小さな構造的許可リスト外のすべてのヘッダー値が伏せ字化されます。',
+    },
+    dataSafetyWarnExposeTitle: {
+      en: 'Full output bypasses those protections and can expose:',
+      ja: '完全出力はこれらの保護を通らず、次を露出させる可能性があります:',
+    },
+    dataSafetyWarnExposeHeaders: {
+      en: 'Authorization, proxy authorization, custom, security, trace, request-ID, and client-certificate headers',
+      ja: 'Authorization・プロキシ認証・カスタム・セキュリティ・トレース・リクエスト ID・クライアント証明書の各ヘッダー',
+    },
+    dataSafetyWarnExposeCookies: {
+      en: 'Cookie and Set-Cookie values',
+      ja: 'Cookie と Set-Cookie の値',
+    },
+    dataSafetyWarnExposeUrl: {
+      en: 'URL usernames, passwords, query values, and fragment values',
+      ja: 'URL のユーザー名・パスワード・クエリ値・フラグメント値',
+    },
+    dataSafetyWarnExposeBodies: {
+      en: 'Request and response bodies, including base64 content',
+      ja: 'リクエストとレスポンスのボディ(base64 内容を含む)',
+    },
+    dataSafetyWarnOneTime: {
+      en: 'This confirmation applies only to this action. Network+ does not save a full-output preference.',
+      ja: 'この確認は今回の操作だけに適用されます。Network+ は完全出力の設定を保存しません。',
+    },
+    resendIntro: {
+      en: "Send composes a new request from these fields, and the inspected page itself issues it — so cookies, CORS, and the page's security policies apply as usual. The reply arrives as a new captured row.",
+      ja: 'Send はこれらのフィールドから新しいリクエストを組み立て、検査中のページ自身が送信します。そのため Cookie・CORS・ページのセキュリティポリシーは通常どおり適用されます。応答は新しいキャプチャ行として届きます。',
+    },
+    resendManagedHeadersHint: {
+      en: 'Browser-managed headers (Host, Cookie, Content-Length, Origin, Referer, and the Sec-* and Proxy-* families) are set by the browser and cannot be overridden here.',
+      ja: 'ブラウザ管理のヘッダー(Host、Cookie、Content-Length、Origin、Referer、Sec-* / Proxy-* 系)はブラウザが設定するため、ここでは上書きできません。',
+    },
+    shortcutSupportSummaryHelp: {
+      en: 'Copies only the packaged version, Edge major, coarse OS family, theme, retention, recording and sample state, and display and motion preferences. Captured traffic is excluded. Review the summary before posting.',
+      ja: 'コピーされるのはパッケージ版のバージョン、Edge のメジャーバージョン、大まかな OS 種別、テーマ、保持設定、記録とサンプルの状態、表示とモーションの設定だけです。キャプチャしたトラフィックは含まれません。投稿前に内容を確認してください。',
+    },
+    supportIntro: {
+      en: 'Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or paid tier. If it saved you a debugging session, a coffee helps keep it maintained. Contributing is optional and never unlocks, limits, or changes any feature.',
+      ja: 'Network+ は個人開発の MIT ライセンスのプロジェクトで、テレメトリ・広告・アカウント・有料プランはありません。デバッグの手間が省けたと感じたら、コーヒー 1 杯の支援が継続開発の助けになります。支援は任意で、機能の解放・制限・変更は一切ありません。',
+    },
+    supportNote: {
+      en: 'The buttons open the payment page in a browser tab; the payment itself happens on that site, never inside DevTools. Network+ sends them no captured traffic and no usage data, and cannot tell whether you visited or contributed.',
+      ja: 'ボタンは支払いページをブラウザのタブで開きます。支払いはそのサイト上で行われ、DevTools 内では行われません。Network+ はこれらのサイトへキャプチャしたトラフィックも利用データも送らず、訪問や支援の有無を知ることもできません。',
+    },
+    supportSponsorsHint: {
+      en: 'github.com/sponsors/himiyosh · one-time or monthly · no platform fee',
+      ja: 'github.com/sponsors/himiyosh · 単発または月額 · プラットフォーム手数料なし',
+    },
+    supportKofiHint: {
+      en: 'ko-fi.com/studio344 · one-time · no account needed',
+      ja: 'ko-fi.com/studio344 · 単発 · アカウント不要',
+    },
+    sampleGuideIntro: {
+      en: 'Inspect the three local requests before revealing the evidence.',
+      ja: '証拠を表示する前に、3 件のローカルリクエストを調べてみてください。',
+    },
+    sampleGuidePrompt1: {
+      en: 'Which request failed?',
+      ja: 'どのリクエストが失敗しましたか?',
+    },
+    sampleGuidePrompt2: {
+      en: 'Which Timing phase accounts for most of its duration?',
+      ja: '所要時間の大半を占める Timing フェーズはどれですか?',
+    },
+    sampleGuidePrompt3: {
+      en: 'Which response header gives a retry hint?',
+      ja: '再試行のヒントを与えるレスポンスヘッダーはどれですか?',
+    },
+    sampleGuidePrompt4: {
+      en: 'What limitation applies to what browser timing can prove?',
+      ja: 'ブラウザの計測が証明できることには、どんな限界がありますか?',
+    },
+    sampleGuideExitHelp: {
+      en: 'Exiting removes all three local sample requests and restores the recording state and column filters from before the sample.',
+      ja: '終了すると 3 件のローカルサンプルリクエストがすべて削除され、サンプル開始前の記録状態と列フィルターが復元されます。',
+    },
+    titleSupportBtn: {
+      en: 'Support Network+ development (optional)',
+      ja: 'Network+ の開発を支援する(任意)',
+    },
+    titleSearchToggle: {
+      en: 'Toggle search panel (Ctrl+F)',
+      ja: '検索パネルを開閉 (Ctrl+F)',
+    },
+    titleClearBtn: {
+      en: 'Clear all requests',
+      ja: 'すべてのリクエストを消去',
+    },
+    titleImportBtn: {
+      en: 'Import (HAR/SAZ)',
+      ja: 'インポート (HAR/SAZ)',
+    },
+    titleExportBtn: {
+      en: 'Export network data (sanitized by default)',
+      ja: 'ネットワークデータをエクスポート(既定でサニタイズ済み)',
+    },
+    titlePopoutBtn: {
+      en: 'Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)',
+      ja: 'Network+ をブラウザのタブで開き、この DevTools セッションをミラー表示 (Ctrl/⌘+Shift+M)',
+    },
+    titleShortcutBtn: {
+      en: 'Keyboard shortcuts (?)',
+      ja: 'キーボードショートカット (?)',
+    },
+    titleMatchesOnly: {
+      en: 'Show only requests that match search keywords. When off, all requests stay visible with highlights.',
+      ja: '検索キーワードに一致するリクエストだけを表示します。オフの間はすべてのリクエストがハイライト付きで表示されたままです。',
+    },
+    titleMatchCase: {
+      en: 'Match case',
+      ja: '大文字と小文字を区別',
+    },
+    titleMatchWord: {
+      en: 'Match whole word',
+      ja: '単語単位で一致',
+    },
+    titleMatchRegex: {
+      en: 'Use regular expression',
+      ja: '正規表現を使用',
+    },
+    titleSearchScope: {
+      en: 'Search scope settings',
+      ja: '検索対象の設定',
+    },
+    titleResizer: {
+      en: 'Resize request list and details with arrow keys',
+      ja: '矢印キーでリクエスト一覧と詳細の高さを調整',
+    },
+    titleInspectorDivider: {
+      en: 'Resize request and response inspectors with arrow keys',
+      ja: '矢印キーでリクエスト / レスポンス インスペクターの幅を調整',
+    },
+    titleDetailsClose: {
+      en: 'Close request details',
+      ja: 'リクエスト詳細を閉じる',
+    },
+    titleSampleExit: {
+      en: 'Remove the complete local sample and restore the prior recording state and column filters',
+      ja: 'ローカルサンプル一式を削除し、以前の記録状態と列フィルターを復元',
+    },
+    titleWsCapture: {
+      en: "Capture WebSocket and Server-Sent-Event streams by wrapping this page's WebSocket and EventSource constructors; only connections created while capture is on are seen, and traffic is never altered",
+      ja: 'このページの WebSocket / EventSource コンストラクターをラップして WebSocket と Server-Sent-Events のストリームをキャプチャします。キャプチャ有効中に作成された接続だけが対象で、トラフィックは一切変更されません。',
+    },
+    emptyFilteredTitle: {
+      en: 'No requests match the current filters.',
+      ja: '現在のフィルターに一致するリクエストはありません。',
+    },
+    emptyFilteredDesc: {
+      en: 'Clear or adjust filters to show captured requests.',
+      ja: 'フィルターを解除または調整すると、キャプチャ済みのリクエストが表示されます。',
+    },
+    emptyCapturePausedTitle: {
+      en: 'Recording is paused.',
+      ja: '記録は一時停止中です。',
+    },
+    emptyCaptureRecordingTitle: {
+      en: 'Recording network activity...',
+      ja: 'ネットワークアクティビティを記録しています...',
+    },
+    emptyCaptureViewerDesc: {
+      en: 'Requests stream in from the DevTools session; the guided local sample stays DevTools-side.',
+      ja: 'リクエストは DevTools セッションから流れてきます。ガイド付きローカルサンプルは DevTools 側でのみ使えます。',
+    },
+    emptyCapturePausedDesc: {
+      en: 'Resume recording to capture real requests, or explore three local-only sample requests. No network request is sent.',
+      ja: '記録を再開して実際のリクエストをキャプチャするか、ローカル限定のサンプルリクエスト 3 件を試せます。ネットワークリクエストは送信されません。',
+    },
+    emptyCaptureRecordingDesc: {
+      en: 'Perform a request or reload the page, or explore three local-only sample requests. No network request is sent.',
+      ja: 'リクエストを発生させるかページを再読み込みするか、ローカル限定のサンプルリクエスト 3 件を試せます。ネットワークリクエストは送信されません。',
+    },
+    timingGuideSummary: {
+      en: 'What do the timing phases mean?',
+      ja: 'タイミングフェーズの意味は?',
+    },
+    timingPhaseBlocked: {
+      en: TIMING_PHASE_GUIDANCE.blocked.description,
+      ja: '使えるコネクションを待つなど、リクエストを開始できるまでブラウザ内で待機した時間。',
+    },
+    timingPhaseDns: {
+      en: TIMING_PHASE_GUIDANCE.dns.description,
+      ja: '接続前にリクエスト先ホスト名を解決するのにかかったと報告された時間。',
+    },
+    timingPhaseConnect: {
+      en: TIMING_PHASE_GUIDANCE.connect.description,
+      ja: '接続確立にかかったと報告された時間。TLS が別に報告される場合、二重に数えないよう Network+ はここから TLS 分を除きます。',
+    },
+    timingPhaseSsl: {
+      en: TIMING_PHASE_GUIDANCE.ssl.description,
+      ja: 'TLS (SSL) ネゴシエーションにかかったと報告された時間。Connect とは別に表示されます。',
+    },
+    timingPhaseSend: {
+      en: TIMING_PHASE_GUIDANCE.send.description,
+      ja: 'HTTP リクエストのバイト列を送信するのにかかったと報告された時間。',
+    },
+    timingPhaseWait: {
+      en: TIMING_PHASE_GUIDANCE.wait.description,
+      ja: 'リクエスト送信後、レスポンスが始まるまで待った時間(いわゆる TTFB)。',
+    },
+    timingPhaseReceive: {
+      en: TIMING_PHASE_GUIDANCE.receive.description,
+      ja: '最初の 1 バイト以降、レスポンスを受信するのにかかったと報告された時間。',
+    },
+    timingEvidenceLimitation: {
+      en: TIMING_EVIDENCE_LIMITATION,
+      ja: 'ブラウザが観測したタイミングフェーズは、報告された遅延の所在を絞り込む助けになります。ただしパケットロス、配線や無線の障害、サーバー側の確定的な根本原因までは証明できません。',
+    },
+    reasonNavigationBodyUnavailable: {
+      en: NAVIGATION_BODY_UNAVAILABLE_REASON,
+      ja: '検査中のページが移動したため、このレスポンスボディは取得できませんでした。',
+    },
+    reasonBodyEvicted: {
+      en: BODY_EVICTED_REASON,
+      ja: '上限付きレスポンスボディキャッシュから追い出されました。行を選択またはエクスポートすると再取得を試みます。',
+    },
+    reasonImportNoContent: {
+      en: IMPORT_BODY_MISSING_REASON,
+      ja: 'インポートした HAR にレスポンス内容も明示的なボディサイズ 0 も含まれていません。',
+    },
+    reasonBodyRetrievalFailed: {
+      en: BODY_RETRIEVAL_FAILED_REASON,
+      ja: 'レスポンス内容の取得に失敗しました。',
+    },
+    reasonBodyUnavailable: {
+      en: BODY_UNAVAILABLE_REASON,
+      ja: '完全なレスポンス内容は利用できません。',
+    },
   };
 
   let activeLanguage = 'en';
+
+  // Resolves a dictionary key for strings the panel composes in JavaScript
+  // (empty states, timing guidance, body-unavailability reasons). Falls back
+  // to the English entry so a stale activeLanguage can never blank the UI.
+  function uiText(key) {
+    const entry = UI_TEXT[key];
+    if (!entry) return '';
+    return typeof entry[activeLanguage] === 'string' ? entry[activeLanguage] : entry.en || '';
+  }
+
+  // Rows keep their canonical English responseContentReason (it crosses the
+  // mirror port and lands in exports); only these fixed reasons translate,
+  // and only where they are rendered.
+  const LOCALIZED_REASON_KEYS = new Map([
+    [NAVIGATION_BODY_UNAVAILABLE_REASON, 'reasonNavigationBodyUnavailable'],
+    [BODY_EVICTED_REASON, 'reasonBodyEvicted'],
+    [IMPORT_BODY_MISSING_REASON, 'reasonImportNoContent'],
+    [BODY_RETRIEVAL_FAILED_REASON, 'reasonBodyRetrievalFailed'],
+    [BODY_UNAVAILABLE_REASON, 'reasonBodyUnavailable'],
+  ]);
+
+  function localizeBodyReason(reason) {
+    const key = LOCALIZED_REASON_KEYS.get(reason);
+    return key ? uiText(key) : reason;
+  }
+
+  function localizeTimingLimitation(limitation) {
+    return limitation === TIMING_EVIDENCE_LIMITATION ? uiText('timingEvidenceLimitation') : limitation;
+  }
+
+  const TIMING_PHASE_TEXT_KEYS = Object.freeze({
+    blocked: 'timingPhaseBlocked',
+    dns: 'timingPhaseDns',
+    connect: 'timingPhaseConnect',
+    ssl: 'timingPhaseSsl',
+    send: 'timingPhaseSend',
+    wait: 'timingPhaseWait',
+    receive: 'timingPhaseReceive',
+  });
 
   function applyLanguage(pref) {
     const normalized = LANGS.includes(pref) ? pref : 'system';
@@ -5136,8 +5421,17 @@ const _NetworkPlus = (function () {
       const entry = UI_TEXT[el.getAttribute('data-i18n')];
       if (entry && typeof entry[activeLanguage] === 'string') el.textContent = entry[activeLanguage];
     }
+    // Tooltips are explanations too. Only titles that no JavaScript path
+    // rewrites carry data-i18n-title; dynamic titles (pause, undo, retention)
+    // keep their composed English text.
+    const titled = document.querySelectorAll('[data-i18n-title]');
+    for (const el of titled) {
+      const entry = UI_TEXT[el.getAttribute('data-i18n-title')];
+      if (entry && typeof entry[activeLanguage] === 'string') el.title = entry[activeLanguage];
+    }
     const select = $('#langSelect');
     if (select) select.value = normalized;
+    refreshEmptyStateLanguage();
     setStatus('Language=' + normalized);
   }
 
@@ -7154,7 +7448,7 @@ const _NetworkPlus = (function () {
    guide.className = 'timing-guidance';
    const summary = document.createElement('summary');
    summary.className = 'timing-guidance-summary';
-   summary.textContent = 'What do the timing phases mean?';
+   summary.textContent = uiText('timingGuideSummary');
    guide.appendChild(summary);
 
    const list = document.createElement('dl');
@@ -7165,7 +7459,7 @@ const _NetworkPlus = (function () {
      const term = document.createElement('dt');
      term.textContent = guidance.label;
      const description = document.createElement('dd');
-     description.textContent = guidance.description;
+     description.textContent = uiText(TIMING_PHASE_TEXT_KEYS[phase]) || guidance.description;
      list.appendChild(term);
      list.appendChild(description);
    }
@@ -8063,7 +8357,7 @@ const _NetworkPlus = (function () {
       'Retry hint',
       evidence.retryHeaderName + ': ' + evidence.retryAfter + ' seconds',
     );
-    appendSampleGuideEvidenceItem(list, 'Browser evidence limit', evidence.limitation);
+    appendSampleGuideEvidenceItem(list, 'Browser evidence limit', localizeTimingLimitation(evidence.limitation));
     container.appendChild(list);
 
     const navigationActions = document.createElement('div');
@@ -8704,9 +8998,12 @@ const _NetworkPlus = (function () {
     return true;
   }
 
+  let lastEmptyStateRowCount = 0;
+
   function updateEmptyState(visibleRowCount) {
     const tableWrap = $('#tableWrap');
     if (!tableWrap) return;
+    lastEmptyStateRowCount = visibleRowCount;
     const mode = getEmptyStateMode(state.rows.length, visibleRowCount);
     syncGridControlTabStops(state.rows.length, visibleRowCount);
     const content = $('#content');
@@ -8723,7 +9020,7 @@ const _NetworkPlus = (function () {
       emptyState.className = 'empty-state';
       tableWrap.appendChild(emptyState);
     }
-    const renderKey = mode + ':' + (state.paused ? 'paused' : 'recording');
+    const renderKey = mode + ':' + (state.paused ? 'paused' : 'recording') + ':' + activeLanguage;
     if (emptyState.dataset.renderKey !== renderKey) {
       emptyState.textContent = '';
       emptyState.dataset.renderKey = renderKey;
@@ -8737,19 +9034,21 @@ const _NetworkPlus = (function () {
       description.className = 'empty-state-description';
       if (mode === 'filtered') {
         icon.textContent = '🔎';
-        title.textContent = 'No requests match the current filters.';
-        description.textContent = 'Clear or adjust filters to show captured requests.';
+        title.textContent = uiText('emptyFilteredTitle');
+        description.textContent = uiText('emptyFilteredDesc');
       } else {
         icon.textContent = '📡';
-        title.textContent = state.paused ? 'Recording is paused.' : 'Recording network activity...';
+        title.textContent = state.paused
+          ? uiText('emptyCapturePausedTitle')
+          : uiText('emptyCaptureRecordingTitle');
         // The mirror tab captures nothing itself, and its local sample rows
         // would collide with the DevTools session's row ids over the port.
         description.textContent = getMirrorViewParams(window.location ? window.location.search : '')
           .viewerMode
-          ? 'Requests stream in from the DevTools session; the guided local sample stays DevTools-side.'
+          ? uiText('emptyCaptureViewerDesc')
           : state.paused
-            ? 'Resume recording to capture real requests, or explore three local-only sample requests. No network request is sent.'
-            : 'Perform a request or reload the page, or explore three local-only sample requests. No network request is sent.';
+            ? uiText('emptyCapturePausedDesc')
+            : uiText('emptyCaptureRecordingDesc');
       }
       emptyState.appendChild(icon);
       emptyState.appendChild(title);
@@ -8774,6 +9073,15 @@ const _NetworkPlus = (function () {
       }
     }
     emptyState.style.display = 'flex';
+  }
+
+  // A rendered empty state caches its strings behind renderKey; a language
+  // change must re-render it in place because nothing else may repaint while
+  // the grid stays empty.
+  function refreshEmptyStateLanguage() {
+    if (typeof document.getElementById !== 'function') return;
+    if (!document.getElementById('empty-state-msg')) return;
+    updateEmptyState(lastEmptyStateRowCount);
   }
 
   function updateRetentionStatus() {
@@ -9795,7 +10103,7 @@ const _NetworkPlus = (function () {
   function renderCachedResponseContent(row) {
     if (row.responseContentState !== 'cached') {
       const display = describeResponseContentState(row);
-      setResponsePaneMessage('(response body ' + display.label + ': ' + display.reason + ')');
+      setResponsePaneMessage('(response body ' + display.label + ': ' + localizeBodyReason(display.reason) + ')');
       return;
     }
     const resBodyPane = $('#res-body');
@@ -10068,7 +10376,7 @@ const _NetworkPlus = (function () {
       .catch((error) => {
         if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
         const display = describeResponseContentState(row, error);
-        setResponsePaneMessage('(response body ' + display.label + ': ' + display.reason + ')');
+        setResponsePaneMessage('(response body ' + display.label + ': ' + localizeBodyReason(display.reason) + ')');
         if (display.label === 'error') {
           setStatus(
             'Response-body retry failed for request ' +
@@ -10149,7 +10457,7 @@ const _NetworkPlus = (function () {
     }
    const evidenceNote = document.createElement('p');
    evidenceNote.className = 'timing-evidence-note';
-   evidenceNote.textContent = TIMING_EVIDENCE_LIMITATION;
+   evidenceNote.textContent = uiText('timingEvidenceLimitation');
    resTimingPane.appendChild(evidenceNote);
    resTimingPane.appendChild(createTimingPhaseGuide());
   }
@@ -13789,6 +14097,14 @@ const _NetworkPlus = (function () {
     describeRequestBodyForComparison,
     truncateUrlLabel,
     NAVIGATION_BODY_UNAVAILABLE_REASON,
+    BODY_EVICTED_REASON,
+    IMPORT_BODY_MISSING_REASON,
+    BODY_RETRIEVAL_FAILED_REASON,
+    BODY_UNAVAILABLE_REASON,
+    applyLanguage,
+    uiText,
+    localizeBodyReason,
+    localizeTimingLimitation,
     markUnfetchedRowsForNavigation,
     planSelectedExportRows,
     extractOperationLabel,

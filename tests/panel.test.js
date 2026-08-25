@@ -4336,6 +4336,56 @@ describe('resolveLanguage', () => {
   });
 });
 
+describe('uiText and display-time reason localization', () => {
+  afterEach(() => {
+    np.applyLanguage('en');
+  });
+
+  test('uiText follows the active language and falls back safely', () => {
+    np.applyLanguage('en');
+    expect(np.uiText('emptyCapturePausedTitle')).toBe('Recording is paused.');
+    expect(np.uiText('timingEvidenceLimitation')).toBe(np.TIMING_EVIDENCE_LIMITATION);
+    np.applyLanguage('ja');
+    expect(np.uiText('emptyCapturePausedTitle')).toBe('記録は一時停止中です。');
+    // An unknown key degrades to empty text instead of throwing.
+    expect(np.uiText('noSuchKey')).toBe('');
+  });
+
+  test('fixed body reasons translate at display time; stored rows stay English', () => {
+    np.applyLanguage('ja');
+    const translated = np.localizeBodyReason(np.NAVIGATION_BODY_UNAVAILABLE_REASON);
+    expect(translated).toBe('検査中のページが移動したため、このレスポンスボディは取得できませんでした。');
+    expect(np.localizeBodyReason(np.BODY_EVICTED_REASON)).toContain('キャッシュ');
+    // Free-form reasons (error messages, HAR-composed text) pass through.
+    expect(np.localizeBodyReason('custom failure text')).toBe('custom failure text');
+    // The stored canonical constant itself never changes.
+    expect(np.NAVIGATION_BODY_UNAVAILABLE_REASON).toBe(
+      'The inspected page navigated away before this response body was retrieved.',
+    );
+  });
+
+  test('localizeBodyReason is the identity in English', () => {
+    np.applyLanguage('en');
+    expect(np.localizeBodyReason(np.BODY_RETRIEVAL_FAILED_REASON)).toBe(
+      np.BODY_RETRIEVAL_FAILED_REASON,
+    );
+    expect(np.localizeBodyReason(np.BODY_UNAVAILABLE_REASON)).toBe(np.BODY_UNAVAILABLE_REASON);
+    expect(np.localizeBodyReason(np.IMPORT_BODY_MISSING_REASON)).toBe(
+      np.IMPORT_BODY_MISSING_REASON,
+    );
+  });
+
+  test('the timing evidence limitation localizes only its known constant', () => {
+    np.applyLanguage('ja');
+    expect(np.localizeTimingLimitation(np.TIMING_EVIDENCE_LIMITATION)).toContain('パケットロス');
+    expect(np.localizeTimingLimitation('other note')).toBe('other note');
+    np.applyLanguage('en');
+    expect(np.localizeTimingLimitation(np.TIMING_EVIDENCE_LIMITATION)).toBe(
+      np.TIMING_EVIDENCE_LIMITATION,
+    );
+  });
+});
+
 describe('custom header column', () => {
   afterEach(() => {
     np.saveCustomHeaderColumnName('');

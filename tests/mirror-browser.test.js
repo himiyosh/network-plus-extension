@@ -337,10 +337,20 @@ browserTest(
         `(() => ({
           help: document.getElementById('langHelp').textContent,
           label: document.querySelector('label[for="retentionLimit"]').textContent,
+          searchTitle: document.getElementById('searchToggleBtn').title,
+          resendIntro: document.getElementById('resendDialogIntro').textContent,
+          emptyDesc: (document.getElementById('empty-state-description') || {}).textContent || '',
         }))()`,
       );
       expect(jaTexts.help).toBe('説明文とガイドに適用されます。ボタンなどの項目名は英語のままです。');
       expect(jaTexts.label).toBe('Maximum retained requests');
+      // Wave 2: tooltips, dialog prose, and the JS-composed empty state all
+      // swap in place from the same dictionary.
+      expect(jaTexts.searchTitle).toBe('検索パネルを開閉 (Ctrl+F)');
+      expect(jaTexts.resendIntro).toContain('検査中のページ自身が送信します');
+      expect(jaTexts.emptyDesc).toBe(
+        'リクエストは DevTools セッションから流れてきます。ガイド付きローカルサンプルは DevTools 側でのみ使えます。',
+      );
 
       // A disconnected remote resend reports inside the dialog and keeps it
       // open with the edited request instead of throwing.

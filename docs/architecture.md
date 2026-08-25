@@ -49,7 +49,9 @@ These are limits on request rows, import staging, and the shared response-body c
 
 ## Settings and language
 
-- The 🎛️ Settings dialog gathers language, theme, and capture retention. The language preference (`networkPlus.lang`) localizes explanatory text only through a `data-i18n` dictionary (`UI_TEXT`); control labels stay English by design. Both preferences persist through `chrome.storage.local` with a localStorage fallback.
+- The 🎛️ Settings dialog gathers language, theme, and capture retention. The language preference (`networkPlus.lang`) localizes explanatory text only through the `UI_TEXT` dictionary; control labels stay English by design. Both preferences persist through `chrome.storage.local` with a localStorage fallback.
+- Three mechanisms feed from that one dictionary: `data-i18n` swaps element text, `data-i18n-title` swaps static tooltips (titles that JavaScript rewrites — pause, undo, retention — deliberately stay English), and `uiText(key)` resolves strings the panel composes in JavaScript (empty states, the timing-phase guide, body-unavailability notices). A rendered empty state re-renders in place on a language change.
+- Fixed body-unavailability reasons are stored on rows in canonical English — they travel over the mirror port and into exports unchanged — and translate only at render time through `localizeBodyReason`. A contract test requires every `data-i18n`, `data-i18n-title`, and `uiText()` key to resolve to a complete English+Japanese dictionary entry.
 
 ## Import validation
 
