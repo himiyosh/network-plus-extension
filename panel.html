@@ -302,57 +302,57 @@
   <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" data-i18n-title="titleSampleExit" hidden disabled>Exit · restore prior recording state</button><button id="wsCaptureBtn" type="button" class="ws-capture-btn" title="Capture WebSocket and Server-Sent-Event streams by wrapping this page's WebSocket and EventSource constructors; only connections created while capture is on are seen, and traffic is never altered" data-i18n-title="titleWsCapture" aria-pressed="false" hidden>Stream capture: Off</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus" title="Retention: 20,000 requests. body cache 0 B / 32 MB">cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 requests</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
   <dialog id="settingsDialog" aria-labelledby="settingsDialogTitle">
     <form method="dialog" class="settings-form">
-      <h2 id="settingsDialogTitle">Settings</h2>
+      <h2 id="settingsDialogTitle" data-i18n="settingsTitle">Settings</h2>
       <section class="settings-section" aria-labelledby="langSectionTitle">
-        <h3 id="langSectionTitle">🌐 Language</h3>
+        <h3 id="langSectionTitle" data-i18n="settingsLanguageSection">🌐 Language</h3>
         <select id="langSelect" aria-describedby="langHelp">
-          <option value="system">System</option>
+          <option value="system" data-i18n="settingsOptionSystem">System</option>
           <option value="en">English</option>
           <option value="ja">日本語</option>
         </select>
         <p id="langHelp" data-i18n="langHelp">Applies to explanations and guide dialogs; control labels stay in English.</p>
       </section>
       <section class="settings-section" aria-labelledby="themeSectionTitle">
-        <h3 id="themeSectionTitle">🌗 Theme</h3>
+        <h3 id="themeSectionTitle" data-i18n="settingsThemeSection">🌗 Theme</h3>
         <select id="themeSelect" aria-labelledby="themeSectionTitle">
-          <option value="system">System</option>
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
+          <option value="system" data-i18n="settingsOptionSystem">System</option>
+          <option value="dark" data-i18n="settingsOptionDark">Dark</option>
+          <option value="light" data-i18n="settingsOptionLight">Light</option>
         </select>
       </section>
       <section class="settings-section" aria-labelledby="retentionSectionTitle">
-        <h3 id="retentionSectionTitle">🗃️ Retention</h3>
-        <label for="retentionLimit">Maximum retained requests</label>
+        <h3 id="retentionSectionTitle" data-i18n="settingsRetentionSection">🗃️ Retention</h3>
+        <label for="retentionLimit" data-i18n="settingsRetentionLimitLabel">Maximum retained requests</label>
         <input id="retentionLimit" type="number" min="100" max="100000" step="100" inputmode="numeric" aria-describedby="retentionHelp retentionError" />
         <p id="retentionHelp" data-i18n="retentionHelp">Oldest requests are removed after this limit. Response bodies use a separate 1 MiB per-body and 32 MiB total cache.</p>
         <p id="retentionError" class="retention-error" role="alert" hidden></p>
         <label class="retention-unlimited" for="retentionUnlimited">
           <input id="retentionUnlimited" type="checkbox" aria-describedby="retentionWarning" />
-          Keep unlimited requests
+          <span data-i18n="settingsRetentionUnlimitedLabel">Keep unlimited requests</span>
         </label>
         <p id="retentionWarning" class="retention-warning" role="alert" hidden data-i18n="retentionWarning">Unlimited request retention can exhaust DevTools memory. Response-body limits remain active.</p>
         <div class="retention-actions">
-          <button id="retentionSaveBtn" type="button">Save retention</button>
+          <button id="retentionSaveBtn" type="button" data-i18n="settingsRetentionSave">Save retention</button>
         </div>
       </section>
       <div class="settings-actions">
-        <button id="settingsCloseBtn" type="button">Close</button>
+        <button id="settingsCloseBtn" type="button" data-i18n="dialogClose">Close</button>
       </div>
     </form>
   </dialog>
   <dialog id="dataSafetyDialog" aria-labelledby="dataSafetyDialogTitle" aria-describedby="dataSafetyDialogDetail">
     <form method="dialog" class="data-safety-form">
-      <h2 id="dataSafetyDialogTitle">Export network data</h2>
+      <h2 id="dataSafetyDialogTitle" data-i18n="dataSafetyTitle">Export network data</h2>
       <p id="dataSafetyDialogDetail" data-i18n="dataSafetyDetail">Sanitized output is the safe default.</p>
       <fieldset id="dataSafetyScope" class="data-safety-scope" hidden>
-        <legend>Scope</legend>
-        <label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeDisplayed" value="displayed" checked> All displayed requests (<span id="dataSafetyScopeDisplayedCount">0</span>)</label>
-        <label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeSelected" value="selected"> Selected requests only (<span id="dataSafetyScopeSelectedCount">0</span>)</label>
+        <legend data-i18n="dataSafetyScopeLegend">Scope</legend>
+        <label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeDisplayed" value="displayed" checked> <span data-i18n="dataSafetyScopeDisplayed">All displayed requests</span> (<span id="dataSafetyScopeDisplayedCount">0</span>)</label>
+        <label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeSelected" value="selected"> <span data-i18n="dataSafetyScopeSelected">Selected requests only</span> (<span id="dataSafetyScopeSelectedCount">0</span>)</label>
       </fieldset>
       <div id="dataSafetyExportChoices" class="data-safety-choices">
-        <button id="dataSafetySanitizedBtn" type="button" class="data-safety-primary">Export sanitized HAR</button>
-        <button id="dataSafetyCsvBtn" type="button">Export sanitized CSV</button>
-        <button id="dataSafetyFullBtn" type="button">Review full HAR warning</button>
+        <button id="dataSafetySanitizedBtn" type="button" class="data-safety-primary" data-i18n="dataSafetyExportHar">Export sanitized HAR</button>
+        <button id="dataSafetyCsvBtn" type="button" data-i18n="dataSafetyExportCsv">Export sanitized CSV</button>
+        <button id="dataSafetyFullBtn" type="button" data-i18n="dataSafetyReviewFull">Review full HAR warning</button>
       </div>
       <div id="dataSafetyWarning" class="data-safety-warning" hidden>
         <p data-i18n="dataSafetyWarnRedacts">Sanitized output redacts every URL query and form-like fragment value, both URL userinfo components, Cookie values, and every header value outside a small structural allowlist.</p>
@@ -363,46 +363,46 @@
           <li data-i18n="dataSafetyWarnExposeUrl">URL usernames, passwords, query values, and fragment values</li>
           <li data-i18n="dataSafetyWarnExposeBodies">Request and response bodies, including base64 content</li>
         </ul>
-        <label id="dataSafetyCopyFormatLabel" for="dataSafetyCopyFormat" hidden>Full copy format</label>
+        <label id="dataSafetyCopyFormatLabel" for="dataSafetyCopyFormat" hidden data-i18n="dataSafetyCopyFormatLabel">Full copy format</label>
         <select id="dataSafetyCopyFormat" hidden>
-          <option value="summary">Request summary</option>
+          <option value="summary" data-i18n="dataSafetyFormatSummary">Request summary</option>
           <option value="url">URL</option>
           <option value="curl">cURL</option>
           <option value="fetch">fetch</option>
           <option value="powershell">PowerShell</option>
           <option value="markdown">Markdown</option>
-          <option value="rawRequest">Raw request</option>
-          <option value="requestBody">Request body</option>
+          <option value="rawRequest" data-i18n="dataSafetyFormatRaw">Raw request</option>
+          <option value="requestBody" data-i18n="dataSafetyFormatBody">Request body</option>
         </select>
         <p data-i18n="dataSafetyWarnOneTime">This confirmation applies only to this action. Network+ does not save a full-output preference.</p>
       </div>
       <div class="data-safety-actions">
-        <button id="dataSafetyCancelBtn" type="button">Cancel</button>
-        <button id="dataSafetyConfirmBtn" type="button" class="data-safety-danger" hidden>Confirm full output</button>
+        <button id="dataSafetyCancelBtn" type="button" data-i18n="dialogCancel">Cancel</button>
+        <button id="dataSafetyConfirmBtn" type="button" class="data-safety-danger" data-i18n="dataSafetyConfirmFull" hidden>Confirm full output</button>
       </div>
     </form>
   </dialog>
   <dialog id="resendDialog" aria-labelledby="resendDialogTitle" aria-describedby="resendDialogIntro">
     <form method="dialog" class="resend-form">
-      <h2 id="resendDialogTitle">Edit and resend request</h2>
+      <h2 id="resendDialogTitle" data-i18n="resendTitle">Edit and resend request</h2>
       <p id="resendDialogIntro" data-i18n="resendIntro">Send composes a new request from these fields, and the inspected page itself issues it — so cookies, CORS, and the page's security policies apply as usual. The reply arrives as a new captured row.</p>
-      <label for="resendCurlInput">Paste a cURL command (optional)</label>
+      <label for="resendCurlInput" data-i18n="resendCurlLabel">Paste a cURL command (optional)</label>
       <textarea id="resendCurlInput" name="resendCurlInput" rows="2" spellcheck="false" placeholder="curl -H 'Accept: application/json' https://api.example.com/v1/users"></textarea>
-      <button id="resendCurlFillBtn" type="button" class="resend-curl-fill">Fill fields from cURL</button>
-      <label for="resendMethod">Method</label>
+      <button id="resendCurlFillBtn" type="button" class="resend-curl-fill" data-i18n="resendFillFromCurl">Fill fields from cURL</button>
+      <label for="resendMethod" data-i18n="resendMethodLabel">Method</label>
       <input id="resendMethod" name="resendMethod" autocomplete="off" spellcheck="false">
       <label for="resendUrl">URL</label>
       <input id="resendUrl" name="resendUrl" autocomplete="off" spellcheck="false">
-      <label for="resendHeaders">Headers (one per line, Name: value)</label>
+      <label for="resendHeaders" data-i18n="resendHeadersLabel">Headers (one per line, Name: value)</label>
       <textarea id="resendHeaders" name="resendHeaders" rows="6" spellcheck="false"></textarea>
-      <label for="resendBody">Body (ignored for GET and HEAD)</label>
+      <label for="resendBody" data-i18n="resendBodyLabel">Body (ignored for GET and HEAD)</label>
       <textarea id="resendBody" name="resendBody" rows="4" spellcheck="false"></textarea>
-      <label class="resend-credentials"><input type="checkbox" id="resendCredentials" checked> Send this site's cookies with the request</label>
+      <label class="resend-credentials"><input type="checkbox" id="resendCredentials" checked> <span data-i18n="resendCredentialsLabel">Send this site's cookies with the request</span></label>
       <p class="resend-hint" data-i18n="resendManagedHeadersHint">Browser-managed headers (Host, Cookie, Content-Length, Origin, Referer, and the Sec-* and Proxy-* families) are set by the browser and cannot be overridden here.</p>
       <p id="resendError" class="resend-error" role="alert" hidden></p>
       <div class="resend-actions">
-        <button id="resendSendBtn" type="button" class="data-safety-primary">Send request</button>
-        <button id="resendCancelBtn" value="cancel">Cancel</button>
+        <button id="resendSendBtn" type="button" class="data-safety-primary" data-i18n="resendSend">Send request</button>
+        <button id="resendCancelBtn" value="cancel" data-i18n="dialogCancel">Cancel</button>
       </div>
     </form>
   </dialog>
@@ -431,7 +431,7 @@
       <p class="undock-hint-outro" data-i18n="undockHintOutro">✅ DevTools remembers this choice: every future pop-out then minimizes the DevTools window automatically while capture keeps running.</p>
       <label class="undock-hint-dismiss"><input type="checkbox" id="undockHintDontShowAgain"> Don't show this again</label>
       <div class="undock-hint-actions">
-        <button id="undockHintCloseBtn" type="button" class="undock-hint-primary">Got it</button>
+        <button id="undockHintCloseBtn" type="button" class="undock-hint-primary" data-i18n="undockHintGotIt">Got it</button>
       </div>
     </form>
   </dialog>
@@ -439,45 +439,45 @@
   <span id="dataSafetyStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
   <dialog id="shortcutDialog" aria-labelledby="shortcutDialogTitle">
     <form method="dialog" class="shortcut-form">
-      <h2 id="shortcutDialogTitle">Keyboard Shortcuts</h2>
+      <h2 id="shortcutDialogTitle" data-i18n="shortcutTitle">Keyboard Shortcuts</h2>
       <table class="shortcut-table">
         <thead>
-          <tr><th scope="col">Shortcut</th><th scope="col">Action</th></tr>
+          <tr><th scope="col" data-i18n="shortcutColShortcut">Shortcut</th><th scope="col" data-i18n="shortcutColAction">Action</th></tr>
         </thead>
         <tbody>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Navigate rows</td></tr>
-          <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd></td><td>Select row / open details</td></tr>
-          <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd></td><td>Toggle search panel</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>L</kbd> (Windows/Linux) / <kbd>⌘</kbd>+<kbd>K</kbd> (macOS)</td><td>Clear all requests</td></tr>
-          <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd></td><td>Open the pop-out mirror tab (DevTools sessions only)</td></tr>
-          <tr><td><kbd>?</kbd></td><td>Show keyboard shortcuts</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>Close panel, popup, or search</td></tr>
-          <tr><td><kbd>ContextMenu</kbd> / <kbd>Shift+F10</kbd></td><td>Row context menu</td></tr>
-          <tr><td><kbd>Alt+←</kbd> / <kbd>Alt+→</kbd></td><td>Reorder column left / right</td></tr>
-          <tr><td><kbd>←</kbd> / <kbd>→</kbd> on column resizer</td><td>Resize column (±10 px)</td></tr>
-          <tr><td><kbd>Shift+←</kbd> / <kbd>Shift+→</kbd> on column resizer</td><td>Resize column (±40 px)</td></tr>
-          <tr><td><kbd>←</kbd> / <kbd>→</kbd> on panel divider (horizontal)</td><td>Resize panel split (±1%)</td></tr>
-          <tr><td><kbd>Shift+←</kbd> / <kbd>Shift+→</kbd> on panel divider (horizontal)</td><td>Resize panel split (±10%)</td></tr>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd> on panel divider (vertical ≤700 px)</td><td>Resize panel height (±1%)</td></tr>
-          <tr><td><kbd>Shift+↑</kbd> / <kbd>Shift+↓</kbd> on panel divider (vertical ≤700 px)</td><td>Resize panel height (±10%)</td></tr>
-          <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd> on column header</td><td>Sort by column</td></tr>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd> / <kbd>Home</kbd> / <kbd>End</kbd> in menu</td><td>Navigate menu items</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td data-i18n="shortcutActionNavigateRows">Navigate rows</td></tr>
+          <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd></td><td data-i18n="shortcutActionSelectRow">Select row / open details</td></tr>
+          <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd></td><td data-i18n="shortcutActionToggleSearch">Toggle search panel</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>L</kbd> (Windows/Linux) / <kbd>⌘</kbd>+<kbd>K</kbd> (macOS)</td><td data-i18n="shortcutActionClear">Clear all requests</td></tr>
+          <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd></td><td data-i18n="shortcutActionPopout">Open the pop-out mirror tab (DevTools sessions only)</td></tr>
+          <tr><td><kbd>?</kbd></td><td data-i18n="shortcutActionShowShortcuts">Show keyboard shortcuts</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td data-i18n="shortcutActionClose">Close panel, popup, or search</td></tr>
+          <tr><td><kbd>ContextMenu</kbd> / <kbd>Shift+F10</kbd></td><td data-i18n="shortcutActionContextMenu">Row context menu</td></tr>
+          <tr><td><kbd>Alt+←</kbd> / <kbd>Alt+→</kbd></td><td data-i18n="shortcutActionReorderColumn">Reorder column left / right</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd> <span data-i18n="shortcutWhereColumnResizer">on column resizer</span></td><td data-i18n="shortcutActionResizeColumn10">Resize column (±10 px)</td></tr>
+          <tr><td><kbd>Shift+←</kbd> / <kbd>Shift+→</kbd> <span data-i18n="shortcutWhereColumnResizer">on column resizer</span></td><td data-i18n="shortcutActionResizeColumn40">Resize column (±40 px)</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd> <span data-i18n="shortcutWhereDividerHorizontal">on panel divider (horizontal)</span></td><td data-i18n="shortcutActionResizeSplit1">Resize panel split (±1%)</td></tr>
+          <tr><td><kbd>Shift+←</kbd> / <kbd>Shift+→</kbd> <span data-i18n="shortcutWhereDividerHorizontal">on panel divider (horizontal)</span></td><td data-i18n="shortcutActionResizeSplit10">Resize panel split (±10%)</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd> <span data-i18n="shortcutWhereDividerVertical">on panel divider (vertical ≤700 px)</span></td><td data-i18n="shortcutActionResizeHeight1">Resize panel height (±1%)</td></tr>
+          <tr><td><kbd>Shift+↑</kbd> / <kbd>Shift+↓</kbd> <span data-i18n="shortcutWhereDividerVertical">on panel divider (vertical ≤700 px)</span></td><td data-i18n="shortcutActionResizeHeight10">Resize panel height (±10%)</td></tr>
+          <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd> <span data-i18n="shortcutWhereColumnHeader">on column header</span></td><td data-i18n="shortcutActionSort">Sort by column</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd> / <kbd>Home</kbd> / <kbd>End</kbd> <span data-i18n="shortcutWhereMenu">in menu</span></td><td data-i18n="shortcutActionNavigateMenu">Navigate menu items</td></tr>
         </tbody>
       </table>
       <section class="shortcut-support-summary" aria-labelledby="shortcutSupportSummaryTitle">
-        <h3 id="shortcutSupportSummaryTitle">Safe support summary</h3>
+        <h3 id="shortcutSupportSummaryTitle" data-i18n="shortcutSupportTitle">Safe support summary</h3>
         <p id="shortcutSupportSummaryHelp" data-i18n="shortcutSupportSummaryHelp">Copies only the packaged version, Edge major, coarse OS family, theme, retention, recording and sample state, and display and motion preferences. Captured traffic is excluded. Review the summary before posting.</p>
-        <button id="copySafeSupportSummaryBtn" type="button" class="shortcut-primary-action" aria-describedby="shortcutSupportSummaryHelp">Copy safe support summary</button>
+        <button id="copySafeSupportSummaryBtn" type="button" class="shortcut-primary-action" aria-describedby="shortcutSupportSummaryHelp" data-i18n="shortcutCopySupport">Copy safe support summary</button>
         <p id="shortcutSupportSummaryStatus" class="shortcut-support-summary-status" role="status" aria-live="polite" aria-atomic="true"></p>
       </section>
       <div class="shortcut-actions">
-        <button id="shortcutCloseBtn" type="button">Close</button>
+        <button id="shortcutCloseBtn" type="button" data-i18n="dialogClose">Close</button>
       </div>
     </form>
   </dialog>
   <dialog id="sampleGuideDialog" aria-labelledby="sampleGuideDialogTitle" aria-describedby="sampleGuideIntro">
     <form method="dialog" class="sample-guide-form">
-      <h2 id="sampleGuideDialogTitle">Sample evidence guide</h2>
+      <h2 id="sampleGuideDialogTitle" data-i18n="sampleGuideTitle">Sample evidence guide</h2>
       <p id="sampleGuideIntro" data-i18n="sampleGuideIntro">Inspect the three local requests before revealing the evidence.</p>
       <ol class="sample-guide-prompts">
         <li data-i18n="sampleGuidePrompt1">Which request failed?</li>
@@ -488,9 +488,9 @@
       <div id="sampleGuideEvidence" class="sample-guide-evidence" aria-live="polite" aria-atomic="true" hidden></div>
       <p id="sampleGuideExitHelp" class="sample-guide-exit-help" hidden data-i18n="sampleGuideExitHelp">Exiting removes all three local sample requests and restores the recording state and column filters from before the sample.</p>
       <div class="sample-guide-actions">
-        <button id="sampleGuideCloseBtn" type="button">Close</button>
-        <button id="sampleGuideExitBtn" type="button" class="sample-guide-exit-btn" aria-describedby="sampleGuideExitHelp" hidden disabled>Exit · restore prior recording state</button>
-        <button id="sampleGuideRevealBtn" type="button" class="sample-guide-primary">Reveal evidence</button>
+        <button id="sampleGuideCloseBtn" type="button" data-i18n="dialogClose">Close</button>
+        <button id="sampleGuideExitBtn" type="button" class="sample-guide-exit-btn" aria-describedby="sampleGuideExitHelp" data-i18n="sampleGuideExit" hidden disabled>Exit · restore prior recording state</button>
+        <button id="sampleGuideRevealBtn" type="button" class="sample-guide-primary" data-i18n="sampleGuideReveal">Reveal evidence</button>
       </div>
     </form>
   </dialog>
@@ -530,7 +530,7 @@
           </g>
         </svg>
       </div>
-      <h2 id="supportDialogTitle">Buy the developer a coffee</h2>
+      <h2 id="supportDialogTitle" data-i18n="supportTitle">Buy the developer a coffee</h2>
       <p id="supportDialogIntro" data-i18n="supportIntro">Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or paid tier. If it saved you a debugging session, a coffee helps keep it maintained. Contributing is optional and never unlocks, limits, or changes any feature.</p>
       <ul class="support-options">
         <li class="support-option">
@@ -552,7 +552,7 @@
       </ul>
       <p class="support-note" data-i18n="supportNote">The buttons open the payment page in a browser tab; the payment itself happens on that site, never inside DevTools. Network+ sends them no captured traffic and no usage data, and cannot tell whether you visited or contributed.</p>
       <div class="support-actions">
-        <button id="supportCloseBtn" type="button">Close</button>
+        <button id="supportCloseBtn" type="button" data-i18n="dialogClose">Close</button>
       </div>
     </form>
   </dialog>

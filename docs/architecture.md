@@ -28,7 +28,7 @@ background.js              single-job service worker: minimizes the undocked
 
 ## Retention and the body cache
 
-- Request rows default to the newest 20,000 (configurable from 100 to 100,000 in the Settings dialog). Live capture, HAR import, and SAZ import share the same retention decision, and row IDs stay monotonically increasing across deletion, `Clear`, and import.
+- Request rows are unlimited by default and can be capped to the newest 100 to 100,000 in the Settings dialog. Live capture, HAR import, and SAZ import share the same retention decision, and row IDs stay monotonically increasing across deletion, `Clear`, and import.
 - `Clear` resets the display and working state immediately, and for 10 seconds the status bar offers **Undo clear** to restore rows, filters, search, selection, details, sort order, and recording state. Held rows still count against the request limit and the 32 MiB body cache; if new traffic reaches a limit, the oldest held rows are released first.
 - When a limit is exceeded, the oldest rows are removed as a batch, and filter results, focus, single and multiple selection, search matches, pending incremental renders, DOM rows, the detail pane, and statistics are reconciled at the same time.
 - The response body cache holds 1 MiB per body and 32 MiB in total. At the total limit, the least recently accessed bodies are evicted while their rows are kept.

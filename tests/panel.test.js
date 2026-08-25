@@ -1570,8 +1570,14 @@ describe('capture retention helpers', () => {
       warning: '',
     });
     const invalid = np.normalizeRetentionSetting({ requestLimit: 99, unlimited: false });
-    expect(invalid.setting).toEqual({ requestLimit: 20000, unlimited: false });
+    expect(invalid.setting).toEqual({ requestLimit: 20000, unlimited: true });
     expect(invalid.warning).toContain('restored');
+    // A reader who has never opened Settings keeps every request: the absent
+    // setting resolves to unlimited, and silently — nothing was misread.
+    expect(np.normalizeRetentionSetting(null)).toEqual({
+      setting: { requestLimit: 20000, unlimited: true },
+      warning: '',
+    });
   });
 
   test.each([

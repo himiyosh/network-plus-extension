@@ -342,8 +342,12 @@ browserTest(
           emptyDesc: (document.getElementById('empty-state-description') || {}).textContent || '',
         }))()`,
       );
-      expect(jaTexts.help).toBe('説明文とガイドに適用されます。ボタンなどの項目名は英語のままです。');
-      expect(jaTexts.label).toBe('Maximum retained requests');
+      expect(jaTexts.help).toBe(
+        '説明文とすべてのダイアログ(項目名を含む)に適用されます。ツールバーのボタンと列見出しは英語のままです。',
+      );
+      // The Settings dialog now localizes its own item names too, so the label
+      // the help text points at has to move with it.
+      expect(jaTexts.label).toBe('保持するリクエストの最大数');
       // Wave 2: tooltips, dialog prose, and the JS-composed empty state all
       // swap in place from the same dictionary.
       expect(jaTexts.searchTitle).toBe('検索パネルを開閉 (Ctrl+F)');
