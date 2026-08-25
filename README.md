@@ -40,9 +40,9 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 - **Compare two requests directly.** Select exactly two rows and diff URL, query, method, status, headers, and body side by side.
 - **Pop out into a browser tab.** One click opens the same panel as a regular tab that live-mirrors the DevTools session — big-screen triage while DevTools stays docked, with no extra permissions.
 - **Share without leaking.** Every copy and every export is sanitized by default — HAR, or a metadata-only CSV for spreadsheet triage; full output requires a per-action confirmation that is never remembered.
-- **Stay bounded.** Request retention and the response-body cache have explicit limits, visible counters, and predictable eviction — no silent unbounded growth.
+- **Bounded where it counts.** Response bodies always obey a 1 MiB per-body and 32 MiB shared-cache limit, with visible counters and predictable eviction. Request rows are kept in full by default so a long session never silently loses the request you were about to look for; the Settings dialog states the memory cost of that and caps them from 100 to 100,000 whenever you want the bound back.
 - **Work by keyboard.** Every control is reachable without a mouse, in System / Dark / Light themes that all meet WCAG 2.2 AA contrast.
-- **Settings in one place.** The 🎛️ Settings dialog gathers language, theme, and capture retention. Explanations, guide dialogs, tooltips, empty-state text, and the timing guide are available in Japanese (System / English / 日本語); control labels stay in English so instructions always match.
+- **Settings in one place.** The 🎛️ Settings dialog gathers language, theme, and capture retention. Explanations, tooltips, empty-state text, the timing guide, and every dialog — item names included — are available in Japanese (System / English / 日本語). Toolbar buttons and column headers stay in English, so a written instruction still names what you click and an export keeps its English column names.
 - **No build, no telemetry, no network.** Plain files loaded straight into Edge or Chrome; the extension holds a single permission (`storage`) and sends nothing anywhere.
 
 <details>
@@ -116,7 +116,7 @@ With the panel open and no traffic captured yet, choose **Explore sample capture
 ### Capture and retention
 
 - Live capture through `chrome.devtools.network.onRequestFinished`, appended per animation frame so existing rows are never re-rendered.
-- Retention defaults to the newest 20,000 requests, configurable from 100 to 100,000. Unlimited request rows are available only after you confirm an explicit warning.
+- Request rows are retained in full by default, with an in-dialog warning that memory can grow without bound. Turning Unlimited off in Settings caps them anywhere from 100 to 100,000 and evicts the oldest first.
 - Response bodies are capped independently at 1 MiB per body and 32 MiB across the shared cache, with least-recently-used eviction that keeps the rows themselves.
 - Pause / Resume recording, auto-scroll that switches itself off when you scroll up, and `Clear` with a 10-second **Undo clear**.
 - Import HAR (`.har`) and Fiddler SAZ (`.saz`) archives; import is atomic and never destroys the current capture if the file is rejected. Chrome HAR files that carry `_webSocketMessages` get those frames threaded into the same request/response Body panes that live WebSocket capture uses — and live-captured WebSocket conversations are written back out the same way: exported full HARs carry `_webSocketMessages` (text frames up to the 2 KB capture preview, binary frames counted without payload, every fidelity loss declared on the entry), while sanitized exports omit the frames with a per-entry marker.
@@ -243,7 +243,7 @@ Edge / Chrome DevTools
 
 | Limit | Value |
 |---|---|
-| Request rows | 20,000 by default · configurable 100–100,000 · unlimited only after explicit confirmation |
+| Request rows | unlimited by default · capped 100–100,000 when Unlimited is turned off in Settings |
 | Response body | 1 MiB per body · 32 MiB across the shared cache |
 | Import file | 32 MiB per file |
 | SAZ archive | 20,000 entries · 4 MiB per expanded entry · 64 MiB expanded in total |

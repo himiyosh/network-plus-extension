@@ -39,7 +39,7 @@ Search results, selected rows, captured request records, headers, and bodies are
 
 ## Retention and user controls
 
-Captured and imported traffic is held in the DevTools panel's memory while that panel session remains open. The default request limit is 20,000 rows and can be configured from 100 to 100,000; an explicitly confirmed unlimited request-row mode is available. Response bodies always remain limited to 1 MiB per body and 32 MiB across the shared cache. Old requests or bodies can be evicted when limits are reached.
+Captured and imported traffic is held in the DevTools panel's memory while that panel session remains open. Request rows are retained without a count limit by default; a limit from 100 to 100,000 rows can be configured in the Settings dialog, which states the memory cost of the unlimited default. Response bodies always remain limited to 1 MiB per body and 32 MiB across the shared cache. Old requests or bodies can be evicted when limits are reached.
 
 `Clear` removes the current working set from the panel and keeps one bounded Undo snapshot for up to 10 seconds. Retention pressure can release some or all of that snapshot earlier. After the Undo window expires, Network+ releases the retained snapshot. Closing DevTools ends the in-memory panel session. Clear and closing DevTools do not delete files the user already downloaded or text the user already placed on the system clipboard.
 

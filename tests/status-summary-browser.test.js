@@ -873,6 +873,9 @@ browserTest(
           document.querySelector('#settingsCloseBtn').click();
 
           document.querySelector('#settingsBtn').click();
+          // Retention is unlimited out of the box, and the rejected 99 restored
+          // that default, so this scenario has to opt back into a bound.
+          document.querySelector('#retentionUnlimited').checked = false;
           document.querySelector('#retentionLimit').value = '100';
           document.querySelector('#retentionSaveBtn').click();
           await settleFrames();

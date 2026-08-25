@@ -1184,7 +1184,9 @@ describe('capture retention static contracts', () => {
   test('provides a labelled narrow-safe settings dialog with an explicit unlimited warning', () => {
     expect(html).toMatch(/id="settingsBtn"[^>]*aria-haspopup="dialog"[^>]*aria-controls="settingsDialog"/);
     expect(html).toMatch(/<dialog id="settingsDialog"[^>]*aria-labelledby="settingsDialogTitle"/);
-    expect(html).toMatch(/<label for="retentionLimit">Maximum retained requests<\/label>/);
+    expect(html).toMatch(
+      /<label for="retentionLimit" data-i18n="settingsRetentionLimitLabel">Maximum retained requests<\/label>/,
+    );
     expect(html).toMatch(/id="retentionUnlimited"[^>]*aria-describedby="retentionWarning"/);
     expect(html).toMatch(/id="retentionWarning"[^>]*role="alert"[^>]*hidden/);
     expect(html).toMatch(/id="retentionStatus"[^>]*>cache /);
@@ -1332,12 +1334,46 @@ describe('capture retention static contracts', () => {
   });
 });
 
+describe('translation coverage', () => {
+  // A label tagged for translation but missing from the dictionary silently
+  // renders English, which is exactly how "Maximum retained requests" stayed
+  // English in a Japanese panel. Tagging and translating must stay in step.
+  test('every data-i18n key in the markup has both an en and a ja string', () => {
+    const used = new Set(
+      Array.from(html.matchAll(/data-i18n(?:-title)?="([^"]+)"/g), (match) => match[1]),
+    );
+    expect(used.size).toBeGreaterThan(100);
+    const dictionaryStart = js.indexOf('const UI_TEXT = {');
+    expect(dictionaryStart).toBeGreaterThan(-1);
+    const dictionary = js.slice(dictionaryStart, js.indexOf('\n  };', dictionaryStart));
+    const translated = new Set(
+      Array.from(
+        dictionary.matchAll(/^ {4}([A-Za-z][A-Za-z0-9]*): \{\n {6}en: .+,\n {6}ja: .+,\n {4}\},/gm),
+        (match) => match[1],
+      ),
+    );
+    expect(Array.from(used).filter((key) => !translated.has(key))).toEqual([]);
+  });
+
+  // The Settings dialog owns controls, not just prose: its checkbox label wraps
+  // the text in a span so applying a translation cannot replace the input.
+  test('labels that contain inputs translate a span, never the label itself', () => {
+    for (const label of html.match(/<label[^>]*>[\s\S]*?<\/label>/g) || []) {
+      if (!/<input/.test(label)) continue;
+      expect(label).not.toMatch(/<label[^>]*data-i18n=/);
+    }
+    expect(html).toContain(
+      '<span data-i18n="settingsRetentionUnlimitedLabel">Keep unlimited requests</span>',
+    );
+  });
+});
+
 describe('settings and language contracts', () => {
   test('the Settings dialog gathers language, theme, and retention with instant-apply selects', () => {
     expect(html).toMatch(/id="langSelect"[^>]*aria-describedby="langHelp"/);
     expect(html).toContain('<option value="ja">日本語</option>');
     expect(html).toMatch(/id="themeSelect"/);
-    expect(html).toContain('<option value="dark">Dark</option>');
+    expect(html).toContain('<option value="dark" data-i18n="settingsOptionDark">Dark</option>');
     expect(js).toContain("const LANG_KEY = 'networkPlus.lang';");
     expect(js).toContain("const LANGS = ['system', 'en', 'ja'];");
     // Selects apply immediately; retention keeps its explicit Save button.
@@ -2433,7 +2469,7 @@ describe('shortcut help static contracts', () => {
       /id="clearBtn"[^>]*aria-label="Clear all requests"[^>]*aria-keyshortcuts="Control\+L Meta\+K"/,
     );
     expect(html).toMatch(
-      /<kbd>Ctrl<\/kbd>\+<kbd>L<\/kbd> \(Windows\/Linux\) \/ <kbd>⌘<\/kbd>\+<kbd>K<\/kbd> \(macOS\)<\/td><td>Clear all requests<\/td>/,
+      /<kbd>Ctrl<\/kbd>\+<kbd>L<\/kbd> \(Windows\/Linux\) \/ <kbd>⌘<\/kbd>\+<kbd>K<\/kbd> \(macOS\)<\/td><td data-i18n="shortcutActionClear">Clear all requests<\/td>/,
     );
   });
 
@@ -3409,10 +3445,10 @@ describe('export scope contracts', () => {
   test('the export dialog offers a selected-rows scope only when a selection exists', () => {
     expect(html).toContain('<fieldset id="dataSafetyScope" class="data-safety-scope" hidden>');
     expect(html).toContain(
-      '<label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeDisplayed" value="displayed" checked> All displayed requests (<span id="dataSafetyScopeDisplayedCount">0</span>)</label>',
+      '<label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeDisplayed" value="displayed" checked> <span data-i18n="dataSafetyScopeDisplayed">All displayed requests</span> (<span id="dataSafetyScopeDisplayedCount">0</span>)</label>',
     );
     expect(html).toContain(
-      '<label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeSelected" value="selected"> Selected requests only (<span id="dataSafetyScopeSelectedCount">0</span>)</label>',
+      '<label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeSelected" value="selected"> <span data-i18n="dataSafetyScopeSelected">Selected requests only</span> (<span id="dataSafetyScopeSelectedCount">0</span>)</label>',
     );
     expect(js).toContain('scope.hidden = selectedCount === 0;');
     // Displayed rows are re-checked on every open so a leftover selection

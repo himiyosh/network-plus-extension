@@ -55,6 +55,8 @@ const _NetworkPlus = (function () {
   const MAX_SANITIZED_BODY_BYTES = 256 * 1024;
   const MAX_SANITIZED_BODY_DEPTH = 12;
   const MAX_SANITIZED_BODY_NODES = 5000;
+  // Retention is unlimited out of the box; this is the limit that applies
+  // once a reader turns Unlimited off, and the value the number input starts on.
   const DEFAULT_REQUEST_RETENTION_LIMIT = 20000;
   const MIN_REQUEST_RETENTION_LIMIT = 100;
   const MAX_REQUEST_RETENTION_LIMIT = 100000;
@@ -2734,7 +2736,7 @@ const _NetworkPlus = (function () {
   }
 
   function normalizeRetentionSetting(value) {
-    const fallback = { unlimited: false, requestLimit: DEFAULT_REQUEST_RETENTION_LIMIT };
+    const fallback = { unlimited: true, requestLimit: DEFAULT_REQUEST_RETENTION_LIMIT };
     if (!value || typeof value !== 'object') {
       return { setting: fallback, warning: value == null ? '' : 'Invalid retention setting; restored the default.' };
     }
@@ -2747,7 +2749,7 @@ const _NetworkPlus = (function () {
       requestLimit < MIN_REQUEST_RETENTION_LIMIT ||
       requestLimit > MAX_REQUEST_RETENTION_LIMIT
     ) {
-      return { setting: fallback, warning: 'Invalid retention setting; restored the 20,000-request default.' };
+      return { setting: fallback, warning: 'Invalid retention setting; restored the unlimited default.' };
     }
     return { setting: { unlimited: false, requestLimit }, warning: '' };
   }
@@ -4114,7 +4116,7 @@ const _NetworkPlus = (function () {
     liveRowsAwaitingRender: [],
     retention: {
       requestLimit: DEFAULT_REQUEST_RETENTION_LIMIT,
-      unlimited: false,
+      unlimited: true,
       settingWarning: '',
       evictedRequests: 0,
       omittedBodies: 0,
@@ -4532,7 +4534,7 @@ const _NetworkPlus = (function () {
       const saved = localStorage.getItem(RETENTION_KEY);
       if (saved) parsed = JSON.parse(saved);
     } catch (_error) {
-      parseWarning = 'Could not read the saved retention setting; restored the 20,000-request default.';
+      parseWarning = 'Could not read the saved retention setting; restored the unlimited default.';
     }
     const normalized = normalizeRetentionSetting(parsed);
     state.retention.requestLimit = normalized.setting.requestLimit;
@@ -5152,8 +5154,264 @@ const _NetworkPlus = (function () {
       ja: '✅ この選択は DevTools が記憶します。以後はポップアウトのたびに DevTools ウィンドウが自動で最小化され、キャプチャは動き続けます。',
     },
     langHelp: {
-      en: 'Applies to explanations and guide dialogs; control labels stay in English.',
-      ja: '説明文とガイドに適用されます。ボタンなどの項目名は英語のままです。',
+      en: 'Applies to explanations and to every dialog, item names included; toolbar buttons and column headers stay in English.',
+      ja: '説明文とすべてのダイアログ(項目名を含む)に適用されます。ツールバーのボタンと列見出しは英語のままです。',
+    },
+    settingsTitle: {
+      en: 'Settings',
+      ja: '設定',
+    },
+    settingsLanguageSection: {
+      en: '🌐 Language',
+      ja: '🌐 言語',
+    },
+    settingsThemeSection: {
+      en: '🌗 Theme',
+      ja: '🌗 テーマ',
+    },
+    settingsRetentionSection: {
+      en: '🗃️ Retention',
+      ja: '🗃️ 保持',
+    },
+    settingsOptionSystem: {
+      en: 'System',
+      ja: 'システム',
+    },
+    settingsOptionDark: {
+      en: 'Dark',
+      ja: 'ダーク',
+    },
+    settingsOptionLight: {
+      en: 'Light',
+      ja: 'ライト',
+    },
+    settingsRetentionLimitLabel: {
+      en: 'Maximum retained requests',
+      ja: '保持するリクエストの最大数',
+    },
+    settingsRetentionUnlimitedLabel: {
+      en: 'Keep unlimited requests',
+      ja: 'リクエストを無制限に保持する',
+    },
+    settingsRetentionSave: {
+      en: 'Save retention',
+      ja: '保持設定を保存',
+    },
+    dialogClose: {
+      en: 'Close',
+      ja: '閉じる',
+    },
+    dialogCancel: {
+      en: 'Cancel',
+      ja: 'キャンセル',
+    },
+    dataSafetyTitle: {
+      en: 'Export network data',
+      ja: 'ネットワークデータをエクスポート',
+    },
+    dataSafetyScopeLegend: {
+      en: 'Scope',
+      ja: '対象範囲',
+    },
+    dataSafetyScopeDisplayed: {
+      en: 'All displayed requests',
+      ja: '表示中のリクエストすべて',
+    },
+    dataSafetyScopeSelected: {
+      en: 'Selected requests only',
+      ja: '選択したリクエストのみ',
+    },
+    dataSafetyExportHar: {
+      en: 'Export sanitized HAR',
+      ja: 'サニタイズ済み HAR をエクスポート',
+    },
+    dataSafetyExportCsv: {
+      en: 'Export sanitized CSV',
+      ja: 'サニタイズ済み CSV をエクスポート',
+    },
+    dataSafetyReviewFull: {
+      en: 'Review full HAR warning',
+      ja: '完全版 HAR の警告を確認',
+    },
+    dataSafetyCopyFormatLabel: {
+      en: 'Full copy format',
+      ja: '完全版のコピー形式',
+    },
+    dataSafetyFormatSummary: {
+      en: 'Request summary',
+      ja: 'リクエスト概要',
+    },
+    dataSafetyFormatRaw: {
+      en: 'Raw request',
+      ja: '生のリクエスト',
+    },
+    dataSafetyFormatBody: {
+      en: 'Request body',
+      ja: 'リクエストボディ',
+    },
+    dataSafetyConfirmFull: {
+      en: 'Confirm full output',
+      ja: '完全版の出力を実行',
+    },
+    resendTitle: {
+      en: 'Edit and resend request',
+      ja: 'リクエストを編集して再送',
+    },
+    resendCurlLabel: {
+      en: 'Paste a cURL command (optional)',
+      ja: 'cURL コマンドを貼り付け(任意)',
+    },
+    resendFillFromCurl: {
+      en: 'Fill fields from cURL',
+      ja: 'cURL から各項目を埋める',
+    },
+    resendMethodLabel: {
+      en: 'Method',
+      ja: 'メソッド',
+    },
+    resendHeadersLabel: {
+      en: 'Headers (one per line, Name: value)',
+      ja: 'ヘッダ(1 行 1 件、Name: value)',
+    },
+    resendBodyLabel: {
+      en: 'Body (ignored for GET and HEAD)',
+      ja: 'ボディ(GET と HEAD では無視されます)',
+    },
+    resendCredentialsLabel: {
+      en: "Send this site's cookies with the request",
+      ja: 'このサイトの Cookie を付けて送信する',
+    },
+    resendSend: {
+      en: 'Send request',
+      ja: 'リクエストを送信',
+    },
+    undockHintGotIt: {
+      en: 'Got it',
+      ja: '了解',
+    },
+    shortcutTitle: {
+      en: 'Keyboard Shortcuts',
+      ja: 'キーボードショートカット',
+    },
+    shortcutColShortcut: {
+      en: 'Shortcut',
+      ja: 'ショートカット',
+    },
+    shortcutColAction: {
+      en: 'Action',
+      ja: '動作',
+    },
+    shortcutSupportTitle: {
+      en: 'Safe support summary',
+      ja: '安全なサポート情報',
+    },
+    shortcutCopySupport: {
+      en: 'Copy safe support summary',
+      ja: '安全なサポート情報をコピー',
+    },
+    shortcutActionNavigateRows: {
+      en: 'Navigate rows',
+      ja: '行を移動',
+    },
+    shortcutActionSelectRow: {
+      en: 'Select row / open details',
+      ja: '行を選択 / 詳細を開く',
+    },
+    shortcutActionToggleSearch: {
+      en: 'Toggle search panel',
+      ja: '検索パネルを開閉',
+    },
+    shortcutActionClear: {
+      en: 'Clear all requests',
+      ja: 'すべてのリクエストを消去',
+    },
+    shortcutActionPopout: {
+      en: 'Open the pop-out mirror tab (DevTools sessions only)',
+      ja: 'ミラータブをポップアウト(DevTools セッションのみ)',
+    },
+    shortcutActionShowShortcuts: {
+      en: 'Show keyboard shortcuts',
+      ja: 'キーボードショートカットを表示',
+    },
+    shortcutActionClose: {
+      en: 'Close panel, popup, or search',
+      ja: 'パネル・ポップアップ・検索を閉じる',
+    },
+    shortcutActionContextMenu: {
+      en: 'Row context menu',
+      ja: '行のコンテキストメニュー',
+    },
+    shortcutActionReorderColumn: {
+      en: 'Reorder column left / right',
+      ja: '列を左 / 右へ移動',
+    },
+    shortcutActionResizeColumn10: {
+      en: 'Resize column (±10 px)',
+      ja: '列幅を変更(±10 px)',
+    },
+    shortcutActionResizeColumn40: {
+      en: 'Resize column (±40 px)',
+      ja: '列幅を変更(±40 px)',
+    },
+    shortcutActionResizeSplit1: {
+      en: 'Resize panel split (±1%)',
+      ja: 'パネルの分割比を変更(±1%)',
+    },
+    shortcutActionResizeSplit10: {
+      en: 'Resize panel split (±10%)',
+      ja: 'パネルの分割比を変更(±10%)',
+    },
+    shortcutActionResizeHeight1: {
+      en: 'Resize panel height (±1%)',
+      ja: 'パネルの高さを変更(±1%)',
+    },
+    shortcutActionResizeHeight10: {
+      en: 'Resize panel height (±10%)',
+      ja: 'パネルの高さを変更(±10%)',
+    },
+    shortcutActionSort: {
+      en: 'Sort by column',
+      ja: '列でソート',
+    },
+    shortcutActionNavigateMenu: {
+      en: 'Navigate menu items',
+      ja: 'メニュー項目を移動',
+    },
+    shortcutWhereColumnResizer: {
+      en: 'on column resizer',
+      ja: '(列リサイザ上で)',
+    },
+    shortcutWhereDividerHorizontal: {
+      en: 'on panel divider (horizontal)',
+      ja: '(パネル分割線上で・横方向)',
+    },
+    shortcutWhereDividerVertical: {
+      en: 'on panel divider (vertical ≤700 px)',
+      ja: '(パネル分割線上で・縦方向 700 px 以下)',
+    },
+    shortcutWhereColumnHeader: {
+      en: 'on column header',
+      ja: '(列ヘッダ上で)',
+    },
+    shortcutWhereMenu: {
+      en: 'in menu',
+      ja: '(メニュー内で)',
+    },
+    sampleGuideTitle: {
+      en: 'Sample evidence guide',
+      ja: 'サンプル証拠ガイド',
+    },
+    sampleGuideReveal: {
+      en: 'Reveal evidence',
+      ja: '答えを表示',
+    },
+    sampleGuideExit: {
+      en: 'Exit · restore prior recording state',
+      ja: '終了 · 元の記録状態に戻す',
+    },
+    supportTitle: {
+      en: 'Buy the developer a coffee',
+      ja: '開発者にコーヒーを一杯',
     },
     retentionHelp: {
       en: 'Oldest requests are removed after this limit. Response bodies use a separate 1 MiB per-body and 32 MiB total cache.',
