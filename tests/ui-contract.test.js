@@ -3293,6 +3293,20 @@ describe('export scope contracts', () => {
     expect(js).toContain("state.columnFilterRules.domain = { mode: 'multiText', conditions };");
   });
 
+  test('the configurable header column rides the shared column pipeline', () => {
+    expect(js).toContain("{ id: 'customHeader', label: 'Header', width: 160, visible: false },");
+    expect(js).toContain("const CUSTOM_HEADER_COLUMN_KEY = 'networkPlus.customHeaderColumn.v1';");
+    // Filtering, sorting, and cell rendering all resolve through one lookup
+    // with response-header precedence.
+    expect(js).toContain("if (colId === 'customHeader') return getRowHeaderColumnValue(row);");
+    expect(js).toContain("if (c.id === 'customHeader') v = getRowHeaderColumnValue(row);");
+    // The Columns menu hosts the binding UI; applying a name reveals the
+    // column so the setting is never invisible.
+    expect(js).toContain("headerInput.id = 'customHeaderNameInput';");
+    expect(js).toContain('saveCustomHeaderColumnName(headerInput.value);');
+    expect(js).toContain('if (column && customHeaderColumnName && !column.visible) {');
+  });
+
   test('a pasted cURL command fills the resend dialog and fails closed on the unknown', () => {
     expect(html).toMatch(/id="resendCurlInput"/);
     expect(html).toMatch(/id="resendCurlFillBtn"[^>]*>Fill fields from cURL</);
