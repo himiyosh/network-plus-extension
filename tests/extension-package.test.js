@@ -452,6 +452,17 @@ describe('extension source integrity', () => {
       ]),
     );
   });
+
+  test('rejects a tampered vendored decompressor via the pinned digest', () => {
+    const root = createFixture();
+    fs.appendFileSync(path.join(root, 'vendor/fflate.js'), '\n// tampered\n');
+
+    expect(validateExtension(root)).toContain(
+      'vendor/fflate.js sha256 digest does not match the pinned value; a deliberate vendor upgrade must update VENDOR_FFLATE_SHA256',
+    );
+    // The pristine copy passes, proving the pin matches the checked-in file.
+    expect(validateExtension(createFixture())).toEqual([]);
+  });
 });
 
 describe('extension archive integrity', () => {

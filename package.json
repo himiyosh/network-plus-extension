@@ -57,6 +57,12 @@
     ],
     "testMatch": [
       "**/tests/**/*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "panel.js",
+      "background.js",
+      "devtools.js",
+      "scripts/**/*.js"
     ]
   }
 }

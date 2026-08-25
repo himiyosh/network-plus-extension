@@ -51,6 +51,9 @@ function findBrowserExecutable() {
     '/usr/bin/google-chrome-stable',
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
+    // Managed remote sandboxes ship Chromium here; probing it kills the
+    // "green locally because the suite silently skipped" failure mode.
+    '/opt/pw-browsers/chromium',
     '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ].filter(Boolean);

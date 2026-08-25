@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { TextDecoder } = require('util');
@@ -53,6 +54,11 @@ const RUNTIME_FILES = Object.freeze([
   'vendor/fflate.js',
 ]);
 const TEXT_RUNTIME_EXTENSIONS = new Set(['.css', '.html', '.js', '.json']);
+// The vendored decompressor is the one runtime JS file this repository does
+// not author, and the content scans below deliberately skip it. Pinning its
+// digest turns a tampered or silently upgraded vendor file into an explicit,
+// reviewed change: an intentional upgrade must update this constant.
+const VENDOR_FFLATE_SHA256 = 'c3b34f2e9f5e74d4d7d64e01cac7a0c01954c6c406414d42185c7b53d6875ddf';
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const ZIP_TIMESTAMP = new Date('1980-01-01T00:00:00.000Z');
 const PERMISSION_USAGE = Object.freeze({
@@ -258,6 +264,16 @@ const validateExtension = (root, archiveFiles = RUNTIME_FILES) => {
 
   if (JSON.stringify(manifest.permissions) !== JSON.stringify(EXPECTED_PERMISSIONS)) {
     errors.push(`manifest permissions must be exactly: ${EXPECTED_PERMISSIONS.join(', ')}`);
+  }
+
+  const fflateBytes = runtimeBytes.get('vendor/fflate.js');
+  if (fflateBytes) {
+    const digest = crypto.createHash('sha256').update(fflateBytes).digest('hex');
+    if (digest !== VENDOR_FFLATE_SHA256) {
+      errors.push(
+        'vendor/fflate.js sha256 digest does not match the pinned value; a deliberate vendor upgrade must update VENDOR_FFLATE_SHA256',
+      );
+    }
   }
 
   const javascript = ['background.js', 'devtools.js', 'panel.js'].map((file) => runtimeText.get(file) ?? '').join('\n');
