@@ -33,7 +33,7 @@ background.js              single-job service worker: minimizes the undocked
 - The response body cache holds 1 MiB per body and 32 MiB in total. At the total limit, the least recently accessed bodies are evicted while their rows are kept.
 - Bodies larger than 1 MiB are omitted rather than stored partially. Detail views, search, and HAR never present omitted, evicted, or unavailable bodies as complete data.
 - Base64 bodies are decoded with the charset declared by the response's `Content-Type` header (unknown labels fall back to UTF-8), and SAZ imports split header from body at byte level before decoding, so non-UTF-8 bodies render without mojibake.
-- An evicted body can be fetched again when the detail view is opened, as long as the DevTools source is still available. HAR export fetches bodies one at a time so it does not restore the shared cache without bound.
+- An evicted body can be fetched again when the detail view is opened, as long as the DevTools source is still available. HAR export resolves missing bodies through a small fixed worker pool (four, matching the prefetch background budget), so a large uncached export neither serializes thousands of round-trips nor spikes in-flight body memory without bound.
 - The status bar continuously shows body cache usage; the active retention policy and the cumulative counts of evicted rows, omitted bodies, evicted bodies, and omitted previews live in its tooltip, and the limit itself is edited in the Settings dialog.
 - If stored settings are invalid or cannot be read or written, Network+ falls back to defaults and reports the reason in the retention or operation status.
 
