@@ -679,6 +679,22 @@ describe('extractUrlParts', () => {
     expect(result.domain).toBe('');
     expect(result.path).toBe('not-a-url');
   });
+
+  // A blob: URL embeds the origin that created it. Split as if it were
+  // hierarchical it reads as a request to that origin, which never happened.
+  test('names the scheme instead of blanking the domain for opaque URLs', () => {
+    const blob = np.extractUrlParts('blob:https://cdn.example.test/5d76341a-9c1e-4f2b');
+    expect(blob.domain).toBe('blob:');
+    expect(blob.path).toBe('https://cdn.example.test/5d76341a-9c1e-4f2b');
+
+    const data = np.extractUrlParts('data:text/html;base64,PGh0bWw+');
+    expect(data.domain).toBe('data:');
+    expect(data.path).toBe('text/html;base64,PGh0bWw+');
+
+    expect(np.extractUrlParts('about:blank').domain).toBe('about:');
+    // A real host still wins, including one that only differs by scheme.
+    expect(np.extractUrlParts('https://cdn.example.test/a').domain).toBe('cdn.example.test');
+  });
 });
 
 describe('formatInitiator', () => {
