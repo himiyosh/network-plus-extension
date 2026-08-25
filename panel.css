@@ -29,7 +29,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --diff-remove-bg:rgba(239,68,68,0.10);--diff-remove-border:rgba(239,68,68,0.40);
   --diff-changed-bg:rgba(251,191,36,0.12);--diff-changed-border:rgba(251,191,36,0.45);
   --diff-badge-a-color:#15803d;--diff-badge-b-color:#92400e;
-  --brew:#3a2416;--cat-blush:#e8848f;--cup:#fffdf7;--otter:#a9744f;--otter-deep:#8a5a3a;--otter-muzzle:#ecd9c3
+  --brew:#3a2416;--cat-blush:#e8848f;--cup:#fffdf7;--otter:#a9744f;--otter-deep:#8a5a3a;--otter-light:#c08a5f;--otter-muzzle:#ecd9c3
 }
 @media (prefers-color-scheme: dark){:root{
   --bg:#0f172a;--surface:#1e293b;--content-bg:#162032;--fg:#e2e8f0;--muted:#94a3b8;--text-muted:#a8b4c5;
@@ -54,7 +54,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --diff-remove-bg:rgba(239,68,68,0.14);--diff-remove-border:rgba(239,68,68,0.50);
   --diff-changed-bg:rgba(251,191,36,0.15);--diff-changed-border:rgba(251,191,36,0.55);
   --diff-badge-a-color:#86efac;--diff-badge-b-color:#fde047;
-  --brew:#43291a;--cat-blush:#f0a0a9;--cup:#f5f1e8;--otter:#b57e57;--otter-deep:#96634a;--otter-muzzle:#e6d2b8
+  --brew:#43291a;--cat-blush:#f0a0a9;--cup:#f5f1e8;--otter:#b57e57;--otter-deep:#96634a;--otter-light:#cf9068;--otter-muzzle:#e6d2b8
 }}
 html[data-theme="dark"]{
   --bg:#0f172a;--surface:#1e293b;--content-bg:#162032;--fg:#e2e8f0;--muted:#94a3b8;--text-muted:#a8b4c5;
@@ -79,7 +79,7 @@ html[data-theme="dark"]{
   --diff-remove-bg:rgba(239,68,68,0.14);--diff-remove-border:rgba(239,68,68,0.50);
   --diff-changed-bg:rgba(251,191,36,0.15);--diff-changed-border:rgba(251,191,36,0.55);
   --diff-badge-a-color:#86efac;--diff-badge-b-color:#fde047;
-  --brew:#43291a;--cat-blush:#f0a0a9;--cup:#f5f1e8;--otter:#b57e57;--otter-deep:#96634a;--otter-muzzle:#e6d2b8
+  --brew:#43291a;--cat-blush:#f0a0a9;--cup:#f5f1e8;--otter:#b57e57;--otter-deep:#96634a;--otter-light:#cf9068;--otter-muzzle:#e6d2b8
 }
 html[data-theme="light"]{
   --bg:#fafbfc;--surface:#f0f2f5;--content-bg:#ffffff;--fg:#1a1a2e;--muted:#606d7b;--text-muted:#526170;
@@ -104,7 +104,7 @@ html[data-theme="light"]{
   --diff-remove-bg:rgba(239,68,68,0.10);--diff-remove-border:rgba(239,68,68,0.40);
   --diff-changed-bg:rgba(251,191,36,0.12);--diff-changed-border:rgba(251,191,36,0.45);
   --diff-badge-a-color:#15803d;--diff-badge-b-color:#92400e;
-  --brew:#3a2416;--cat-blush:#e8848f;--cup:#fffdf7;--otter:#a9744f;--otter-deep:#8a5a3a;--otter-muzzle:#ecd9c3
+  --brew:#3a2416;--cat-blush:#e8848f;--cup:#fffdf7;--otter:#a9744f;--otter-deep:#8a5a3a;--otter-light:#c08a5f;--otter-muzzle:#ecd9c3
 }
 
 /* === Top Bar === */
@@ -577,36 +577,28 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .support-form h2{margin:0;font-size:15px;font-style:normal;text-align:center}
 .support-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
 .support-hero{display:flex;align-items:center;justify-content:center;padding:8px 0 4px;border-radius:10px;background:radial-gradient(62% 82% at 50% 62%,var(--accent-dim) 0%,transparent 72%)}
-.support-hero-art{width:208px;height:129px;overflow:visible}
-/* Water the raft floats on. The otter, its cup and the steam share one group
-   so the whole raft rides a single bob — parts animated apart drift out of
-   register within a few cycles and the cup slides off the belly. */
-.support-water{fill:var(--accent-dim)}
-.support-ripple{fill:none;stroke:var(--accent);stroke-width:1.5;opacity:0;transform-box:fill-box;transform-origin:50% 50%;animation:support-ripple-out 4.4s ease-out infinite}
-.support-ripple--b{animation-delay:2.2s}
-.support-raft{transform-box:fill-box;transform-origin:50% 80%;animation:support-raft-float 4.6s ease-in-out infinite}
-.support-otter-body,.support-otter-skull,.support-otter-ear,.support-otter-foot{fill:var(--otter)}
-.support-otter-belly{fill:var(--otter-muzzle);opacity:.85}
-.support-otter-ear-inner{fill:var(--otter-deep)}
+/* The hero is a 44x26 pixel grid drawn at an exact 5x, matching the toolbar
+   mark's language. A non-integer scale would blur the grid; crispEdges plus a
+   whole multiple keeps every cell square. */
+.support-hero-art{width:220px;height:130px;overflow:visible;image-rendering:pixelated}
+.support-otter-body,.support-otter-ear{fill:var(--otter)}
+.support-otter-brow{fill:var(--otter-light)}
+.support-otter-paw{fill:var(--otter-deep)}
 .support-otter-muzzle{fill:var(--otter-muzzle)}
-.support-otter-nose{fill:var(--brew)}
-.support-otter-paw,.support-otter-tail{fill:var(--otter-deep)}
-.support-otter-tail{fill:none;stroke:var(--otter-deep);stroke-width:13;stroke-linecap:round;transform-box:fill-box;transform-origin:0% 100%;animation:support-otter-tail 5.2s ease-in-out infinite}
-.support-otter-feet{transform-box:fill-box;transform-origin:50% 100%;animation:support-otter-feet 3.8s ease-in-out infinite}
-.support-otter-mouth{fill:none;stroke:var(--brew);stroke-width:1.5;stroke-linecap:round;opacity:.8}
-.support-otter-whisker{fill:none;stroke:var(--brew);stroke-width:1.2;stroke-linecap:round;opacity:.45}
-.support-otter-eye{fill:var(--brew);transform-box:fill-box;transform-origin:50% 50%;animation:support-otter-blink 5.2s ease-in-out infinite}
-.support-otter-ear--left{transform-box:fill-box;transform-origin:50% 100%;animation:support-otter-ear 6.4s ease-in-out infinite}
-/* The cup is cream like the toolbar mark, not the accent — an accent-filled
-   mug read as an abstract shape rather than a drink. */
+.support-otter-blush{fill:var(--cat-blush)}
+.support-otter-line{fill:var(--brew)}
 .support-cup{fill:var(--cup)}
-.support-handle{fill:none;stroke:var(--cup);stroke-width:4;stroke-linecap:round}
 .support-brew{fill:var(--brew)}
-.support-cup-shadow{fill:var(--brew);opacity:.16}
-.support-steam{fill:none;stroke:var(--text-accent);stroke-width:2.6;stroke-linecap:round;opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:support-steam-rise 3.4s ease-in-out infinite}
+/* Blink by dropping a fur-coloured lid over the eye pixels, the way the
+   toolbar mark does — scaling a 2px eye would just make it jitter. */
+.support-otter-lid{fill:var(--otter);opacity:0;animation:support-otter-blink 5.2s step-end infinite}
+.support-otter-pix{transform-box:fill-box;transform-origin:50% 100%;animation:support-otter-bob 4.6s ease-in-out infinite}
+.support-steam-px{fill:var(--text-accent)}
+.support-steam{opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:support-steam-rise 3.4s ease-in-out infinite}
 .support-steam--b{animation-delay:.6s}
 .support-steam--c{animation-delay:1.2s}
-.support-heart{fill:var(--accent);opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:support-heart-rise 7.2s ease-in-out infinite}
+.support-heart-px{fill:var(--accent)}
+.support-heart{opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:support-heart-rise 7.2s ease-in-out infinite}
 .support-heart--b{animation-delay:3.6s}
 /* Hovering either call to action sends the hearts up early: the reward for
    reaching toward the button arrives before the click, not after it. */
@@ -614,19 +606,11 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .support-sparkle{fill:var(--text-accent);opacity:0;transform-box:fill-box;transform-origin:50% 50%;animation:support-sparkle-pop 3.8s ease-in-out infinite}
 .support-sparkle--b{animation-delay:1.3s}
 .support-sparkle--c{animation-delay:2.4s}
-@keyframes support-steam-rise{
-  0%{opacity:0;transform:translateY(5px) scaleY(.8)}
-  30%{opacity:.8}
-  65%{opacity:.4}
-  100%{opacity:0;transform:translateY(-9px) scaleY(1.2)}
-}
-@keyframes support-raft-float{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-3.5px) rotate(-1.1deg)}}
-@keyframes support-ripple-out{0%{opacity:.55;transform:scale(.55)}70%{opacity:.12}100%{opacity:0;transform:scale(1.35)}}
-@keyframes support-otter-blink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(.12)}}
-@keyframes support-otter-tail{0%,100%{transform:rotate(0deg)}50%{transform:rotate(7deg)}}
-@keyframes support-otter-feet{0%,100%{transform:rotate(0deg)}50%{transform:rotate(-6deg)}}
-@keyframes support-otter-ear{0%,86%,100%{transform:rotate(0deg)}90%{transform:rotate(-10deg)}95%{transform:rotate(5deg)}}
-@keyframes support-heart-rise{0%,58%{opacity:0;transform:translateY(0) scale(.5)}70%{opacity:.95;transform:translateY(-9px) scale(1)}100%{opacity:0;transform:translateY(-22px) scale(.85)}}
+/* Whole-pixel steps only: fractional translation on a pixel grid smears it. */
+@keyframes support-steam-rise{0%{opacity:0;transform:translateY(2px)}30%{opacity:.85;transform:translateY(1px)}65%{opacity:.45;transform:translateY(-1px)}100%{opacity:0;transform:translateY(-3px)}}
+@keyframes support-otter-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1px)}}
+@keyframes support-otter-blink{0%,92%{opacity:0}93%,96%{opacity:1}97%,100%{opacity:0}}
+@keyframes support-heart-rise{0%,58%{opacity:0;transform:translateY(0)}70%{opacity:.95;transform:translateY(-2px)}100%{opacity:0;transform:translateY(-5px)}}
 @keyframes support-sparkle-pop{0%,70%,100%{opacity:0;transform:scale(.4)}80%{opacity:.9;transform:scale(1)}90%{opacity:.35;transform:scale(.8)}}
 #supportDialog[open]{animation:support-dialog-in .3s cubic-bezier(.2,.8,.3,1)}
 #supportDialog[open]::backdrop{animation:support-backdrop-in .3s ease}
@@ -861,14 +845,13 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .search-color-btn,.search-color-swatch,.hl-swatch,.timing-bar-seg,.json-tree-summary::before,.copy-toast,.sample-guide-btn,.sample-exit-btn,.status-details-toggle{transition:none}
   .search-color-btn:hover,.search-color-swatch:hover,.hl-swatch:hover{transform:none}
   .copy-toast,.copy-toast.show{transform:translateX(-50%)}
-  .support-steam,.support-raft,.support-ripple,.support-heart,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.support-otter-tail,.support-otter-feet,.support-otter-eye,.support-otter-ear--left,.brand-otter,.brand-otter-motion,.brand-otter-lid,.brand-otter-glint,.brand-heart-px,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
+  .support-steam,.support-otter-pix,.support-otter-lid,.support-heart,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.brand-otter,.brand-otter-motion,.brand-otter-lid,.brand-otter-glint,.brand-heart-px,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
   .support-option-cta:hover{transform:none;filter:none}
   #supportDialog[open],#supportDialog[open]::backdrop{animation:none}
   .support-option:hover{transform:none}
   .support-option:hover .support-option-badge{transform:none}
   .support-steam{opacity:.55}
   .support-sparkle{opacity:.7}
-  .support-ripple{opacity:.3}
   .support-heart{opacity:.9}
 }
 

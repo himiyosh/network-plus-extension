@@ -2860,14 +2860,18 @@ describe('optional support dialog', () => {
     // The MV3 CSP and the package check both forbid non-local assets, so the
     // artwork has to stay inline markup rather than an image or sprite <use>.
     expect(hero).not.toMatch(/<img\b|<use\b|href=|url\(/);
+    // The identifying parts of the drawing: the muzzle and ears are what make
+    // it an otter rather than a generic round animal, and the cup is the ask.
     for (const part of [
       'support-steam--a',
       'support-cup',
       'support-brew',
       'support-sparkle--a',
-      'support-otter-head',
-      'support-otter-tail',
-      'support-otter-eye',
+      'support-otter-pix',
+      'support-otter-body',
+      'support-otter-muzzle',
+      'support-otter-ear',
+      'support-otter-lid',
     ]) {
       expect(hero).toContain(part);
     }
@@ -2907,8 +2911,7 @@ describe('optional support dialog', () => {
     // without restoring opacity would erase them instead of stilling them.
     expect(reduced).toContain('.support-steam{opacity:.55}');
     expect(reduced).toContain('.support-sparkle{opacity:.7}');
-    // Same trap for the ripples and the rising hearts.
-    expect(reduced).toContain('.support-ripple{opacity:.3}');
+    // Same trap for the rising hearts.
     expect(reduced).toContain('.support-heart{opacity:.9}');
   });
 
