@@ -45,7 +45,10 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] In that docked case the mirror tab shows the "Keep DevTools open" dialog exactly once per load: it warns that closing DevTools stops capture and freezes the tab, and lists the undock steps. Plain "Got it" lets it return on the next pop-out; "Don't show this again" keeps it away for good. An undocked pop-out (window minimized) never shows it.
 - [ ] In the mirror tab, pause/resume, Clear (and the Undo that then appears), the Settings dialog's Retention section (opens with the session's current values), and the Stream capture toggle all act on the DevTools session, and the tab's buttons match the session state within a second. Language and Theme in that same dialog act on the tab itself, not the DevTools session.
 - [ ] Importing a HAR or SAZ from the mirror tab replaces the session's capture exactly like a DevTools-side import, and both windows show the imported rows; a file over 64 MiB is refused with a visible reason.
-- [ ] `Resend unchanged` / `Edit and resend...` from the mirror tab execute in the DevTools session (status names the session) and the result row appears in both windows; while disconnected, every remote control reports a failure status instead of acting locally.
+- [ ] `Resend unchanged` / `Edit and resend...` from the mirror tab execute in the DevTools session (status names the session) and the result row appears in both windows; while disconnected, every remote control reports a failure status instead of acting locally, and Send inside the resend dialog shows the failure in the dialog itself while keeping it open with the edited request.
+- [ ] Closing DevTools and reopening it reattaches the surviving mirror tab automatically within a few seconds (DevTools status reports the reattach; the tab resyncs); clicking 🪟 while that tab is mirroring reports "already mirroring" instead of opening a duplicate, and reloading the mirror tab (F5) also reattaches on its own.
+- [ ] The mirror tab's empty state never offers `Explore sample capture` (its description points at the DevTools session instead).
+- [ ] Changing Theme or Language in the mirror tab applies to the DevTools panel within a moment without any reload, and vice versa.
 
 ## Settings and language
 
