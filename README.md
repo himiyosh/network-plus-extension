@@ -39,7 +39,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 - **Share without leaking.** Every copy and every export is sanitized by default — HAR, or a metadata-only CSV for spreadsheet triage; full output requires a per-action confirmation that is never remembered.
 - **Stay bounded.** Request retention and the response-body cache have explicit limits, visible counters, and predictable eviction — no silent unbounded growth.
 - **Work by keyboard.** Every control is reachable without a mouse, in System / Dark / Light themes that all meet WCAG 2.2 AA contrast.
-- **Settings in one place.** The 🎛️ Settings dialog gathers language, theme, and capture retention. Explanations and guide dialogs are available in Japanese (System / English / 日本語); control labels stay in English so instructions always match.
+- **Settings in one place.** The 🎛️ Settings dialog gathers language, theme, and capture retention. Explanations, guide dialogs, tooltips, empty-state text, and the timing guide are available in Japanese (System / English / 日本語); control labels stay in English so instructions always match.
 - **No build, no telemetry, no network.** Plain files loaded straight into Edge or Chrome; the extension holds a single permission (`storage`) and sends nothing anywhere.
 
 <details>

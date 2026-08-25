@@ -11,7 +11,7 @@
     <div class="left">
       <button id="pauseBtn" title="Pause recording" aria-label="Pause recording" class="icon-btn">⏸️</button>
       <div class="separator"></div>
-      <button id="supportBtn" title="Support Network+ development (optional)" aria-label="Network+ for DevTools — support development, optional" aria-haspopup="dialog" aria-controls="supportDialog" class="brand support-btn">
+      <button id="supportBtn" title="Support Network+ development (optional)" data-i18n-title="titleSupportBtn" aria-label="Network+ for DevTools — support development, optional" aria-haspopup="dialog" aria-controls="supportDialog" class="brand support-btn">
         <span class="brand-text">Network<span class="brand-plus">+</span></span>
         <span class="brand-sub">
           <span class="brand-otter-window" aria-hidden="true">
@@ -212,13 +212,13 @@
         <span class="brand-support-hint" aria-hidden="true">Support&nbsp;♥</span>
       </button>
       <div class="separator"></div>
-      <button id="searchToggleBtn" title="Toggle search panel (Ctrl+F)" aria-keyshortcuts="Control+F Meta+F" aria-controls="searchPanel" aria-expanded="false">🔍 Search</button>
+      <button id="searchToggleBtn" title="Toggle search panel (Ctrl+F)" data-i18n-title="titleSearchToggle" aria-keyshortcuts="Control+F Meta+F" aria-controls="searchPanel" aria-expanded="false">🔍 Search</button>
       <span id="searchCount" class="search-count" aria-hidden="true"></span><span id="searchCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
       <div class="separator"></div>
-      <button id="clearBtn" title="Clear all requests" aria-label="Clear all requests" aria-keyshortcuts="Control+L Meta+K" class="icon-btn clear-btn-danger">🗑️</button>
+      <button id="clearBtn" title="Clear all requests" data-i18n-title="titleClearBtn" aria-label="Clear all requests" aria-keyshortcuts="Control+L Meta+K" class="icon-btn clear-btn-danger">🗑️</button>
       <div class="separator"></div>
-      <button id="importBtn" title="Import (HAR/SAZ)" aria-label="Import HAR or SAZ" aria-busy="false" class="icon-btn">📥</button>
-      <button id="exportHarBtn" title="Export network data (sanitized by default)" aria-label="Export network data; sanitized by default" class="icon-btn">📤</button>
+      <button id="importBtn" title="Import (HAR/SAZ)" data-i18n-title="titleImportBtn" aria-label="Import HAR or SAZ" aria-busy="false" class="icon-btn">📥</button>
+      <button id="exportHarBtn" title="Export network data (sanitized by default)" data-i18n-title="titleExportBtn" aria-label="Export network data; sanitized by default" class="icon-btn">📤</button>
       <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
     </div>
     <div class="right">
@@ -226,22 +226,22 @@
       <button id="columnsBtn" aria-haspopup="menu" aria-controls="columnsMenu" aria-expanded="false">🗂️ Columns</button>
       <div class="separator"></div>
       <button id="settingsBtn" aria-haspopup="dialog" aria-controls="settingsDialog" aria-expanded="false">🎛️ Settings</button>
-      <button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>
-      <button id="shortcutBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutDialog">⌨️ ?</button>
+      <button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" data-i18n-title="titlePopoutBtn" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>
+      <button id="shortcutBtn" title="Keyboard shortcuts (?)" data-i18n-title="titleShortcutBtn" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutDialog">⌨️ ?</button>
     </div>
   </header>
   <div class="search-panel" id="searchPanel" role="search" aria-label="Search requests" style="display:none">
     <div class="search-panel-rows" id="searchRows"></div>
     <div class="search-panel-footer">
       <button id="searchAddBtn" class="search-add-btn">+ Add keyword</button>
-      <label class="search-matches-only" title="Show only requests that match search keywords. When off, all requests stay visible with highlights."><input type="checkbox" id="searchMatchesOnlyToggle" role="switch" aria-label="Show only matching requests"><span class="search-toggle-track" aria-hidden="true"></span><span class="search-matches-only-label">Matches only</span></label>
+      <label class="search-matches-only" title="Show only requests that match search keywords. When off, all requests stay visible with highlights." data-i18n-title="titleMatchesOnly"><input type="checkbox" id="searchMatchesOnlyToggle" role="switch" aria-label="Show only matching requests"><span class="search-toggle-track" aria-hidden="true"></span><span class="search-matches-only-label">Matches only</span></label>
       <span id="searchPanelNotice" class="search-panel-notice"></span>
       <span class="search-opt-group" role="group" aria-label="Match options">
-        <button id="searchOptCaseBtn" class="search-opt-btn" aria-pressed="false" title="Match case">Aa</button>
-        <button id="searchOptWordBtn" class="search-opt-btn" aria-pressed="false" title="Match whole word">\b</button>
-        <button id="searchOptRegexBtn" class="search-opt-btn" aria-pressed="false" title="Use regular expression">.*</button>
+        <button id="searchOptCaseBtn" class="search-opt-btn" aria-pressed="false" title="Match case" data-i18n-title="titleMatchCase">Aa</button>
+        <button id="searchOptWordBtn" class="search-opt-btn" aria-pressed="false" title="Match whole word" data-i18n-title="titleMatchWord">\b</button>
+        <button id="searchOptRegexBtn" class="search-opt-btn" aria-pressed="false" title="Use regular expression" data-i18n-title="titleMatchRegex">.*</button>
       </span>
-      <button id="searchScopeBtn" class="search-scope-btn" title="Search scope settings" aria-haspopup="dialog" aria-controls="searchScopePopup" aria-expanded="false">⚙️ Scope</button>
+      <button id="searchScopeBtn" class="search-scope-btn" title="Search scope settings" data-i18n-title="titleSearchScope" aria-haspopup="dialog" aria-controls="searchScopePopup" aria-expanded="false">⚙️ Scope</button>
     </div>
   </div>
   <main class="content" id="content">
@@ -251,11 +251,11 @@
         <tbody id="tbody"></tbody>
       </table>
     </section>
-    <div class="resizer" id="resizer" role="separator" tabindex="0" title="Resize request list and details with arrow keys" aria-label="Resize request list and request details" aria-controls="tableWrap details" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Request list 50 percent"></div>
+    <div class="resizer" id="resizer" role="separator" tabindex="0" title="Resize request list and details with arrow keys" data-i18n-title="titleResizer" aria-label="Resize request list and request details" aria-controls="tableWrap details" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Request list 50 percent"></div>
     <aside class="details" id="details" aria-label="Request details">
       <div class="details-header">
         <div id="detailsTitle">Select a request...</div>
-        <button id="detailsCloseBtn" class="details-close-btn" type="button" title="Close request details" aria-label="Close request details">✕</button>
+        <button id="detailsCloseBtn" class="details-close-btn" type="button" title="Close request details" data-i18n-title="titleDetailsClose" aria-label="Close request details">✕</button>
       </div>
       <div id="comparePanel" class="compare-panel" hidden aria-label="Request comparison" aria-hidden="true"></div>
       <div class="inspector-panels">
@@ -276,7 +276,7 @@
             <div class="tab-pane" id="req-raw" role="tabpanel" aria-labelledby="req-tab-raw" hidden></div>
           </div>
         </div>
-        <div class="inspector-divider" id="inspector-divider" role="separator" tabindex="0" title="Resize request and response inspectors with arrow keys" aria-label="Resize request and response inspectors" aria-controls="inspector-request inspector-response" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Request inspector 50 percent"></div>
+        <div class="inspector-divider" id="inspector-divider" role="separator" tabindex="0" title="Resize request and response inspectors with arrow keys" data-i18n-title="titleInspectorDivider" aria-label="Resize request and response inspectors" aria-controls="inspector-request inspector-response" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Request inspector 50 percent"></div>
         <div class="inspector-half" id="inspector-response">
           <div class="inspector-label">Response</div>
           <div class="tab-bar" id="res-tab-bar" role="tablist" aria-label="Response details">
@@ -299,7 +299,7 @@
       </div>
     </aside>
   </main>
-  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" hidden disabled>Exit · restore prior recording state</button><button id="wsCaptureBtn" type="button" class="ws-capture-btn" title="Capture WebSocket and Server-Sent-Event streams by wrapping this page's WebSocket and EventSource constructors; only connections created while capture is on are seen, and traffic is never altered" aria-pressed="false" hidden>Stream capture: Off</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus" title="Retention: 20,000 requests. body cache 0 B / 32 MB">cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 requests</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
+  <footer class="statusbar"><span id="sampleCaptureStatus" class="sample-capture-status" hidden></span><button id="sampleGuideBtn" type="button" class="sample-guide-btn" aria-haspopup="dialog" aria-controls="sampleGuideDialog" aria-expanded="false" hidden disabled>Sample guide</button><button id="sampleExitBtn" type="button" class="sample-exit-btn" title="Remove the complete local sample and restore the prior recording state and column filters" data-i18n-title="titleSampleExit" hidden disabled>Exit · restore prior recording state</button><button id="wsCaptureBtn" type="button" class="ws-capture-btn" title="Capture WebSocket and Server-Sent-Event streams by wrapping this page's WebSocket and EventSource constructors; only connections created while capture is on are seen, and traffic is never altered" data-i18n-title="titleWsCapture" aria-pressed="false" hidden>Stream capture: Off</button><button id="undoClearBtn" type="button" class="undo-clear-btn" aria-label="Undo clear" hidden disabled>Undo clear</button><span id="statusText" role="status" aria-live="polite" aria-atomic="true">Loaded</span><span class="spacer"></span><span id="statusDetails" class="status-details" role="group" aria-label="Retention and aggregate status details"><span id="retentionStatus" title="Retention: 20,000 requests. body cache 0 B / 32 MB">cache 0 B / 32 MB</span><span id="statsSummary"></span><span id="selectedSize"></span><span id="totalSize"></span></span><span id="counter" aria-hidden="true">0 requests</span><button id="statusDetailsToggle" type="button" class="status-details-toggle" aria-controls="statusDetails" aria-expanded="false" hidden>More status</button><span id="requestCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span><span id="retentionAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></footer>
   <dialog id="settingsDialog" aria-labelledby="settingsDialogTitle">
     <form method="dialog" class="settings-form">
       <h2 id="settingsDialogTitle">Settings</h2>
@@ -343,7 +343,7 @@
   <dialog id="dataSafetyDialog" aria-labelledby="dataSafetyDialogTitle" aria-describedby="dataSafetyDialogDetail">
     <form method="dialog" class="data-safety-form">
       <h2 id="dataSafetyDialogTitle">Export network data</h2>
-      <p id="dataSafetyDialogDetail">Sanitized output is the safe default.</p>
+      <p id="dataSafetyDialogDetail" data-i18n="dataSafetyDetail">Sanitized output is the safe default.</p>
       <fieldset id="dataSafetyScope" class="data-safety-scope" hidden>
         <legend>Scope</legend>
         <label><input type="radio" name="dataSafetyScopeChoice" id="dataSafetyScopeDisplayed" value="displayed" checked> All displayed requests (<span id="dataSafetyScopeDisplayedCount">0</span>)</label>
@@ -355,13 +355,13 @@
         <button id="dataSafetyFullBtn" type="button">Review full HAR warning</button>
       </div>
       <div id="dataSafetyWarning" class="data-safety-warning" hidden>
-        <p>Sanitized output redacts every URL query and form-like fragment value, both URL userinfo components, Cookie values, and every header value outside a small structural allowlist.</p>
-        <strong>Full output bypasses those protections and can expose:</strong>
+        <p data-i18n="dataSafetyWarnRedacts">Sanitized output redacts every URL query and form-like fragment value, both URL userinfo components, Cookie values, and every header value outside a small structural allowlist.</p>
+        <strong data-i18n="dataSafetyWarnExposeTitle">Full output bypasses those protections and can expose:</strong>
         <ul>
-          <li>Authorization, proxy authorization, custom, security, trace, request-ID, and client-certificate headers</li>
-          <li>Cookie and Set-Cookie values</li>
-          <li>URL usernames, passwords, query values, and fragment values</li>
-          <li>Request and response bodies, including base64 content</li>
+          <li data-i18n="dataSafetyWarnExposeHeaders">Authorization, proxy authorization, custom, security, trace, request-ID, and client-certificate headers</li>
+          <li data-i18n="dataSafetyWarnExposeCookies">Cookie and Set-Cookie values</li>
+          <li data-i18n="dataSafetyWarnExposeUrl">URL usernames, passwords, query values, and fragment values</li>
+          <li data-i18n="dataSafetyWarnExposeBodies">Request and response bodies, including base64 content</li>
         </ul>
         <label id="dataSafetyCopyFormatLabel" for="dataSafetyCopyFormat" hidden>Full copy format</label>
         <select id="dataSafetyCopyFormat" hidden>
@@ -374,7 +374,7 @@
           <option value="rawRequest">Raw request</option>
           <option value="requestBody">Request body</option>
         </select>
-        <p>This confirmation applies only to this action. Network+ does not save a full-output preference.</p>
+        <p data-i18n="dataSafetyWarnOneTime">This confirmation applies only to this action. Network+ does not save a full-output preference.</p>
       </div>
       <div class="data-safety-actions">
         <button id="dataSafetyCancelBtn" type="button">Cancel</button>
@@ -385,7 +385,7 @@
   <dialog id="resendDialog" aria-labelledby="resendDialogTitle" aria-describedby="resendDialogIntro">
     <form method="dialog" class="resend-form">
       <h2 id="resendDialogTitle">Edit and resend request</h2>
-      <p id="resendDialogIntro">Send composes a new request from these fields, and the inspected page itself issues it — so cookies, CORS, and the page's security policies apply as usual. The reply arrives as a new captured row.</p>
+      <p id="resendDialogIntro" data-i18n="resendIntro">Send composes a new request from these fields, and the inspected page itself issues it — so cookies, CORS, and the page's security policies apply as usual. The reply arrives as a new captured row.</p>
       <label for="resendCurlInput">Paste a cURL command (optional)</label>
       <textarea id="resendCurlInput" name="resendCurlInput" rows="2" spellcheck="false" placeholder="curl -H 'Accept: application/json' https://api.example.com/v1/users"></textarea>
       <button id="resendCurlFillBtn" type="button" class="resend-curl-fill">Fill fields from cURL</button>
@@ -398,7 +398,7 @@
       <label for="resendBody">Body (ignored for GET and HEAD)</label>
       <textarea id="resendBody" name="resendBody" rows="4" spellcheck="false"></textarea>
       <label class="resend-credentials"><input type="checkbox" id="resendCredentials" checked> Send this site's cookies with the request</label>
-      <p class="resend-hint">Browser-managed headers (Host, Cookie, Content-Length, Origin, Referer, and the Sec-* and Proxy-* families) are set by the browser and cannot be overridden here.</p>
+      <p class="resend-hint" data-i18n="resendManagedHeadersHint">Browser-managed headers (Host, Cookie, Content-Length, Origin, Referer, and the Sec-* and Proxy-* families) are set by the browser and cannot be overridden here.</p>
       <p id="resendError" class="resend-error" role="alert" hidden></p>
       <div class="resend-actions">
         <button id="resendSendBtn" type="button" class="data-safety-primary">Send request</button>
@@ -466,7 +466,7 @@
       </table>
       <section class="shortcut-support-summary" aria-labelledby="shortcutSupportSummaryTitle">
         <h3 id="shortcutSupportSummaryTitle">Safe support summary</h3>
-        <p id="shortcutSupportSummaryHelp">Copies only the packaged version, Edge major, coarse OS family, theme, retention, recording and sample state, and display and motion preferences. Captured traffic is excluded. Review the summary before posting.</p>
+        <p id="shortcutSupportSummaryHelp" data-i18n="shortcutSupportSummaryHelp">Copies only the packaged version, Edge major, coarse OS family, theme, retention, recording and sample state, and display and motion preferences. Captured traffic is excluded. Review the summary before posting.</p>
         <button id="copySafeSupportSummaryBtn" type="button" class="shortcut-primary-action" aria-describedby="shortcutSupportSummaryHelp">Copy safe support summary</button>
         <p id="shortcutSupportSummaryStatus" class="shortcut-support-summary-status" role="status" aria-live="polite" aria-atomic="true"></p>
       </section>
@@ -478,15 +478,15 @@
   <dialog id="sampleGuideDialog" aria-labelledby="sampleGuideDialogTitle" aria-describedby="sampleGuideIntro">
     <form method="dialog" class="sample-guide-form">
       <h2 id="sampleGuideDialogTitle">Sample evidence guide</h2>
-      <p id="sampleGuideIntro">Inspect the three local requests before revealing the evidence.</p>
+      <p id="sampleGuideIntro" data-i18n="sampleGuideIntro">Inspect the three local requests before revealing the evidence.</p>
       <ol class="sample-guide-prompts">
-        <li>Which request failed?</li>
-        <li>Which Timing phase accounts for most of its duration?</li>
-        <li>Which response header gives a retry hint?</li>
-        <li>What limitation applies to what browser timing can prove?</li>
+        <li data-i18n="sampleGuidePrompt1">Which request failed?</li>
+        <li data-i18n="sampleGuidePrompt2">Which Timing phase accounts for most of its duration?</li>
+        <li data-i18n="sampleGuidePrompt3">Which response header gives a retry hint?</li>
+        <li data-i18n="sampleGuidePrompt4">What limitation applies to what browser timing can prove?</li>
       </ol>
       <div id="sampleGuideEvidence" class="sample-guide-evidence" aria-live="polite" aria-atomic="true" hidden></div>
-      <p id="sampleGuideExitHelp" class="sample-guide-exit-help" hidden>Exiting removes all three local sample requests and restores the recording state and column filters from before the sample.</p>
+      <p id="sampleGuideExitHelp" class="sample-guide-exit-help" hidden data-i18n="sampleGuideExitHelp">Exiting removes all three local sample requests and restores the recording state and column filters from before the sample.</p>
       <div class="sample-guide-actions">
         <button id="sampleGuideCloseBtn" type="button">Close</button>
         <button id="sampleGuideExitBtn" type="button" class="sample-guide-exit-btn" aria-describedby="sampleGuideExitHelp" hidden disabled>Exit · restore prior recording state</button>
@@ -531,13 +531,13 @@
         </svg>
       </div>
       <h2 id="supportDialogTitle">Buy the developer a coffee</h2>
-      <p id="supportDialogIntro">Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or paid tier. If it saved you a debugging session, a coffee helps keep it maintained. Contributing is optional and never unlocks, limits, or changes any feature.</p>
+      <p id="supportDialogIntro" data-i18n="supportIntro">Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or paid tier. If it saved you a debugging session, a coffee helps keep it maintained. Contributing is optional and never unlocks, limits, or changes any feature.</p>
       <ul class="support-options">
         <li class="support-option">
           <span class="support-option-badge" aria-hidden="true">💜</span>
           <span class="support-option-body">
             <span class="support-option-name">GitHub Sponsors</span>
-            <span class="support-option-hint">github.com/sponsors/himiyosh · one-time or monthly · no platform fee</span>
+            <span class="support-option-hint" data-i18n="supportSponsorsHint">github.com/sponsors/himiyosh · one-time or monthly · no platform fee</span>
           </span>
           <a id="supportSponsorsLink" class="support-option-cta" href="https://github.com/sponsors/himiyosh" target="_blank" rel="noopener noreferrer" aria-label="Sponsor on GitHub Sponsors, opens a new browser tab">Sponsor</a>
         </li>
@@ -545,12 +545,12 @@
           <span class="support-option-badge" aria-hidden="true">☕</span>
           <span class="support-option-body">
             <span class="support-option-name">Ko-fi</span>
-            <span class="support-option-hint">ko-fi.com/studio344 · one-time · no account needed</span>
+            <span class="support-option-hint" data-i18n="supportKofiHint">ko-fi.com/studio344 · one-time · no account needed</span>
           </span>
           <a id="supportKofiLink" class="support-option-cta" href="https://ko-fi.com/studio344" target="_blank" rel="noopener noreferrer" aria-label="Buy a coffee on Ko-fi, opens a new browser tab">Buy a coffee</a>
         </li>
       </ul>
-      <p class="support-note">The buttons open the payment page in a browser tab; the payment itself happens on that site, never inside DevTools. Network+ sends them no captured traffic and no usage data, and cannot tell whether you visited or contributed.</p>
+      <p class="support-note" data-i18n="supportNote">The buttons open the payment page in a browser tab; the payment itself happens on that site, never inside DevTools. Network+ sends them no captured traffic and no usage data, and cannot tell whether you visited or contributed.</p>
       <div class="support-actions">
         <button id="supportCloseBtn" type="button">Close</button>
       </div>

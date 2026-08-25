@@ -1371,20 +1371,55 @@ describe('settings and language contracts', () => {
     // A dialog added with a typoed or missing key would silently ship
     // untranslated; this closes that gap deterministically.
     const htmlKeys = Array.from(html.matchAll(/data-i18n="([^"]+)"/g)).map((match) => match[1]);
-    expect(htmlKeys.length).toBeGreaterThanOrEqual(11);
+    expect(htmlKeys.length).toBeGreaterThanOrEqual(32);
+    const titleKeys = Array.from(html.matchAll(/data-i18n-title="([^"]+)"/g)).map(
+      (match) => match[1],
+    );
+    expect(titleKeys.length).toBeGreaterThanOrEqual(17);
+    // Strings the panel composes in JavaScript resolve through uiText(key);
+    // a typoed key there would fall back to empty text just as silently.
+    const uiTextKeys = Array.from(js.matchAll(/uiText\('(\w+)'\)/g)).map((match) => match[1]);
+    expect(uiTextKeys.length).toBeGreaterThanOrEqual(10);
     const dictStart = js.indexOf('const UI_TEXT = {');
     expect(dictStart).toBeGreaterThan(-1);
     const dict = js.slice(dictStart, js.indexOf('\n  };', dictStart));
     const dictKeys = Array.from(dict.matchAll(/^ {4}(\w+): \{/gm)).map((match) => match[1]);
-    for (const key of htmlKeys) {
+    for (const key of [...htmlKeys, ...titleKeys, ...uiTextKeys]) {
       expect(dictKeys).toContain(key);
     }
     for (const key of dictKeys) {
       const entry = dict.slice(dict.indexOf('    ' + key + ': {'));
       const body = entry.slice(0, entry.indexOf('},'));
-      expect(body).toMatch(/en: ['"]/);
+      // en is a string literal or a reference to the canonical English
+      // constant (the reason/timing texts also ship inside rows and exports).
+      expect(body).toMatch(/en: ['"A-Z]/);
       expect(body).toMatch(/ja: ['"]/);
     }
+  });
+
+  test('tooltips and JS-composed strings translate through the same dictionary', () => {
+    // Static tooltips carry data-i18n-title; dynamic titles (pause, undo,
+    // retention) are JS-composed and deliberately keep their English text.
+    expect(js).toContain("document.querySelectorAll('[data-i18n-title]')");
+    expect(js).toContain("UI_TEXT[el.getAttribute('data-i18n-title')]");
+    expect(js).toContain('el.title = entry[activeLanguage];');
+    expect(html).not.toMatch(/id="pauseBtn"[^>]*data-i18n-title/);
+    expect(html).not.toMatch(/id="undoClearBtn"[^>]*data-i18n-title/);
+    // The empty state re-renders in place on a language change: the render
+    // key includes the active language and applyLanguage triggers a refresh.
+    expect(js).toContain(
+      "const renderKey = mode + ':' + (state.paused ? 'paused' : 'recording') + ':' + activeLanguage;",
+    );
+    expect(js).toContain('refreshEmptyStateLanguage();');
+    expect(js).toContain('updateEmptyState(lastEmptyStateRowCount);');
+    // Stored body-unavailability reasons stay canonical English on the row
+    // and translate only where rendered.
+    expect(js).toContain(
+      "setResponsePaneMessage('(response body ' + display.label + ': ' + localizeBodyReason(display.reason) + ')');",
+    );
+    expect(js).toContain('const key = LOCALIZED_REASON_KEYS.get(reason);');
+    expect(js).toContain('en: NAVIGATION_BODY_UNAVAILABLE_REASON,');
+    expect(js).toContain('en: TIMING_EVIDENCE_LIMITATION,');
   });
 
   test('the undock hint teaches visually: warning card, steps card, and a dock-side icon row', () => {
@@ -2130,7 +2165,8 @@ describe('timing guidance static contracts', () => {
   test('keeps phase definitions and the evidence limit visible and keyboard-accessible', () => {
     expect(js).toContain('function createTimingPhaseGuide()');
     expect(js).toContain("const guide = document.createElement('details');");
-    expect(js).toContain("summary.textContent = 'What do the timing phases mean?'");
+    expect(js).toContain("summary.textContent = uiText('timingGuideSummary');");
+    expect(js).toContain("description.textContent = uiText(TIMING_PHASE_TEXT_KEYS[phase]) || guidance.description;");
     expect(js).toContain('TIMING_EVIDENCE_LIMITATION');
     expect(js).toContain('resTimingPane.appendChild(createTimingPhaseGuide());');
     expect(js).toContain('document.createElement(\'dl\')');
@@ -2628,9 +2664,14 @@ describe('optional support dialog', () => {
     }
     expect(html).toMatch(/<dialog id="supportDialog"[^>]*aria-labelledby="supportDialogTitle"/);
     // The destination stays legible next to the action so a payment link is
-    // never followed blind.
+    // never followed blind — in the authored English and in the Japanese
+    // translation alike.
     for (const { url } of supportLinks) {
-      expect(html).toContain(`<span class="support-option-hint">${url.replace('https://', '')} ·`);
+      const host = url.replace('https://', '');
+      expect(html).toMatch(
+        new RegExp(`<span class="support-option-hint"[^>]*>${host.replace(/[./]/g, '\\$&')} ·`),
+      );
+      expect(js).toContain(`ja: '${host} · `);
     }
   });
 
@@ -3111,7 +3152,7 @@ describe('search options and preference persistence contracts', () => {
 describe('devtools-session mirror contracts', () => {
   test('the toolbar offers a pop-out that opens this panel as a browser tab', () => {
     expect(html).toContain(
-      '<button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>',
+      '<button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" data-i18n-title="titlePopoutBtn" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>',
     );
     expect(js).toContain("window.open('panel.html?view=window&src=' + encodeURIComponent(String(inspectedTabId)))");
     // The button only appears where a DevTools session can host a mirror.
