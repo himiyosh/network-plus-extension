@@ -577,13 +577,13 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .support-form h2{margin:0;font-size:15px;font-style:normal;text-align:center}
 .support-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
 .support-hero{display:flex;align-items:center;justify-content:center;padding:8px 0 4px;border-radius:10px;background:radial-gradient(62% 82% at 50% 62%,var(--accent-dim) 0%,transparent 72%)}
-/* The hero is a 44x26 pixel grid drawn at an exact 5x, matching the toolbar
+/* The hero is a 38x19 pixel grid drawn at an exact 6x, matching the toolbar
    mark's language. A non-integer scale would blur the grid; crispEdges plus a
    whole multiple keeps every cell square. */
-.support-hero-art{width:220px;height:130px;overflow:visible;image-rendering:pixelated}
+.support-hero-art{width:228px;height:114px;overflow:visible;image-rendering:pixelated}
 .support-otter-body,.support-otter-ear{fill:var(--otter)}
 .support-otter-brow{fill:var(--otter-light)}
-.support-otter-paw{fill:var(--otter-deep)}
+.support-otter-shade{fill:var(--otter-deep)}
 .support-otter-muzzle{fill:var(--otter-muzzle)}
 .support-otter-blush{fill:var(--cat-blush)}
 .support-otter-line{fill:var(--brew)}
