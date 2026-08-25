@@ -77,6 +77,7 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] The language choice survives a DevTools reopen and applies in both the panel and the mirror tab (each reads the same stored preference).
 - [ ] The Theme select applies System / Dark / Light instantly and persists like before; the retention section still validates (out-of-range shows the inline error and keeps the dialog open) and Save closes the dialog.
 - [ ] In the redesigned undock explainer, the red warning card, the bordered steps card with the Dock side icon row (first icon highlighted), and the ✅ summary line render correctly in Light and Dark, in both languages, with no horizontal scrolling at narrow widths.
+- [ ] The undock explainer is as wide as its longest sentence — every paragraph and numbered step sits on one line in both English and Japanese — and it never exceeds the window: shrinking the mirror tab below its natural width wraps the text gracefully instead of overflowing or clipping.
 
 ## Navigation persistence
 

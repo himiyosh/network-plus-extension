@@ -673,3 +673,82 @@ browserTest(
   },
   TEST_TIMEOUT_MS,
 );
+
+browserTest(
+  'the undock explainer sizes itself to its text instead of wrapping it',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      query: '?view=window&src=7',
+      initScript: VIEWER_STUB,
+      width: 1440,
+      height: 900,
+    });
+    // Range.getClientRects() yields one rect per line box, so distinct rect
+    // tops count the real rendered lines. Prose only: the dismiss label wraps
+    // its checkbox into a second rect that is not a second line.
+    const measureProse = `(() => {
+      const dialog = document.getElementById('undockHintDialog');
+      if (!dialog.open) dialog.showModal();
+      let multiLine = 0;
+      let counted = 0;
+      for (const el of dialog.querySelectorAll('.undock-hint-form p, .undock-hint-form li')) {
+        if (!el.textContent.trim()) continue;
+        counted += 1;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const tops = new Set();
+        for (const rect of range.getClientRects()) {
+          if (rect.width > 0 || rect.height > 0) tops.add(Math.round(rect.top));
+        }
+        if (tops.size > 1) multiLine += 1;
+      }
+      return { width: Math.round(dialog.getBoundingClientRect().width), multiLine, counted };
+    })()`;
+    try {
+      await attachScriptedHostPort(page.cdp);
+      await evaluate(
+        page.cdp,
+        `window.__send({ type: 'sync', count: 0, maxId: 0, paused: false, control: ${JSON.stringify(
+          syncControl({ devtoolsMinimized: false }),
+        )} }); true`,
+      );
+      await delay(200);
+      expect(await evaluate(page.cdp, "document.getElementById('undockHintDialog').open")).toBe(true);
+
+      // English: the dialog grows past the old 440px cap so nothing wraps.
+      const english = await evaluate(page.cdp, measureProse);
+      expect(english.counted).toBeGreaterThanOrEqual(7);
+      expect(english.width).toBeGreaterThan(600);
+      expect(english.multiLine).toBe(0);
+
+      // Japanese explanations are longer per line; the dialog re-measures
+      // itself rather than reflowing the text into a wall of wrapped lines.
+      await evaluate(
+        page.cdp,
+        `(() => {
+          const select = document.getElementById('langSelect');
+          select.value = 'ja';
+          select.dispatchEvent(new Event('change'));
+          return true;
+        })()`,
+      );
+      await delay(150);
+      const japanese = await evaluate(page.cdp, measureProse);
+      expect(japanese.width).toBeGreaterThan(600);
+      expect(japanese.multiLine).toBe(0);
+
+      // The growth is capped, so a narrow window never overflows the viewport.
+      expect(japanese.width).toBeLessThanOrEqual(960);
+      expect(
+        await evaluate(
+          page.cdp,
+          "document.getElementById('undockHintDialog').getBoundingClientRect().width <= window.innerWidth",
+        ),
+      ).toBe(true);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
