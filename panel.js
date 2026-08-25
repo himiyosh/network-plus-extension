@@ -6488,6 +6488,277 @@ const _NetworkPlus = (function () {
     return { headers, invalidLines };
   }
 
+  // ---- Paste-a-cURL (fills the resend dialog fields) ----
+  // Tokenizes a POSIX-ish command line: whitespace splits, backslash
+  // escapes, backslash-newline continuations, literal single quotes,
+  // double quotes with \" \\ \$ \` escapes, and $'...' ANSI-C quoting.
+  // "Copy as cURL (bash)" output from Chrome, Edge, and Firefox uses
+  // exactly this subset. Pure string work — nothing here touches the
+  // network or the DOM.
+  function tokenizeShellCommand(text) {
+    const source = String(text || '');
+    const tokens = [];
+    let current = '';
+    let hasCurrent = false;
+    let index = 0;
+    const push = (piece) => {
+      current += piece;
+      hasCurrent = true;
+    };
+    while (index < source.length) {
+      const ch = source[index];
+      if (ch === '\\') {
+        const next = source[index + 1];
+        if (next === '\n') {
+          index += 2;
+          continue;
+        }
+        if (next === '\r' && source[index + 2] === '\n') {
+          index += 3;
+          continue;
+        }
+        if (next == null) throw new Error('the command ends with a dangling backslash');
+        push(next);
+        index += 2;
+        continue;
+      }
+      if (ch === "'") {
+        const end = source.indexOf("'", index + 1);
+        if (end === -1) throw new Error('a single-quoted section is not closed');
+        push(source.slice(index + 1, end));
+        index = end + 1;
+        continue;
+      }
+      if (ch === '$' && source[index + 1] === "'") {
+        let i = index + 2;
+        let out = '';
+        for (;;) {
+          if (i >= source.length) throw new Error("a $'...' section is not closed");
+          const c = source[i];
+          if (c === "'") {
+            i += 1;
+            break;
+          }
+          if (c === '\\') {
+            const esc = source[i + 1];
+            const simple = { n: '\n', t: '\t', r: '\r', '\\': '\\', "'": "'", '"': '"', 0: '\0' };
+            if (esc === 'x' && /^[0-9a-fA-F]{2}/.test(source.slice(i + 2))) {
+              out += String.fromCharCode(parseInt(source.slice(i + 2, i + 4), 16));
+              i += 4;
+              continue;
+            }
+            if (esc in simple) {
+              out += simple[esc];
+              i += 2;
+              continue;
+            }
+            out += esc == null ? '' : esc;
+            i += 2;
+            continue;
+          }
+          out += c;
+          i += 1;
+        }
+        push(out);
+        index = i;
+        continue;
+      }
+      if (ch === '"') {
+        let i = index + 1;
+        let out = '';
+        for (;;) {
+          if (i >= source.length) throw new Error('a double-quoted section is not closed');
+          const c = source[i];
+          if (c === '"') {
+            i += 1;
+            break;
+          }
+          if (c === '\\') {
+            const esc = source[i + 1];
+            if (esc === '\n') {
+              i += 2;
+              continue;
+            }
+            if (esc === '"' || esc === '\\' || esc === '$' || esc === '`') {
+              out += esc;
+              i += 2;
+              continue;
+            }
+            out += c;
+            i += 1;
+            continue;
+          }
+          out += c;
+          i += 1;
+        }
+        push(out);
+        index = i;
+        continue;
+      }
+      if (/\s/.test(ch)) {
+        if (hasCurrent) {
+          tokens.push(current);
+          current = '';
+          hasCurrent = false;
+        }
+        index += 1;
+        continue;
+      }
+      push(ch);
+      index += 1;
+    }
+    if (hasCurrent) tokens.push(current);
+    return tokens;
+  }
+
+  // Flags the browser or the resend pipeline covers anyway; noting them
+  // beats failing a command that would otherwise work.
+  const CURL_IGNORED_FLAGS = new Set([
+    '--compressed',
+    '-s',
+    '--silent',
+    '-S',
+    '--show-error',
+    '-k',
+    '--insecure',
+    '-v',
+    '--verbose',
+    '-L',
+    '--location',
+    '-g',
+    '--globoff',
+    '-i',
+    '--include',
+    '--no-progress-meter',
+    '-#',
+    '--progress-bar',
+  ]);
+
+  // Parses the supported cURL subset into a resend spec, or fails closed
+  // naming the first unsupported flag instead of guessing at semantics.
+  function parseCurlCommand(text) {
+    let tokens;
+    try {
+      tokens = tokenizeShellCommand(text);
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+    if (tokens[0] === '$') tokens.shift();
+    if (tokens.length === 0 || !/^curl(\.exe)?$/i.test(tokens[0])) {
+      return { ok: false, error: 'the command must start with curl' };
+    }
+    const spec = { method: '', url: '', headers: [], body: '', credentials: true };
+    const notes = [];
+    const ignored = [];
+    const dataParts = [];
+    let sendDataAsQuery = false;
+    try {
+      for (let i = 1; i < tokens.length; i += 1) {
+        const token = tokens[i];
+        const take = () => {
+          i += 1;
+          if (i >= tokens.length) throw new Error('the flag ' + token + ' is missing its value');
+          return tokens[i];
+        };
+        if (token === '-X' || token === '--request') {
+          spec.method = take().toUpperCase();
+          continue;
+        }
+        if (/^-X./.test(token)) {
+          spec.method = token.slice(2).toUpperCase();
+          continue;
+        }
+        if (token === '-H' || token === '--header') {
+          const line = take();
+          const colonAt = line.indexOf(':');
+          if (colonAt > 0) {
+            spec.headers.push({ name: line.slice(0, colonAt).trim(), value: line.slice(colonAt + 1).trim() });
+          }
+          continue;
+        }
+        if (
+          token === '-d' ||
+          token === '--data' ||
+          token === '--data-raw' ||
+          token === '--data-ascii' ||
+          token === '--data-binary' ||
+          token === '--data-urlencode'
+        ) {
+          const value = take();
+          if (value.startsWith('@') && token !== '--data-raw') {
+            return { ok: false, error: 'reading the body from a file (' + value + ') is not supported; paste the body itself' };
+          }
+          dataParts.push(value);
+          continue;
+        }
+        if (token === '--url') {
+          spec.url = take();
+          continue;
+        }
+        if (token === '-u' || token === '--user') {
+          spec.headers.push({
+            name: 'Authorization',
+            value: 'Basic ' + bytesToBase64(new TextEncoder().encode(take())),
+          });
+          continue;
+        }
+        if (token === '-A' || token === '--user-agent') {
+          spec.headers.push({ name: 'User-Agent', value: take() });
+          continue;
+        }
+        if (token === '-e' || token === '--referer') {
+          spec.headers.push({ name: 'Referer', value: take() });
+          continue;
+        }
+        if (token === '-b' || token === '--cookie') {
+          spec.headers.push({ name: 'Cookie', value: take() });
+          notes.push('the browser manages cookies, so the pasted Cookie header will not be applied');
+          continue;
+        }
+        if (token === '-G' || token === '--get') {
+          sendDataAsQuery = true;
+          continue;
+        }
+        if (token === '-I' || token === '--head') {
+          spec.method = 'HEAD';
+          continue;
+        }
+        if (CURL_IGNORED_FLAGS.has(token)) {
+          ignored.push(token);
+          continue;
+        }
+        if (token.startsWith('-')) {
+          return { ok: false, error: 'the cURL flag ' + token + ' is not supported here' };
+        }
+        if (spec.url) {
+          return { ok: false, error: 'the command contains more than one URL' };
+        }
+        spec.url = token;
+      }
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+    if (dataParts.length > 0) {
+      if (sendDataAsQuery) {
+        if (!spec.url) return { ok: false, error: 'the command has no URL' };
+        spec.url += (spec.url.includes('?') ? '&' : '?') + dataParts.join('&');
+        if (!spec.method) spec.method = 'GET';
+      } else {
+        spec.body = dataParts.join('&');
+        if (!spec.method) spec.method = 'POST';
+      }
+    }
+    if (!spec.method) spec.method = 'GET';
+    if (!RESEND_METHOD_PATTERN.test(spec.method)) {
+      return { ok: false, error: 'the method ' + spec.method + ' is not a valid HTTP method token' };
+    }
+    if (!/^https?:\/\//i.test(spec.url)) {
+      return { ok: false, error: 'the command needs one absolute http(s) URL' };
+    }
+    if (ignored.length > 0) notes.push(ignored.join(', ') + ' handled by the browser and skipped');
+    return { ok: true, spec, notes };
+  }
+
   function pageResendRunner(spec) {
     // Runs inside the inspected page; must stay self-contained.
     try {
@@ -13106,6 +13377,27 @@ const _NetworkPlus = (function () {
           resendDialog.showModal();
         },
       };
+      const resendCurlInput = $('#resendCurlInput');
+      const resendCurlFillBtn = $('#resendCurlFillBtn');
+      if (resendCurlInput && resendCurlFillBtn) {
+        resendCurlFillBtn.addEventListener('click', () => {
+          const parsed = parseCurlCommand(resendCurlInput.value);
+          if (!parsed.ok) {
+            showResendError('cURL import failed: ' + parsed.error + '.');
+            return;
+          }
+          resendMethodInput.value = parsed.spec.method;
+          resendUrlInput.value = parsed.spec.url;
+          resendHeadersInput.value = formatHeaderLines(parsed.spec.headers);
+          resendBodyInput.value = parsed.spec.body;
+          showResendError('');
+          setStatus(
+            'Filled the resend fields from the cURL command' +
+              (parsed.notes.length > 0 ? ' (' + parsed.notes.join('; ') + ')' : '') +
+              '.',
+          );
+        });
+      }
       $('#resendSendBtn').addEventListener('click', () => {
         const method = resendMethodInput.value.trim() || 'GET';
         if (!RESEND_METHOD_PATTERN.test(method)) {
@@ -13379,6 +13671,8 @@ const _NetworkPlus = (function () {
     buildResendSpecFromRow,
     formatHeaderLines,
     parseHeaderLines,
+    tokenizeShellCommand,
+    parseCurlCommand,
     buildResendEvalSource,
     JWT_MAX_TOKEN_CHARS,
     JWT_DISPLAY_NOTE,
