@@ -5474,12 +5474,24 @@ const _NetworkPlus = (function () {
       ja: 'コピーされるのはパッケージ版のバージョン、Edge のメジャーバージョン、大まかな OS 種別、テーマ、保持設定、記録とサンプルの状態、表示とモーションの設定だけです。キャプチャしたトラフィックは含まれません。投稿前に内容を確認してください。',
     },
     supportIntro: {
-      en: 'Network+ is a solo, MIT-licensed project with no telemetry, ads, accounts, or paid tier. If it saved you a debugging session, a coffee helps keep it maintained. Contributing is optional and never unlocks, limits, or changes any feature.',
-      ja: 'Network+ は個人開発の MIT ライセンスのプロジェクトで、テレメトリ・広告・アカウント・有料プランはありません。デバッグの手間が省けたと感じたら、コーヒー 1 杯の支援が継続開発の助けになります。支援は任意で、機能の解放・制限・変更は一切ありません。',
+      en: 'A solo, MIT-licensed project. If it saved you a debugging session, a coffee keeps it going.',
+      ja: '個人開発の MIT ライセンスプロジェクトです。デバッグの時間が浮いたなら、コーヒー 1 杯が開発を続ける力になります。',
+    },
+    supportFactFree: {
+      en: 'Every feature, free',
+      ja: '全機能が無料',
+    },
+    supportFactPrivate: {
+      en: 'No ads, telemetry, or account',
+      ja: '広告・追跡・アカウントなし',
+    },
+    supportFactOptional: {
+      en: 'Optional, no perks',
+      ja: '支援は任意・特典なし',
     },
     supportNote: {
-      en: 'The buttons open the payment page in a browser tab; the payment itself happens on that site, never inside DevTools. Network+ sends them no captured traffic and no usage data, and cannot tell whether you visited or contributed.',
-      ja: 'ボタンは支払いページをブラウザのタブで開きます。支払いはそのサイト上で行われ、DevTools 内では行われません。Network+ はこれらのサイトへキャプチャしたトラフィックも利用データも送らず、訪問や支援の有無を知ることもできません。',
+      en: 'Contributing is optional and never unlocks, limits, or changes any feature. The buttons open the payment page in a browser tab; the payment itself happens on that site, never inside DevTools. Network+ sends them no captured traffic and no usage data, and cannot tell whether you contributed.',
+      ja: '支援は任意で、機能の解放・制限・変更は一切ありません。ボタンは支払いページをブラウザのタブで開き、決済はそのサイト上で行われ、DevTools 内では行われません。Network+ はこれらのサイトへキャプチャも利用データも送らず、支援の有無を知ることもできません。',
     },
     supportSponsorsHint: {
       en: 'github.com/sponsors/himiyosh · one-time or monthly · no platform fee',
