@@ -243,6 +243,18 @@ html[data-theme="light"]{
 input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);outline-offset:-1px}
 
 /* === Layout === */
+#domainSummary{display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex:0 0 auto;max-height:88px;overflow-y:auto;padding:4px 8px;border-bottom:1px solid var(--separator);background:var(--surface)}
+#domainSummary[hidden]{display:none}
+.domain-summary-row{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 8px;border:1px solid var(--control-border);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;font-size:11px;cursor:pointer;max-width:100%}
+.domain-summary-row:hover{background:var(--hover);border-color:var(--accent)}
+.domain-summary-row:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.domain-summary-row.active{background:var(--accent-dim);border-color:var(--accent);color:var(--text-accent)}
+.domain-summary-row--static{cursor:default;color:var(--text-muted)}
+.domain-summary-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
+.domain-summary-meta{color:var(--text-muted);white-space:nowrap}
+.domain-summary-row.active .domain-summary-meta{color:inherit}
+.domain-summary-errors{color:var(--status-5xx-text);font-weight:600;white-space:nowrap}
+.domain-summary-empty{color:var(--text-muted);font-size:11px;padding:2px 4px}
 .content{display:flex;flex:1 1 auto;min-width:0;min-height:0}
 .tableWrap{overflow:auto;flex:1 1 50%;min-width:0}
 .resizer{flex:0 0 4px;cursor:col-resize;background:var(--separator);z-index:2;transition:background 0.15s}
