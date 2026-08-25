@@ -51,9 +51,11 @@ profile によっては配布されないファイルがある。存在しない
 
 ### テスト実行の絶対則
 
-この Claude Code リモート環境でフルスイートを回すときは必ず `CHROME_BIN=/opt/pw-browsers/chromium npm test`。
-CHROME_BIN が無いと実ブラウザ回帰(status-summary-browser)が**黙ってスキップ**され、常に実行される CI とだけ食い違う
-「ローカル green・CI 赤」が起きる(PR #159 で実証)。`set -o pipefail` で `Tests:` 行を読む規律とセットで使うこと。
+実ブラウザ回帰(status-summary-browser / mirror-browser)は `/opt/pw-browsers/chromium` を候補パスとして
+**自動発見する**ため、このリモート環境では素の `npm test` でも実行される(PR #175 で恒久化。それ以前は
+CHROME_BIN 必須で、無いと黙ってスキップされ「ローカル green・CI 赤」が起きた — PR #159 で実証)。
+`CHROME_BIN` を明示すれば常にそれが優先。`set -o pipefail` で `Tests:` 行を読む規律は引き続き必須で、
+スイート数が想定(18)から減っていたらスキップを疑うこと。
 
 ### リリースとストア再申請
 

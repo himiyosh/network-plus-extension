@@ -1364,6 +1364,26 @@ describe('settings and language contracts', () => {
     expect(js).toContain('localStorage.setItem(LANG_KEY, v);');
   });
 
+  test('every data-i18n key resolves to a complete dictionary entry', () => {
+    // A dialog added with a typoed or missing key would silently ship
+    // untranslated; this closes that gap deterministically.
+    const htmlKeys = Array.from(html.matchAll(/data-i18n="([^"]+)"/g)).map((match) => match[1]);
+    expect(htmlKeys.length).toBeGreaterThanOrEqual(11);
+    const dictStart = js.indexOf('const UI_TEXT = {');
+    expect(dictStart).toBeGreaterThan(-1);
+    const dict = js.slice(dictStart, js.indexOf('\n  };', dictStart));
+    const dictKeys = Array.from(dict.matchAll(/^ {4}(\w+): \{/gm)).map((match) => match[1]);
+    for (const key of htmlKeys) {
+      expect(dictKeys).toContain(key);
+    }
+    for (const key of dictKeys) {
+      const entry = dict.slice(dict.indexOf('    ' + key + ': {'));
+      const body = entry.slice(0, entry.indexOf('},'));
+      expect(body).toMatch(/en: ['"]/);
+      expect(body).toMatch(/ja: ['"]/);
+    }
+  });
+
   test('the undock hint teaches visually: warning card, steps card, and a dock-side icon row', () => {
     expect(html).toContain('class="undock-hint-steps-card"');
     expect(html).toContain('class="undock-dockrow" aria-hidden="true"');
