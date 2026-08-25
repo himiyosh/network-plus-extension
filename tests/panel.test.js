@@ -4419,6 +4419,69 @@ describe('custom header column', () => {
   });
 });
 
+describe('computeDomainSummary', () => {
+  test('aggregates count, bytes, and 4xx/5xx errors per domain', () => {
+    const rows = [
+      { domain: 'api.example.test', size: 100, status: 200 },
+      { domain: 'api.example.test', size: 50, status: 404 },
+      { domain: 'cdn.example.test', size: 2048, status: 304 },
+      { domain: 'api.example.test', size: 'not-a-number', status: 503 },
+    ];
+    expect(np.computeDomainSummary(rows)).toEqual([
+      { domain: 'api.example.test', count: 3, totalBytes: 150, errorCount: 2 },
+      { domain: 'cdn.example.test', count: 1, totalBytes: 2048, errorCount: 0 },
+    ]);
+  });
+
+  test('orders by count descending, then domain ascending, keeping a no-host bucket', () => {
+    const rows = [
+      { domain: 'b.test', size: 1, status: 200 },
+      { domain: 'a.test', size: 1, status: 200 },
+      { domain: '', size: 1, status: 200 },
+      { domain: 'a.test', size: 1, status: 200 },
+    ];
+    expect(np.computeDomainSummary(rows).map((entry) => entry.domain)).toEqual([
+      'a.test',
+      '',
+      'b.test',
+    ]);
+  });
+
+  test('tolerates junk input without throwing', () => {
+    expect(np.computeDomainSummary(null)).toEqual([]);
+    expect(np.computeDomainSummary('rows')).toEqual([]);
+    expect(np.computeDomainSummary([null, 42, {}])).toEqual([
+      { domain: '', count: 3, totalBytes: 0, errorCount: 0 },
+    ]);
+  });
+});
+
+describe('domain summary preference', () => {
+  test('defaults hidden, round-trips the shown flag, and clears on hide', () => {
+    localStorage.getItem.mockReturnValueOnce(null);
+    expect(np.loadDomainSummaryPref()).toBe(false);
+    localStorage.getItem.mockReturnValueOnce('yes');
+    expect(np.loadDomainSummaryPref()).toBe(false);
+    localStorage.getItem.mockReturnValueOnce('1');
+    expect(np.loadDomainSummaryPref()).toBe(true);
+    np.saveDomainSummaryPref(true);
+    expect(localStorage.setItem).toHaveBeenCalledWith('networkPlus.domainSummary.v1', '1');
+    np.saveDomainSummaryPref(false);
+    expect(localStorage.removeItem).toHaveBeenCalledWith('networkPlus.domainSummary.v1');
+  });
+
+  test('a throwing localStorage degrades to hidden without throwing', () => {
+    localStorage.getItem.mockImplementationOnce(() => {
+      throw new Error('denied');
+    });
+    expect(np.loadDomainSummaryPref()).toBe(false);
+    localStorage.setItem.mockImplementationOnce(() => {
+      throw new Error('denied');
+    });
+    expect(() => np.saveDomainSummaryPref(true)).not.toThrow();
+  });
+});
+
 describe('WebSocket frame HAR export', () => {
   const wsContext = (row) => ({ createRow: () => {}, getRow: () => row });
 

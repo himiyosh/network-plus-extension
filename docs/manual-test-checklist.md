@@ -60,6 +60,13 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] The export dialog's `Export sanitized CSV` downloads a `.csv` honoring the displayed/selected scope choice with numeric duration and size columns and redacted URLs — no header or body values anywhere in the file; opening it in a spreadsheet shows one row per request.
 - [ ] <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> opens (or focuses) the mirror tab inside a DevTools session, does nothing in the mirror tab itself, and the binding is listed in the `?` shortcut dialog and on the 🪟 tooltip.
 
+## Domain summary
+
+- [ ] `Show domain summary` in the 🗂️ Columns menu reveals a strip above the grid listing each domain with its request count, transferred bytes, and an error count when 4xx/5xx responses exist, ordered by count (ties alphabetical); toggling it off hides the strip, and the choice survives a DevTools reopen.
+- [ ] While recording, streamed requests update the strip's counts live without stealing focus or resetting its scroll position, and the request grid's own scrolling and keyboard navigation are unaffected.
+- [ ] Clicking a domain shows only its requests (the entry highlights with a pressed state, the Filters badge counts 1, and the rule is editable in the Filters popup); clicking the pressed entry clears the filter; requests without a parseable host appear as a non-clickable `(no host)` entry.
+- [ ] The strip works identically in the pop-out mirror tab, aggregating the mirrored rows; note the domain match is a substring (like the row context menu's quick filter), so `example.com` also matches `api.example.com`.
+
 ## Settings and language
 
 - [ ] The 🎛️ Settings button opens one dialog with Language, Theme, and Retention sections; <kbd>Esc</kbd> and Close both dismiss it and return focus to the button.

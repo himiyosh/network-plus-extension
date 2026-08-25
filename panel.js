@@ -111,6 +111,7 @@ const _NetworkPlus = (function () {
   const LANGS = ['system', 'en', 'ja'];
   const COL_PREF_KEY = 'networkPlus.cols';
   const CUSTOM_HEADER_COLUMN_KEY = 'networkPlus.customHeaderColumn.v1';
+  const DOMAIN_SUMMARY_KEY = 'networkPlus.domainSummary.v1'; // '1' = per-domain summary panel shown
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
   const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';
@@ -4010,6 +4011,32 @@ const _NetworkPlus = (function () {
   }
 
   /**
+   * Aggregate rows into a per-domain summary for the domain panel.
+   * Pure function — no DOM/state dependency.
+   * @param {Array} rows - Array of row objects (from buildRowFromRequest)
+   * @returns {Array<{ domain: string, count: number, totalBytes: number, errorCount: number }>}
+   */
+  function computeDomainSummary(rows) {
+    const buckets = new Map();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const sourceRow = row && typeof row === 'object' ? row : {};
+      const domain = typeof sourceRow.domain === 'string' ? sourceRow.domain : '';
+      let bucket = buckets.get(domain);
+      if (!bucket) {
+        bucket = { domain, count: 0, totalBytes: 0, errorCount: 0 };
+        buckets.set(domain, bucket);
+      }
+      bucket.count += 1;
+      bucket.totalBytes += Number.isFinite(sourceRow.size) ? sourceRow.size : 0;
+      const statusClass = classifyStatusClass(sourceRow.status);
+      if (statusClass === '4xx' || statusClass === '5xx') bucket.errorCount += 1;
+    }
+    return Array.from(buckets.values()).sort(
+      (a, b) => b.count - a.count || (a.domain < b.domain ? -1 : a.domain > b.domain ? 1 : 0),
+    );
+  }
+
+  /**
    * Compute waterfall bar layout for a row within a time range.
    * Pure function — no DOM/state dependency.
    * @param {object} row - Row object with clientStartEpoch, serverDoneEpoch, duration, timings
@@ -4108,6 +4135,8 @@ const _NetworkPlus = (function () {
     highlightedRows: new Map(), // [U7] highlighted rows: row -> color class
     onResponseContentChanged: null,
     syncSearchUI: null,
+    syncDomainSummary: null,
+    domainSummaryVisible: false,
     automaticResponsePrefetchScheduler: null,
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
     sort: {
@@ -5513,6 +5542,23 @@ const _NetworkPlus = (function () {
       // The column still works for this session without persistence.
     }
     syncCustomHeaderColumnLabel();
+  }
+
+  function loadDomainSummaryPref() {
+    try {
+      return localStorage.getItem(DOMAIN_SUMMARY_KEY) === '1';
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function saveDomainSummaryPref(visible) {
+    try {
+      if (visible) localStorage.setItem(DOMAIN_SUMMARY_KEY, '1');
+      else localStorage.removeItem(DOMAIN_SUMMARY_KEY);
+    } catch (_e) {
+      // The panel still toggles for this session without persistence.
+    }
   }
 
   function getRowHeaderColumnValue(row) {
@@ -9196,6 +9242,9 @@ const _NetworkPlus = (function () {
         clearStatsSummary(statsEl);
       }
     }
+    // Every render and streaming path funnels through here, so the domain
+    // summary panel refreshes without touching the incremental fast path.
+    if (state.syncDomainSummary) state.syncDomainSummary();
   }
 
   function appendIncrementalRows(liveRows) {
@@ -11019,6 +11068,7 @@ const _NetworkPlus = (function () {
   function init() {
     loadColumnPrefs();
     loadCustomHeaderColumnName();
+    state.domainSummaryVisible = loadDomainSummaryPref();
     loadRetentionSetting();
     initializeDataSafetyDialog();
     initializeSampleGuideDialog();
@@ -11515,6 +11565,35 @@ const _NetworkPlus = (function () {
       headerSection.appendChild(headerRow);
       columnsContextMenu.appendChild(headerSection);
 
+      // The per-domain summary is a view mode, but the toolbar's button set
+      // is pinned by the responsive-fit journeys, so its toggle lives here
+      // with the other view configuration.
+      const domainSection = document.createElement('div');
+      domainSection.className = 'columns-header-section';
+      const domainHint = document.createElement('div');
+      domainHint.className = 'columns-preset-hint';
+      domainHint.textContent = 'Domain summary';
+      domainSection.appendChild(domainHint);
+      const domainToggle = document.createElement('button');
+      domainToggle.id = 'domainSummaryToggle';
+      domainToggle.className = 'context-menu-item';
+      domainToggle.setAttribute('role', 'menuitemcheckbox');
+      const updateDomainToggle = () => {
+        domainToggle.textContent =
+          (state.domainSummaryVisible ? '☑ ' : '☐ ') + 'Show domain summary';
+        domainToggle.setAttribute('aria-checked', String(state.domainSummaryVisible));
+      };
+      updateDomainToggle();
+      domainToggle.addEventListener('click', () => {
+        state.domainSummaryVisible = !state.domainSummaryVisible;
+        saveDomainSummaryPref(state.domainSummaryVisible);
+        updateDomainToggle();
+        if (state.syncDomainSummary) state.syncDomainSummary();
+        setStatus(state.domainSummaryVisible ? 'Domain summary shown.' : 'Domain summary hidden.');
+      });
+      domainSection.appendChild(domainToggle);
+      columnsContextMenu.appendChild(domainSection);
+
       // Single view preset (columns + filters). Apply restores the saved view —
       // or the factory default before anything was saved — and Update overwrites
       // the preset with whatever is on screen right now.
@@ -11785,6 +11864,170 @@ const _NetworkPlus = (function () {
     updateAutoScrollButton();
     $('#exportHarBtn').insertAdjacentElement('afterend', autoScrollBtn);
 
+    // Per-domain summary: a collapsible triage strip above the whole
+    // workbench. It lives outside #content on purpose — inside it the panel
+    // would join the tableWrap/resizer/details flex row and corrupt the
+    // divider's split math — and outside #tbody so every flat-grid invariant
+    // (zebra striping, roving tabindex, sibling walks) stays untouched.
+    const domainSummaryPanel = document.createElement('div');
+    domainSummaryPanel.id = 'domainSummary';
+    domainSummaryPanel.setAttribute('role', 'region');
+    domainSummaryPanel.setAttribute('aria-label', 'Domains');
+    domainSummaryPanel.hidden = true;
+    const contentElement = $('#content');
+    contentElement.insertAdjacentElement('beforebegin', domainSummaryPanel);
+
+    // Shared with the row context menu: both feed the same multiText rules
+    // the Filters popup edits, so applied filters show, count, and clear
+    // there. "Only" replaces any previous inclusion so two quick picks never
+    // intersect down to zero rows; exclusions accumulate.
+    const applyDomainQuickFilterTo = (domain, op) => {
+      const rule = state.columnFilterRules.domain;
+      let conditions =
+        rule && rule.mode === 'multiText' && Array.isArray(rule.conditions)
+          ? rule.conditions.filter((cond) => cond && String(cond.value || '').trim() !== '')
+          : [];
+      if (op === 'contains') conditions = conditions.filter((cond) => cond.op !== 'contains');
+      if (!conditions.some((cond) => cond.op === op && cond.value === domain)) {
+        conditions.push({ op, value: domain });
+      }
+      state.columnFilterRules.domain = { mode: 'multiText', conditions };
+      renderBody();
+      syncSearchUIAfterRender();
+      setStatus(
+        (op === 'contains' ? 'Showing only ' : 'Excluding ') +
+          domain +
+          '; manage it from the Filters popup.',
+      );
+    };
+
+    const clearDomainQuickFilter = (domain) => {
+      const rule = state.columnFilterRules.domain;
+      const conditions =
+        rule && rule.mode === 'multiText' && Array.isArray(rule.conditions)
+          ? rule.conditions.filter(
+              (cond) => cond && !(cond.op === 'contains' && cond.value === domain),
+            )
+          : [];
+      state.columnFilterRules.domain = { mode: 'multiText', conditions };
+      renderBody();
+      syncSearchUIAfterRender();
+      setStatus('Cleared the ' + domain + ' domain filter.');
+    };
+
+    const getActiveDomainOnlyValues = () => {
+      const rule = state.columnFilterRules.domain;
+      const values = new Set();
+      if (rule && rule.mode === 'multiText' && Array.isArray(rule.conditions)) {
+        for (const cond of rule.conditions) {
+          if (cond && cond.op === 'contains' && String(cond.value || '').trim() !== '') {
+            values.add(cond.value);
+          }
+        }
+      }
+      return values;
+    };
+
+    let domainSummarySignature = '';
+    const renderDomainSummary = () => {
+      domainSummaryPanel.hidden = !state.domainSummaryVisible;
+      if (!state.domainSummaryVisible) {
+        domainSummarySignature = '';
+        return;
+      }
+      const summary = computeDomainSummary(state.filteredRows);
+      const activeDomains = getActiveDomainOnlyValues();
+      // The signature includes the pressed state: clicking a domain that
+      // already spans every filtered row changes no aggregate but must still
+      // repaint its active marker. When nothing changed, the rebuild is
+      // skipped so streaming appends never churn focus or scroll here.
+      const signature = summary
+        .map((entry) =>
+          [
+            entry.domain,
+            entry.count,
+            entry.totalBytes,
+            entry.errorCount,
+            activeDomains.has(entry.domain) ? 1 : 0,
+          ].join(':'),
+        )
+        .join('|');
+      if (signature === domainSummarySignature) return;
+      domainSummarySignature = signature;
+      const previousScrollTop = domainSummaryPanel.scrollTop;
+      const focusedDomain =
+        document.activeElement && domainSummaryPanel.contains(document.activeElement)
+          ? document.activeElement.getAttribute('data-domain')
+          : null;
+      domainSummaryPanel.textContent = '';
+      if (summary.length === 0) {
+        const empty = document.createElement('span');
+        empty.className = 'domain-summary-empty';
+        empty.textContent = 'No captured domains yet';
+        domainSummaryPanel.appendChild(empty);
+        return;
+      }
+      for (const entry of summary) {
+        const meta =
+          entry.count +
+          (entry.count === 1 ? ' request' : ' requests') +
+          ' · ' +
+          (fmtBytes(entry.totalBytes) || '0 B');
+        const appendEntryContent = (target) => {
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'domain-summary-name';
+          nameSpan.textContent = entry.domain === '' ? '(no host)' : entry.domain;
+          target.appendChild(nameSpan);
+          const metaSpan = document.createElement('span');
+          metaSpan.className = 'domain-summary-meta';
+          metaSpan.textContent = meta;
+          target.appendChild(metaSpan);
+          if (entry.errorCount > 0) {
+            const errorChip = document.createElement('span');
+            errorChip.className = 'domain-summary-errors';
+            errorChip.textContent =
+              entry.errorCount + (entry.errorCount === 1 ? ' error' : ' errors');
+            target.appendChild(errorChip);
+          }
+        };
+        if (entry.domain === '') {
+          // A multiText condition with an empty value is skipped by the
+          // filter engine, so the no-host bucket is informational only.
+          const info = document.createElement('span');
+          info.className = 'domain-summary-row domain-summary-row--static';
+          appendEntryContent(info);
+          domainSummaryPanel.appendChild(info);
+          continue;
+        }
+        const active = activeDomains.has(entry.domain);
+        const entryButton = document.createElement('button');
+        entryButton.type = 'button';
+        entryButton.className = 'domain-summary-row' + (active ? ' active' : '');
+        entryButton.setAttribute('data-domain', entry.domain);
+        entryButton.setAttribute('aria-pressed', String(active));
+        entryButton.title = active
+          ? 'Clear the ' + entry.domain + ' filter'
+          : 'Show only requests from ' + entry.domain;
+        appendEntryContent(entryButton);
+        entryButton.addEventListener('click', () => {
+          if (getActiveDomainOnlyValues().has(entry.domain)) clearDomainQuickFilter(entry.domain);
+          else applyDomainQuickFilterTo(entry.domain, 'contains');
+        });
+        domainSummaryPanel.appendChild(entryButton);
+      }
+      domainSummaryPanel.scrollTop = previousScrollTop;
+      if (focusedDomain) {
+        for (const candidate of domainSummaryPanel.querySelectorAll('button[data-domain]')) {
+          if (candidate.getAttribute('data-domain') === focusedDomain) {
+            candidate.focus();
+            break;
+          }
+        }
+      }
+    };
+    state.syncDomainSummary = renderDomainSummary;
+    renderDomainSummary();
+
     // [U6] Roving row focus, selection, copy, and context actions
     const tableWrap = $('#tableWrap');
     tableWrap.addEventListener('focusin', (event) => {
@@ -11945,27 +12188,7 @@ const _NetworkPlus = (function () {
         filterMenuLabel.setAttribute('role', 'presentation');
         filterMenuLabel.textContent = 'Filter';
         contextMenu.appendChild(filterMenuLabel);
-        const applyDomainQuickFilter = (op) => {
-          const rule = state.columnFilterRules.domain;
-          let conditions =
-            rule && rule.mode === 'multiText' && Array.isArray(rule.conditions)
-              ? rule.conditions.filter((cond) => cond && String(cond.value || '').trim() !== '')
-              : [];
-          // "Only" replaces any previous inclusion so two quick picks never
-          // intersect down to zero rows; exclusions accumulate.
-          if (op === 'contains') conditions = conditions.filter((cond) => cond.op !== 'contains');
-          if (!conditions.some((cond) => cond.op === op && cond.value === quickFilterDomain)) {
-            conditions.push({ op, value: quickFilterDomain });
-          }
-          state.columnFilterRules.domain = { mode: 'multiText', conditions };
-          renderBody();
-          syncSearchUIAfterRender();
-          setStatus(
-            (op === 'contains' ? 'Showing only ' : 'Excluding ') +
-              quickFilterDomain +
-              '; manage it from the Filters popup.',
-          );
-        };
+        const applyDomainQuickFilter = (op) => applyDomainQuickFilterTo(quickFilterDomain, op);
         contextMenu.appendChild(
           createRowMenuButton('Only domain ' + quickFilterDomain, () => applyDomainQuickFilter('contains')),
         );
@@ -14072,6 +14295,10 @@ const _NetworkPlus = (function () {
     updateTableSummary,
     planRequestCountSummary,
     computeStats,
+    computeDomainSummary,
+    DOMAIN_SUMMARY_KEY,
+    loadDomainSummaryPref,
+    saveDomainSummaryPref,
     computeWaterfallBar,
     computeWaterfallRange,
     loadThemePref,

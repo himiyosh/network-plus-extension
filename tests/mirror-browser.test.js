@@ -573,3 +573,103 @@ browserTest(
   },
   TEST_TIMEOUT_MS,
 );
+
+browserTest(
+  'the domain summary panel aggregates, filters, and clears from the Columns menu',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      query: '?view=window&src=7',
+      initScript: VIEWER_STUB,
+    });
+    const domainWireRow = (id, url, status) => {
+      const row = wireRow(id);
+      row.request = Object.assign({}, row.request, { url });
+      row.response = Object.assign({}, row.response, { status });
+      return row;
+    };
+    try {
+      await attachScriptedHostPort(page.cdp);
+      await sendSnapshot(
+        page.cdp,
+        [
+          domainWireRow(1, 'https://api.example.test/v1/a', 200),
+          domainWireRow(2, 'https://api.example.test/v1/b', 500),
+          domainWireRow(3, 'https://api.example.test/v1/c', 200),
+          domainWireRow(4, 'https://cdn.example.test/asset.js', 200),
+        ],
+        syncControl(),
+      );
+      await delay(300);
+
+      // Hidden by default; the toggle lives in the Columns menu because the
+      // toolbar's button set is pinned by the responsive journeys.
+      expect(await evaluate(page.cdp, "document.getElementById('domainSummary').hidden")).toBe(true);
+      await evaluate(page.cdp, "document.getElementById('columnsBtn').click(); true");
+      await delay(150);
+      await evaluate(page.cdp, "document.getElementById('domainSummaryToggle').click(); true");
+      await delay(150);
+      expect(await evaluate(page.cdp, "document.getElementById('domainSummary').hidden")).toBe(false);
+      expect(await evaluate(page.cdp, "localStorage.getItem('networkPlus.domainSummary.v1')")).toBe('1');
+      const entries = await evaluate(
+        page.cdp,
+        `Array.from(document.querySelectorAll('#domainSummary .domain-summary-row')).map((el) => el.textContent)`,
+      );
+      expect(entries).toHaveLength(2);
+      expect(entries[0]).toContain('api.example.test');
+      expect(entries[0]).toContain('3 requests');
+      expect(entries[0]).toContain('1 error');
+      expect(entries[1]).toContain('cdn.example.test');
+      expect(entries[1]).toContain('1 request');
+
+      // A streamed live row for a new domain reaches the panel through the
+      // same updateTableSummary hook the incremental fast path already calls.
+      await evaluate(
+        page.cdp,
+        `window.__send({ type: 'row', row: ${JSON.stringify(
+          domainWireRow(5, 'https://ws.example.test/live', 200),
+        )} }); true`,
+      );
+      await delay(400);
+      expect(
+        await evaluate(page.cdp, "document.querySelectorAll('#domainSummary .domain-summary-row').length"),
+      ).toBe(3);
+
+      // Click-to-filter feeds the same multiText rules the Filters popup
+      // edits; clicking the pressed entry clears it again.
+      await evaluate(
+        page.cdp,
+        `document.querySelector('#domainSummary button[data-domain="api.example.test"]').click(); true`,
+      );
+      await delay(200);
+      expect(await evaluate(page.cdp, "document.querySelectorAll('#tbody tr[data-row-id]').length")).toBe(3);
+      expect(await evaluate(page.cdp, "document.getElementById('filterBtn').textContent")).toContain(
+        'Filters (1)',
+      );
+      expect(
+        await evaluate(
+          page.cdp,
+          `document.querySelector('#domainSummary button[data-domain="api.example.test"]').getAttribute('aria-pressed')`,
+        ),
+      ).toBe('true');
+      await evaluate(
+        page.cdp,
+        `document.querySelector('#domainSummary button[data-domain="api.example.test"]').click(); true`,
+      );
+      await delay(200);
+      expect(await evaluate(page.cdp, "document.querySelectorAll('#tbody tr[data-row-id]').length")).toBe(5);
+      expect(await evaluate(page.cdp, "document.getElementById('filterBtn').textContent")).not.toContain('(');
+
+      // Invariant guard: the panel never leaks non-data rows into the grid.
+      expect(
+        await evaluate(
+          page.cdp,
+          `Array.from(document.getElementById('tbody').children).every((tr) => tr.hasAttribute('data-row-id'))`,
+        ),
+      ).toBe(true);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);

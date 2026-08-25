@@ -3332,6 +3332,49 @@ describe('export scope contracts', () => {
     // zero rows; exclusions accumulate.
     expect(js).toContain("if (op === 'contains') conditions = conditions.filter((cond) => cond.op !== 'contains');");
     expect(js).toContain("state.columnFilterRules.domain = { mode: 'multiText', conditions };");
+    // The context menu delegates to the shared writer the domain summary
+    // panel also uses, so both surfaces stay behaviorally identical.
+    expect(js).toContain(
+      'const applyDomainQuickFilter = (op) => applyDomainQuickFilterTo(quickFilterDomain, op);',
+    );
+  });
+
+  test('the domain summary panel lives outside the pinned toolbar and tbody', () => {
+    // The toolbar's button set, tab order, and fit breakpoints are pinned by
+    // the responsive journeys, so the toggle lives in the Columns menu; the
+    // panel itself sits above the whole workbench, outside #content and
+    // #tbody, keeping every flat-grid invariant untouched.
+    expect(js).toContain("const DOMAIN_SUMMARY_KEY = 'networkPlus.domainSummary.v1';");
+    expect(js).toContain("contentElement.insertAdjacentElement('beforebegin', domainSummaryPanel);");
+    expect(js).toContain("domainToggle.id = 'domainSummaryToggle';");
+    expect(js).toContain('localStorage.removeItem(DOMAIN_SUMMARY_KEY);');
+    expect(html).not.toContain('domainSummary');
+    // The flex display rule must not defeat the hidden attribute (the
+    // toolbar once shipped exactly that bug).
+    expect(css).toContain('#domainSummary[hidden]{display:none}');
+    // The refresh hook rides updateTableSummary, which every full render and
+    // both incremental-append exits already call — the streaming fast path
+    // needs no edits and never re-enters eligibility logic for the panel.
+    const summaryStart = js.indexOf('function updateTableSummary(');
+    const summaryBlock = js.slice(summaryStart, js.indexOf('\n  function ', summaryStart + 1));
+    expect(summaryBlock).toContain('if (state.syncDomainSummary) state.syncDomainSummary();');
+    // The panel block builds DOM without innerHTML. init() is the last
+    // top-level function in the file, so the slice ends at an explicit
+    // literal marker instead of the usual next-function idiom.
+    const panelStart = js.indexOf('const domainSummaryPanel = document.createElement');
+    const panelEnd = js.indexOf('// [U6] Roving row focus', panelStart);
+    expect(panelStart).toBeGreaterThan(-1);
+    expect(panelEnd).toBeGreaterThan(panelStart);
+    const panelBlock = js.slice(panelStart, panelEnd);
+    expect(panelBlock).not.toContain('innerHTML');
+    expect(panelBlock).toContain('state.syncDomainSummary = renderDomainSummary;');
+    expect(panelBlock).toContain("applyDomainQuickFilterTo(entry.domain, 'contains');");
+    // The no-host bucket is informational only: an empty-value condition
+    // would be silently skipped by the filter engine.
+    expect(panelBlock).toContain("if (entry.domain === '')");
+    // A click on a domain that already spans every filtered row changes no
+    // aggregate, so the rebuild-skip signature carries the pressed state.
+    expect(panelBlock).toContain("activeDomains.has(entry.domain) ? 1 : 0,");
   });
 
   test('the configurable header column rides the shared column pipeline', () => {

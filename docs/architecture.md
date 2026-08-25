@@ -24,6 +24,7 @@ background.js              single-job service worker: minimizes the undocked
 - When there is no sort (or an ascending sort by ID) and no column filter or search keyword is active, newly captured rows are appended once per `requestAnimationFrame` in a `DocumentFragment`. Existing rows are not re-created.
 - The conditions are re-checked when the frame commits. If the sort, filter, or search state changed in the meantime, rendering falls back to a full, safe redraw. Row IDs prevent duplicates when another render finished first.
 - Normal selection, arrow-key selection, and <kbd>Ctrl</kbd>/<kbd>⌘</kbd> toggling replace only the affected rows. Operations that affect many rows, such as range selection or deletion, use the full redraw path.
+- The optional per-domain summary strip is a sibling element above the workbench, never rows inside the grid's `tbody` — the flat-tbody invariants (zebra striping, roving tabindex, sibling walks, keyboard ordering) stay untouched. It refreshes from a `updateTableSummary` hook that every full render and both incremental-append exits already call, recomputing a pure `computeDomainSummary` fold over the filtered rows; a signature compare (aggregates plus the pressed-filter state) skips the DOM rebuild when nothing changed, so streaming appends never churn its focus or scroll. Clicking an entry writes the same `multiText` domain rules the Filters popup and the row context menu share. The visibility flag persists per page as `networkPlus.domainSummary.v1`.
 
 ## Retention and the body cache
 

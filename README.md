@@ -34,6 +34,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 
 - **Find the evidence.** Search several keywords at once across URLs, headers, and bodies, each with its own highlight color, match count, and next/previous navigation.
 - **Narrow without losing context.** Combine per-column filters (time range, method multi-select, `contains` / `notcontains` rules, include/exclude URL logic), isolate or exclude a domain straight from a row's right-click menu, and keep your standard setup one click away as a saved view preset.
+- **See traffic by domain.** An optional summary strip above the grid (toggled from the 🗂️ Columns menu) shows each domain's request count, transferred bytes, and 4xx/5xx errors, updating live as requests stream in. Click a domain to show only its requests, click again to clear — the same filter rules the Filters popup edits, so they show, count, and clear there too. Works identically in the pop-out mirror tab.
 - **Compare two requests directly.** Select exactly two rows and diff URL, query, method, status, headers, and body side by side.
 - **Pop out into a browser tab.** One click opens the same panel as a regular tab that live-mirrors the DevTools session — big-screen triage while DevTools stays docked, with no extra permissions.
 - **Share without leaking.** Every copy and every export is sanitized by default — HAR, or a metadata-only CSV for spreadsheet triage; full output requires a per-action confirmation that is never remembered.
