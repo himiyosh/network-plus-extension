@@ -1334,6 +1334,39 @@ describe('capture retention static contracts', () => {
   });
 });
 
+describe('Japanese line breaking', () => {
+  // overflow-wrap:anywhere offers a break at every character, so Japanese prose
+  // split mid-word — ブラ|ウザ, プラッ|トフォーム, 知るこ|とも. Dialog prose uses
+  // phrase-aware breaking, with break-word left as the emergency valve for a
+  // token too long for its line.
+  const ruleBody = (selector) => {
+    const marker = selector + '{';
+    const at = css.indexOf(marker);
+    expect(at).toBeGreaterThan(-1);
+    return css.slice(at + marker.length, css.indexOf('}', at));
+  };
+
+  test('dialog prose breaks by phrase, never at an arbitrary character', () => {
+    for (const selector of [
+      '.support-form p',
+      '.support-option-hint',
+      '.shortcut-support-summary p',
+      '.sample-guide-form p',
+    ]) {
+      const body = ruleBody(selector);
+      expect(body).toContain('word-break:auto-phrase');
+      expect(body).toContain('overflow-wrap:break-word');
+      expect(body).not.toContain('overflow-wrap:anywhere');
+    }
+  });
+
+  // Phrase-aware breaking analyses text in the document language, and a screen
+  // reader needs it too; the panel shipped Japanese prose under lang="en".
+  test('the active language is published on the document element', () => {
+    expect(js).toContain('document.documentElement.lang = activeLanguage;');
+  });
+});
+
 describe('translation coverage', () => {
   // A label tagged for translation but missing from the dictionary silently
   // renders English, which is exactly how "Maximum retained requests" stayed

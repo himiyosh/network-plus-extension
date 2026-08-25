@@ -562,7 +562,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid var(--control-border);border-radius:4px;font-family:monospace;font-size:10px;line-height:1.6;color:var(--fg);box-shadow:0 1px 0 var(--border)}
 .shortcut-support-summary{display:grid;gap:6px;min-width:0;padding:10px;border:1px solid var(--control-border);border-radius:8px;background:var(--content-bg)}
 .shortcut-support-summary h3{margin:0;font-size:12px;font-style:normal}
-.shortcut-support-summary p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+.shortcut-support-summary p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;word-break:auto-phrase;overflow-wrap:break-word}
 .shortcut-support-summary button{justify-self:start;max-width:100%;white-space:nowrap}
 .shortcut-support-summary .shortcut-support-summary-status{min-height:16px;color:var(--fg)}
 .shortcut-actions{display:flex;justify-content:flex-end}
@@ -571,11 +571,11 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .shortcut-form .shortcut-primary-action{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
 
 /* === Support Dialog === */
-#supportDialog{position:fixed;inset:0;margin:auto;width:min(480px,calc(100vw - 16px));max-height:min(calc(100vh - 16px),calc(100dvh - 16px));overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
+#supportDialog{position:fixed;inset:0;margin:auto;width:min(600px,calc(100vw - 16px));max-height:min(calc(100vh - 16px),calc(100dvh - 16px));overflow:auto;padding:0;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);color:var(--fg);box-shadow:var(--shadow-md)}
 #supportDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
 .support-form{display:grid;gap:12px;padding:16px;min-width:0}
 .support-form h2{margin:0;font-size:15px;font-style:normal;text-align:center}
-.support-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+.support-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;word-break:auto-phrase;overflow-wrap:break-word}
 .support-hero{display:flex;align-items:center;justify-content:center;padding:8px 0 4px;border-radius:10px;background:radial-gradient(62% 82% at 50% 62%,var(--accent-dim) 0%,transparent 72%)}
 /* The hero is a 38x19 pixel grid drawn at an exact 6x, matching the toolbar
    mark's language. A non-integer scale would blur the grid; crispEdges plus a
@@ -633,7 +633,7 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .support-option-cta::after{content:'→';font-weight:800}
 .support-option-cta:hover{transform:translateY(-1px) scale(1.04);filter:brightness(1.1)}
 .support-option-cta:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.support-option-hint{color:var(--text-muted);font-size:10px;line-height:1.35;overflow-wrap:anywhere}
+.support-option-hint{color:var(--text-muted);font-size:10px;line-height:1.35;word-break:auto-phrase;overflow-wrap:break-word}
 .support-actions{display:flex;justify-content:flex-end}
 .support-form button{min-height:28px;padding:4px 14px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;cursor:pointer}
 .support-form button:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--text-accent)}
@@ -643,7 +643,7 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 #sampleGuideDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
 .sample-guide-form{display:grid;gap:10px;padding:16px}
 .sample-guide-form h2,.sample-guide-evidence h3{margin:0;font-size:15px;font-style:normal}
-.sample-guide-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+.sample-guide-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;word-break:auto-phrase;overflow-wrap:break-word}
 .sample-guide-prompts{display:grid;gap:6px;margin:0;padding-left:20px;color:var(--fg);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
 .sample-guide-evidence{display:grid;gap:8px;padding:10px;border:1px solid var(--control-border);border-radius:8px;background:var(--content-bg);overflow-wrap:anywhere}
 .sample-guide-evidence[hidden]{display:none}
