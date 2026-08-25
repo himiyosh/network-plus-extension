@@ -110,6 +110,7 @@ const _NetworkPlus = (function () {
   const THEMES = ['system', 'dark', 'light'];
   const LANGS = ['system', 'en', 'ja'];
   const COL_PREF_KEY = 'networkPlus.cols';
+  const CUSTOM_HEADER_COLUMN_KEY = 'networkPlus.customHeaderColumn.v1';
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 2; // Bump when default visibility changes
   const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';
@@ -303,6 +304,7 @@ const _NetworkPlus = (function () {
     { id: 'path', label: 'Path', width: 260, visible: true },
     { id: 'type', label: 'Type', width: 150, visible: true },
     { id: 'operation', label: 'Operation', width: 150, visible: false },
+    { id: 'customHeader', label: 'Header', width: 160, visible: false },
     { id: 'duration', label: 'Duration', width: 110, visible: true },
     { id: 'size', label: 'Size', width: 90, visible: true },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
@@ -5188,6 +5190,50 @@ const _NetworkPlus = (function () {
     }
   }
 
+  // One user-configurable column bound to a named header — the trace-id /
+  // cache-status pattern the Operation column proved. Response headers win,
+  // request headers are the fallback, and the name persists beside the
+  // other column preferences.
+  let customHeaderColumnName = '';
+
+  function syncCustomHeaderColumnLabel() {
+    const column = state.columns.find((c) => c.id === 'customHeader');
+    if (column) column.label = customHeaderColumnName || 'Header';
+  }
+
+  function loadCustomHeaderColumnName() {
+    try {
+      customHeaderColumnName = String(localStorage.getItem(CUSTOM_HEADER_COLUMN_KEY) || '').trim();
+    } catch (_e) {
+      customHeaderColumnName = '';
+    }
+    syncCustomHeaderColumnLabel();
+  }
+
+  function saveCustomHeaderColumnName(name) {
+    customHeaderColumnName = String(name || '').trim();
+    try {
+      if (customHeaderColumnName) localStorage.setItem(CUSTOM_HEADER_COLUMN_KEY, customHeaderColumnName);
+      else localStorage.removeItem(CUSTOM_HEADER_COLUMN_KEY);
+    } catch (_e) {
+      // The column still works for this session without persistence.
+    }
+    syncCustomHeaderColumnLabel();
+  }
+
+  function getRowHeaderColumnValue(row) {
+    if (!customHeaderColumnName) return '';
+    const fromResponse = getNormalizedHeaderValue(
+      Array.isArray(row.responseHeaders) ? row.responseHeaders : [],
+      customHeaderColumnName,
+    );
+    if (fromResponse) return fromResponse;
+    return getNormalizedHeaderValue(
+      Array.isArray(row.requestHeaders) ? row.requestHeaders : [],
+      customHeaderColumnName,
+    );
+  }
+
   function moveColumn(fromId, toId) {
     const fromIdx = state.columns.findIndex((c) => c.id === fromId);
     const toIdx = state.columns.findIndex((c) => c.id === toId);
@@ -5213,6 +5259,7 @@ const _NetworkPlus = (function () {
   // Section 7: Filtering [U3][U5][P3]
   // ============================================================
   function getRowFilterValue(row, colId) {
+    if (colId === 'customHeader') return getRowHeaderColumnValue(row);
     if (colId === 'initiator') return row.initiator ? row.initiator.text : '';
     if (colId === 'clientStart') return row.clientStartFilter || row.clientStart || '';
     if (colId === 'serverDone') return row.serverDoneFilter || row.serverDone || '';
@@ -7255,6 +7302,7 @@ const _NetworkPlus = (function () {
         }
       } else {
         let v = row[c.id];
+        if (c.id === 'customHeader') v = getRowHeaderColumnValue(row);
         if (c.id === 'size') v = fmtBytes(row.size);
         else if (c.id === 'duration') {
           v = fmtTime(row.duration);
@@ -10662,6 +10710,7 @@ const _NetworkPlus = (function () {
   // ============================================================
   function init() {
     loadColumnPrefs();
+    loadCustomHeaderColumnName();
     loadRetentionSetting();
     initializeDataSafetyDialog();
     initializeSampleGuideDialog();
@@ -11120,6 +11169,43 @@ const _NetworkPlus = (function () {
         });
         columnsContextMenu.appendChild(item);
       });
+
+      // The configurable header column: type a header name, Apply binds
+      // the column to it (and shows it if it was hidden).
+      const headerSection = document.createElement('div');
+      headerSection.className = 'columns-header-section';
+      const headerHint = document.createElement('div');
+      headerHint.className = 'columns-preset-hint';
+      headerHint.textContent = 'Header column';
+      headerSection.appendChild(headerHint);
+      const headerRow = document.createElement('div');
+      headerRow.className = 'columns-header-row';
+      const headerInput = document.createElement('input');
+      headerInput.type = 'text';
+      headerInput.id = 'customHeaderNameInput';
+      headerInput.placeholder = 'x-request-id';
+      headerInput.spellcheck = false;
+      headerInput.value = customHeaderColumnName;
+      headerInput.setAttribute('aria-label', 'Header name for the configurable column');
+      const headerApply = document.createElement('button');
+      headerApply.id = 'customHeaderApplyBtn';
+      headerApply.className = 'context-menu-item columns-preset-apply';
+      headerApply.setAttribute('role', 'menuitem');
+      headerApply.textContent = 'Apply';
+      headerApply.addEventListener('click', () => {
+        saveCustomHeaderColumnName(headerInput.value);
+        const column = state.columns.find((c) => c.id === 'customHeader');
+        if (column && customHeaderColumnName && !column.visible) {
+          column.visible = true;
+          saveColumnPrefs();
+        }
+        render();
+        renderColumnsContextMenu();
+      });
+      headerRow.appendChild(headerInput);
+      headerRow.appendChild(headerApply);
+      headerSection.appendChild(headerRow);
+      columnsContextMenu.appendChild(headerSection);
 
       // Single view preset (columns + filters). Apply restores the saved view —
       // or the factory default before anything was saved — and Update overwrites
@@ -13606,6 +13692,9 @@ const _NetworkPlus = (function () {
     extractBoundedSazEntries,
     parseSazHttpMessage,
     getNormalizedHeaderValue,
+    getRowHeaderColumnValue,
+    saveCustomHeaderColumnName,
+    loadCustomHeaderColumnName,
     createSazHarEntry,
     classifyImportedResponseContent,
     describeResponseContentState,

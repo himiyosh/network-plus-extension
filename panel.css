@@ -526,6 +526,10 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .jwt-note{margin:8px 0 2px;color:var(--text-muted);font-size:11px;line-height:1.45}
 
 /* === View preset (inside the Columns menu) === */
+.columns-header-section{border-top:1px solid var(--border);margin-top:6px;padding:8px 4px 2px}
+.columns-header-row{display:flex;gap:4px}
+.columns-header-row input{flex:1;min-width:0;min-height:26px;padding:3px 6px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:11px}
+.columns-header-row .columns-preset-apply{flex:0 0 auto}
 .columns-preset-section{border-top:1px solid var(--border);margin-top:6px;padding:8px 4px 2px}
 .columns-preset-hint{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:6px}
 .columns-preset-actions{display:flex;gap:4px}

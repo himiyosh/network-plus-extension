@@ -52,6 +52,8 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 
 ## Quick filters, CSV export, and the pop-out shortcut
 
+- [ ] Typing a header name (e.g. `x-request-id`) in the Columns menu's Header column field and choosing Apply reveals the column with that label showing per-row values (response headers win over request headers, case-insensitively); the column sorts and filters like any text column, the name survives a DevTools reopen, and clearing the field empties the column.
+
 - [ ] A live-captured WebSocket conversation exports into the full HAR as `_webSocketMessages` (readable back by Network+ and Chrome DevTools); binary frames appear as opcode 2 without data and the entry declares the counts; the sanitized HAR omits the frames and carries `webSocketFramesOmitted` on the entry; SSE rows never gain the key.
 
 - [ ] Right-clicking a row offers `Only domain <domain>` and `Exclude domain <domain>`; "Only" narrows the grid to that domain (a second "Only" on another row replaces it instead of intersecting to zero rows), "Exclude" hides it and accumulates, and both appear as editable conditions in the Filters popup, whose badge counts them and whose Clear removes them.

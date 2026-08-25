@@ -4336,6 +4336,39 @@ describe('resolveLanguage', () => {
   });
 });
 
+describe('custom header column', () => {
+  afterEach(() => {
+    np.saveCustomHeaderColumnName('');
+  });
+
+  test('binds to a named header with response precedence, case-insensitively', () => {
+    np.saveCustomHeaderColumnName('X-Request-Id');
+    const row = {
+      requestHeaders: [{ name: 'x-request-id', value: 'from-request' }],
+      responseHeaders: [{ name: 'X-REQUEST-ID', value: 'from-response' }],
+    };
+    expect(np.getRowHeaderColumnValue(row)).toBe('from-response');
+    expect(np.getRowHeaderColumnValue({ requestHeaders: [{ name: 'x-request-id', value: 'only-request' }] })).toBe(
+      'only-request',
+    );
+    expect(np.getRowHeaderColumnValue({})).toBe('');
+  });
+
+  test('an empty name yields empty values and clears persistence', () => {
+    np.saveCustomHeaderColumnName('  ');
+    expect(np.getRowHeaderColumnValue({ responseHeaders: [{ name: 'a', value: 'b' }] })).toBe('');
+    expect(localStorage.removeItem).toHaveBeenCalledWith('networkPlus.customHeaderColumn.v1');
+  });
+
+  test('the name persists and reloads through localStorage', () => {
+    np.saveCustomHeaderColumnName('X-Cache');
+    expect(localStorage.setItem).toHaveBeenCalledWith('networkPlus.customHeaderColumn.v1', 'X-Cache');
+    localStorage.getItem.mockReturnValue(' etag ');
+    np.loadCustomHeaderColumnName();
+    expect(np.getRowHeaderColumnValue({ responseHeaders: [{ name: 'ETag', value: '"abc"' }] })).toBe('"abc"');
+  });
+});
+
 describe('WebSocket frame HAR export', () => {
   const wsContext = (row) => ({ createRow: () => {}, getRow: () => row });
 
