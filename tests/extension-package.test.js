@@ -504,7 +504,7 @@ describe('extension archive integrity', () => {
     const root = createFixture();
     const { outputPath, size } = writeExtensionPackage(root);
 
-    expect(path.basename(outputPath)).toBe('network-plus-extension-1.11.0.zip');
+    expect(path.basename(outputPath)).toBe('network-plus-extension-1.12.0.zip');
     expect(size).toBeGreaterThan(0);
     expect(fs.existsSync(outputPath)).toBe(true);
     expect(validateArchiveEntries(unzipSync(fs.readFileSync(outputPath)), root)).toEqual([]);
