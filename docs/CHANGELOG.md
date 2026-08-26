@@ -2,6 +2,10 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
+## Unreleased
+
+- No changes have been recorded since v1.12.0.
+
 ## v1.12.0 - 2026-08-26
 
 - Listing images are no longer swapped by hand. `npm run store:pages` drives both store consoles from the operator's machine — `login` once, then `chrome` and `edge` — clearing the slots it is replacing and uploading the current contents of `docs/store-assets/`. Package submission was already automated; the images were the one manual step left, because the Chrome Items API and the Edge Update API both take packages and nothing else. The file list is read from `inventory.json`, so a re-capture that renames a file cannot leave the script uploading the previous set; the store icon is never touched; and nothing is submitted — both consoles keep the result as a draft, so a mistake here cannot reach a public listing on its own. It runs on a Chrome profile of its own holding nothing but the two store logins, because Chrome 136 and later refuse remote debugging on the default profile and pointing a debugger at a copy of the real one would put every cookie the browser holds behind an open port. The approach is carried over from the sibling `dual-subtitles` project, which solved the same problem first.
