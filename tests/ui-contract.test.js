@@ -1346,6 +1346,12 @@ describe('Japanese line breaking', () => {
     return css.slice(at + marker.length, css.indexOf('}', at));
   };
 
+  // The support dialog also balances its lines: without it the intro left
+  // 「なります。」 alone on a five-character second line.
+  test('the support dialog balances its prose lines', () => {
+    expect(ruleBody('.support-form p')).toContain('text-wrap:balance');
+  });
+
   test('dialog prose breaks by phrase, never at an arbitrary character', () => {
     for (const selector of [
       '.support-form p',
