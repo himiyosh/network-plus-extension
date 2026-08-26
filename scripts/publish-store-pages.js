@@ -45,9 +45,16 @@ const toolingDir = path.join(stateDir, 'tooling');
 const port = Number(process.env.NETWORK_PLUS_STORE_PAGES_PORT || 9334);
 const assetsDir = path.join(root, 'docs', 'store-assets');
 
-const CREDENTIAL_LOCATION_HINT =
-  'Store identifiers live in CLAUDE.md (「ストア申請の資格情報」) and in the gitignored ' +
-  '.env.edge / .env.cws of the sibling dual-subtitles checkout.';
+// These two are identifiers, not credentials, and the project records them for
+// exactly this reason: neither does anything without an API key, and the Chrome
+// one appears verbatim in the public listing URL. Carrying them here is what
+// lets a fresh checkout run this without first hunting through a portal or a
+// sibling repository's .env. An environment variable or a local .env still wins,
+// so a second product can be driven without editing the file.
+const DEFAULT_STORE_IDS = Object.freeze({
+  EDGE_PRODUCT_ID: '4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241',
+  CHROME_ITEM_ID: 'mhidipnhdnonbjkfklcohmnnmfggjlpo',
+});
 
 // The asset list is read from the inventory rather than hard-coded, so a
 // re-capture that changes file names cannot leave this script uploading the
@@ -89,19 +96,16 @@ function readEnvFile(file) {
   return out;
 }
 
-// Environment first, then a local .env, and never a value baked into this file:
-// the identifiers have exactly one home per environment and duplicating them
-// here is how the two drift apart.
+// Environment first, then a local .env, then this repository's own product.
 function resolveStoreId(names, envFile, label) {
   const fromEnv = names.map((name) => process.env[name]).find(Boolean);
   if (fromEnv) return fromEnv;
   const fileValues = readEnvFile(path.join(root, envFile));
   const fromFile = names.map((name) => fileValues[name]).find(Boolean);
   if (fromFile) return fromFile;
-  throw new Error(
-    `${label} was not found. Set ${names.join(' or ')} in the environment or in ${envFile}. ` +
-      CREDENTIAL_LOCATION_HINT,
-  );
+  const fallback = names.map((name) => DEFAULT_STORE_IDS[name]).find(Boolean);
+  if (fallback) return fallback;
+  throw new Error(`${label} was not found. Set ${names.join(' or ')} in the environment or in ${envFile}.`);
 }
 
 function chromeBinary() {

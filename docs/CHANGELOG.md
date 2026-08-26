@@ -4,7 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- No changes have been recorded since v1.12.0.
+- `store:pages` now finds this repository's own store identifiers without being told. It read `CHROME_ITEM_ID` and `EDGE_PRODUCT_ID` only from the environment or a local `.env`, which are not present in a fresh checkout, so the first run of a release tool failed on setup rather than doing its job. The two values now sit in the script as fallbacks, after the environment and the `.env`, so a second product can still be driven without editing it. They are identifiers, not credentials — neither does anything without an API key, the Chrome one appears verbatim in the public listing URL, and the project already records both for exactly this reason. Treating them as secrets bought no safety and cost a working first run.
 
 ## v1.12.0 - 2026-08-26
 
