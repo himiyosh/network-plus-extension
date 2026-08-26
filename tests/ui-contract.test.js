@@ -381,10 +381,16 @@ describe('accessible workbench static contracts', () => {
     }
     expect(css).toContain('.row-state-badge');
     expect(js).toContain('Matches search ');
-    // The search-match badge must stay out of the ID column visually while
-    // remaining in the accessibility tree.
-    expect(js).toContain('label: searchMatchLabel, srOnly: true');
-    expect(js).toContain("stateBadge.srOnly ? 'row-state-badge sr-only' : 'row-state-badge'");
+    // Keyword badges are visible now: a row can match several keywords while
+    // the tint can only carry the first, so the badges are the only thing that
+    // answers which ones a row hit. One chip per keyword, in its own colour.
+    expect(js).toContain("badge.classList.add('row-state-badge--kw' + stateBadge.keywordColorIdx);");
+    expect(js).toContain('const MAX_VISIBLE_KEYWORD_BADGES = 3;');
+    expect(js).toContain("text: '+' + (matchedKeywords.length - shownKeywords.length),");
+    // Every chip still names the full match set for a screen reader.
+    expect(js).toContain('label: searchMatchLabel,');
+    // Nothing renders screen-reader-only badges any more, so that branch is gone.
+    expect(js).not.toContain('srOnly');
     expect(js).toContain('aria-label');
     expect(js).not.toContain("tr.setAttribute('aria-label'");
   });
@@ -1331,6 +1337,34 @@ describe('capture retention static contracts', () => {
     expect(js).toContain('renderCachedResponseContent(row);');
     expect(js).toContain("' bodies not searched'");
     expect(js).toContain("releaseResponseContent(row, 'row-evicted', false);");
+  });
+});
+
+describe('scroll targets clear their sticky furniture', () => {
+  // scrollIntoView stops once the target is inside the scrollport, and the
+  // scrollport includes the strip a position:sticky element sits on top of, so
+  // a hit landed underneath and looked like it had not moved. Measured, the
+  // grid row came to rest 29px above the header's bottom edge.
+  test('the grid and the panes inset their scrollport past the sticky element', () => {
+    const wrap = css.match(/\.tableWrap\{([^}]*)\}/);
+    expect(wrap).not.toBeNull();
+    expect(wrap[1]).toContain('scroll-padding-top:30px');
+    const pane = css.match(/\.tab-pane\{([^}]*)\}/);
+    expect(pane).not.toBeNull();
+    expect(pane[1]).toContain('scroll-padding-bottom:32px');
+  });
+
+  // The request line people copy out of the panel must not carry the response
+  // status: it put "200 GET https://…" on the clipboard.
+  test('the details header states the request line without the response status', () => {
+    expect(js).toContain("if (row.method) titleParts.push(row.method);");
+    expect(js).not.toContain('if (row.status) titleParts.push(String(row.status));');
+  });
+
+  // Turning auto-scroll on used to flip a flag and move nothing.
+  test('enabling auto-scroll jumps to the newest row', () => {
+    expect(js).toContain('if (state.autoScroll && scrollGridToNewest) scrollGridToNewest();');
+    expect(js).toContain('scrollGridToNewest = () => {');
   });
 });
 
@@ -3407,17 +3441,26 @@ describe('export scope contracts', () => {
   });
 
   test('row quick filters feed the same multiText rules the Filters popup edits', () => {
-    expect(js).toContain("createRowMenuButton('Only domain ' + quickFilterDomain");
-    expect(js).toContain("createRowMenuButton('Exclude domain ' + quickFilterDomain");
+    // The pair is built for whichever column the pointer landed on, so any
+    // column can be isolated or excluded in one click, not only the domain.
+    expect(js).toContain("contextMenu.appendChild(createRowMenuButton('Only ' + suffix, () => applyQuickFilter('contains')));");
+    expect(js).toContain("createRowMenuButton('Exclude ' + suffix, () => applyQuickFilter('notcontains'))");
     // "Only" replaces earlier inclusions so two picks never intersect to
     // zero rows; exclusions accumulate.
     expect(js).toContain("if (op === 'contains') conditions = conditions.filter((cond) => cond.op !== 'contains');");
-    expect(js).toContain("state.columnFilterRules.domain = { mode: 'multiText', conditions };");
-    // The context menu delegates to the shared writer the domain summary
-    // panel also uses, so both surfaces stay behaviorally identical.
+    expect(js).toContain("state.columnFilterRules[colId] = { mode: 'multiText', conditions };");
+    // The context menu and the domain summary panel still delegate to one
+    // writer, so both surfaces stay behaviorally identical.
     expect(js).toContain(
-      'const applyDomainQuickFilter = (op) => applyDomainQuickFilterTo(quickFilterDomain, op);',
+      "const applyDomainQuickFilterTo = (domain, op) => applyColumnQuickFilterTo('domain', domain, op);",
     );
+    // The column is read off the clicked cell rather than counted by index,
+    // which would break as soon as a column is hidden or reordered.
+    expect(js).toContain('td.dataset.colId = c.id;');
+    expect(js).toContain("const cell = event.target.closest('td[data-col-id]');");
+    // A column with nothing to filter on falls back to the domain pair.
+    expect(js).toContain('quickFilterColumn || (quickFilterDomain ?');
+    expect(js).toContain('if (!invokingColId || isVisualOnlyColumn(invokingColId)) return null;');
   });
 
   test('the domain summary panel lives outside the pinned toolbar and tbody', () => {

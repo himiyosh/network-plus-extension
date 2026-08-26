@@ -256,7 +256,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .domain-summary-errors{color:var(--status-5xx-text);font-weight:600;white-space:nowrap}
 .domain-summary-empty{color:var(--text-muted);font-size:11px;padding:2px 4px}
 .content{display:flex;flex:1 1 auto;min-width:0;min-height:0}
-.tableWrap{overflow:auto;flex:1 1 50%;min-width:0}
+.tableWrap{overflow:auto;flex:1 1 50%;min-width:0;scroll-padding-top:30px}
 .resizer{flex:0 0 4px;cursor:col-resize;background:var(--separator);z-index:2;transition:background 0.15s}
 .resizer[hidden],.details[hidden]{display:none}
 .resizer:hover,.resizer:focus-visible{background:var(--accent)}
@@ -280,7 +280,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .tab-btn:hover{color:var(--fg);background:var(--hover)}
 .tab-btn.active{color:var(--text-accent);border-bottom-color:var(--accent);font-weight:700;background:var(--accent-dim)}
 .tab-content-area{flex:1;overflow:auto;position:relative}
-.tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:break-all;font-size:13px}
+.tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:break-all;font-size:13px;scroll-padding-bottom:32px}
 .tab-pane.active{display:block}
 .tab-pane.pane-search-host.active{display:flex;flex-direction:column;min-height:100%}
 .tab-pane.pane-search-host.active[hidden]{display:none}
@@ -814,8 +814,15 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 
 /* === Accessible row state cue === */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.row-state-badges{display:inline-flex;align-items:center;gap:2px;margin-right:3px;vertical-align:1px}
-.row-state-badge{display:inline-flex;align-items:center;justify-content:center;min-width:12px;height:13px;padding:0 2px;border:1px solid var(--accent);border-radius:3px;color:var(--text-accent);background:var(--content-bg);font-size:9px;font-weight:700;line-height:1}
+.row-state-badges{display:inline-flex;align-items:center;gap:1px;margin-right:2px;vertical-align:1px}
+.row-state-badge{display:inline-flex;align-items:center;justify-content:center;min-width:10px;height:13px;padding:0 1px;border:1px solid var(--accent);border-radius:3px;color:var(--text-accent);background:var(--content-bg);font-size:9px;font-weight:700;line-height:1}
+/* One chip per matched keyword, carrying that keyword’s own colour. */
+.row-state-badge--kw0{border-color:var(--search-yellow);color:var(--search-yellow)}
+.row-state-badge--kw1{border-color:var(--search-red);color:var(--search-red)}
+.row-state-badge--kw2{border-color:var(--search-green);color:var(--search-green)}
+.row-state-badge--kw3{border-color:var(--search-blue);color:var(--search-blue)}
+.row-state-badge--kw4{border-color:var(--search-purple);color:var(--search-purple)}
+.row-state-badge--kw5{border-color:var(--search-orange);color:var(--search-orange)}
 
 /* === Narrow workbench split === */
 @media (max-width:800px){

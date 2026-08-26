@@ -115,7 +115,7 @@ const _NetworkPlus = (function () {
   const CUSTOM_HEADER_COLUMN_KEY = 'networkPlus.customHeaderColumn.v1';
   const DOMAIN_SUMMARY_KEY = 'networkPlus.domainSummary.v1'; // '1' = per-domain summary panel shown
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
-  const COL_PREF_VERSION = 2; // Bump when default visibility changes
+  const COL_PREF_VERSION = 3; // Bump when default visibility changes
   const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';
   const UNDOCK_HINT_KEY = 'networkPlus.undockHint.v1'; // '1' = mirror tab's undock explainer dismissed for good
   const LEGACY_FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1'; // retired multi-preset store
@@ -299,6 +299,7 @@ const _NetworkPlus = (function () {
 
   const DEFAULT_COLUMNS = [
     { id: 'id', label: 'ID', width: 60, visible: true },
+    { id: 'match', label: 'Match', width: 64, visible: true },
     { id: 'clientStart', label: 'ClientStart', width: 120, visible: true },
     { id: 'serverDone', label: 'ServerDone', width: 120, visible: true },
     { id: 'method', label: 'Method', width: 80, visible: true },
@@ -365,6 +366,9 @@ const _NetworkPlus = (function () {
   ];
 
   // Colors for search keyword rows (index matches search-hl-N / search-row-N)
+  // Three chips fit the ID column at its default width; beyond that they are
+  // summarised as "+N" and the full list stays in the badge's accessible label.
+  const MAX_VISIBLE_KEYWORD_BADGES = 3;
   const SEARCH_COLORS = [
     { name: 'Yellow', cssColor: 'var(--search-yellow)' },
     { name: 'Red', cssColor: 'var(--search-red)' },
@@ -2491,7 +2495,7 @@ const _NetworkPlus = (function () {
   }
 
   function isVisualOnlyColumn(colId) {
-    return colId === 'waterfall';
+    return colId === 'waterfall' || colId === 'match';
   }
 
   function hasActiveSearchKeywords(searchKeywords) {
@@ -5776,8 +5780,11 @@ const _NetworkPlus = (function () {
             used.add(sc.id);
           }
         }
-        for (const def of DEFAULT_COLUMNS) {
-          if (!used.has(def.id)) ordered.push({ ...def });
+        for (let index = 0; index < DEFAULT_COLUMNS.length; index += 1) {
+          const def = DEFAULT_COLUMNS[index];
+          if (used.has(def.id)) continue;
+          const insertAt = Math.min(index, ordered.length);
+          ordered.splice(insertAt, 0, { ...def });
         }
         state.columns = ordered;
 
@@ -7837,12 +7844,26 @@ const _NetworkPlus = (function () {
       const firstColor = rowColorSet.values().next().value;
       tr.classList.add('search-match-row', 'search-row-' + firstColor);
       const rowKeywordSet = srch.rowKeywords.get(row) || new Set();
-      const keywordNumbers = Array.from(rowKeywordSet, (keywordIndex) => keywordIndex + 1);
-      const searchMatchBadge =
-        keywordNumbers.length > 1 ? 'K' + keywordNumbers[0] + '+' + (keywordNumbers.length - 1) : 'K' + keywordNumbers[0];
+      const matchedKeywords = Array.from(rowKeywordSet).sort((a, b) => a - b);
+      const keywordNumbers = matchedKeywords.map((keywordIndex) => keywordIndex + 1);
       const searchMatchLabel = 'Matches search ' +
         (keywordNumbers.length === 1 ? 'keyword ' : 'keywords ') + keywordNumbers.join(', ');
-      visibleStateBadges.push({ text: searchMatchBadge, label: searchMatchLabel, srOnly: true });
+      const shownKeywords = matchedKeywords.slice(0, MAX_VISIBLE_KEYWORD_BADGES);
+      for (const keywordIndex of shownKeywords) {
+        const keyword = srch.keywords[keywordIndex];
+        const colorIdx = keyword && Number.isInteger(keyword.colorIdx) ? keyword.colorIdx : 0;
+        visibleStateBadges.push({
+          text: String(keywordIndex + 1),
+          label: searchMatchLabel,
+          keywordColorIdx: colorIdx,
+        });
+      }
+      if (matchedKeywords.length > shownKeywords.length) {
+        visibleStateBadges.push({
+          text: '+' + (matchedKeywords.length - shownKeywords.length),
+          label: searchMatchLabel,
+        });
+      }
       if (srch.currentIndex >= 0 && srch.matches[srch.currentIndex] === row) {
         tr.classList.add('search-match-current');
       }
@@ -7859,6 +7880,7 @@ const _NetworkPlus = (function () {
     for (const c of visibleCols) {
       const td = document.createElement('td');
       td.setAttribute('role', 'gridcell');
+      td.dataset.colId = c.id;
       if (c.id === 'method') td.classList.add('method-cell');
       if (c.id === 'status') td.classList.add('status-cell');
 
@@ -7951,27 +7973,25 @@ const _NetworkPlus = (function () {
       tr.appendChild(td);
     }
     if (visibleStateBadges.length > 0) {
-      const firstCell = tr.querySelector('td');
-      if (firstCell) {
+      const badgeCell = tr.querySelector('td[data-col-id="match"]');
+      if (badgeCell) {
         const badgeGroup = document.createElement('span');
         badgeGroup.className = 'row-state-badges';
-        // A group holding only screen-reader badges must not reserve visual space.
-        if (visibleStateBadges.every((stateBadge) => stateBadge.srOnly)) {
-          badgeGroup.classList.add('sr-only');
-        }
         for (let i = 0; i < visibleStateBadges.length; i++) {
           const stateBadge = visibleStateBadges[i];
           const badge = document.createElement('span');
-          // Search-match badges stay in the accessibility tree but are visually
-          // hidden: the row tint, edge ring, and mark colors already show the
-          // match, and inline badges crowded the ID column.
-          badge.className = stateBadge.srOnly ? 'row-state-badge sr-only' : 'row-state-badge';
+          // Keyword badges are visible: the row tint can only carry the first
+          // matched keyword, so it cannot answer which of several a row hit.
+          badge.className = 'row-state-badge';
+          if (Number.isInteger(stateBadge.keywordColorIdx)) {
+            badge.classList.add('row-state-badge--kw' + stateBadge.keywordColorIdx);
+          }
           badge.textContent = stateBadge.text;
           badge.title = stateBadge.label;
           badge.setAttribute('aria-label', stateBadge.label);
           badgeGroup.appendChild(badge);
         }
-        firstCell.insertBefore(badgeGroup, firstCell.firstChild);
+        badgeCell.appendChild(badgeGroup);
       }
     }
     return tr;
@@ -10577,7 +10597,6 @@ const _NetworkPlus = (function () {
     showDetailsPanel();
 
     const titleParts = [];
-    if (row.status) titleParts.push(String(row.status));
     if (row.method) titleParts.push(row.method);
     titleParts.push(row.url || '');
     $('#detailsTitle').textContent = titleParts.join(' ');
@@ -11427,6 +11446,7 @@ const _NetworkPlus = (function () {
     // Assigned below once the retention form exists; the mirror-host
     // command executor calls it for the tab's remote retention changes.
     let applyRetentionSetting = null;
+    let scrollGridToNewest = null;
     // Assigned by the import wiring; shared by the file picker and the
     // mirror tab's transferred imports.
     let importCapturedFile = null;
@@ -12142,6 +12162,7 @@ const _NetworkPlus = (function () {
     autoScrollBtn.addEventListener('click', () => {
       state.autoScroll = !state.autoScroll;
       updateAutoScrollButton();
+      if (state.autoScroll && scrollGridToNewest) scrollGridToNewest();
     });
     updateAutoScrollButton();
     $('#exportHarBtn').insertAdjacentElement('afterend', autoScrollBtn);
@@ -12163,25 +12184,31 @@ const _NetworkPlus = (function () {
     // the Filters popup edits, so applied filters show, count, and clear
     // there. "Only" replaces any previous inclusion so two quick picks never
     // intersect down to zero rows; exclusions accumulate.
-    const applyDomainQuickFilterTo = (domain, op) => {
-      const rule = state.columnFilterRules.domain;
+    const applyColumnQuickFilterTo = (colId, value, op) => {
+      const rule = state.columnFilterRules[colId];
       let conditions =
         rule && rule.mode === 'multiText' && Array.isArray(rule.conditions)
           ? rule.conditions.filter((cond) => cond && String(cond.value || '').trim() !== '')
           : [];
+      // Two "only" rules on one column can never both hold, so an isolate
+      // replaces the previous isolate; excludes accumulate.
       if (op === 'contains') conditions = conditions.filter((cond) => cond.op !== 'contains');
-      if (!conditions.some((cond) => cond.op === op && cond.value === domain)) {
-        conditions.push({ op, value: domain });
+      if (!conditions.some((cond) => cond.op === op && cond.value === value)) {
+        conditions.push({ op, value });
       }
-      state.columnFilterRules.domain = { mode: 'multiText', conditions };
+      state.columnFilterRules[colId] = { mode: 'multiText', conditions };
       renderBody();
       syncSearchUIAfterRender();
+      const column = state.columns.find((candidate) => candidate.id === colId);
       setStatus(
         (op === 'contains' ? 'Showing only ' : 'Excluding ') +
-          domain +
+          (column ? column.label + ' ' : '') +
+          value +
           '; manage it from the Filters popup.',
       );
     };
+
+    const applyDomainQuickFilterTo = (domain, op) => applyColumnQuickFilterTo('domain', domain, op);
 
     const clearDomainQuickFilter = (domain) => {
       const rule = state.columnFilterRules.domain;
@@ -12343,6 +12370,12 @@ const _NetworkPlus = (function () {
       });
     });
     let previousTableScrollTop = tableWrap.scrollTop;
+    // Assigned here because the scroll position tracker lives in this scope;
+    // the toolbar button is built earlier and calls through the handle.
+    scrollGridToNewest = () => {
+      tableWrap.scrollTop = tableWrap.scrollHeight;
+      previousTableScrollTop = tableWrap.scrollTop;
+    };
     tableWrap.addEventListener('scroll', () => {
       const currentScrollTop = tableWrap.scrollTop;
       if (state.autoScroll && currentScrollTop < previousTableScrollTop) {
@@ -12401,7 +12434,7 @@ const _NetworkPlus = (function () {
       return button;
     };
 
-    const openRowContextMenu = (row, x, y, invokingRow) => {
+    const openRowContextMenu = (row, x, y, invokingRow, invokingColId) => {
       if (!row || !invokingRow) return;
       contextMenuRow = row;
       contextMenuInvokerRowId = String(row.id);
@@ -12463,20 +12496,27 @@ const _NetworkPlus = (function () {
       // The fastest triage move on a noisy capture: isolate or exclude a
       // domain straight from the row, feeding the same multiText rules the
       // Filters popup edits (so it shows, counts, and clears them there).
+      const quickFilterColumn = (() => {
+        if (!invokingColId || isVisualOnlyColumn(invokingColId)) return null;
+        const column = state.columns.find((candidate) => candidate.id === invokingColId);
+        if (!column) return null;
+        const value = String(getRowFilterValue(contextMenuRow, invokingColId) || '').trim();
+        return value ? { id: column.id, label: column.label, value } : null;
+      })();
       const quickFilterDomain = String(contextMenuRow.domain || '').trim();
-      if (quickFilterDomain) {
+      const quickFilterTarget =
+        quickFilterColumn || (quickFilterDomain ? { id: 'domain', label: 'domain', value: quickFilterDomain } : null);
+      if (quickFilterTarget) {
         const filterMenuLabel = document.createElement('div');
         filterMenuLabel.className = 'context-menu-label';
         filterMenuLabel.setAttribute('role', 'presentation');
         filterMenuLabel.textContent = 'Filter';
         contextMenu.appendChild(filterMenuLabel);
-        const applyDomainQuickFilter = (op) => applyDomainQuickFilterTo(quickFilterDomain, op);
-        contextMenu.appendChild(
-          createRowMenuButton('Only domain ' + quickFilterDomain, () => applyDomainQuickFilter('contains')),
-        );
-        contextMenu.appendChild(
-          createRowMenuButton('Exclude domain ' + quickFilterDomain, () => applyDomainQuickFilter('notcontains')),
-        );
+        const suffix = quickFilterTarget.label + ' ' + quickFilterTarget.value;
+        const applyQuickFilter = (op) =>
+          applyColumnQuickFilterTo(quickFilterTarget.id, quickFilterTarget.value, op);
+        contextMenu.appendChild(createRowMenuButton('Only ' + suffix, () => applyQuickFilter('contains')));
+        contextMenu.appendChild(createRowMenuButton('Exclude ' + suffix, () => applyQuickFilter('notcontains')));
       }
 
       const hlLabel = document.createElement('div');
@@ -12572,7 +12612,8 @@ const _NetworkPlus = (function () {
         return;
       }
       const row = state.rows.find((candidate) => candidate.id === rowId);
-      openRowContextMenu(row, event.clientX, event.clientY, tr);
+      const cell = event.target.closest('td[data-col-id]');
+      openRowContextMenu(row, event.clientX, event.clientY, tr, cell ? cell.dataset.colId : null);
     });
 
     tableWrap.addEventListener('keydown', (event) => {

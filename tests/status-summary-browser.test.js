@@ -1675,7 +1675,7 @@ browserTest(
       );
       expect(after.selectedRowId).toBe(before.first5xxRowId);
       expect(after.focusedRowId).toBe(before.first5xxRowId);
-      expect(after.detailsTitle).toMatch(/^503 POST /);
+      expect(after.detailsTitle).toMatch(/^POST https:\/\//);
     } finally {
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);
@@ -1871,7 +1871,7 @@ browserTest(
       expect(wideReopened.detailsHidden).toBe(false);
       expect(wideReopened.resizerHidden).toBe(false);
       expect(wideReopened.selectedRowId).not.toBe(initial.selectedRowId);
-      expect(wideReopened.detailsTitle).toMatch(/^503 POST /);
+      expect(wideReopened.detailsTitle).toMatch(/^POST https:\/\//);
 
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 375,
@@ -1979,7 +1979,7 @@ browserTest(
       );
       expect(narrowReopened.detailsHidden).toBe(false);
       expect(narrowReopened.resizerHidden).toBe(false);
-      expect(narrowReopened.detailsTitle).toMatch(/^304 GET /);
+      expect(narrowReopened.detailsTitle).toMatch(/^GET https:\/\//);
       expect(narrowReopened.selectedRowId).not.toBe(wideReopened.selectedRowId);
     } finally {
       if (cdp) await cdp.close();
@@ -3347,6 +3347,7 @@ browserTest(
       ];
       const visibleColumns = [
         ['id', 'ID'],
+        ['match', 'Match'],
         ['clientStart', 'ClientStart'],
         ['serverDone', 'ServerDone'],
         ['method', 'Method'],

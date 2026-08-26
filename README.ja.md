@@ -125,7 +125,7 @@ Chrome での検証内容:
 
 ### 調べる
 
-- 15 列 — ID・ClientStart・ServerDone・Method・Status・Domain・Path・Type・Duration・Size に加え、既定で非表示の Initiator・URL・Waterfall・Operation・設定可能な Header 列。Header 列は Columns メニューで入力した任意のヘッダ名に紐づき(レスポンスヘッダ優先、無ければリクエストヘッダ)、トレース ID やキャッシュ状態をキャプチャ全体で追えます。他の列と同様にソート・フィルタ可能。表示・幅・並び順はすべて永続化されます。
+- 16 列 — ID・Match・ClientStart・ServerDone・Method・Status・Domain・Path・Type・Duration・Size に加え、既定で非表示の Initiator・URL・Waterfall・Operation・設定可能な Header 列。Match 列には行の状態チップが並びます。ヒットした検索キーワードごとに 1 個ずつ、そのキーワードの色で表示するため、複数条件に該当する行がどれに当たったのかが分かります(従来は最初の 1 色しか出ませんでした)。Header 列は Columns メニューで入力した任意のヘッダ名に紐づき(レスポンスヘッダ優先、無ければリクエストヘッダ)、トレース ID やキャッシュ状態をキャプチャ全体で追えます。他の列と同様にソート・フィルタ可能。表示・幅・並び順はすべて永続化されます。
 - タブ式インスペクタ: Request(Headers / Body / Query / Cookies / Raw)と Response(Headers / Body / Preview / Cookies / Timing / Raw)。Body と Raw の各ビューにはペイン下部に固定された専用キーワード検索があり、ヒットのハイライトと Enter / Shift+Enter ナビゲーションが使えます。レスポンスボディは `Content-Type` が宣言する文字コードでデコードされます(Shift_JIS・EUC-JP なども正しく表示)。
 - フェーズごとの Timing 内訳(blocked・DNS・connect・TLS・send・wait・receive)。インラインガイドと、ブラウザ報告のタイミングが証明できないことの明示付き。
 - **Compare 2 selected requests** — <kbd>Ctrl</kbd>/<kbd>⌘</kbd> クリックでちょうど 2 行を選ぶと、URL・クエリパラメータ・メソッド・ステータス・プロトコル・ヘッダ・ボディを diff。一致・変更・片側のみの値が色分けされます。
