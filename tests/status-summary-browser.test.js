@@ -1555,6 +1555,418 @@ browserTest(
 );
 
 browserTest(
+  'a binary response reaches the panes as a hex dump and a visible image, not mojibake',
+  async () => {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-binary-body-'));
+    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+    const browserProcess = spawn(
+      browserExecutable,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        '--allow-file-access-from-files',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-sandbox',
+        panelUrl,
+      ],
+      { stdio: 'ignore' },
+    );
+
+    let cdp;
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      const panelTarget = await findPanelTarget(browserWebSocketUrl);
+      cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
+      await cdp.send('Runtime.enable');
+      await cdp.send('Page.enable');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `(() => {
+          const chromeApi = globalThis.chrome || {};
+          chromeApi.storage = {
+            local: {
+              get(_keys, callback) {
+                callback({});
+              },
+              set(_value, callback) {
+                if (callback) callback();
+              },
+            },
+          };
+          chromeApi.runtime = {
+            lastError: null,
+            getManifest() {
+              return { version: '1.6.0' };
+            },
+          };
+          chromeApi.devtools = {
+            network: {
+              onRequestFinished: {
+                addListener(listener) {
+                  globalThis.__networkPlusLiveListener = listener;
+                },
+              },
+            },
+            panels: {
+              openResource() {},
+            },
+          };
+          globalThis.chrome = chromeApi;
+        })();`,
+      });
+      await cdp.send('Page.reload', { ignoreCache: true });
+      await waitForLiveNetworkListener(cdp);
+
+      const observed = await evaluate(
+        cdp,
+        `(async () => {
+          const settle = async () => {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          };
+          // The 1x1 transparent GIF a cookie-sync endpoint returns, and a JSON
+          // body alongside it to prove text bodies keep their existing path.
+          const gif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+          const json = '{"ok":true}';
+          const makeRequest = (sourceId, contentType, harMime, content, encoding) => ({
+            startedDateTime: new Date(1704067200000 + sourceId).toISOString(),
+            time: 12,
+            request: { method: 'GET', url: 'https://binary.example.test/' + sourceId, headers: [] },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              httpVersion: 'HTTP/2',
+              headers: [{ name: 'content-type', value: contentType }],
+              content: { size: 42, mimeType: harMime },
+            },
+            getContent(callback) {
+              callback(content, encoding);
+            },
+          });
+          const listener = globalThis.__networkPlusLiveListener;
+          listener(makeRequest(1, 'image/gif', 'image/gif', gif, 'base64'));
+          // A row whose recorded HAR type came back as x-unknown: before the
+          // fix this fell through to "(no preview available)".
+          listener(makeRequest(2, 'image/gif', 'x-unknown', gif, 'base64'));
+          listener(makeRequest(3, 'application/json', 'application/json', json, ''));
+          await settle();
+
+          const read = async (rowId) => {
+            document.querySelector('#tbody tr[data-row-id="' + rowId + '"]').click();
+            await settle();
+            document.querySelector('#res-tab-preview').click();
+            await settle();
+            await new Promise((resolve) => setTimeout(resolve, 350));
+            const body = document.querySelector('#res-body');
+            const preview = document.querySelector('#res-preview');
+            const raw = document.querySelector('#res-raw');
+            const image = preview.querySelector('.image-preview-stage img');
+            const stage = preview.querySelector('.image-preview-stage');
+            const imageBox = image ? image.getBoundingClientRect() : null;
+            const stageBox = stage ? stage.getBoundingClientRect() : null;
+            return {
+              hasNotice: !!body.querySelector('.body-notice'),
+              dump: body.querySelector('pre.hex-dump')?.textContent?.split('\\n')[0] || null,
+              bodyText: body.textContent,
+              rawText: raw.textContent,
+              hasJsonTree: !!body.querySelector('.json-tree'),
+              caption: preview.querySelector('.image-preview-caption')?.textContent || null,
+              renderedWidth: imageBox ? Math.round(imageBox.width) : 0,
+              renderedHeight: imageBox ? Math.round(imageBox.height) : 0,
+              stagePainted: !!stageBox && stageBox.width > 0 && stageBox.height > 0,
+              previewText: preview.textContent,
+            };
+          };
+          return { gif: await read(1), unknownType: await read(2), json: await read(3) };
+        })()`,
+        true,
+      );
+
+      // U+FFFD is the decoder's "these bytes are not text" marker, and it is
+      // exactly what the panes used to show. No pane may carry it any more.
+      for (const [label, pane] of [
+        ['gif body', observed.gif.bodyText],
+        ['gif raw', observed.gif.rawText],
+        ['x-unknown body', observed.unknownType.bodyText],
+      ]) {
+        expect({ label, hasReplacementCharacter: pane.includes('\uFFFD') }).toEqual({
+          label,
+          hasReplacementCharacter: false,
+        });
+      }
+
+      expect(observed.gif.hasNotice).toBe(true);
+      expect(observed.gif.dump).toBe(
+        '00000000  47 49 46 38 39 61 01 00  01 00 80 00 00 00 00 00  |GIF89a..........|',
+      );
+      expect(observed.gif.rawText).toContain('47 49 46 38 39 61');
+
+      // A 1x1 transparent pixel at its intrinsic size is invisible; the fix is
+      // only real if the pane actually paints something a reader can see.
+      expect(observed.gif.caption).toBe('image/gif · 1 × 1 px · 42 B · enlarged 48×');
+      expect(observed.gif.renderedWidth).toBe(48);
+      expect(observed.gif.renderedHeight).toBe(48);
+      expect(observed.gif.stagePainted).toBe(true);
+
+      // The header carries the type even when the recorded type does not.
+      expect(observed.unknownType.caption).toBe('image/gif · 1 × 1 px · 42 B · enlarged 48×');
+      expect(observed.unknownType.renderedWidth).toBe(48);
+
+      // Text bodies keep the JSON tree and the JSON preview they always had.
+      expect(observed.json.hasNotice).toBe(false);
+      expect(observed.json.dump).toBeNull();
+      expect(observed.json.hasJsonTree).toBe(true);
+      expect(observed.json.previewText).toContain('"ok"');
+    } finally {
+      if (cdp) await cdp.close();
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'the row menu stays bounded and hands out full copies without a dialog',
+  async () => {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-row-menu-'));
+    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+    const browserProcess = spawn(
+      browserExecutable,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        '--allow-file-access-from-files',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-sandbox',
+        panelUrl,
+      ],
+      { stdio: 'ignore' },
+    );
+
+    let cdp;
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      const panelTarget = await findPanelTarget(browserWebSocketUrl);
+      cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
+      await cdp.send('Runtime.enable');
+      await cdp.send('Page.enable');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1500,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `(() => {
+          const chromeApi = globalThis.chrome || {};
+          chromeApi.storage = {
+            local: {
+              get(_keys, callback) {
+                callback({});
+              },
+              set(_value, callback) {
+                if (callback) callback();
+              },
+            },
+          };
+          chromeApi.runtime = {
+            lastError: null,
+            getManifest() {
+              return { version: '1.6.0' };
+            },
+          };
+          chromeApi.devtools = {
+            network: {
+              onRequestFinished: {
+                addListener(listener) {
+                  globalThis.__networkPlusLiveListener = listener;
+                },
+              },
+            },
+            panels: {
+              openResource() {},
+            },
+          };
+          globalThis.chrome = chromeApi;
+          globalThis.__networkPlusCopied = [];
+          Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: {
+              writeText(text) {
+                globalThis.__networkPlusCopied.push(text);
+                return Promise.resolve();
+              },
+            },
+          });
+        })();`,
+      });
+      await cdp.send('Page.reload', { ignoreCache: true });
+      await waitForLiveNetworkListener(cdp);
+
+      const observed = await evaluate(
+        cdp,
+        `(async () => {
+          const settle = async () => {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => setTimeout(resolve, 140));
+          };
+          // The shape that wrapped the menu across the viewport: an ad-tech
+          // path whose query alone runs past a thousand characters.
+          const noisyPath = '/vevent?an_audit=0&referrer=https%3A%2F%2Fwww.msn.test%2F' + 'x'.repeat(1200) + '&ft=3';
+          globalThis.__networkPlusLiveListener({
+            startedDateTime: new Date(1704067200000).toISOString(),
+            time: 12,
+            request: {
+              method: 'POST',
+              url: 'https://zks1-ib.msn.test' + noisyPath,
+              headers: [{ name: 'authorization', value: 'Bearer row-menu-secret' }],
+              postData: { mimeType: 'application/json', text: '{"a":1}' },
+            },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              httpVersion: 'HTTP/2',
+              headers: [{ name: 'content-type', value: 'text/html' }],
+              content: { size: 9, mimeType: 'text/html' },
+            },
+            getContent(callback) {
+              callback('<p>hi</p>', '');
+            },
+          });
+          await settle();
+
+          const cell = document.querySelector('#tbody tr[data-row-id="1"] td[data-col-id="path"]');
+          cell.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 120, clientY: 120 }));
+          await settle();
+
+          const menu = document.querySelector('.context-menu');
+          const shownItems = () =>
+            Array.from(menu.querySelectorAll('.context-menu-item')).filter((item) => !item.closest('[hidden]'));
+          const measure = () => {
+            const rect = menu.getBoundingClientRect();
+            return { width: Math.round(rect.width), height: Math.round(rect.height), bottom: Math.round(rect.bottom) };
+          };
+          const toggle = menu.querySelector('.context-menu-disclosure');
+          const tallestItem = () =>
+            Math.max(...shownItems().map((item) => Math.round(item.getBoundingClientRect().height)));
+
+          const collapsed = {
+            box: measure(),
+            itemCount: shownItems().length,
+            tallestItem: tallestItem(),
+            toggleLabel: toggle.textContent,
+            expanded: toggle.getAttribute('aria-expanded'),
+            filterLabels: shownItems()
+              .filter((item) => /^(Only|Exclude) /.test(item.textContent))
+              .map((item) => item.textContent),
+            filterTitleLengths: shownItems()
+              .filter((item) => /^(Only|Exclude) /.test(item.textContent))
+              .map((item) => (item.title || '').length),
+            // Arrow-key rotation must not visit what the reader cannot see.
+            reachableByArrows: Array.from(menu.querySelectorAll('[role="menuitem"]')).filter(
+              (item) => item.tabIndex !== -1 && !item.closest('[hidden]'),
+            ).length,
+          };
+
+          toggle.click();
+          await settle();
+          const expanded = {
+            box: measure(),
+            toggleLabel: toggle.textContent,
+            expanded: toggle.getAttribute('aria-expanded'),
+            formats: Array.from(menu.querySelectorAll('.context-menu-submenu .context-menu-item')).map(
+              (item) => item.textContent,
+            ),
+            menuStillOpen: menu.classList.contains('show'),
+          };
+
+          Array.from(menu.querySelectorAll('.context-menu-submenu .context-menu-item'))
+            .find((item) => item.textContent === 'Copy full cURL')
+            .click();
+          await settle();
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          const copied = globalThis.__networkPlusCopied[0] || '';
+          return {
+            collapsed,
+            expanded,
+            afterCopy: {
+              dialogOpened: document.querySelector('#dataSafetyDialog').open,
+              copiedCount: globalThis.__networkPlusCopied.length,
+              carriesTheRealToken: copied.includes('Bearer row-menu-secret'),
+              redacted: copied.includes('[REDACTED]'),
+            },
+            viewport: { width: window.innerWidth, height: window.innerHeight },
+          };
+        })()`,
+        true,
+      );
+
+      // The whole complaint in two numbers: the menu used to fill the screen.
+      expect(observed.collapsed.box.width).toBeLessThanOrEqual(420);
+      expect(observed.collapsed.box.bottom).toBeLessThanOrEqual(observed.viewport.height);
+      // One line per entry — a wrapped label is what made it tall.
+      expect(observed.collapsed.tallestItem).toBeLessThanOrEqual(34);
+
+      // The rule is built from the path, not from per-request query state.
+      expect(observed.collapsed.filterLabels).toEqual(['Only Path /vevent', 'Exclude Path /vevent']);
+
+      // Collapsed by default, and its items are not arrow-key destinations.
+      expect(observed.collapsed.toggleLabel).toBe('▸ Copy full (unsanitized)');
+      expect(observed.collapsed.expanded).toBe('false');
+      expect(observed.collapsed.reachableByArrows).toBe(observed.collapsed.itemCount + 6);
+
+      expect(observed.expanded.toggleLabel).toBe('▾ Copy full (unsanitized)');
+      expect(observed.expanded.expanded).toBe('true');
+      expect(observed.expanded.menuStillOpen).toBe(true);
+      expect(observed.expanded.formats).toEqual([
+        'Copy full request summary',
+        'Copy full URL',
+        'Copy full cURL',
+        'Copy full fetch',
+        'Copy full PowerShell',
+        'Copy full Markdown',
+        'Copy full raw request',
+        'Copy full request body',
+      ]);
+      // Expanding grows the menu but must not push it off the viewport.
+      expect(observed.expanded.box.height).toBeGreaterThan(observed.collapsed.box.height);
+      expect(observed.expanded.box.bottom).toBeLessThanOrEqual(observed.viewport.height);
+
+      // No dialog, one copy, and it really is the unsanitized form.
+      expect(observed.afterCopy).toEqual({
+        dialogOpened: false,
+        copiedCount: 1,
+        carriesTheRealToken: true,
+        redacted: false,
+      });
+    } finally {
+      if (cdp) await cdp.close();
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'live summary update preserves focused status chip identity and the pending click gesture',
   async () => {
     const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-status-dom-'));

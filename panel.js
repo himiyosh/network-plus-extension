@@ -473,12 +473,10 @@ const _NetworkPlus = (function () {
   let pendingFullOutboundAction = null;
   let dataSafetyDialogTrigger = null;
 
-  function setDataSafetyDialogMode(mode, detail, confirmLabel, showCopyFormat) {
+  function setDataSafetyDialogMode(mode, detail, confirmLabel) {
     const choices = $('#dataSafetyExportChoices');
     const warning = $('#dataSafetyWarning');
     const confirm = $('#dataSafetyConfirmBtn');
-    const format = $('#dataSafetyCopyFormat');
-    const formatLabel = $('#dataSafetyCopyFormatLabel');
     const scope = $('#dataSafetyScope');
     // Export mode decides scope visibility itself (it depends on whether a
     // selection exists); every other mode always hides the chooser.
@@ -486,8 +484,6 @@ const _NetworkPlus = (function () {
     choices.hidden = mode !== 'export';
     warning.hidden = mode === 'export';
     confirm.hidden = mode === 'export';
-    format.hidden = !showCopyFormat;
-    formatLabel.hidden = !showCopyFormat;
     $('#dataSafetyDialogDetail').textContent = detail;
     if (confirmLabel) confirm.textContent = confirmLabel;
   }
@@ -505,7 +501,6 @@ const _NetworkPlus = (function () {
       'export',
       'Sanitized HAR redacts every URL query and form-like fragment value, URL userinfo, cookies, and every non-allowlisted header value. Omitted bodies are explicitly marked.',
       '',
-      false,
     );
     const scope = $('#dataSafetyScope');
     if (scope) {
@@ -539,13 +534,9 @@ const _NetworkPlus = (function () {
       'full',
       source.detail || 'Review the sensitive data categories before continuing.',
       source.confirmLabel || 'Confirm full output',
-      source.showCopyFormat === true,
     );
     showDataSafetyDialog(source.trigger);
-    setTimeout(() => {
-      const firstControl = source.showCopyFormat === true ? $('#dataSafetyCopyFormat') : $('#dataSafetyConfirmBtn');
-      firstControl.focus();
-    }, 0);
+    setTimeout(() => $('#dataSafetyConfirmBtn').focus(), 0);
   }
 
   function initializeDataSafetyDialog() {
@@ -601,6 +592,13 @@ const _NetworkPlus = (function () {
   }
 
   function clampPopupToViewport(popup, x, y) {
+    // An inline style outranks the sheet, so writing the viewport width here
+    // unconditionally would undo a popup's own bound — the context menu's
+    // 420px cap among them. Clearing first also makes the measurement below
+    // reflect the stylesheet rather than the previous clamp.
+    popup.style.maxWidth = '';
+    popup.style.maxHeight = '';
+    const styleMaxWidth = parseFloat(window.getComputedStyle(popup).maxWidth);
     const rect = popup.getBoundingClientRect();
     const position = clampPopupPosition(
       x,
@@ -613,7 +611,8 @@ const _NetworkPlus = (function () {
     );
     popup.style.left = position.left + 'px';
     popup.style.top = position.top + 'px';
-    popup.style.maxWidth = position.maxWidth + 'px';
+    popup.style.maxWidth =
+      Math.min(position.maxWidth, Number.isFinite(styleMaxWidth) ? styleMaxWidth : Infinity) + 'px';
     popup.style.maxHeight = position.maxHeight + 'px';
   }
 
@@ -640,7 +639,11 @@ const _NetworkPlus = (function () {
     const selector = menuOnly
       ? '[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]'
       : 'input:not([disabled]),select:not([disabled]),button:not([disabled]),[tabindex="0"]';
-    return $all(selector, popup).filter((element) => element.tabIndex !== -1);
+    // A collapsed submenu's items are still in the DOM; arrowing onto one the
+    // reader cannot see is a dead keystroke, so hidden controls are excluded.
+    return $all(selector, popup).filter(
+      (element) => element.tabIndex !== -1 && !element.closest('[hidden]'),
+    );
   }
 
   function closeAccessiblePopup(popup, restoreFocus) {
@@ -2427,6 +2430,79 @@ const _NetworkPlus = (function () {
     } catch (_e) {
       return '';
     }
+  }
+
+  // Whether a decoded body is text at all. TextDecoder substitutes U+FFFD for
+  // every byte it cannot interpret, so a GIF pushed through it arrives as
+  // `GIF89a` followed by replacement characters and raw control bytes — the
+  // mojibake this guard keeps out of the Body and Raw panes.
+  //
+  // The judgement reads the decoded bytes rather than the declared MIME type on
+  // purpose. A network panel meets `x-unknown` and `application/octet-stream`
+  // constantly, meets images served under a text type, and meets
+  // `image/svg+xml`, which is under `image/` and genuinely is text. Only the
+  // bytes settle all three; a MIME allowlist gets at most two of them right.
+  const BINARY_BODY_SAMPLE_CHARS = 2048;
+  const BINARY_BODY_SUSPICIOUS_RATIO = 0.05;
+
+  function isUndecodableBodyText(text) {
+    if (typeof text !== 'string' || text.length === 0) return false;
+    const sample =
+      text.length > BINARY_BODY_SAMPLE_CHARS ? text.slice(0, BINARY_BODY_SAMPLE_CHARS) : text;
+    let suspicious = 0;
+    for (let index = 0; index < sample.length; index += 1) {
+      const code = sample.charCodeAt(index);
+      // NUL carries no meaning in a text payload under any charset.
+      if (code === 0) return true;
+      const control = code === 0x7f || (code < 0x20 && code !== 9 && code !== 10 && code !== 13);
+      if (code === 0xfffd || control) suspicious += 1;
+    }
+    // A stray bad byte in an otherwise readable page stays readable: the ratio
+    // is what separates that from a payload that is bytes all the way down.
+    return suspicious / sample.length > BINARY_BODY_SUSPICIOUS_RATIO;
+  }
+
+  const HEX_DUMP_BYTES_PER_LINE = 16;
+  const HEX_DUMP_MAX_BYTES = 4096;
+
+  // `hexdump -C` layout: offset, two eight-byte hex groups, then the printable
+  // gutter. The gutter is what makes a binary body readable at a glance —
+  // magic numbers, embedded strings and boundaries all surface there.
+  function formatHexDump(bytes, maxBytes) {
+    const limit = maxBytes > 0 ? Math.min(bytes.length, maxBytes) : bytes.length;
+    const lines = [];
+    for (let offset = 0; offset < limit; offset += HEX_DUMP_BYTES_PER_LINE) {
+      const end = Math.min(offset + HEX_DUMP_BYTES_PER_LINE, limit);
+      const hex = [];
+      let ascii = '';
+      for (let index = 0; index < HEX_DUMP_BYTES_PER_LINE; index += 1) {
+        const position = offset + index;
+        if (position >= end) {
+          hex.push('  ');
+          continue;
+        }
+        const byte = bytes[position];
+        hex.push(byte.toString(16).padStart(2, '0'));
+        ascii += byte >= 0x20 && byte < 0x7f ? String.fromCharCode(byte) : '.';
+      }
+      lines.push(
+        offset.toString(16).padStart(8, '0') +
+          '  ' +
+          hex.slice(0, 8).join(' ') +
+          '  ' +
+          hex.slice(8).join(' ') +
+          '  |' +
+          ascii +
+          '|',
+      );
+    }
+    return { text: lines.join('\n'), shownBytes: limit, totalBytes: bytes.length };
+  }
+
+  // Byte count of a base64 payload without materialising it.
+  function base64ByteLength(base64) {
+    const clean = typeof base64 === 'string' ? base64.replace(/[\r\n=]+/g, '') : '';
+    return Math.floor((clean.length * 3) / 4);
   }
 
   function buildHarResponseContent(row, responsePayload) {
@@ -5245,22 +5321,6 @@ const _NetworkPlus = (function () {
       en: 'Review full HAR warning',
       ja: '完全版 HAR の警告を確認',
     },
-    dataSafetyCopyFormatLabel: {
-      en: 'Full copy format',
-      ja: '完全版のコピー形式',
-    },
-    dataSafetyFormatSummary: {
-      en: 'Request summary',
-      ja: 'リクエスト概要',
-    },
-    dataSafetyFormatRaw: {
-      en: 'Raw request',
-      ja: '生のリクエスト',
-    },
-    dataSafetyFormatBody: {
-      en: 'Request body',
-      ja: 'リクエストボディ',
-    },
     dataSafetyConfirmFull: {
       en: 'Confirm full output',
       ja: '完全版の出力を実行',
@@ -5681,6 +5741,26 @@ const _NetworkPlus = (function () {
       en: BODY_UNAVAILABLE_REASON,
       ja: '完全なレスポンス内容は利用できません。',
     },
+    binaryBodyNotice: {
+      en: 'Binary response body — showing a hex dump instead of decoded text.',
+      ja: 'バイナリのレスポンスボディです。デコードしたテキストではなく 16 進ダンプを表示しています。',
+    },
+    binaryDumpShown: {
+      en: 'Hex dump shown',
+      ja: '16 進ダンプの表示範囲',
+    },
+    binaryPreviewUnavailable: {
+      en: 'No preview for binary content. The Body tab shows a hex dump.',
+      ja: 'バイナリ内容にプレビューはありません。Body タブに 16 進ダンプを表示しています。',
+    },
+    imagePreviewZoom: {
+      en: 'enlarged',
+      ja: '拡大',
+    },
+    imagePreviewFailed: {
+      en: 'This image could not be decoded.',
+      ja: 'この画像はデコードできませんでした。',
+    },
   };
 
   let activeLanguage = 'en';
@@ -5891,6 +5971,33 @@ const _NetworkPlus = (function () {
     if (colId === 'serverDone') return row.serverDoneFilter || row.serverDone || '';
     const v = row[colId];
     return v == null ? '' : v;
+  }
+
+  // The value a one-click row filter should carry. A path or URL arrives with
+  // its query string attached, and a query string is per-request state —
+  // session ids, cache busters, consent blobs, timestamps — so a rule built
+  // from one matches that single request and nothing else, which is the
+  // opposite of what "exclude this noise" is asking for. Cutting at the query
+  // leaves the unit people actually mean by "this kind of request".
+  function getQuickFilterValue(row, colId) {
+    const value = String(getRowFilterValue(row, colId) || '').trim();
+    if (colId !== 'path' && colId !== 'url') return value;
+    const queryStart = value.search(/[?#]/);
+    const withoutQuery = queryStart > 0 ? value.slice(0, queryStart) : '';
+    return withoutQuery || value;
+  }
+
+  // Menu entries name their filter value, and a captured URL has no length
+  // bound — an ad-tech path ran past 1,500 characters and wrapped the context
+  // menu across the whole viewport. The label is shortened for the menu; the
+  // rule and the tooltip still carry the whole value.
+  const QUICK_FILTER_LABEL_MAX_CHARS = 48;
+
+  function shortenMenuValue(value) {
+    const text = String(value == null ? '' : value);
+    return text.length > QUICK_FILTER_LABEL_MAX_CHARS
+      ? text.slice(0, QUICK_FILTER_LABEL_MAX_CHARS - 1) + '…'
+      : text;
   }
 
   function compareRowValues(a, b, colId) {
@@ -9810,19 +9917,27 @@ const _NetworkPlus = (function () {
     });
   }
 
-  function requestFullRequestCopy(row, trigger) {
-    requestFullOutboundAction({
-      title: 'Copy full request data?',
-      detail: 'Choose a format, then confirm this one full-data clipboard action.',
-      confirmLabel: 'Copy full request data',
-      trigger,
-      showCopyFormat: true,
-      onConfirm: () => {
-        const action = $('#dataSafetyCopyFormat').value;
-        const payload = buildClipboardPayload(action, row, { mode: 'full', confirmed: true });
-        return writeClipboardPayload(payload.text, 'Copied confirmed full request data');
-      },
-    });
+  // Every format the retired "Copy full request..." dialog offered in its
+  // picker, now reachable straight from the row menu.
+  const FULL_COPY_FORMATS = [
+    ['summary', 'request summary'],
+    ['url', 'URL'],
+    ['curl', 'cURL'],
+    ['fetch', 'fetch'],
+    ['powershell', 'PowerShell'],
+    ['markdown', 'Markdown'],
+    ['rawRequest', 'raw request'],
+    ['requestBody', 'request body'],
+  ];
+
+  function copyFullAction(action, row, label) {
+    try {
+      const payload = buildClipboardPayload(action, row, { mode: 'full', confirmed: true });
+      return writeClipboardPayload(payload.text, 'Copied unsanitized full ' + label);
+    } catch (_error) {
+      setStatus('Full copy failed. No data was copied.');
+      return Promise.resolve();
+    }
   }
 
   // ---- In-pane keyword search (Request/Response Body & Raw views) ----
@@ -10450,6 +10565,97 @@ const _NetworkPlus = (function () {
     $('#res-raw').textContent = message;
   }
 
+  // Decodes a base64 body to bytes and lays them out as a hex dump. Returns
+  // null when the payload will not decode, so the caller keeps its text path.
+  function describeBinaryResponseBody(base64Content) {
+    let bytes;
+    try {
+      bytes = base64ToBytes(base64Content);
+    } catch (_e) {
+      return null;
+    }
+    const dump = formatHexDump(bytes, HEX_DUMP_MAX_BYTES);
+    return {
+      text: dump.text,
+      shownBytes: dump.shownBytes,
+      totalBytes: dump.totalBytes,
+      truncated: dump.shownBytes < dump.totalBytes,
+    };
+  }
+
+  // States why the pane holds a hex dump, and how much of the body it covers.
+  // A dump with no size line reads as the whole body even when it is the first
+  // 4 KB of a 2 MB video.
+  function buildBinaryBodyNotice(row, dump) {
+    const notice = document.createElement('div');
+    notice.className = 'body-notice';
+    const headline = document.createElement('div');
+    headline.textContent = uiText('binaryBodyNotice');
+    notice.appendChild(headline);
+    const facts = [guessMimeType(row), fmtBytes(dump.totalBytes)];
+    if (dump.truncated) {
+      facts.push(uiText('binaryDumpShown') + ': ' + fmtBytes(dump.shownBytes) + ' / ' + fmtBytes(dump.totalBytes));
+    }
+    const detail = document.createElement('div');
+    detail.textContent = facts.filter(Boolean).join(' · ');
+    notice.appendChild(detail);
+    return notice;
+  }
+
+  const IMAGE_PREVIEW_MIN_EDGE = 48;
+  const IMAGE_PREVIEW_MAX_EDGE = 256;
+
+  // Tracking pixels are the most common image a network panel meets, and a 1×1
+  // transparent GIF drawn at its intrinsic size is invisible — the pane simply
+  // reads as empty, which is what this replaces. The checkerboard gives
+  // transparency something to sit on, and an image too small to see is zoomed
+  // with the factor named in the caption so the enlargement can never be
+  // mistaken for the image's real size.
+  function renderImagePreview(mime, base64Content) {
+    const byteLength = base64ByteLength(base64Content);
+    const frame = document.createElement('div');
+    frame.className = 'image-preview';
+    const stage = document.createElement('div');
+    stage.className = 'image-preview-stage';
+    const caption = document.createElement('div');
+    caption.className = 'image-preview-caption';
+    caption.textContent = [mime, fmtBytes(byteLength)].filter(Boolean).join(' · ');
+    const img = document.createElement('img');
+    img.alt = 'Response image preview';
+    img.addEventListener('load', () => {
+      const width = img.naturalWidth;
+      const height = img.naturalHeight;
+      const facts = [mime, width + ' × ' + height + ' px', fmtBytes(byteLength)];
+      const smallestEdge = Math.min(width, height);
+      const largestEdge = Math.max(width, height);
+      if (smallestEdge > 0 && smallestEdge < IMAGE_PREVIEW_MIN_EDGE) {
+        // Reach for a visible short edge, but never past the box — a 400×1
+        // spacer would otherwise be asked to render 19200px wide. Only the
+        // width is set so that clamping the image keeps its aspect ratio.
+        const zoom = Math.max(
+          1,
+          Math.min(
+            Math.ceil(IMAGE_PREVIEW_MIN_EDGE / smallestEdge),
+            Math.floor(IMAGE_PREVIEW_MAX_EDGE / largestEdge),
+          ),
+        );
+        if (zoom > 1) {
+          img.style.width = width * zoom + 'px';
+          facts.push(uiText('imagePreviewZoom') + ' ' + zoom + '×');
+        }
+      }
+      caption.textContent = facts.filter(Boolean).join(' · ');
+    });
+    img.addEventListener('error', () => {
+      caption.textContent = uiText('imagePreviewFailed');
+    });
+    img.src = 'data:' + mime + ';base64,' + base64Content;
+    stage.appendChild(img);
+    frame.appendChild(stage);
+    frame.appendChild(caption);
+    return frame;
+  }
+
   function renderCachedResponseContent(row) {
     if (row.responseContentState !== 'cached') {
       const display = describeResponseContentState(row);
@@ -10466,16 +10672,28 @@ const _NetworkPlus = (function () {
       : decodeResponseContent(rawContent, encoding, resolveRowResponseCharset(row), isHtmlLikeMime(row.type));
     if (encoding === 'base64' && rawContent && !text) text = '(could not decode base64 response)';
 
-    // Body tab — formatted text
+    // Only a base64 body carries the real bytes, so only there can an honest
+    // hex dump replace the mojibake a lossy decode produced.
+    const binaryDump =
+      encoding === 'base64' && rawContent && isUndecodableBodyText(text)
+        ? describeBinaryResponseBody(rawContent)
+        : null;
+    const displayText = binaryDump ? binaryDump.text : text;
+
+    // Body tab — formatted text, or a hex dump when the bytes are not text
     resBodyPane.textContent = '';
-    const treeEl = renderJsonTree(text);
+    if (binaryDump) resBodyPane.appendChild(buildBinaryBodyNotice(row, binaryDump));
+    const treeEl = binaryDump ? null : renderJsonTree(displayText);
     if (treeEl) {
       resBodyPane.appendChild(treeEl);
     } else {
       const bodyPre = document.createElement('pre');
-      bodyPre.className = 'code-block';
-      if (text.length > TRUNCATE_LIMIT) {
-        bodyPre.textContent = text.substring(0, TRUNCATE_LIMIT);
+      bodyPre.className = binaryDump ? 'code-block hex-dump' : 'code-block';
+      if (binaryDump) {
+        bodyPre.textContent = displayText;
+        resBodyPane.appendChild(bodyPre);
+      } else if (displayText.length > TRUNCATE_LIMIT) {
+        bodyPre.textContent = displayText.substring(0, TRUNCATE_LIMIT);
         const showMore = document.createElement('button');
         showMore.textContent = 'Show full cached body (' + fmtBytes(row.responseContentBytes) + ')';
         if (!row._previewTruncationCounted) {
@@ -10486,12 +10704,12 @@ const _NetworkPlus = (function () {
         }
         showMore.className = 'link-btn';
         showMore.addEventListener('click', () => {
-          bodyPre.textContent = text;
+          bodyPre.textContent = displayText;
         });
         resBodyPane.appendChild(bodyPre);
         resBodyPane.appendChild(showMore);
       } else {
-        bodyPre.textContent = text || '(no response body)';
+        bodyPre.textContent = displayText || '(no response body)';
         resBodyPane.appendChild(bodyPre);
       }
     }
@@ -10508,12 +10726,12 @@ const _NetworkPlus = (function () {
 
     // Preview tab — image, sandboxed HTML, or formatted JSON
     resPreviewPane.textContent = '';
-    if (encoding === 'base64' && row.type && row.type.startsWith('image/')) {
-      const img = document.createElement('img');
-      img.src = 'data:' + row.type + ';base64,' + rawContent;
-      img.alt = 'Response image preview';
-      img.style.maxWidth = '100%';
-      resPreviewPane.appendChild(img);
+    // The Content-Type header outranks the HAR mime for the preview decision:
+    // it is what the server actually declared, and it is present on rows whose
+    // recorded type came back as `x-unknown`.
+    const previewMime = guessMimeType(row);
+    if (encoding === 'base64' && rawContent && /^image\//i.test(previewMime)) {
+      resPreviewPane.appendChild(renderImagePreview(previewMime, rawContent));
     } else if (row.type && row.type.indexOf('html') > -1) {
       const iframe = document.createElement('iframe');
       iframe.sandbox = '';
@@ -10523,6 +10741,8 @@ const _NetworkPlus = (function () {
       iframe.style.border = '1px solid var(--border)';
       iframe.srcdoc = text;
       resPreviewPane.appendChild(iframe);
+    } else if (binaryDump) {
+      resPreviewPane.textContent = uiText('binaryPreviewUnavailable');
     } else {
       const previewFormatted = formatJsonSafe(text);
       if (previewFormatted) {
@@ -10534,7 +10754,7 @@ const _NetworkPlus = (function () {
 
     // Raw tab
     resRawPane.textContent = '';
-    const rawResPre = renderRawHighlighted(buildRawResponseText(row, text));
+    const rawResPre = renderRawHighlighted(buildRawResponseText(row, displayText));
     addCopyActions(resRawPane, [
       {
         label: 'Copy sanitized',
@@ -12422,11 +12642,13 @@ const _NetworkPlus = (function () {
       closeAccessiblePopup(contextMenu, restoreFocus);
     };
 
-    const createRowMenuButton = (text, onActivate) => {
+    const createRowMenuButton = (text, onActivate, title) => {
       const button = document.createElement('button');
       button.textContent = text;
       button.className = 'context-menu-item';
       button.setAttribute('role', 'menuitem');
+      // A shortened label still has to be inspectable before it is clicked.
+      if (title && title !== text) button.title = title;
       button.addEventListener('click', () => {
         onActivate();
         closeRowContextMenu(true);
@@ -12473,10 +12695,37 @@ const _NetworkPlus = (function () {
           }),
         );
       }
+      // Full output used to open a modal that both picked the format and took
+      // the confirmation. The picker is the part people actually came for, so
+      // it lives in the menu now, collapsed behind one entry that names what
+      // it hands out — the menu keeps the height it had, and reaching a format
+      // costs one click instead of a dialog round trip.
       const fullCopyRow = contextMenuRow;
-      contextMenu.appendChild(createRowMenuButton('Copy full request...', () => {
-        setTimeout(() => requestFullRequestCopy(fullCopyRow, invokingRow), 0);
-      }));
+      const fullCopyGroup = document.createElement('div');
+      fullCopyGroup.className = 'context-menu-submenu';
+      fullCopyGroup.setAttribute('role', 'group');
+      fullCopyGroup.setAttribute('aria-label', 'Copy full (unsanitized)');
+      fullCopyGroup.hidden = true;
+      const fullCopyToggle = document.createElement('button');
+      fullCopyToggle.className = 'context-menu-item context-menu-disclosure';
+      fullCopyToggle.setAttribute('role', 'menuitem');
+      fullCopyToggle.setAttribute('aria-expanded', 'false');
+      fullCopyToggle.textContent = '▸ Copy full (unsanitized)';
+      fullCopyToggle.addEventListener('click', () => {
+        const expanding = fullCopyGroup.hidden;
+        fullCopyGroup.hidden = !expanding;
+        fullCopyToggle.setAttribute('aria-expanded', String(expanding));
+        fullCopyToggle.textContent = (expanding ? '▾' : '▸') + ' Copy full (unsanitized)';
+        // The menu just changed height; keep it inside the viewport.
+        reclampOpenPopups();
+      });
+      contextMenu.appendChild(fullCopyToggle);
+      for (const [action, label] of FULL_COPY_FORMATS) {
+        fullCopyGroup.appendChild(
+          createRowMenuButton('Copy full ' + label, () => copyFullAction(action, fullCopyRow, label)),
+        );
+      }
+      contextMenu.appendChild(fullCopyGroup);
 
       if (resendActions && canResendRow(contextMenuRow)) {
         const resendLabel = document.createElement('div');
@@ -12500,7 +12749,7 @@ const _NetworkPlus = (function () {
         if (!invokingColId || isVisualOnlyColumn(invokingColId)) return null;
         const column = state.columns.find((candidate) => candidate.id === invokingColId);
         if (!column) return null;
-        const value = String(getRowFilterValue(contextMenuRow, invokingColId) || '').trim();
+        const value = getQuickFilterValue(contextMenuRow, invokingColId);
         return value ? { id: column.id, label: column.label, value } : null;
       })();
       const quickFilterDomain = String(contextMenuRow.domain || '').trim();
@@ -12512,11 +12761,16 @@ const _NetworkPlus = (function () {
         filterMenuLabel.setAttribute('role', 'presentation');
         filterMenuLabel.textContent = 'Filter';
         contextMenu.appendChild(filterMenuLabel);
-        const suffix = quickFilterTarget.label + ' ' + quickFilterTarget.value;
+        const suffix = quickFilterTarget.label + ' ' + shortenMenuValue(quickFilterTarget.value);
+        const fullSuffix = quickFilterTarget.label + ' ' + quickFilterTarget.value;
         const applyQuickFilter = (op) =>
           applyColumnQuickFilterTo(quickFilterTarget.id, quickFilterTarget.value, op);
-        contextMenu.appendChild(createRowMenuButton('Only ' + suffix, () => applyQuickFilter('contains')));
-        contextMenu.appendChild(createRowMenuButton('Exclude ' + suffix, () => applyQuickFilter('notcontains')));
+        contextMenu.appendChild(
+          createRowMenuButton('Only ' + suffix, () => applyQuickFilter('contains'), 'Only ' + fullSuffix),
+        );
+        contextMenu.appendChild(
+          createRowMenuButton('Exclude ' + suffix, () => applyQuickFilter('notcontains'), 'Exclude ' + fullSuffix),
+        );
       }
 
       const hlLabel = document.createElement('div');
@@ -14500,6 +14754,9 @@ const _NetworkPlus = (function () {
     getTimingPhaseGuidance,
     TIMING_EVIDENCE_LIMITATION,
     decodeResponseContent,
+    isUndecodableBodyText,
+    formatHexDump,
+    base64ByteLength,
     buildHarResponseContent,
     cacheResponseContent,
     isValuelessFilterOperator,

@@ -1105,6 +1105,14 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
+      title: 'a binary response reaches the panes as a hex dump and a visible image, not mojibake',
+    },
+    {
+      skipped: true,
+      title: 'the row menu stays bounded and hands out full copies without a dialog',
+    },
+    {
+      skipped: true,
       title: 'live summary update preserves focused status chip identity and the pending click gesture',
     },
     {

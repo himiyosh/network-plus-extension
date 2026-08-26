@@ -927,6 +927,58 @@ describe('response content helpers', () => {
     expect(np.extractCharsetFromContentType('text/html; charset = iso-2022-jp')).toBe('iso-2022-jp');
   });
 
+  test('recognises bytes that survived the decoder only as replacement characters', () => {
+    // The 1x1 transparent GIF a cookie-sync endpoint returns. Decoded as text
+    // it reads `GIF89a` and then falls apart, which is the mojibake users see.
+    const gif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    expect(np.isUndecodableBodyText(np.decodeResponseContent(gif, 'base64'))).toBe(true);
+
+    // Text stays text, including text that is mostly punctuation or CJK.
+    expect(np.isUndecodableBodyText('{"ok":true,"items":[1,2,3]}')).toBe(false);
+    expect(np.isUndecodableBodyText('<!doctype html>\n<html>\r\n\t<body>hi</body>\n</html>')).toBe(false);
+    expect(np.isUndecodableBodyText('こんにちは、世界。')).toBe(false);
+    expect(np.isUndecodableBodyText('')).toBe(false);
+    expect(np.isUndecodableBodyText(null)).toBe(false);
+
+    // One bad byte in an otherwise readable page must stay readable — that is
+    // the difference between this and "contains any replacement character".
+    expect(np.isUndecodableBodyText('a'.repeat(4000) + '\uFFFD')).toBe(false);
+    // A NUL settles it on its own, wherever it appears.
+    expect(np.isUndecodableBodyText('plain text\u0000more')).toBe(true);
+  });
+
+  test('lays binary bodies out as an offset/hex/printable dump', () => {
+    const bytes = Uint8Array.from([
+      0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00,
+      0x01, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0xff, 0x00,
+    ]);
+    const dump = np.formatHexDump(bytes, 4096);
+    const lines = dump.text.split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe('00000000  47 49 46 38 39 61 01 00  01 00 80 00 00 00 00 00  |GIF89a..........|');
+    // A short final line keeps the gutter aligned by padding the hex columns.
+    expect(lines[1]).toBe('00000010  ff 00                                             |..|');
+    expect(dump.shownBytes).toBe(18);
+    expect(dump.totalBytes).toBe(18);
+
+    // The cap reports what it left out rather than silently ending early.
+    const capped = np.formatHexDump(bytes, 8);
+    expect(capped.shownBytes).toBe(8);
+    expect(capped.totalBytes).toBe(18);
+    expect(capped.text.split('\n')).toHaveLength(1);
+  });
+
+  test('base64ByteLength counts the decoded bytes without decoding', () => {
+    for (const size of [0, 1, 2, 3, 4, 17, 42, 4096]) {
+      const base64 = Buffer.alloc(size, 7).toString('base64');
+      expect({ size, bytes: np.base64ByteLength(base64) }).toEqual({ size, bytes: size });
+    }
+    // Line-wrapped base64, as HAR files sometimes carry it.
+    expect(np.base64ByteLength('AAAA\nAAAA')).toBe(6);
+    expect(np.base64ByteLength(null)).toBe(0);
+  });
+
   test('measureResponsePayload threads the charset into the decoded text', () => {
     const payload = np.measureResponsePayload('grGC8YLJgr+CzQ==', 'base64', 'shift_jis');
     expect(payload.text).toBe('こんにちは');

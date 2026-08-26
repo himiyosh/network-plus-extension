@@ -129,6 +129,8 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] Scope, match options, and Matches only survive closing and reopening DevTools; search keyword text does not.
 - [ ] <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> focuses the pane search field when focus is inside a Body/Raw view, and toggles the request search panel elsewhere.
 - [ ] A response declaring `Content-Type: text/html; charset=Shift_JIS` (or another non-UTF-8 charset) renders readable text — not mojibake — in the Body, Preview, and Raw views, including after a SAZ import.
+- [ ] A binary response (a tracking-pixel GIF, a font, a `.wasm`) shows an offset/hex/printable dump in the Body and Raw views under a line naming the type and byte count — no replacement characters anywhere — while a JSON or HTML response is unaffected and still gets its collapsible tree.
+- [ ] A 1x1 transparent GIF's `Preview` shows a visible checkerboard tile with a caption reading its type, `1 × 1 px`, its byte size, and the enlargement factor; a row whose `Type` column reads `x-unknown` but whose `Content-Type` header says `image/...` previews the same way.
 
 ## Toolbar popups and the status bar
 
@@ -150,6 +152,8 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] Single-clicking a different row while the comparison view is open closes it and switches to that row's details.
 - [ ] Normal Summary / URL / Body / Raw / cURL / fetch / PowerShell copies are labeled sanitized, and a full copy reaches the clipboard only after the warning is confirmed.
 - [ ] The sanitized HAR and full HAR in the export dialog use different file names, and the full HAR confirmation does not carry over to the next action.
+- [ ] The row menu opens with `▸ Copy full (unsanitized)` collapsed; clicking it expands eight formats in place (request summary, URL, cURL, fetch, PowerShell, Markdown, raw request, request body), the menu stays inside the viewport, and picking one copies immediately with no dialog. Arrow keys skip the formats while the group is collapsed.
+- [ ] Right-clicking a `Path` or `URL` cell offers `Only`/`Exclude` for the path without its query string, and a very long value shortens in the label with the whole value in the tooltip — the menu never widens past ~420px or wraps an entry onto a second line.
 - [ ] Filter / Columns / Scope / Color can be opened and closed by keyboard, with correct initial focus, <kbd>Esc</kbd> handling, and clamping at the viewport edge.
 
 ## High-volume capture and incremental rendering

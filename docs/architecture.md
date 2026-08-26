@@ -64,7 +64,7 @@ These are limits on request rows, import staging, and the shared response-body c
 
 ## Outbound data safety
 
-The clipboard and HAR downloads are the only outbound surfaces, and sanitized output is always the default. A confirmed full output applies to that one action and is never saved as a setting or default. The full policy — URL, header, cookie, and body handling, fail-closed behavior, and the `Copy safe support summary` allowlist — is documented in [privacy.md](privacy.md) and summarized in the [README](../README.md#data-safety).
+The clipboard and HAR downloads are the only outbound surfaces, and sanitized output is always the default. Full output is never the default and is always labelled as unsanitized where it is offered; a confirmed full output applies to that one action and is never saved as a setting or default. The full policy — URL, header, cookie, and body handling, fail-closed behavior, and the `Copy safe support summary` allowlist — is documented in [privacy.md](privacy.md) and summarized in the [README](../README.md#data-safety).
 
 ## UI stability rules
 

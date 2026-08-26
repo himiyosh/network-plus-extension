@@ -1574,7 +1574,54 @@ describe('release trust static contracts', () => {
     expect(js).toContain("iframe.title = 'Response HTML preview';");
     expect(js).toContain("if (row.responseContentState !== 'cached')");
     expect(js).toContain("img.alt = 'Response image preview';");
-    expect(js).toContain("encoding === 'base64' && row.type && row.type.startsWith('image/')");
+    // The preview is still gated on holding real image bytes, but the MIME now
+    // comes from the Content-Type header (guessMimeType) rather than the HAR
+    // record: rows whose recorded type arrives as `x-unknown` still carry the
+    // declared type in their headers, and those are exactly the rows that
+    // previously fell through to "(no preview available)".
+    expect(js).toContain("const previewMime = guessMimeType(row);");
+    expect(js).toContain("if (encoding === 'base64' && rawContent && /^image\\//i.test(previewMime))");
+  });
+
+  test('shows bytes that are not text as a hex dump instead of decoder mojibake', () => {
+    // A GIF pushed through TextDecoder comes back as `GIF89a` plus replacement
+    // characters. These pin the escape hatch: detect it, and only claim a dump
+    // where the real bytes exist (a base64 body), never from the lossy text.
+    expect(js).toContain('function isUndecodableBodyText(text)');
+    expect(js).toContain("encoding === 'base64' && rawContent && isUndecodableBodyText(text)");
+    expect(js).toContain('? describeBinaryResponseBody(rawContent)');
+    expect(js).toContain('const displayText = binaryDump ? binaryDump.text : text;');
+    // Body, Raw and the truncation affordance all read the same display text,
+    // so no pane can be left rendering the mojibake the others escaped.
+    expect(js).toContain('buildRawResponseText(row, displayText)');
+    expect(js).toContain("bodyPre.className = binaryDump ? 'code-block hex-dump' : 'code-block';");
+    // A dump silently cut at the cap reads as the whole body.
+    expect(js).toContain('truncated: dump.shownBytes < dump.totalBytes,');
+
+    const dumpStart = js.indexOf('function formatHexDump');
+    const dumpEnd = js.indexOf('function base64ByteLength', dumpStart);
+    const dumpBlock = js.slice(dumpStart, dumpEnd);
+    expect(dumpBlock).toContain("offset.toString(16).padStart(8, '0')");
+    // The printable gutter is the half that makes a binary body legible.
+    expect(dumpBlock).toContain("ascii += byte >= 0x20 && byte < 0x7f ? String.fromCharCode(byte) : '.';");
+  });
+
+  test('keeps a tracking pixel visible instead of rendering an invisible dot', () => {
+    // A 1x1 transparent GIF drawn at its intrinsic size leaves the pane
+    // looking empty, which is the defect this replaces. The checkerboard gives
+    // transparency a ground, and the zoom is stated so it cannot be read as
+    // the image's real size.
+    expect(css).toMatch(/\.image-preview-stage\{[^}]*background-image:linear-gradient/);
+    expect(js).toContain("facts.push(uiText('imagePreviewZoom') + ' ' + zoom + '×');");
+    expect(js).toContain("const facts = [mime, width + ' × ' + height + ' px', fmtBytes(byteLength)];");
+    // Only the width is set, so clamping a wide image cannot squash its aspect
+    // ratio, and the zoom is bounded by the box as well as by visibility.
+    expect(js).toContain("img.style.width = width * zoom + 'px';");
+    expect(js).not.toContain("img.style.height = height * zoom + 'px';");
+    expect(js).toContain('Math.floor(IMAGE_PREVIEW_MAX_EDGE / largestEdge),');
+    expect(css).toMatch(/\.image-preview-stage img\{[^}]*height:auto/);
+    // A hex dump only reads as columns while the columns survive.
+    expect(css).toMatch(/\.code-block\.hex-dump\{[^}]*white-space:pre[;}]/);
   });
 
   test('coalesces late live-body search refreshes without resetting navigation', () => {
@@ -1943,6 +1990,12 @@ describe('outbound data-safety static contracts', () => {
     expect(html).toMatch(/id="dataSafetyStatus"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
     expect(css).toMatch(/#dataSafetyDialog\{[^}]*position:fixed[^}]*inset:0[^}]*width:min\(460px,calc\(100vw - 16px\)\)[^}]*max-height:calc\(100vh - 16px\)[^}]*overflow:auto/);
     expect(css).toContain('@media (max-width:420px){.data-safety-choices{grid-template-columns:1fr}');
+    // Every non-export mode sets choices.hidden, and `display:grid` outranks
+    // the UA hidden rule — the same trap that once left "hidden" toolbar
+    // buttons painted. Without this guard a per-action copy confirmation also
+    // offers Export sanitized HAR/CSV, which is not what it is confirming.
+    expect(js).toContain("choices.hidden = mode !== 'export';");
+    expect(css).toContain('.data-safety-choices[hidden]{display:none}');
   });
 
   test('uses native dialog focus, Escape, close restoration, and debounced polite feedback', () => {
@@ -3443,8 +3496,22 @@ describe('export scope contracts', () => {
   test('row quick filters feed the same multiText rules the Filters popup edits', () => {
     // The pair is built for whichever column the pointer landed on, so any
     // column can be isolated or excluded in one click, not only the domain.
-    expect(js).toContain("contextMenu.appendChild(createRowMenuButton('Only ' + suffix, () => applyQuickFilter('contains')));");
-    expect(js).toContain("createRowMenuButton('Exclude ' + suffix, () => applyQuickFilter('notcontains'))");
+    expect(js).toContain("createRowMenuButton('Only ' + suffix, () => applyQuickFilter('contains'), 'Only ' + fullSuffix)");
+    expect(js).toContain(
+      "createRowMenuButton('Exclude ' + suffix, () => applyQuickFilter('notcontains'), 'Exclude ' + fullSuffix)",
+    );
+    // The rule carries the whole value; only the menu label is shortened, and
+    // the tooltip keeps the full text so it stays inspectable before clicking.
+    expect(js).toContain('applyColumnQuickFilterTo(quickFilterTarget.id, quickFilterTarget.value, op)');
+    expect(js).toContain("const suffix = quickFilterTarget.label + ' ' + shortenMenuValue(quickFilterTarget.value);");
+    expect(js).toContain("if (title && title !== text) button.title = title;");
+    // A query string is per-request state, so a rule built from one matches a
+    // single request — the opposite of what excluding noise asks for.
+    expect(js).toContain('const value = getQuickFilterValue(contextMenuRow, invokingColId);');
+    expect(js).toContain("if (colId !== 'path' && colId !== 'url') return value;");
+    // No single menu entry may stretch the menu across the viewport again.
+    expect(css).toMatch(/\.context-menu\{[^}]*max-width:min\(420px,calc\(100vw - 16px\)\)/);
+    expect(css).toMatch(/\.context-menu-item\{[^}]*text-overflow:ellipsis/);
     // "Only" replaces earlier inclusions so two picks never intersect to
     // zero rows; exclusions accumulate.
     expect(js).toContain("if (op === 'contains') conditions = conditions.filter((cond) => cond.op !== 'contains');");
@@ -3461,6 +3528,46 @@ describe('export scope contracts', () => {
     // A column with nothing to filter on falls back to the domain pair.
     expect(js).toContain('quickFilterColumn || (quickFilterDomain ?');
     expect(js).toContain('if (!invokingColId || isVisualOnlyColumn(invokingColId)) return null;');
+  });
+
+  test('full copy formats sit in the row menu, not behind a modal', () => {
+    // The retired dialog picked the format and took the confirmation in one
+    // modal. The picker is what people came for, so all eight formats it
+    // offered are reachable straight from the menu.
+    expect(js).toContain('const FULL_COPY_FORMATS = [');
+    for (const action of ['summary', 'url', 'curl', 'fetch', 'powershell', 'markdown', 'rawRequest', 'requestBody']) {
+      expect(js).toContain("['" + action + "', '");
+    }
+    expect(js).not.toContain('function requestFullRequestCopy');
+    expect(js).not.toContain('showCopyFormat');
+    expect(html).not.toContain('id="dataSafetyCopyFormat"');
+
+    // Collapsed by default, so the menu keeps the height it had; the label
+    // names what it hands out at the point of choosing rather than after.
+    expect(js).toContain("fullCopyToggle.textContent = '▸ Copy full (unsanitized)';");
+    expect(js).toContain("fullCopyToggle.setAttribute('aria-expanded', 'false');");
+    expect(js).toContain('fullCopyGroup.hidden = true;');
+    expect(js).toContain('fullCopyGroup.hidden = !expanding;');
+    // Expanding changes the menu's height, so it has to be re-clamped.
+    expect(js).toContain('reclampOpenPopups();');
+    // A collapsed item is not an arrow-key destination.
+    expect(js).toContain("(element) => element.tabIndex !== -1 && !element.closest('[hidden]'),");
+    // No display rule on the group, so the hidden attribute works unaided.
+    expect(css).toMatch(/\.context-menu-submenu\{(?![^}]*display:)[^}]*\}/);
+
+    // Full HAR export and the full body copies keep their confirmation.
+    expect(js).toContain("title: 'Copy full ' + label + '?',");
+    expect(js).toContain("onConfirm: () => exportHAR({ mode: 'full', confirmed: true, scope })");
+  });
+
+  test('a popup clamp never widens a popup past its own stylesheet cap', () => {
+    // An inline style outranks the sheet, so writing the viewport width here
+    // unconditionally undid the context menu's 420px bound every time it
+    // opened — the CSS cap only looked like it was working.
+    expect(js).toContain('const styleMaxWidth = parseFloat(window.getComputedStyle(popup).maxWidth);');
+    expect(js).toContain(
+      "Math.min(position.maxWidth, Number.isFinite(styleMaxWidth) ? styleMaxWidth : Infinity) + 'px';",
+    );
   });
 
   test('the domain summary panel lives outside the pinned toolbar and tbody', () => {
@@ -3656,7 +3763,10 @@ describe('markdown copy and HAR websocket import contracts', () => {
     expect(js).toContain("'Copy sanitized Markdown table (' + targetRows.length + ' rows)'");
     expect(js).toContain("if (action === 'markdown') return formatRowMarkdown(targetRow);");
     expect(js).toContain("action === 'markdown' || REQUEST_CLIPBOARD_ACTIONS.has(action)");
-    expect(html).toContain('<option value="markdown">Markdown</option>');
+    // The full variant moved out of the retired dialog's <select> and into the
+    // row menu's collapsed full-copy group, keeping every format it offered.
+    expect(js).toContain("['markdown', 'Markdown'],");
+    expect(html).not.toContain('id="dataSafetyCopyFormat"');
   });
 
   test('HAR imports thread _webSocketMessages through the shared frame pipeline', () => {

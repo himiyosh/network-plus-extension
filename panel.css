@@ -292,6 +292,18 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .syn-bool{color:var(--syn-bool);font-weight:600}.syn-null{color:var(--syn-null);font-style:italic}
 .syn-status-line{color:var(--syn-status);font-weight:700}
 .syn-hdr-name{color:var(--syn-hdr-name);font-weight:600}.syn-hdr-val{color:var(--syn-hdr-val)}
+/* A hex dump only reads as columns if the columns survive: no soft wrapping,
+   no break-all, and horizontal scrolling instead. */
+.code-block.hex-dump{white-space:pre;word-break:normal;overflow-wrap:normal}
+.body-notice{color:var(--text-muted);font-size:11px;line-height:1.5;margin-bottom:6px}
+
+/* === Image Preview === */
+/* The checkerboard is what makes a transparent tracking pixel visible at all;
+   without it the pane renders an empty box and reads as broken. */
+.image-preview{display:inline-flex;flex-direction:column;align-items:flex-start;gap:6px;max-width:100%}
+.image-preview-stage{display:inline-flex;align-items:center;justify-content:center;min-width:64px;min-height:64px;padding:8px;border:1px solid var(--border);border-radius:6px;background-color:var(--content-bg);background-image:linear-gradient(45deg,var(--border) 25%,transparent 25%),linear-gradient(-45deg,var(--border) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--border) 75%),linear-gradient(-45deg,transparent 75%,var(--border) 75%);background-size:12px 12px;background-position:0 0,0 6px,6px -6px,-6px 0}
+.image-preview-stage img{max-width:100%;height:auto;image-rendering:pixelated}
+.image-preview-caption{color:var(--text-muted);font-size:11px;font-family:'Cascadia Code',Consolas,'Courier New',monospace;word-break:break-all}
 
 /* === JSON Tree (collapsible) === */
 .json-tree{font-family:'Cascadia Code',Consolas,'Courier New',monospace;font-size:12px;line-height:1.6}
@@ -454,6 +466,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .data-safety-form h2{margin:0;font-size:15px;font-style:normal}
 .data-safety-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45}
 .data-safety-choices{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.data-safety-choices[hidden]{display:none}
 .data-safety-scope{margin:0 0 12px;padding:8px 12px;border:1px solid var(--control-border);border-radius:8px;display:flex;flex-direction:column;gap:6px}
 .data-safety-scope[hidden]{display:none}
 .data-safety-scope legend{font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--text-muted);padding:0 4px}
@@ -799,12 +812,14 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .multi-selected{background:color-mix(in srgb,var(--accent) var(--multi-selected-pct),transparent) !important;box-shadow:inset 0 0 0 1px var(--accent)}
 
 /* Subdued context menu */
-.context-menu{min-width:min(220px,calc(100vw - 16px));background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-context-menu);padding:6px}
+.context-menu{min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-context-menu);padding:6px}
 
-.context-menu-item{display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:0;border-radius:6px;padding:7px 9px;font-size:12px;line-height:1.4;cursor:pointer}
+.context-menu-item{display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:0;border-radius:6px;padding:7px 9px;font-size:12px;line-height:1.4;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .context-menu-item + .context-menu-item{margin-top:2px}
 .context-menu-item:hover{background:var(--hover);color:var(--fg)}
 .context-menu-label{padding:7px 9px 2px;color:var(--text-muted);font-size:11px;font-weight:600}
+.context-menu-submenu{margin-top:2px;padding-left:10px;border-left:1px solid var(--border)}
+.context-menu-disclosure{color:var(--text-muted)}
 .context-menu-colors{display:flex;gap:4px;padding:4px 9px 6px;flex-wrap:wrap}
 
 /* === Copy Toast === */
