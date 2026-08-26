@@ -38,6 +38,19 @@ export default [
     },
   },
   {
+    // The only script that drives a browser: its page.evaluate callbacks are
+    // serialized and run in the page, so they legitimately reach for document.
+    files: ['scripts/publish-store-pages.js'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: 'commonjs',
+      globals: {
+        ...globals.node,
+        document: 'readonly',
+      },
+    },
+  },
+  {
     files: ['tests/**/*.js'],
     languageOptions: {
       ecmaVersion: 2020,

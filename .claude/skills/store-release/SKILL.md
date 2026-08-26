@@ -26,8 +26,11 @@ release event**: the release is created by `release.yml` using the workflow
 `GITHUB_TOKEN`, and GitHub suppresses workflow triggers from events created
 with that token (recursion prevention). Every submission is started by hand
 with `workflow_dispatch` on `main`. Second, **listing text and images have no
-API on either store** — package submission is automated, media replacement is
-a manual portal step that only exists in releases that changed the media.
+API on either store** — the Chrome Items API and the Edge Update API both take
+packages and nothing else. Package submission is therefore automated in CI;
+the images are swapped by `npm run store:pages`, which drives the two consoles
+from the operator's own machine. Listing *text* is still typed into the portal
+by hand, and only in releases that changed it.
 
 ## Phase 0 — before cutting
 
@@ -113,13 +116,33 @@ archive to both stores and submits both for review. Done.
 
 1. Dispatch with `upload_only=true` (per store or both). The package lands in
    each store's draft without submitting.
-2. The user replaces the images by hand — Edge Partner Center → the product →
-   Store listing; Chrome Web Store dev console → the item → ストア掲載情報 →
-   グラフィック アセット. The files are the current contents of
-   `docs/store-assets/` (four numbered screenshots uploaded in filename
-   order, the 440x280 small tile, the 1400x560 marquee — which also fills
-   Edge's Large promotional tile slot). Full slot-by-slot listing procedure
-   lives in the two submission dossiers; follow those, do not improvise.
+2. Swap the images with `npm run store:pages` on the operator's machine — it
+   cannot run in CI, because it needs an interactive sign-in and a profile
+   that survives between runs:
+
+   ```
+   npm run store:pages -- login     # once, or whenever a session expires
+   npm run store:pages -- status    # confirms both consoles are signed in
+   npm run store:pages -- chrome
+   npm run store:pages -- edge
+   ```
+
+   It reads the file list from `docs/store-assets/inventory.json`, so a
+   re-capture that renames a file cannot leave it uploading the previous set.
+   It clears the slots it is replacing before uploading — Partner Center keeps
+   what is uploaded whether or not anything is saved, so uploading onto slots
+   that did not clear is how a listing ends up with duplicates — and it never
+   touches the store icon or submits anything. It needs `CHROME_ITEM_ID` and
+   `EDGE_PRODUCT_ID` in the environment or in a local `.env.cws` / `.env.edge`;
+   those identifiers are recorded in CLAUDE.md.
+
+   Two failure modes worth knowing before you see them. `edge` refuses to
+   upload and says screenshots would not delete: Partner Center locks a listing
+   while a submission is in certification — wait for that one to finish. And
+   `chrome` reports `NO SLOT`: the console's labels are matched in Japanese and
+   English, so a console in a third language needs the label added to
+   `CHROME_SLOTS`. The slot-by-slot manual procedure in the two submission
+   dossiers remains the fallback for both.
 3. Dispatch again without `upload_only` — the publish step submits the whole
    draft, package and media edits together. (The user pressing the portal's
    own submit button is equivalent.)
