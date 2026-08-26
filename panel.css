@@ -575,7 +575,11 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 #supportDialog::backdrop{background:color-mix(in srgb,var(--fg) 35%,transparent)}
 .support-form{display:grid;gap:12px;padding:16px;min-width:0}
 .support-form h2{margin:0;font-size:15px;font-style:normal;text-align:center}
-.support-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;word-break:auto-phrase;overflow-wrap:break-word}
+/* balance evens the lines of a short block. Without it the intro left
+   「なります。」 alone on a five-character second line; measured, balance turns
+   55+5 into 29+31 and the note 49/57/27 into 43/49/41, while auto-phrase keeps
+   every break on a phrase boundary. */
+.support-form p{margin:0;color:var(--text-muted);font-size:11px;line-height:1.45;word-break:auto-phrase;overflow-wrap:break-word;text-wrap:balance}
 .support-hero{display:flex;align-items:center;justify-content:center;padding:8px 0 4px;border-radius:10px;background:radial-gradient(62% 82% at 50% 62%,var(--accent-dim) 0%,transparent 72%)}
 /* The hero is a 38x19 pixel grid drawn at an exact 6x, matching the toolbar
    mark's language. A non-integer scale would blur the grid; crispEdges plus a

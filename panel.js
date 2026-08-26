@@ -5475,7 +5475,7 @@ const _NetworkPlus = (function () {
     },
     supportIntro: {
       en: 'A solo, MIT-licensed project. If it saved you a debugging session, a coffee keeps it going.',
-      ja: '個人開発の MIT ライセンスプロジェクトです。デバッグの時間が浮いたなら、コーヒー 1 杯が開発を続ける力になります。',
+      ja: '個人開発の MIT ライセンスプロジェクトです。助かったと感じたら、コーヒー 1 杯が開発を支えます。',
     },
     supportFactFree: {
       en: 'Every feature, free',
