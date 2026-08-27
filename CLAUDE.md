@@ -11,6 +11,18 @@ Claude Code が launch 時に自動ロードする。**このファイルから 
 `@` import は working directory の外を指すと承認ダイアログの対象になり、一度拒否すると恒久的に無効化されるため、
 安全契約をそこへ依存させない。
 
+### このファイルは Codex からも読まれる
+
+`AGENTS.md` はこのファイルへの symlink である。Codex は `AGENTS.md`、Claude Code は `CLAUDE.md` と
+読むファイル名が違うだけで、実体は 1 つ。片方だけ更新して乖離することがない。
+
+上の「常時適用ルール」は Claude Code を前提に書かれている。**`.claude/rules/agentic-core.md` を
+launch 時に自動ロードするのは Claude Code だけ**なので、Codex など自動ロードしないエージェントは
+作業を始める前に自分でそのファイルを読むこと。パスは `.Codex/` ではなく `.claude/` が正。
+
+bundle が生成する `.agents/` 以下の Codex 用ミラーは使わない。`.claude` を `.Codex` に機械置換した
+だけのもので、参照するパスがすべて存在しないため gitignore してある。
+
 ## 詳細ルール（Progressive Disclosure。常時ロードしない）
 
 以下は**読み込まない**。表の「いつ読むか」に該当する作業へ入る直前に、その 1 ファイルだけを読む。

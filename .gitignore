@@ -30,9 +30,8 @@ test_output.*
 test.svg
 *.tmp
 
-# Codex-platform mirror of CLAUDE.md and .claude/skills/, generated locally.
-# Not committed: it is a blind .claude -> .Codex path substitution written into
-# .agents/, so every rules path it names is dangling, and keeping a second copy
-# of the same rules only lets the two drift.
-AGENTS.md
+# AGENTS.md is committed as a symlink to CLAUDE.md, so Codex and Claude Code read
+# the same file. .agents/ is the bundle's generated Codex mirror of .claude/ — a
+# blind .claude -> .Codex path substitution whose every rules path is dangling.
+# Ignored so a regenerated copy cannot be committed alongside the real rules.
 .agents/
