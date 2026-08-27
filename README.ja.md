@@ -10,7 +10,7 @@
 [![Quality gates](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml/badge.svg)](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml)
 [![Latest release](https://img.shields.io/github/v/release/himiyosh/network-plus-extension?label=release)](https://github.com/himiyosh/network-plus-extension/releases/latest)
 [![Chrome Web Store](https://img.shields.io/badge/Chrome%20Web%20Store-Install-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo)
-[![Edge Add-ons](https://img.shields.io/badge/Edge%20Add--ons-Install-0078D7?logo=microsoftedge&logoColor=white)](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241)
+[![Edge Add-ons](https://img.shields.io/badge/Edge%20Add--ons-Install-0078D7?logo=microsoftedge&logoColor=white)](https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal)
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-4caf50)](manifest.json)
 [![Node 22 | 24](https://img.shields.io/badge/Node-22%20%7C%2024-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
@@ -26,7 +26,7 @@
 
 </div>
 
-**今すぐ試す:** [最新リリースの ZIP をダウンロード](https://github.com/himiyosh/network-plus-extension/releases/latest) · [Chrome ウェブストア](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) · [Edge アドオン](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241) · [問題を報告](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [スポンサーになる](https://github.com/sponsors/himiyosh)
+**今すぐ試す:** [最新リリースの ZIP をダウンロード](https://github.com/himiyosh/network-plus-extension/releases/latest) · [Chrome ウェブストア](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) · [Edge アドオン](https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal) · [問題を報告](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [スポンサーになる](https://github.com/sponsors/himiyosh)
 
 ---
 
@@ -64,7 +64,7 @@
 | ブラウザ | ストア |
 |---|---|
 | Google Chrome | [Chrome ウェブストア](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) |
-| Microsoft Edge | [Edge アドオン](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241) |
+| Microsoft Edge | [Edge アドオン](https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal) |
 
 お使いのブラウザのストアページを開いて追加し、DevTools(<kbd>F12</kbd>)を開くと **Network+** タブが増えています。ストア版は自動更新されるため、特定のビルドを固定したい場合を除きこちらの手順を推奨します。
 
@@ -95,7 +95,7 @@ npm ci
 
 | ブラウザ | 状態 | 備考 |
 |---|---|---|
-| Microsoft Edge | プライマリ | 開発・リリース検証の基準環境。[Edge アドオン](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241)で公開中 |
+| Microsoft Edge | プライマリ | 開発・リリース検証の基準環境。[Edge アドオン](https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal)で公開中 |
 | Google Chrome | サポート | 下記のとおり検証済み。[Chrome ウェブストア](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo)で公開中 |
 | Firefox / Safari | 非サポート | DevTools 拡張 API と Manifest V3 の実装が異なるため |
 

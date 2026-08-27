@@ -16,11 +16,13 @@ const {
 } = require('../scripts/check-extension-package');
 const {
   README_CONFIGS,
+  STORE_LISTING_URLS,
   getGitHubReleaseBaseUrl,
   getLatestReleaseUrl,
   getReleaseDownloadUrl,
   getReleaseTagUrl,
   validateReadmeReleaseReferences,
+  validateReadmeStoreListings,
   validateReleaseVersions,
 } = require('../scripts/check-version-sync');
 
@@ -541,5 +543,44 @@ describe('archive determinism', () => {
     }
 
     expect(Object.fromEntries(digests)).toEqual(Object.fromEntries(zones.map((zone) => [zone, digests.get('UTC')])));
+  });
+});
+
+// The two stores identify a listing differently and only one of the two ids is
+// interchangeable with its API id. Chrome's public URL carries the same item id
+// the Items API takes; Edge's storefront id is separate from the Partner Center
+// GUID the Update API takes. Both READMEs linked Edge by that GUID and returned
+// 404 to every reader until 2026-08-27, with no check looking at it.
+describe('README store listing routes', () => {
+  const readme = (config) => fs.readFileSync(path.join(repositoryRoot, config.path), 'utf8');
+
+  test.each(README_CONFIGS.map((config) => [config.path, config]))('%s links both storefronts', (_path, config) => {
+    expect(validateReadmeStoreListings(readme(config), config)).toEqual([]);
+  });
+
+  test('the checked-in READMEs reach a live listing for every store', () => {
+    for (const config of README_CONFIGS) {
+      const source = readme(config);
+      for (const { url } of STORE_LISTING_URLS) expect(source).toContain(url);
+    }
+  });
+
+  test('rejects the Edge storefront addressed by Partner Center product GUID', () => {
+    const source = STORE_LISTING_URLS.map(({ url }) => url)
+      .join('\n')
+      .replace(
+        'https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal',
+        'https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241',
+      );
+    const errors = validateReadmeStoreListings(source, { path: 'README.md' });
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toContain('must link to the Edge Add-ons listing');
+    expect(errors[1]).toContain('is not a storefront id and returns 404');
+  });
+
+  test('rejects a README that dropped a storefront link entirely', () => {
+    const errors = validateReadmeStoreListings('no store links here', { path: 'README.ja.md' });
+    expect(errors).toHaveLength(STORE_LISTING_URLS.length);
+    expect(errors.every((error) => error.startsWith('README.ja.md must link to'))).toBe(true);
   });
 });

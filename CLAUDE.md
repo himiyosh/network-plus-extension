@@ -87,6 +87,13 @@ Edge 側は 2026-08-20 に、dual-subtitles の Client ID + API キーで Networ
 URL にそのまま現れる。ポータルを開き直さずに済むよう、ここに控えておく。取得元は Partner Center の
 `.../microsoftedge/<GUID>/packages/...` の GUID 部分と、`chromewebstore.google.com/detail/<name>/<id>` の末尾。
 
+**Edge は公開 listing の ID が `EDGE_PRODUCT_ID` と別物**である点に注意。Chrome は Items API に渡す
+item ID がそのまま公開 URL に現れるが、Edge の `4fcf1d3e-…` は Partner Center の製品 GUID であって
+ストアフロントの ID ではなく、URL に置くと 404 になる。公開 listing は
+`https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal`。
+README の両方がこの GUID を使っていて 2026-08-27 まで 404 を返していた。
+以後は `npm run version:check` が両 README のストアリンクを検証する。
+
 Chrome の OAuth クライアントと refresh token は共通なので、Cloud プロジェクトの作成も同意フローも
 やり直さない。`scripts/chrome-refresh-token.js` は、その refresh token を失ったときだけ使う。
 

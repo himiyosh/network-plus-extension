@@ -10,7 +10,7 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 [![Quality gates](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml/badge.svg)](https://github.com/himiyosh/network-plus-extension/actions/workflows/quality-gates.yml)
 [![Latest release](https://img.shields.io/github/v/release/himiyosh/network-plus-extension?label=release)](https://github.com/himiyosh/network-plus-extension/releases/latest)
 [![Chrome Web Store](https://img.shields.io/badge/Chrome%20Web%20Store-Install-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo)
-[![Edge Add-ons](https://img.shields.io/badge/Edge%20Add--ons-Install-0078D7?logo=microsoftedge&logoColor=white)](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241)
+[![Edge Add-ons](https://img.shields.io/badge/Edge%20Add--ons-Install-0078D7?logo=microsoftedge&logoColor=white)](https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal)
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-4caf50)](manifest.json)
 [![Node 22 | 24](https://img.shields.io/badge/Node-22%20%7C%2024-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
@@ -26,7 +26,7 @@ Multi-keyword search, per-column filters, two-request diffing, and HAR export th
 
 </div>
 
-**Try it now:** [Download the latest release ZIP](https://github.com/himiyosh/network-plus-extension/releases/latest) · [Chrome Web Store](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) · [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
+**Try it now:** [Download the latest release ZIP](https://github.com/himiyosh/network-plus-extension/releases/latest) · [Chrome Web Store](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) · [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal) · [Report an issue](https://github.com/himiyosh/network-plus-extension/issues/new/choose) · [Sponsor](https://github.com/sponsors/himiyosh)
 
 ---
 
@@ -64,7 +64,7 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 | Browser | Listing |
 |---|---|
 | Google Chrome | [Chrome Web Store](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) |
-| Microsoft Edge | [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241) |
+| Microsoft Edge | [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal) |
 
 Open the listing for your browser, add the extension, then open DevTools (<kbd>F12</kbd>) — a **Network+** tab is now available. The store build updates itself, so this is the route to take unless you need a specific build.
 
@@ -95,7 +95,7 @@ Then open `edge://extensions/` or `chrome://extensions/`, turn on **Developer mo
 
 | Browser | Status | Notes |
 |---|---|---|
-| Microsoft Edge | Primary | Reference environment for development and release verification; listed on [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241) |
+| Microsoft Edge | Primary | Reference environment for development and release verification; listed on [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal) |
 | Google Chrome | Supported | Verified below; listed on the [Chrome Web Store](https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo) |
 | Firefox / Safari | Not supported | Different DevTools extension APIs and Manifest V3 implementations |
 

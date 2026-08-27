@@ -185,6 +185,47 @@ const validateReadmeReleaseReferences = (readmeSource, repository, config) => {
   return errors;
 };
 
+// The public storefront listing for each browser. Both are reachable by anyone
+// reading the README, and neither is covered by any other check, so a broken one
+// stays broken silently: the Edge link pointed at the Partner Center product
+// GUID and returned 404 from v1.8.0 until 2026-08-27.
+//
+// The two stores identify a listing differently, which is the whole trap. Chrome
+// puts the same item id in the public URL that the Items API takes. Edge does
+// not: `EDGE_PRODUCT_ID` is the Partner Center GUID the Update API takes, and the
+// storefront uses a separate id entirely. They are not interchangeable, and the
+// GUID is the one that looks plausible in a URL.
+const EDGE_PARTNER_CENTER_GUID = '4fcf1d3e-d1fe-4d4a-a741-97d8d8fa4241';
+const STORE_LISTING_URLS = Object.freeze([
+  {
+    store: 'Chrome Web Store',
+    url: 'https://chromewebstore.google.com/detail/mhidipnhdnonbjkfklcohmnnmfggjlpo',
+  },
+  {
+    store: 'Edge Add-ons',
+    url: 'https://microsoftedge.microsoft.com/addons/detail/network-for-devtools/dhmafmhaagefmichhmmkknapalhmlmal',
+  },
+]);
+
+const validateReadmeStoreListings = (readmeSource, config) => {
+  const errors = [];
+  if (typeof readmeSource !== 'string') return errors;
+
+  for (const { store, url } of STORE_LISTING_URLS) {
+    if (!readmeSource.includes(url)) {
+      errors.push(`${config.path} must link to the ${store} listing at ${url}`);
+    }
+  }
+
+  if (readmeSource.includes(`addons/detail/${EDGE_PARTNER_CENTER_GUID}`)) {
+    errors.push(
+      `${config.path} links to the Edge storefront by Partner Center product GUID (${EDGE_PARTNER_CENTER_GUID}), which is not a storefront id and returns 404`,
+    );
+  }
+
+  return errors;
+};
+
 const validateReleaseVersions = ({ packageJson, lockfile, manifest, panelSource, readmeSources = [] }) => {
   const errors = [];
   let panelFallback;
@@ -221,16 +262,25 @@ const validateReleaseVersions = ({ packageJson, lockfile, manifest, panelSource,
 const main = () => {
   const root = process.cwd();
   const packageJson = readJson(path.join(root, 'package.json'));
+  const readmeSources = README_CONFIGS.map((config) => ({
+    config,
+    source: fs.readFileSync(path.join(root, config.path), 'utf8'),
+  }));
   const errors = validateReleaseVersions({
     packageJson,
     lockfile: readJson(path.join(root, 'package-lock.json')),
     manifest: readJson(path.join(root, 'manifest.json')),
     panelSource: fs.readFileSync(path.join(root, 'panel.js'), 'utf8'),
-    readmeSources: README_CONFIGS.map((config) => ({
-      config,
-      source: fs.readFileSync(path.join(root, config.path), 'utf8'),
-    })),
+    readmeSources,
   });
+
+  // Checked against the real READMEs rather than through validateReleaseVersions:
+  // where a listing lives is a property of the shipped documents, not of the
+  // version-sync contract, and the synthetic READMEs that exercise that contract
+  // have no reason to carry storefront links.
+  for (const { config, source } of readmeSources) {
+    errors.push(...validateReadmeStoreListings(source, config));
+  }
 
   if (errors.length > 0) {
     for (const error of errors) console.error(`ERROR: ${error}`);
@@ -239,7 +289,7 @@ const main = () => {
   }
 
   console.log(
-    `OK: release versions synced (${packageJson.version}, 5 locations); READMEs carry version-free latest-release routes`,
+    `OK: release versions synced (${packageJson.version}, 5 locations); READMEs carry version-free latest-release routes and both storefront listings`,
   );
 };
 
@@ -252,6 +302,8 @@ module.exports = {
   getLatestReleaseUrl,
   getReleaseDownloadUrl,
   getReleaseTagUrl,
+  STORE_LISTING_URLS,
   validateReadmeReleaseReferences,
+  validateReadmeStoreListings,
   validateReleaseVersions,
 };
