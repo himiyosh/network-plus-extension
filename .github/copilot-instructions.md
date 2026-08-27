@@ -1,7 +1,12 @@
 # Network+ for DevTools - Copilot Instructions
 
 > 本ファイルは `network-plus-extension` プロジェクトにおける Copilot の動作ルールを定義する。
-> 共通ルールは [unified-project-rules.md](../docs/unified-project-rules.md) を参照。
+> コーディング規約・設計知識・Lessons Learned を扱う。
+>
+> **プロジェクト固有の絶対制約は [`CLAUDE.md`](../CLAUDE.md) が正。** リリース手順、prettier の
+> 対象範囲、テスト実行の規律、changelog の書式、ストア資格情報はそちらにあり、破ると実害が出るものを
+> 含む。作業前に必ず読むこと。`AGENTS.md` は同じファイルへの symlink なので、どの名前で読んでもよい。
+> 重複させず、片方だけ更新して乖離させないため、ここには再掲しない。
 
 ---
 
@@ -156,14 +161,13 @@ Microsoft Edge DevTools
 
 ## 4. 社内コンプライアンスポリシー
 
-> **参照ポリシー**:
-> - REDACTED: [Guidance for Support Engineers in using Copilot Chat/Agent](https://REDACTED/en-us/topic/2551d022-d53d-4abc-c733-4aa959b7fb87)
-> - REDACTED: [Handling support data (commercial customers)](https://REDACTED/en-us/topic/e7f0b758-57f8-41e9-1b42-fbea2fab36cf)
+> このリポジトリは公開されている。所属組織のポリシー文書そのもの（記事 ID・内部 URL・承認プロセス名）は
+> ここに書かない。以下は組織を問わず成り立つ行動ルールだけを残したもの。
 
-- お客様の **PII をプロンプトに直接入力してはならない**
-- お客様の**パスワードの送受信は絶対禁止**
-- MCP サーバーは **承認済みのみ** 使用可。オープンソース MCP サーバーでのお客様データ処理は禁止
-- トラブルシューティング完了後は **Copilot ログおよびサポートデータのローカルコピーを速やかに削除**すること
+- 顧客・第三者の **PII をプロンプトに直接入力してはならない**
+- **パスワードや資格情報の送受信は絶対禁止**
+- 外部ツールや MCP サーバーで顧客データを処理してはならない。所属組織に承認プロセスがある場合はそれに従う
+- 調査完了後は **ログおよび支援データのローカルコピーを速やかに削除**すること
 
 ---
 
@@ -214,16 +218,23 @@ Microsoft Edge DevTools
 
 ### 6.2 テスト実行
 
+**利用できるチェックの正は `package.json` の `scripts`。** ここに一覧を複製すると必ず古くなるので、
+`node -e "console.log(Object.keys(require('./package.json').scripts).join('\\n'))"` で確認すること。
+
 ```bash
-npm test                   # Jest テスト実行 (カバレッジ付き)
-npm run lint               # ESLint 実行
-npm run version:check      # package.json と manifest.json の version 同期チェック
-npm run changelog:check -- --base <base-sha> --head <head-sha>  # user-facing 変更の Unreleased 記載チェック
+npm test                   # Jest (カバレッジ付き)
+npm run lint               # ESLint
+npm run changelog:check -- --base <base-sha> --head <head-sha>
 ```
+
+`npm test` の実行規律（実ブラウザ回帰がスキップされていないかを `Tests:` 行とスイート数で確認する）は
+`CLAUDE.md`「テスト実行の絶対則」にある。スキップに気づかないと「ローカル green・CI 赤」になる。
 
 ### 6.3 品質ゲート
 
 - **コミット前に必ず実行**: `npm test` / `npm run lint` / `npm run version:check` がすべて PASS であること
+- **`prettier` を直接叩かない。** 対象は `package.json` の `format` script の明示リストが正で、
+  管理外のファイル（`panel.js` 等）を整形すると契約テストが大量に壊れる。詳細は `CLAUDE.md`
 - user-facing な runtime / UI / icon / funding / privacy / store asset / README の変更では、同じ PR で `docs/CHANGELOG.md` の `Unreleased` に bullet を追加すること。CI の `npm run changelog:check` が PR 全体の差分で強制する
 - ESLint: **0 errors, 0 warnings** を維持 (未使用の catch 変数は `_` プレフィックスでマーク)
 - Jest: **全テスト PASS** を維持
@@ -236,9 +247,11 @@ npm run changelog:check -- --base <base-sha> --head <head-sha>  # user-facing �
 - **コミットごとにバージョンを上げない**。バージョン更新は**リリース時のみ**実施する
 - 開発中の複数コミットは同一バージョンのまま進め、リリース確定時に 1 回だけ更新する
 - 通常は `PATCH` を優先し、`MINOR` はユーザー影響のある機能追加をまとめて出すリリース時に限定する
-- **必須同期**: `package.json` と `manifest.json` の `version` を同時更新する
-- バージョン更新の同一コミットで `README.md` の該当機能説明を更新する
-- バージョン同期の確認には `npm run version:check` を必ず実行する
+- **必須同期**: バージョンは 5 箇所にある（`package.json` / `manifest.json` / `package-lock.json` の 2 箇所 /
+  `panel.js` の `TEST_EXTENSION_VERSION_FALLBACK` / テストのリテラル）。正は `npm run version:check`
+- **README にバージョンを書かない。** 両 README は意図的に version-free で、リリースリンクは
+  `releases/latest` を指す。バージョン文字列や版付きルートを書き戻すと `version:check` が落ちる
+- バージョン更新はリリース手順の一部。順序と失敗モードは `.claude/skills/store-release/SKILL.md` が正
 
 ### 6.5 テスト環境の制約
 

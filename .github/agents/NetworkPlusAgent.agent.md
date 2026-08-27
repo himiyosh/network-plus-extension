@@ -247,4 +247,4 @@ description: "Network+ for DevTools 統合エキスパートエージェント�
 | テスト | `tests/panel.test.js` |
 | UI/UX レビュー基準 | `.github/agents/ui-review.agent.md` |
 | UI デザインスキル | `.github/skills/hallmark/SKILL.md` (`/hallmark`) |
-| 共通プロジェクトルール | `docs/unified-project-rules.md` (ローカル参照) |
+| プロジェクト固有の絶対制約 | `CLAUDE.md` (`AGENTS.md` は同じファイルへの symlink) |
