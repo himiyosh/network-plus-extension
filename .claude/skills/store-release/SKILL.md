@@ -136,13 +136,16 @@ archive to both stores and submits both for review. Done.
    `EDGE_PRODUCT_ID` in the environment or in a local `.env.cws` / `.env.edge`;
    those identifiers are recorded in CLAUDE.md.
 
-   Two failure modes worth knowing before you see them. `edge` refuses to
-   upload and says screenshots would not delete: Partner Center locks a listing
-   while a submission is in certification — wait for that one to finish. And
-   `chrome` reports `NO SLOT`: the console's labels are matched in Japanese and
-   English, so a console in a third language needs the label added to
-   `CHROME_SLOTS`. The slot-by-slot manual procedure in the two submission
-   dossiers remains the fallback for both.
+   **Verify the listing after this step; the log overstates success.** As of
+   2026-08-27 the clearing half is broken on both stores — `chrome` reports
+   every image `uploaded` while silently duplicating the screenshots, and
+   `edge` aborts with a certification-lock message that is usually the wrong
+   cause. `references/troubleshooting.md` has the symptoms, the real causes,
+   and a pixel-comparison check that settles listing state without trusting
+   the log. `chrome` reporting `NO SLOT` is a separate and genuine case: the
+   console's labels are matched in Japanese and English, so a console in a
+   third language needs the label added to `CHROME_SLOTS`. The slot-by-slot
+   manual procedure in the two submission dossiers remains the fallback.
 3. Dispatch again without `upload_only` — the publish step submits the whole
    draft, package and media edits together. (The user pressing the portal's
    own submit button is equivalent.)
@@ -161,7 +164,10 @@ itself dead" without re-pasting anything.
 After the release is public, on a fresh branch:
 
 1. Download the release asset, verify size + SHA-256 against the pin, and
-   `cmp` it against a fresh local build.
+   `cmp` it against a fresh local build. Build it with
+   `TZ=UTC npm run extension:package` — entry timestamps normalize in local
+   time, so a build outside UTC differs from the released bytes on timestamps
+   alone and reports a mismatch that is not one.
 2. Flip both dossiers from cut-time phrasing to observed phrasing ("were
    publicly observable and re-downloaded on YYYY-MM-DD … byte-identical to
    the local build") and add the release to the Edge dossier's evidence

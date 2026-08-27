@@ -62,6 +62,46 @@ Swap the variable and secret name as needed. Multi-line commands with `\`
 continuations have been mangled by chat copy-paste before — hand the user a
 single line, or the two-step `gh secret set` interactive prompt.
 
+## `store:pages` — the media step
+
+Hit for real on 2026-08-27. Both stores failed to *delete*, and the two
+failures look nothing alike in the log.
+
+**Chrome prints `uploaded` for every image and still corrupts the listing.**
+The run ended with eight screenshots where four were intended: the old four
+were never removed and the new four were appended. Read `cleared <slot>: N`
+correctly — `clearSlot` returns the round it stopped on, so a small number
+means it converged and **`8` is the loop cap, meaning it never did**. Two
+defects produce that. The label regex is built as
+`` `画像を削除.*${name}|remove.*${name}` `` while `name` is itself an alternation
+(`スクリーンショット|Screenshot`), so the top-level `|` splits it and any element merely
+containing "Screenshot" matches. And the console raises a confirmation —
+`この操作は元に戻せません` with `[キャンセル] [削除]` — that `clearSlot` never answers, so each
+click just reopens it.
+
+**Edge's `N screenshots would not delete — nothing was uploaded` does not
+prove a certification lock**, whatever the message says. Check the product's
+real status on the Partner Center overview first: on 2026-08-27 Network+ read
+`In the Store` while the sibling Dual Subtitles read `In review`, and the
+actual cause was `confirmDialog`'s `v6_he-button.he-button` / `^Confirm$`
+locator not matching. The abort itself is the guard working — it refuses to
+upload onto slots that did not clear, which is what keeps duplicates off the
+listing — so the listing is intact whenever this fires.
+
+**Verify the listing, never the log.** Pull the preview `img` `src` values out
+of the console DOM, refetch each at `=w1280-h800-rw`, normalize both sides with
+`sips -Z 64 -s format bmp` and compare greyscale pixels; an exact match reads
+0.00 RMS against the file in `docs/store-assets/`. Edge is cheaper to check —
+Partner Center keeps the uploaded filename in each image's `alt`
+(`Screenshot screenshot-1-request-detail-1280x800.png`), so new-versus-stale is
+readable without downloading anything.
+
+Two traps while repairing a Chrome listing by hand: screenshot labels **do not
+renumber** after a deletion (removing `スクリーンショット 1` leaves `2..8`), so target
+`[aria-label="画像を削除 スクリーンショット N"]` by exact name rather than always taking the
+first; and a count read from a freshly mutated console DOM under-reports while
+rendering settles, so reload before believing any number.
+
 ## Facts that keep being rediscovered
 
 - `store-submit.yml` never fires from the release event (the release is
@@ -74,3 +114,9 @@ single line, or the two-step `gh secret set` interactive prompt.
   `CHROME_ITEM_ID` is per-extension. Edge shares `EDGE_CLIENT_ID` +
   `EDGE_API_KEY`; only `EDGE_PRODUCT_ID` is per-extension.
 - Credential values never enter chat, the repo, or logs. Fingerprints do.
+- The archive reproduces byte-for-byte only under `TZ=UTC`. Entry timestamps
+  normalize to the ZIP epoch in local time, so a JST build writes
+  `01-01-1980 09:00` where CI writes `00:00`: identical entry CRCs, identical
+  206937 bytes, different SHA-256. Phase 4's `cmp` against a fresh local build
+  must run `TZ=UTC npm run extension:package`, or it reports a mismatch that
+  is not one.
