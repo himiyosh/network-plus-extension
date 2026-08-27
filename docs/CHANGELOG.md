@@ -5,58 +5,58 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 ## Unreleased
 
 - ✨ **Changelog format** — entries are one emoji-tagged line again, with an optional `Why:` line under them.
-  Why: entries had drifted to 688 characters on average by v1.12.0; `changelog:check` now caps and tags them.
+  - Why: entries had drifted to 688 characters on average by v1.12.0; `changelog:check` now caps and tags them.
 - 🐛 **Edge listing link** — both READMEs linked the storefront by Partner Center product GUID and returned 404.
-  Why: only Chrome's API item id doubles as its storefront id; Edge's two ids are separate. `version:check` guards both now.
+  - Why: only Chrome's API item id doubles as its storefront id; Edge's two ids are separate. `version:check` guards both now.
 - 🐛 **store:pages deletion** — cleared nothing on either store, so uploads were appended and screenshots duplicated.
-  Why: the slot label alternation was unparenthesized, and the console's delete confirmation was never answered.
+  - Why: the slot label alternation was unparenthesized, and the console's delete confirmation was never answered.
 - 🐛 **Edge abort message** — no longer blames a certification lock it has not checked.
-  Why: the listing read "In the Store"; the real fault was its own confirmation selector.
+  - Why: the listing read "In the Store"; the real fault was its own confirmation selector.
 - 🐛 **Archive reproducibility** — the release ZIP rebuilds to the same digest in any timezone, not only UTC.
-  Why: fflate writes DOS timestamps from a Date's local fields, so JST wrote 09:00 where CI wrote 00:00.
+  - Why: fflate writes DOS timestamps from a Date's local fields, so JST wrote 09:00 where CI wrote 00:00.
 - 🐛 **store:pages identifiers** — finds this repository's store ids without an `.env`, so a fresh checkout runs.
 - 📝 **Store dossiers** — record v1.12.0 as observed, with the asset re-downloaded and byte-compared.
 
 ## v1.12.0 - 2026-08-26
 
 - ✨ **store:pages** — swaps the listing images on both store consoles from the operator's machine; nothing is submitted.
-  Why: the Chrome Items API and the Edge Update API take packages only, so images were the last manual release step.
+  - Why: the Chrome Items API and the Edge Update API take packages only, so images were the last manual release step.
 - 🐛 **Path/URL quick filters** — built the rule from the query string too, so it matched one request instead of a class.
-  Why: query strings are per-request state. Menu labels also shorten at 48 characters instead of wrapping the viewport.
+  - Why: query strings are per-request state. Menu labels also shorten at 48 characters instead of wrapping the viewport.
 - 🔧 **Copy full (unsanitized)** — the eight formats moved from a modal into the row menu; one click, no dialog round trip.
 - 🐛 **Export-safety dialog** — showed its three export buttons in every mode, including per-action copy confirmations.
-  Why: `.data-safety-choices{display:grid}` had no `[hidden]` companion, and `display` outranks the UA hidden rule.
+  - Why: `.data-safety-choices{display:grid}` had no `[hidden]` companion, and `display` outranks the UA hidden rule.
 - 🐛 **Binary responses** — arrived as mojibake with an empty Preview; they now render as a hexdump with type and size.
-  Why: every cached body went through `TextDecoder`, which substitutes U+FFFD for bytes it cannot interpret.
+  - Why: every cached body went through `TextDecoder`, which substitutes U+FFFD for bytes it cannot interpret.
 - 🐛 **Response Preview** — a 1x1 tracking pixel drew one invisible dot; small images are now enlarged on a checkerboard.
 - ✨ **Match column** — one chip per matched search keyword, in that keyword's own colour, beside ID.
-  Why: a row matching several keywords could only ever wear the first one's tint. Past three, chips collapse into "+N".
+  - Why: a row matching several keywords could only ever wear the first one's tint. Past three, chips collapse into "+N".
 - 🔧 **Row isolate/exclude** — follows the column you right-clicked instead of always filtering by domain.
 - 🐛 **Three placement defects** — the details header prefixed the status, Auto-scroll moved nothing, and scrolled-to rows sat under sticky headers.
 - 🐛 **Japanese line breaking** — dialog prose broke mid-word; it now breaks by phrase and the document declares its language.
 - 🔧 **Support illustration** — the otter's eye read as a dash at 6x and is now two solid squares.
 - 🔧 **Support dialog art** — redrawn as pixel art composited from the toolbar mark rather than a freehand otter.
-  Why: every freehand attempt drifted into a bear-cub silhouette; the shipped mark already solves the proportions.
+  - Why: every freehand attempt drifted into a bear-cub silhouette; the shipped mark already solves the proportions.
 - 🔧 **Support dialog copy** — a four-line paragraph became one line plus three chips; the pinned commitments stay in full.
 - 🐛 **data: and blob: URLs** — rendered a blank Domain and a Path naming an origin the browser never contacted.
-  Why: they carry no host and their payload lands in `pathname`. Domain now names the scheme, so they filter like any other.
+  - Why: they carry no host and their payload lands in `pathname`. Domain now names the scheme, so they filter like any other.
 - 🔧 **Request retention** — unlimited out of the box, so a long session no longer drops the request you were looking for.
-  Why: the 1 MiB per-body and 32 MiB shared-cache limits are unchanged, so the growth is row metadata, not payloads.
+  - Why: the 1 MiB per-body and 32 MiB shared-cache limits are unchanged, so the growth is row metadata, not payloads.
 - ✨ **Japanese dialog labels** — 52 item names now switch with the language, not just the explanatory prose.
-  Why: toolbar buttons and column headers stay English so a written instruction still names the control you click.
+  - Why: toolbar buttons and column headers stay English so a written instruction still names the control you click.
 - 📝 **READMEs** — link the published Edge and Chrome listings, replacing the stale "not yet published" claim.
 - 🐛 **Undock explainer** — pinned at 440px while its text needed ~800px, wrapping five of seven Japanese lines mid-sentence.
 - ✨ **Domain summary** — an optional strip above the grid with each domain's request count, bytes, and 4xx/5xx count.
-  Why: clicking a domain writes the same multiText rules the Filters popup and row menu share, so it clears there too.
+  - Why: clicking a domain writes the same multiText rules the Filters popup and row menu share, so it clears there too.
 - ✨ **Japanese coverage** — every explanatory surface translates now, tooltips included via `data-i18n-title`.
 - ✨ **Header column** — bind a hidden column to any header name; response headers win, request headers are the fallback.
 - ✨ **WebSocket HAR export** — frames export as Chrome-shaped `_webSocketMessages`, with every fidelity loss declared.
-  Why: sanitized exports omit frames as body-class data and mark the omission; SSE rows never gain the key.
+  - Why: sanitized exports omit frames as body-class data and mark the omission; SSE rows never gain the key.
 - ✨ **Paste cURL** — the resend dialog prefills from a pasted command, so Chrome's "Copy as cURL" imports as-is.
-  Why: unsupported flags are refused by name rather than guessed at.
+  - Why: unsupported flags are refused by name rather than guessed at.
 - ✨ **Three small additions** — domain quick filters in the row menu, sanitized CSV export, and Ctrl/⌘+Shift+M for the mirror tab.
 - ⚡ **Responsiveness pass** — clicking away from a large selection no longer freezes the panel; HAR export uses four workers.
-  Why: the row-replacement path ran a full-table DOM query per selected row, which was quadratic.
+  - Why: the row-replacement path ran a full-table DOM query per selected row, which was quadratic.
 - 🔧 **Verification toolchain** — the mirror's real-browser suite moved into the repository, and `vendor/fflate.js` is sha256-pinned.
 - 🐛 **Mirror link** — closed five robustness gaps, including reattach after DevTools reopens and command timeouts.
 - ✨ **Settings dialog** — one opener gathering Language, Theme, and retention; the undock explainer became visual cards.
@@ -72,18 +72,18 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 - 📝 **Store descriptions** — rewritten around safe-by-default sharing, charset decoding, diffing, and the mirror tab.
 - 📝 **Store media** — the four screenshots and the README tour GIF re-captured against the current panel.
 - ✨ **Edit and resend** — re-send a captured request unchanged, or edit method, URL, headers, and body first.
-  Why: the inspected page issues it over the DevTools eval API, so cookies, CORS, and page policies apply as usual.
+  - Why: the inspected page issues it over the DevTools eval API, so cookies, CORS, and page policies apply as usual.
 - ✨ **JWT decoding** — header and claims expand inline with humanized `exp`/`nbf`/`iat`; the signature is not verified.
-  Why: display only — sanitized copies still redact the raw token, and decoded claims never join copies or exports.
+  - Why: display only — sanitized copies still redact the raw token, and decoded claims never join copies or exports.
 - 🐛 **Pop-out auto-minimize** — did nothing for an undocked DevTools window, and now states its outcome either way.
-  Why: `getLastFocused` ignores the `windowTypes` filter (deprecated since Chrome 46) and the new tab had stolen focus.
+  - Why: `getLastFocused` ignores the `windowTypes` filter (deprecated since Chrome 46) and the new tab had stolen focus.
 - ✨ **Mirror remote control** — pause, clear, retention, import, stream toggle, and resend execute in the DevTools session.
 - ✨ **Auto-minimize** — opening the mirror tab minimizes an undocked DevTools window; the package's first service worker.
-  Why: single-job and audited, through the permissionless `chrome.windows` API; permissions remain `storage` only.
+  - Why: single-job and audited, through the permissionless `chrome.windows` API; permissions remain `storage` only.
 - 🐛 **Mirror error pile-up** — the viewer ran the automatic body prefetcher, queuing a pull for every streamed row.
 - 📝 **Pop-out guidance** — the disconnect status and both READMEs explain the undock-and-minimize setup.
 - ✨ **SSE capture** — the opt-in toggle, renamed "Stream capture", records Server-Sent Events beside WebSocket frames.
-  Why: also fixed frames arriving in the same drain batch as their connection being dropped for good.
+  - Why: also fixed frames arriving in the same drain batch as their connection being dropped for good.
 - 📝 **Manual test checklist** — three sections for this cycle's features, which automation here cannot reach.
 - ✨ **Operation column** — reads GraphQL `operationName` and JSON-RPC `method` out of POST bodies; off by default.
 - ✨ **WebSocket capture** — opt-in and permission-free; frames thread into the Body panes and survive navigation.
@@ -94,26 +94,26 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 - 📝 **Store media** — the screenshots and README tour GIF re-captured for the working-otter toolbar.
 - 📝 **Japanese README** — a full `README.ja.md`, cross-linked, with emoji section markers; both are version-free now.
-  Why: release links point at `releases/latest`, so cutting a release no longer edits either README. `version:check` pins it.
+  - Why: release links point at `releases/latest`, so cutting a release no longer edits either README. `version:check` pins it.
 - 🔧 **Toolbar otter** — works by default and relaxes when petted; it blinks, and the ambient snoring "z" is retired.
 - 📝 **store-release skill** — the release and resubmission runbook, with a reference mapping every store failure seen to its cause.
 - 📝 **Submission trigger** — documented that store-submit never fires on the release event, so it is dispatched by hand.
-  Why: releases are created with the workflow `GITHUB_TOKEN`, whose events GitHub suppresses to prevent recursion.
+  - Why: releases are created with the workflow `GITHUB_TOKEN`, whose events GitHub suppresses to prevent recursion.
 - 📝 **Store dossiers** — record the published v1.10.0 release, re-downloaded and byte-compared against a local build.
 
 ## v1.10.0 - 2026-08-20
 
 - 🔧 **Otter mascot** — the toolbar mark is a hand-placed 22x15 pixel sprite, with a woken investigator frame on hover.
-  Why: at its real 15-pixel height, smooth vector shapes rasterized into mush.
+  - Why: at its real 15-pixel height, smooth vector shapes rasterized into mush.
 - 🐛 **"for DevTools" sub-label** — hidden below 1367px, far above where it stops fitting, so most panels never showed it.
 - 📝 **Store screenshots** — remade as dark numbered compositions, with the display order now part of the file names.
-  Why: the stores show screenshots in upload order, and the old names carried no ordering at all.
+  - Why: the stores show screenshots in upload order, and the old names carried no ordering at all.
 - 📝 **Promotional art** — the tile is the original otter illustration again, and a new 1400x560 marquee reuses that otter.
 - 📝 **Listing media** — redesigned: a marquee for featured placements, composed screenshots, and a captioned tour GIF.
 - ✨ **store:setup** — a guided runner for the one-time credential setup, piping each value in over stdin.
-  Why: no credential reaches a file, the terminal scrollback, or the process table.
+  - Why: no credential reaches a file, the terminal scrollback, or the process table.
 - ✨ **Store submission** — publishing a release uploads that archive to both stores and submits it for review.
-  Why: the archive is rebuilt and digest-compared before upload, so a store can only ever receive reviewed bytes.
+  - Why: the archive is rebuilt and digest-compared before upload, so a store can only ever receive reviewed bytes.
 - 📝 **Store dossiers** — record the published v1.9.0 release, re-downloaded and byte-compared against a local build.
 - 📝 **Update path** — both dossiers document updating an already-listed extension, which differs from a first submission.
 
@@ -131,7 +131,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 - 📝 **Release media** — screenshots and the tour GIF re-captured; the brand mark's cup outline strengthened for 1x.
 - 🔧 **Presets** — the separate Presets button is retired and one view preset now lives in the Columns menu.
-  Why: it had shipped broken — its popup closed in the same click that opened it.
+  - Why: it had shipped broken — its popup closed in the same click that opened it.
 - 🔧 **Column Filters popup** — sections start expanded, active columns show a chip, and the header keeps a live rule count.
 - 🔧 **Status bar** — decluttered: retention and cache on one line, average latency only, with the detail moved to tooltips.
 - 🔧 **Toolbar mark** — the brand and support button merged into one living mark perched over the \"for DevTools\" label.
@@ -156,7 +156,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 - 🔧 **Extension icon** — refreshed for legibility at small sizes.
 - 🔧 **Independent-review gate** — retired under explicit repository-owner authorization; Node 22/24 CI stays required.
 - 📝 **README** — rewritten in English with a hero tour, a screenshot gallery, and a task-oriented structure.
-  Why: long-form internal material moved to `docs/architecture.md`, the manual test checklist, and this changelog.
+  - Why: long-form internal material moved to `docs/architecture.md`, the manual test checklist, and this changelog.
 - 🔒 **Review trust boundary** — a dedicated workflow verifies the exact-head marker without ever checking out or running PR code.
 - 🔒 **Gate red-teaming** — two passes closed bypasses that neutralized the gate without changing a single byte of a step body.
 - 🔒 **Boundary limits** — documented from measurement: the commit-status namespace is shared, so a PR workflow can post the same context.

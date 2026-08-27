@@ -225,27 +225,45 @@ describe('entry format', () => {
   });
 
   test('allows one continuation line and rejects a second', () => {
-    expect(validateEntryFormat(block('- 🔧 **Thing** — changed.', '  Why: it was wrong.'))).toEqual([]);
-    const errors = validateEntryFormat(block('- 🔧 **Thing** — changed.', '  Why: one.', '  Why: two.'));
+    expect(validateEntryFormat(block('- 🔧 **Thing** — changed.', '  - Why: it was wrong.'))).toEqual([]);
+    const errors = validateEntryFormat(block('- 🔧 **Thing** — changed.', '  - Why: one.', '  - Why: two.'));
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('at most one is allowed');
   });
 
+  // A bare two-space indent is a lazy paragraph continuation in CommonMark, so
+  // GitHub folds it onto the entry and renders one run-on line. The separation
+  // would exist only in the raw file, which defeats the point of the line.
+  test('rejects a continuation line that is not a nested bullet', () => {
+    const errors = validateEntryFormat([
+      { entry: '- 🔧 **Thing** — changed.', details: ['  Why: bare indent renders joined.'] },
+    ]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('must be a nested bullet');
+  });
+
   test('rejects a continuation line over the length limit', () => {
-    const errors = validateEntryFormat(block('- 🔧 **Thing** — changed.', `  Why: ${'x'.repeat(220)}`));
+    const errors = validateEntryFormat(block('- 🔧 **Thing** — changed.', `  - Why: ${'x'.repeat(220)}`));
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('continuation line runs');
   });
 });
 
 describe('Unreleased block extraction', () => {
-  const source = ['## Unreleased', '', '- ✨ One.', '  Why: because.', '- 🐛 Two.', '', '## v1.6.0', '- ✨ Old.'].join(
-    '\n',
-  );
+  const source = [
+    '## Unreleased',
+    '',
+    '- ✨ One.',
+    '  - Why: because.',
+    '- 🐛 Two.',
+    '',
+    '## v1.6.0',
+    '- ✨ Old.',
+  ].join('\n');
 
   test('pairs each entry with its continuation lines and stops at the next release', () => {
     expect(extractUnreleasedBlocks(source)).toEqual([
-      { entry: '- ✨ One.', details: ['  Why: because.'] },
+      { entry: '- ✨ One.', details: ['  - Why: because.'] },
       { entry: '- 🐛 Two.', details: [] },
     ]);
   });

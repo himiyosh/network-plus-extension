@@ -82,7 +82,11 @@ const ENTRY_CATEGORIES = Object.freeze({
 });
 const ENTRY_MAX_LENGTH = 200;
 const DETAIL_MAX_LENGTH = 200;
+// A continuation must be a nested bullet. A bare two-space indent is a lazy
+// paragraph continuation in CommonMark, so GitHub folds it onto the entry and
+// renders one run-on line — the separation exists only in the raw file.
 const DETAIL_LINE_PATTERN = /^ {2}\S/;
+const NESTED_DETAIL_PATTERN = /^ {2}- \S/;
 
 // Emoji are surrogate pairs, so length has to be counted in code points or a
 // two-character emoji spends four of the budget.
@@ -138,6 +142,12 @@ const validateEntryFormat = (blocks) => {
     }
 
     for (const detail of details) {
+      if (!NESTED_DETAIL_PATTERN.test(detail)) {
+        errors.push(
+          `${CHANGELOG_PATH} continuation line must be a nested bullet ("  - Why: …") or GitHub renders it joined onto the entry: ${detail.trim().slice(0, 60)}`,
+        );
+      }
+
       const detailLength = countCharacters(detail.trim());
       if (detailLength > DETAIL_MAX_LENGTH) {
         errors.push(
