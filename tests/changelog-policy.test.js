@@ -3,13 +3,17 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const {
+  ENTRY_CATEGORIES,
+  ENTRY_MAX_LENGTH,
   USER_FACING_EXACT_PATHS,
   USER_FACING_PATH_PREFIXES,
+  extractUnreleasedBlocks,
   extractUnreleasedEntries,
   isUserFacingPath,
   normalizePath,
   parseArgs,
   validateChangelogPolicy,
+  validateEntryFormat,
 } = require('../scripts/check-changelog');
 
 const checkerPath = path.join(__dirname, '..', 'scripts', 'check-changelog.js');
@@ -72,7 +76,7 @@ describe('Unreleased entry extraction', () => {
 });
 
 describe('changelog enforcement', () => {
-  const baseChangelog = changelog('Existing entry.');
+  const baseChangelog = changelog('✨ Existing entry.');
 
   test('rejects a runtime change without a new Unreleased bullet', () => {
     expect(
@@ -93,10 +97,10 @@ describe('changelog enforcement', () => {
       validateChangelogPolicy({
         changedPaths: ['panel.js', 'docs/CHANGELOG.md'],
         baseChangelog,
-        headChangelog: changelog('New behavior.', 'Existing entry.'),
+        headChangelog: changelog('✨ New behavior.', '✨ Existing entry.'),
       }),
     ).toEqual({
-      addedEntries: ['- New behavior.'],
+      addedEntries: ['- ✨ New behavior.'],
       errors: [],
       triggeringPaths: ['panel.js'],
     });
@@ -145,7 +149,7 @@ test('CLI rejects an omitted release note and accepts the follow-up entry', () =
   temporaryDirectories.push(root);
   fs.mkdirSync(path.join(root, 'docs'));
   fs.writeFileSync(path.join(root, 'panel.js'), 'const state = "before";\n');
-  fs.writeFileSync(path.join(root, 'docs', 'CHANGELOG.md'), `${changelog('Existing entry.')}\n`);
+  fs.writeFileSync(path.join(root, 'docs', 'CHANGELOG.md'), `${changelog('✨ Existing entry.')}\n`);
 
   runGit(root, ['init', '--quiet']);
   runGit(root, ['config', 'user.name', 'Changelog Policy Test']);
@@ -168,7 +172,7 @@ test('CLI rejects an omitted release note and accepts the follow-up entry', () =
 
   fs.writeFileSync(
     path.join(root, 'docs', 'CHANGELOG.md'),
-    `${changelog('New runtime behavior.', 'Existing entry.')}\n`,
+    `${changelog('✨ New runtime behavior.', '✨ Existing entry.')}\n`,
   );
   runGit(root, ['add', 'docs/CHANGELOG.md']);
   runGit(root, ['commit', '--quiet', '-m', 'add release note']);
@@ -179,4 +183,75 @@ test('CLI rejects an omitted release note and accepts the follow-up entry', () =
 
   expect(accepted.status).toBe(0);
   expect(accepted.stdout).toContain('1 new Unreleased entry');
+});
+
+// The changelog opened with one short line per change and drifted into
+// paragraphs: by v1.12.0 its entries averaged 688 characters and the longest ran
+// 1238. These bounds put it back and are checked only against entries a change
+// adds, so released history is never retroactively invalid.
+describe('entry format', () => {
+  const block = (entry, ...details) => [{ entry, details }];
+
+  test('accepts a tagged one-line entry', () => {
+    expect(validateEntryFormat(block('- 🐛 **Thing** — broke, now fixed.'))).toEqual([]);
+  });
+
+  test.each(Object.keys(ENTRY_CATEGORIES))('accepts %s as a category tag', (emoji) => {
+    expect(validateEntryFormat(block(`- ${emoji} **Thing** — did something.`))).toEqual([]);
+  });
+
+  test('rejects an entry with no category tag', () => {
+    const errors = validateEntryFormat(block('- Thing broke and is now fixed.'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('needs a leading category emoji');
+  });
+
+  test('rejects an emoji that is not one of the categories', () => {
+    const errors = validateEntryFormat(block('- 🎉 **Thing** — did something.'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('needs a leading category emoji');
+  });
+
+  test('rejects an entry over the length limit', () => {
+    const errors = validateEntryFormat(block(`- 🐛 ${'x'.repeat(ENTRY_MAX_LENGTH)}`));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain(`over the ${ENTRY_MAX_LENGTH} limit`);
+  });
+
+  // Emoji are surrogate pairs; counting UTF-16 units would spend four of the
+  // budget on a two-character tag.
+  test('counts length in code points, not UTF-16 units', () => {
+    expect(validateEntryFormat(block(`- ⚡ ${'x'.repeat(ENTRY_MAX_LENGTH - 4)}`))).toEqual([]);
+  });
+
+  test('allows one continuation line and rejects a second', () => {
+    expect(validateEntryFormat(block('- 🔧 **Thing** — changed.', '  Why: it was wrong.'))).toEqual([]);
+    const errors = validateEntryFormat(block('- 🔧 **Thing** — changed.', '  Why: one.', '  Why: two.'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('at most one is allowed');
+  });
+
+  test('rejects a continuation line over the length limit', () => {
+    const errors = validateEntryFormat(block('- 🔧 **Thing** — changed.', `  Why: ${'x'.repeat(220)}`));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('continuation line runs');
+  });
+});
+
+describe('Unreleased block extraction', () => {
+  const source = ['## Unreleased', '', '- ✨ One.', '  Why: because.', '- 🐛 Two.', '', '## v1.6.0', '- ✨ Old.'].join(
+    '\n',
+  );
+
+  test('pairs each entry with its continuation lines and stops at the next release', () => {
+    expect(extractUnreleasedBlocks(source)).toEqual([
+      { entry: '- ✨ One.', details: ['  Why: because.'] },
+      { entry: '- 🐛 Two.', details: [] },
+    ]);
+  });
+
+  test('the checked-in changelog satisfies the format it now enforces', () => {
+    const changelogSource = fs.readFileSync(path.join(__dirname, '..', 'docs', 'CHANGELOG.md'), 'utf8');
+    expect(validateEntryFormat(extractUnreleasedBlocks(changelogSource))).toEqual([]);
+  });
 });

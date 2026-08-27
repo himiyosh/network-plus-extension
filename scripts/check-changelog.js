@@ -67,19 +67,106 @@ const extractUnreleasedEntries = (source) => {
   return entries;
 };
 
+// Entry format. The changelog opened with one short line per change and drifted
+// into paragraphs — by v1.12.0 the average entry ran 688 characters and the
+// longest 1238, which is a wall of text nobody scans. These bounds put it back,
+// and are checked only against entries a change actually adds, so released
+// history is never retroactively invalid.
+const ENTRY_CATEGORIES = Object.freeze({
+  '\u2728': '追加',
+  '\ud83d\udc1b': '修正',
+  '\ud83d\udd27': '変更',
+  '\u26a1': 'パフォーマンス',
+  '\ud83d\udd12': 'プライバシー・セキュリティ',
+  '\ud83d\udcdd': 'ドキュメント',
+});
+const ENTRY_MAX_LENGTH = 200;
+const DETAIL_MAX_LENGTH = 200;
+const DETAIL_LINE_PATTERN = /^ {2}\S/;
+
+// Emoji are surrogate pairs, so length has to be counted in code points or a
+// two-character emoji spends four of the budget.
+const countCharacters = (value) => Array.from(value).length;
+
+const startsWithCategory = (entry) => {
+  const body = entry.replace(/^-\s+/, '');
+  return Object.keys(ENTRY_CATEGORIES).some((emoji) => body.startsWith(`${emoji} `));
+};
+
+// Returns each Unreleased bullet with the indented continuation lines that
+// belong to it, so the format of both can be checked together.
+const extractUnreleasedBlocks = (source) => {
+  if (typeof source !== 'string') return [];
+
+  const lines = source.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) => line.trim() === '## Unreleased');
+  if (headingIndex < 0) return [];
+
+  const blocks = [];
+  for (const line of lines.slice(headingIndex + 1)) {
+    if (/^##(?:\s|$)/.test(line)) break;
+    if (/^-\s+\S/.test(line)) blocks.push({ entry: line.trim(), details: [] });
+    else if (DETAIL_LINE_PATTERN.test(line) && blocks.length > 0) {
+      blocks[blocks.length - 1].details.push(line);
+    }
+  }
+  return blocks;
+};
+
+const validateEntryFormat = (blocks) => {
+  const errors = [];
+  const categories = Object.entries(ENTRY_CATEGORIES)
+    .map(([emoji, name]) => `${emoji} ${name}`)
+    .join(' / ');
+
+  for (const { entry, details } of blocks) {
+    if (!startsWithCategory(entry)) {
+      errors.push(`${CHANGELOG_PATH} entry needs a leading category emoji (${categories}): ${entry.slice(0, 60)}`);
+    }
+
+    const length = countCharacters(entry);
+    if (length > ENTRY_MAX_LENGTH) {
+      errors.push(
+        `${CHANGELOG_PATH} entry runs ${length} characters, over the ${ENTRY_MAX_LENGTH} limit — move the detail to the commit message: ${entry.slice(0, 60)}`,
+      );
+    }
+
+    if (details.length > 1) {
+      errors.push(
+        `${CHANGELOG_PATH} entry carries ${details.length} continuation lines; at most one is allowed: ${entry.slice(0, 60)}`,
+      );
+    }
+
+    for (const detail of details) {
+      const detailLength = countCharacters(detail.trim());
+      if (detailLength > DETAIL_MAX_LENGTH) {
+        errors.push(
+          `${CHANGELOG_PATH} continuation line runs ${detailLength} characters, over the ${DETAIL_MAX_LENGTH} limit: ${detail.trim().slice(0, 60)}`,
+        );
+      }
+    }
+  }
+  return errors;
+};
+
 const validateChangelogPolicy = ({ changedPaths, baseChangelog, headChangelog }) => {
   const triggeringPaths = Array.from(new Set(changedPaths.map(normalizePath)))
     .filter((relativePath) => relativePath !== CHANGELOG_PATH && isUserFacingPath(relativePath))
     .sort();
 
-  if (triggeringPaths.length === 0) {
-    return { addedEntries: [], errors: [], triggeringPaths };
-  }
-
   const baseEntries = new Set(extractUnreleasedEntries(baseChangelog));
-  const headEntries = extractUnreleasedEntries(headChangelog);
-  const addedEntries = headEntries.filter((entry) => !baseEntries.has(entry));
-  const errors = [];
+  const headBlocks = extractUnreleasedBlocks(headChangelog);
+  const headEntries = headBlocks.map((block) => block.entry);
+  const addedBlocks = headBlocks.filter((block) => !baseEntries.has(block.entry));
+  const addedEntries = addedBlocks.map((block) => block.entry);
+
+  // Format is enforced on what this change adds, whatever else it touched: a
+  // documentation-only edit can drift the style just as easily as a feature.
+  const errors = validateEntryFormat(addedBlocks);
+
+  if (triggeringPaths.length === 0) {
+    return { addedEntries, errors, triggeringPaths };
+  }
 
   if (headEntries.length === 0) {
     errors.push(`${CHANGELOG_PATH} must contain an "## Unreleased" section with bullet entries`);
@@ -167,7 +254,11 @@ module.exports = {
   USER_FACING_EXACT_PATHS,
   USER_FACING_PATH_PREFIXES,
   checkChangelog,
+  ENTRY_CATEGORIES,
+  ENTRY_MAX_LENGTH,
+  extractUnreleasedBlocks,
   extractUnreleasedEntries,
+  validateEntryFormat,
   isUserFacingPath,
   normalizePath,
   parseArgs,
