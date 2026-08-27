@@ -240,21 +240,83 @@ async function cmdStatus() {
 // the slot's name. So a swap is: clear the slots being replaced, then feed one
 // file to one slot at a time, re-finding the input after every upload because
 // the page re-renders around it.
-async function clearSlot(page, label) {
-  for (let round = 0; round < 8; round += 1) {
-    const clicked = await page.evaluate((name) => {
-      const pattern = new RegExp(`画像を削除.*${name}|remove.*${name}`, 'i');
-      const button = [...document.querySelectorAll('button,[role=button]')].find((element) =>
-        pattern.test(element.getAttribute('aria-label') || element.innerText || ''),
+
+// Every slot name is an alternation of its Japanese and English labels, so it
+// has to be parenthesized before it is spliced into a larger pattern. Without
+// the group the top-level `|` wins and `画像を削除.*スクリーンショット|Screenshot` degrades to
+// the bare word `Screenshot`, which matches any control that merely mentions
+// one — including the button that adds an image.
+function buildRemovePattern(label) {
+  return `(?:画像を削除|remove).*(?:${label})`;
+}
+
+// Removing an image raises a confirmation ("この操作は元に戻せません" / "cannot be
+// undone"). Answering it is not optional: an unanswered dialog leaves the image
+// in place, and clicking the remove control again only reopens it. That is how a
+// run reported eight cleared slots and deleted nothing.
+const CONFIRM_DELETE = /^(?:削除|Delete)$/i;
+const DELETION_DIALOG = /元に戻せません|cannot be undone/i;
+
+// Chrome's slot labels do not renumber when one is removed — deleting
+// `スクリーンショット 1` leaves `2..8` — so each pass re-reads the labels and targets an
+// exact one rather than assuming the list closed up.
+async function clearSlotImages(page, label) {
+  const pattern = buildRemovePattern(label);
+  let removed = 0;
+
+  for (let round = 0; round < 12; round += 1) {
+    const labels = await page.evaluate((source) => {
+      const match = new RegExp(source, 'i');
+      return [...document.querySelectorAll('button,[role=button]')]
+        .map((element) => (element.getAttribute('aria-label') || element.innerText || '').trim())
+        .filter((text) => match.test(text));
+    }, pattern);
+    if (labels.length === 0) return removed;
+
+    const outcome = await page.evaluate(
+      ([target, confirmSource, dialogSource]) => {
+        const control = [...document.querySelectorAll('button,[role=button]')].find(
+          (element) => (element.getAttribute('aria-label') || element.innerText || '').trim() === target,
+        );
+        if (!control) return 'control-vanished';
+        control.click();
+        return new Promise((done) => {
+          setTimeout(() => {
+            const dialog = [...document.querySelectorAll('[role=dialog],[role=alertdialog],mat-dialog-container')].find(
+              (node) => new RegExp(dialogSource, 'i').test(node.innerText || ''),
+            );
+            if (!dialog) return done('no-dialog');
+            const confirm = [...dialog.querySelectorAll('button,[role=button]')].find((node) =>
+              new RegExp(confirmSource, 'i').test((node.innerText || '').trim()),
+            );
+            if (!confirm) return done('no-confirm-control');
+            confirm.click();
+            done('confirmed');
+          }, 1500);
+        });
+      },
+      [labels[0], CONFIRM_DELETE.source, DELETION_DIALOG.source],
+    );
+    await page.waitForTimeout(3500);
+
+    const remaining = await page.evaluate((source) => {
+      const match = new RegExp(source, 'i');
+      return [...document.querySelectorAll('button,[role=button]')].filter((element) =>
+        match.test((element.getAttribute('aria-label') || element.innerText || '').trim()),
+      ).length;
+    }, pattern);
+
+    if (remaining >= labels.length) {
+      throw new Error(
+        `"${labels[0]}" would not clear (${outcome}); ${remaining} still on the listing. ` +
+          'Nothing was uploaded, so the listing is unchanged. Uploading onto slots that did not ' +
+          'clear is how a listing ends up with duplicates, so this stops here.',
       );
-      if (!button) return false;
-      button.click();
-      return true;
-    }, label);
-    if (!clicked) return round;
-    await page.waitForTimeout(1200);
+    }
+    removed += 1;
   }
-  return 8;
+
+  throw new Error(`clearing "${label}" did not finish within 12 rounds; nothing was uploaded.`);
 }
 
 async function fillSlot(page, labelPattern, file) {
@@ -309,8 +371,10 @@ async function cmdChrome() {
   const slots = await page.evaluate(() => document.querySelectorAll('input[type=file]').length);
   process.stdout.write(`listing page open, ${slots} slots\n`);
 
+  // A slot that will not clear throws, which reaches main() and stops the run
+  // before a single upload — the same guard the Edge path has always had.
   for (const [name, label] of Object.entries(CHROME_SLOTS)) {
-    process.stdout.write(`cleared ${name}: ${await clearSlot(page, label)}\n`);
+    process.stdout.write(`cleared ${name}: ${await clearSlotImages(page, label)}\n`);
   }
 
   for (const [order, file] of assets.screenshots.entries()) {
@@ -377,22 +441,46 @@ async function cmdEdge() {
   // part of a listing refresh. Each removal raises a confirmation whose buttons
   // are a custom element, not a <button>.
   const screenshotCount = () => page.locator('img[alt^="Screenshot "]').count();
+  // The confirmation is a custom element rather than a <button>, and the exact
+  // tag has moved between console versions, so the known control is tried first
+  // and any confirm-shaped control inside a dialog second. The search is never
+  // widened to the whole document: a stray "Delete" elsewhere on a listing page
+  // is not a confirmation, and clicking one blind is worse than stopping.
   const confirmDialog = async () => {
-    const button = page.locator('v6_he-button.he-button', { hasText: /^Confirm$/ }).first();
-    if (!(await button.count())) return false;
-    await button.click({ force: true });
+    const known = page.locator('v6_he-button.he-button', { hasText: /^Confirm$/ }).first();
+    if (await known.count()) {
+      await known.click({ force: true });
+      await page.waitForTimeout(3500);
+      return 'confirmed';
+    }
+    const outcome = await page.evaluate(() => {
+      const accepts = /^(?:confirm|ok|yes|delete|確認|はい|削除)$/i;
+      const dialogs = [...document.querySelectorAll('[role=dialog],[role=alertdialog]')];
+      if (dialogs.length === 0) return 'no-dialog';
+      for (const dialog of dialogs) {
+        const control = [
+          ...dialog.querySelectorAll('button,[role=button],v6_he-button,he-button,[class*=he-button]'),
+        ].find((node) => accepts.test((node.innerText || '').trim()));
+        if (control) {
+          control.click();
+          return 'confirmed';
+        }
+      }
+      return 'no-confirm-control';
+    });
     await page.waitForTimeout(3500);
-    return true;
+    return outcome;
   };
 
   process.stdout.write(`${await screenshotCount()} screenshots on the listing\n`);
+  let lastConfirm = 'not attempted';
   for (let round = 0; round < 8 && (await screenshotCount()) > 0; round += 1) {
     const buttons = page.locator('[aria-label^="Delete screenshot"]');
     const count = await buttons.count();
     if (!count) break;
     await buttons.nth(count - 1).click({ force: true });
     await page.waitForTimeout(1800);
-    await confirmDialog();
+    lastConfirm = await confirmDialog();
   }
 
   // Uploading on top of slots that did not clear is how a listing ends up with
@@ -402,9 +490,13 @@ async function cmdEdge() {
   const remaining = await screenshotCount();
   if (remaining > 0) {
     process.stdout.write(
-      `\n${remaining} screenshots would not delete — nothing was uploaded.\n` +
-        'Partner Center locks a listing while a submission is in certification; if one is in\n' +
-        'flight, wait for it to finish. The window is open if you want to look.\n',
+      `\n${remaining} screenshots would not delete — nothing was uploaded, so the listing is unchanged.\n` +
+        `The last confirmation attempt reported: ${lastConfirm}.\n\n` +
+        'Two different causes look identical from here, so check before assuming either.\n' +
+        'Partner Center locks a listing while a submission is in certification — but a product\n' +
+        'reading "In the Store" on the overview is not locked, and this message has blamed a\n' +
+        'lock that was not there. If the product is not in certification, the confirmation\n' +
+        'control has moved and the selector above needs updating. The window is open.\n',
     );
     await browser.close();
     return;
@@ -446,4 +538,15 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) main();
+
+// Exported for tests. The browser-driving halves need a console to run against,
+// but the label and confirmation patterns are pure and are exactly where this
+// script has gone wrong, so they are testable on their own.
+module.exports = {
+  CHROME_SLOTS,
+  CONFIRM_DELETE,
+  DELETION_DIALOG,
+  buildRemovePattern,
+  resolveStoreId,
+};

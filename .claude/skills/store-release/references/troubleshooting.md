@@ -64,8 +64,13 @@ single line, or the two-step `gh secret set` interactive prompt.
 
 ## `store:pages` — the media step
 
-Hit for real on 2026-08-27. Both stores failed to *delete*, and the two
-failures look nothing alike in the log.
+Hit for real on 2026-08-27, and repaired the same week. Both stores failed to
+*delete*, and the two failures look nothing alike in the log. The repair is
+covered by `tests/store-pages.test.js` on the Chrome side; the Edge
+confirmation control could not be re-verified against a live console, because
+both listings were in review, so the first Edge run after the fix is the real
+test. Either way a failure now stops before uploading, so the listing survives
+it.
 
 **Chrome prints `uploaded` for every image and still corrupts the listing.**
 The run ended with eight screenshots where four were intended: the old four

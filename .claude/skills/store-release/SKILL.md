@@ -136,16 +136,22 @@ archive to both stores and submits both for review. Done.
    `EDGE_PRODUCT_ID` in the environment or in a local `.env.cws` / `.env.edge`;
    those identifiers are recorded in CLAUDE.md.
 
-   **Verify the listing after this step; the log overstates success.** As of
-   2026-08-27 the clearing half is broken on both stores — `chrome` reports
-   every image `uploaded` while silently duplicating the screenshots, and
-   `edge` aborts with a certification-lock message that is usually the wrong
-   cause. `references/troubleshooting.md` has the symptoms, the real causes,
-   and a pixel-comparison check that settles listing state without trusting
-   the log. `chrome` reporting `NO SLOT` is a separate and genuine case: the
-   console's labels are matched in Japanese and English, so a console in a
-   third language needs the label added to `CHROME_SLOTS`. The slot-by-slot
-   manual procedure in the two submission dossiers remains the fallback.
+   **Verify the listing after this step rather than trusting the log.** The
+   clearing half was broken on both stores through the v1.12.0 cycle and is
+   worth confirming until a release has exercised the repaired path: `chrome`
+   reported every image `uploaded` while silently duplicating the screenshots,
+   and `edge` blamed a certification lock for a failure that was really its own
+   selector. Both now stop before uploading rather than clearing nothing and
+   carrying on, so a failure leaves the listing untouched. The Edge
+   confirmation control has not been re-verified against a live console —
+   both listings were in review when the fix was written — so treat the first
+   Edge run after this as the verification. `references/troubleshooting.md`
+   has the symptoms, the causes, and a pixel-comparison check that settles
+   listing state without trusting the log. `chrome` reporting `NO SLOT` is a
+   separate and genuine case: the console's labels are matched in Japanese and
+   English, so a console in a third language needs the label added to
+   `CHROME_SLOTS`. The slot-by-slot manual procedure in the two submission
+   dossiers remains the fallback.
 3. Dispatch again without `upload_only` — the publish step submits the whole
    draft, package and media edits together. (The user pressing the portal's
    own submit button is equivalent.)

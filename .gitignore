@@ -29,3 +29,10 @@ fix*.js
 test_output.*
 test.svg
 *.tmp
+
+# Codex-platform mirror of CLAUDE.md and .claude/skills/, generated locally.
+# Not committed: it is a blind .claude -> .Codex path substitution written into
+# .agents/, so every rules path it names is dangling, and keeping a second copy
+# of the same rules only lets the two drift.
+AGENTS.md
+.agents/

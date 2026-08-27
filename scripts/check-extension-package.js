@@ -60,7 +60,32 @@ const TEXT_RUNTIME_EXTENSIONS = new Set(['.css', '.html', '.js', '.json']);
 // reviewed change: an intentional upgrade must update this constant.
 const VENDOR_FFLATE_SHA256 = 'c3b34f2e9f5e74d4d7d64e01cac7a0c01954c6c406414d42185c7b53d6875ddf';
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const ZIP_TIMESTAMP = new Date('1980-01-01T00:00:00.000Z');
+// fflate writes each entry's DOS timestamp out of a Date's *local* fields, so an
+// instant pinned in UTC produces a different archive in every other timezone: the
+// entry contents and CRCs are identical and only the two-byte time field moves,
+// which is enough to change the SHA-256 the release is gated on. CI runs in UTC, so
+// the gate always held there and the cost fell on an operator verifying a release
+// locally. Constructing the epoch in local time makes every timezone write the same
+// 1980-01-01 00:00, and leaves CI's own output untouched.
+const ZIP_TIMESTAMP = new Date(1980, 0, 1, 0, 0, 0, 0);
+
+// A zone whose clocks sprang forward across midnight on 1980-01-01 has no local
+// representation of the epoch, so no Date can read back as 00:00 there. Rather than
+// silently emit an archive whose digest cannot match, say so and name the fix.
+const assertReproducibleZipTimestamp = (timestamp = ZIP_TIMESTAMP) => {
+  const readsAsEpoch =
+    timestamp.getFullYear() === 1980 &&
+    timestamp.getMonth() === 0 &&
+    timestamp.getDate() === 1 &&
+    timestamp.getHours() === 0 &&
+    timestamp.getMinutes() === 0 &&
+    timestamp.getSeconds() === 0;
+  if (!readsAsEpoch) {
+    throw new Error(
+      `the ZIP epoch has no local representation in this timezone (${timestamp.toString()}), so the archive cannot be built reproducibly here; rebuild with TZ=UTC`,
+    );
+  }
+};
 const PERMISSION_USAGE = Object.freeze({
   storage: /\bchrome\.storage\./,
 });
@@ -356,6 +381,7 @@ const assertValidExtension = (root, archiveFiles = RUNTIME_FILES) => {
 };
 
 const createArchive = (root, archiveFiles = RUNTIME_FILES) => {
+  assertReproducibleZipTimestamp();
   assertValidExtension(root, archiveFiles);
   const files = {};
 

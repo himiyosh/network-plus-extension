@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -514,5 +515,31 @@ describe('extension archive integrity', () => {
 describe('archive determinism', () => {
   test('produces identical bytes for identical runtime content', () => {
     expect(createArchive(repositoryRoot)).toEqual(createArchive(repositoryRoot));
+  });
+
+  // Determinism inside one process was never the whole claim: fflate writes each
+  // entry's DOS timestamp out of a Date's local fields, so a JST build wrote
+  // 01-01-1980 09:00 where CI wrote 00:00 and landed on a different SHA-256 at
+  // the same byte count and the same entry CRCs. CI runs in UTC, so nothing there
+  // could catch it, and the release digest was only ever verifiable from one zone.
+  test('produces identical bytes regardless of the timezone it is built in', () => {
+    const zones = ['UTC', 'Asia/Tokyo', 'America/Los_Angeles', 'Australia/Sydney', 'Asia/Kathmandu'];
+    const original = process.env.TZ;
+    const digests = new Map();
+
+    try {
+      for (const zone of zones) {
+        process.env.TZ = zone;
+        jest.resetModules();
+        const { createArchive: buildInZone } = require('../scripts/check-extension-package');
+        digests.set(zone, crypto.createHash('sha256').update(buildInZone(repositoryRoot)).digest('hex'));
+      }
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+      jest.resetModules();
+    }
+
+    expect(Object.fromEntries(digests)).toEqual(Object.fromEntries(zones.map((zone) => [zone, digests.get('UTC')])));
   });
 });
