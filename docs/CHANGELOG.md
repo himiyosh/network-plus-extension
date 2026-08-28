@@ -4,6 +4,13 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🐛 **Comparison view** — `.inspector-panels{display:flex}` defeated the `hidden` attribute; the third shipped instance of this trap, now pinned by contract.
+- 🔧 **Keep/Delete Selected** — both arm the same 10-second Undo the toolbar Clear has, instead of destroying rows silently and irreversibly.
+- 🐛 **Badge contrast** — keyword chips used the raw highlight palette as 9px text, failing AA in both light themes; they now use per-theme text-safe variants.
+- 🐛 **Search Escape** — closing the panel with Esc returns focus to the search toggle instead of dropping the keyboard user onto the page body.
+- 🐛 **Pane search inset** — the sticky-bar fix was declared on a non-scrolling child and never took effect; it now sits on the scrollport.
+- ✨ **Grid paging keys** — Home, End, PageUp, and PageDown navigate the request grid, which retains tens of thousands of rows.
+- 🐛 **Split resizing** — dragged pane splits rescale with the window instead of freezing at fixed pixels that clipped the response pane or crushed the grid.
 - ✨ **Japanese dialog coverage** — the export and full-output dialogs, the sample guide's evidence half, empty-state buttons, and resend errors now translate.
   - Why: several composed strings bypassed the dictionary and overwrote applied translations with hardcoded English.
 - 🐛 **Resend failures** — a dead mirror port now reads "the DevTools session is not connected" instead of Chrome's raw port error.
