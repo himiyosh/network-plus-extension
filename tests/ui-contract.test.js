@@ -3040,7 +3040,7 @@ describe('optional support dialog', () => {
     }
     // Steam and sparkles animate up from opacity:0, so stopping the animation
     // without restoring opacity would erase them instead of stilling them.
-    expect(reduced).toContain('.support-steam{opacity:.55}');
+    expect(reduced).toContain('.support-steam,.brand-steam{opacity:.55}');
     expect(reduced).toContain('.support-sparkle{opacity:.7}');
     // Same trap for the rising hearts.
     expect(reduced).toContain('.support-heart{opacity:.9}');
@@ -3199,7 +3199,7 @@ describe('two-request diff comparison', () => {
     const renderEnd = js.indexOf('function showComparisonPanel(', renderStart);
     const renderSource = js.slice(renderStart, renderEnd);
     expect(renderSource).toContain('comparisonInvokingRowId');
-    expect(renderSource).toContain('tr.focus(');
+    expect(renderSource).toContain('focusRowOrGridFallback(invokingRowId);');
   });
 
   test('diffHeaders uses multimap to preserve duplicate header names', () => {
@@ -3751,7 +3751,7 @@ describe('stream capture contracts (WebSocket + SSE)', () => {
     expect(js).toContain('if (state.paused || state.sampleCaptureActive) return;');
     // First-batch frames arrive while the row still sits in the live-flush
     // queue; queued rows must count as alive or the connection goes silent.
-    expect(js).toContain('(!state.activeRows.has(row) && !pendingLiveRows.includes(row))');
+    expect(js).toContain('(!state.activeRows.has(row) && !pendingSet.has(row))');
   });
 
   test('the SSE wrapper observes without altering and reuses the ws event dialect', () => {
@@ -3830,6 +3830,29 @@ describe('audit layout and contrast contracts', () => {
     // display:flex outranks the UA [hidden] rule — this exact trap shipped
     // three times (.topbar button, .data-safety-choices, .inspector-panels).
     expect(css).toContain('.inspector-panels[hidden]{display:none}');
+  });
+
+  test('the langHelp fallback in panel.html matches the dictionary verbatim', () => {
+    // The fallback is what renders before applyLanguage runs; a drifted copy
+    // shows one wording for a beat and another after. Extract the en entry
+    // from the source instead of importing it, so this stays a static pin.
+    const entry = js.match(/langHelp: \{\s*en: '([^']*)'/);
+    expect(entry).not.toBeNull();
+    const fallback = html.match(/<p id="langHelp" data-i18n="langHelp">([^<]*)<\/p>/);
+    expect(fallback).not.toBeNull();
+    expect(fallback[1]).toBe(entry[1]);
+  });
+
+  test('status-details hides unconditionally, not only inside the narrow media block', () => {
+    // display:contents defeats [hidden] exactly like display:flex does. Two
+    // copies exist: the unconditional guard and the narrow media block's.
+    const occurrences = css.split('.status-details[hidden]{display:none}').length - 1;
+    expect(occurrences).toBe(2);
+    expect(css.indexOf('.status-details[hidden]{display:none}')).toBeLessThan(css.indexOf('@media (max-width:800px)'));
+  });
+
+  test('the toolbar steam keeps a visible resting value under reduced motion', () => {
+    expect(css).toContain('.support-steam,.brand-steam{opacity:.55}');
   });
 
   test('keyword badges use text-safe palette variants split by theme', () => {

@@ -677,11 +677,33 @@ const _NetworkPlus = (function () {
     if (focusableItems.length > 0) focusableItems[0].focus();
   }
 
+  // Focus restoration for views invoked from a grid row: the row if it still
+  // exists, else the first row, else the empty-state action or Clear — the
+  // same chain the row context menu uses, so no close path strands keyboard
+  // focus on <body>.
+  function focusRowOrGridFallback(rowId) {
+    const row = rowId ? document.querySelector('tbody tr[data-row-id="' + rowId + '"]') : null;
+    const target = row || document.querySelector('tbody tr[data-row-id]');
+    if (target) {
+      target.focus({ preventScroll: false });
+      return;
+    }
+    const fallbackControl = document.querySelector('.empty-state-action') || $('#clearBtn');
+    if (fallbackControl) fallbackControl.focus({ preventScroll: true });
+  }
+
   function installPopupKeyboardSupport(popup) {
     popup.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
+        closeAccessiblePopup(popup, true);
+        return;
+      }
+      if (event.key === 'Tab') {
+        // Close like Escape (focus returns to the trigger) and let the Tab
+        // then advance naturally from there. Leaving the popup open over the
+        // grid with the trigger stuck at aria-expanded="true" was worse.
         closeAccessiblePopup(popup, true);
         return;
       }
@@ -4739,6 +4761,7 @@ const _NetworkPlus = (function () {
     if (!evictedRows || evictedRows.length === 0) return;
     cancelAutomaticResponsePrefetchRows(evictedRows, false);
     const evictedSet = new Set(evictedRows);
+    if (typeof state.streamRowEvictionSweep === 'function') state.streamRowEvictionSweep(evictedSet);
     const search = state.search;
     const previousMatches = search.matches;
     const previousIndex = search.currentIndex;
@@ -6647,11 +6670,27 @@ const _NetworkPlus = (function () {
         return '[unreadable frame]';
       }
     };
+    let droppedCount = 0;
     const record = function (entry) {
       if (!enabled) return;
       entry.at = Date.now();
       queue.push(entry);
-      if (queue.length > queueCap) queue.splice(0, queue.length - queueCap);
+      if (queue.length > queueCap) {
+        // Prefer dropping data frames: a lost frame loses one line, a lost
+        // open-attempt or close loses the connection's existence or leaves it
+        // 'Open' forever. The drain reports how much was lost.
+        let dropIndex = -1;
+        for (let i = 0; i < queue.length; i += 1) {
+          const kind = queue[i].kind;
+          if (kind === 'ws-sent' || kind === 'ws-received') {
+            dropIndex = i;
+            break;
+          }
+        }
+        if (dropIndex >= 0) queue.splice(dropIndex, 1);
+        else queue.shift();
+        droppedCount += 1;
+      }
     };
     const Native = window.WebSocket;
     const Wrapped = function (url, protocols) {
@@ -6691,7 +6730,12 @@ const _NetworkPlus = (function () {
     window.WebSocket = Wrapped;
     window.__networkPlusWS__ = {
       drain: function () {
-        return queue.splice(0, queue.length);
+        const events = queue.splice(0, queue.length);
+        if (droppedCount > 0) {
+          events.push({ kind: 'ws-overflow', socketId: -1, count: droppedCount, at: Date.now() });
+          droppedCount = 0;
+        }
+        return events;
       },
       setEnabled: function (value) {
         enabled = value === true;
@@ -6725,11 +6769,24 @@ const _NetworkPlus = (function () {
         return '[unreadable event]';
       }
     };
+    let droppedCount = 0;
     const record = function (entry) {
       if (!enabled) return;
       entry.at = Date.now();
       queue.push(entry);
-      if (queue.length > queueCap) queue.splice(0, queue.length - queueCap);
+      if (queue.length > queueCap) {
+        let dropIndex = -1;
+        for (let i = 0; i < queue.length; i += 1) {
+          const kind = queue[i].kind;
+          if (kind === 'ws-sent' || kind === 'ws-received') {
+            dropIndex = i;
+            break;
+          }
+        }
+        if (dropIndex >= 0) queue.splice(dropIndex, 1);
+        else queue.shift();
+        droppedCount += 1;
+      }
     };
     const Native = window.EventSource;
     const Wrapped = function (url, config) {
@@ -6739,8 +6796,11 @@ const _NetworkPlus = (function () {
       record({ kind: 'ws-open-attempt', socketId, url: String(url), protocols: '' });
       const nativeAdd = source.addEventListener.bind(source);
       const seenTypes = {};
+      let seenTypeCount = 0;
       const observe = function (type) {
         if (seenTypes[type]) return;
+        if (seenTypeCount >= 64) return;
+        seenTypeCount += 1;
         seenTypes[type] = true;
         nativeAdd(type, function (event) {
           record({
@@ -6759,7 +6819,9 @@ const _NetworkPlus = (function () {
       });
       source.addEventListener = function (type, listener, options) {
         const name = String(type);
-        // 64 keeps a hostile page from registering unbounded observer types.
+        // Both bounds matter: 64 chars per name, and at most 64 distinct
+        // observed types per source, so a hostile page can register neither
+        // unbounded names nor unbounded types.
         if (name && name !== 'message' && name !== 'open' && name !== 'error' && name.length <= 64) observe(name);
         return nativeAdd(type, listener, options);
       };
@@ -6777,7 +6839,12 @@ const _NetworkPlus = (function () {
     window.EventSource = Wrapped;
     window.__networkPlusSSE__ = {
       drain: function () {
-        return queue.splice(0, queue.length);
+        const events = queue.splice(0, queue.length);
+        if (droppedCount > 0) {
+          events.push({ kind: 'ws-overflow', socketId: -1, count: droppedCount, at: Date.now() });
+          droppedCount = 0;
+        }
+        return events;
       },
       setEnabled: function (value) {
         enabled = value === true;
@@ -7062,7 +7129,19 @@ const _NetworkPlus = (function () {
           );
           return;
         }
+        // One transfer per viewer: a tab that restarts an import must not
+        // leave its half-accumulated predecessor parked until disconnect,
+        // and one tab's UI can only ever run one.
+        const viewerPrefix = String(message.viewer || '') + ':';
+        for (const [key, existing] of Array.from(importTransfers)) {
+          if (key.startsWith(viewerPrefix)) {
+            importTransfers.delete(key);
+            sendCommandResult(existing.commandId, 'The import transfer was superseded by a newer one.', existing.viewer);
+          }
+        }
         importTransfers.set(transferKey(message), {
+          commandId: message.commandId,
+          viewer: message.viewer,
           fileName: String(message.fileName || 'import.har'),
           parts: [],
           receivedChars: 0,
@@ -7149,10 +7228,20 @@ const _NetworkPlus = (function () {
     const requestBody = (rowId, callback) => {
       const requestId = nextBodyRequestId;
       nextBodyRequestId += 1;
-      pendingBodyCallbacks.set(requestId, callback);
+      // Same discipline commands got: a host that drops the result must not
+      // park this entry (and its closure) in the map until disconnect.
+      const pending = { callback, timer: null };
+      pendingBodyCallbacks.set(requestId, pending);
+      pending.timer = setTimeout(() => {
+        if (pendingBodyCallbacks.get(requestId) !== pending) return;
+        pendingBodyCallbacks.delete(requestId);
+        pending.callback(new Error('The DevTools session did not answer the body request in time.'), null);
+      }, RESPONSE_CONTENT_TIMEOUT_MS);
+      if (pending.timer && typeof pending.timer.unref === 'function') pending.timer.unref();
       try {
         postMessage({ type: 'body-request', requestId, rowId, viewer: viewerNonce });
       } catch (error) {
+        clearTimeout(pending.timer);
         pendingBodyCallbacks.delete(requestId);
         throw error;
       }
@@ -7230,7 +7319,9 @@ const _NetworkPlus = (function () {
             pendingSnapshot.generation === message.generation &&
             Array.isArray(message.rows)
           ) {
-            pendingSnapshot.rows.push(...message.rows);
+            // A spread would blow the argument limit on a hostile or buggy
+            // oversized chunk and throw out of the port listener.
+            for (const row of message.rows) pendingSnapshot.rows.push(row);
           }
           break;
         case 'snapshot-end':
@@ -7254,16 +7345,24 @@ const _NetworkPlus = (function () {
             message.session != null && hostSessionToken != null && message.session !== hostSessionToken;
           const mismatch =
             sessionChanged || message.count !== getLocalCount() || message.maxId !== getLocalMaxId();
-          if (mismatch && !pendingSnapshot) postMessage({ type: 'snapshot-request' });
+          if (mismatch && !pendingSnapshot) {
+            try {
+              postMessage({ type: 'snapshot-request' });
+            } catch (_error) {
+              // The disconnect handler owns recovery; a dead port must not
+              // throw out of the port's onMessage listener.
+            }
+          }
           break;
         }
         case 'body-result': {
           if (resultIsForAnotherViewer(message)) return;
-          const callback = pendingBodyCallbacks.get(message.requestId);
-          if (!callback) return;
+          const pending = pendingBodyCallbacks.get(message.requestId);
+          if (!pending) return;
           pendingBodyCallbacks.delete(message.requestId);
-          if (message.ok) callback(null, { content: message.content, encoding: message.encoding });
-          else callback(new Error(message.error || 'Response content is unavailable.'), null);
+          if (pending.timer) clearTimeout(pending.timer);
+          if (message.ok) pending.callback(null, { content: message.content, encoding: message.encoding });
+          else pending.callback(new Error(message.error || 'Response content is unavailable.'), null);
           break;
         }
         case 'command-result': {
@@ -7279,7 +7378,10 @@ const _NetworkPlus = (function () {
     const failPendingBodyRequests = (reason) => {
       const failures = Array.from(pendingBodyCallbacks.values());
       pendingBodyCallbacks.clear();
-      for (const callback of failures) callback(new Error(reason), null);
+      for (const pending of failures) {
+        if (pending.timer) clearTimeout(pending.timer);
+        pending.callback(new Error(reason), null);
+      }
       const commandFailures = Array.from(pendingCommandCallbacks.values());
       pendingCommandCallbacks.clear();
       for (const pending of commandFailures) {
@@ -11454,11 +11556,7 @@ const _NetworkPlus = (function () {
       state.comparedRows = null;
       state.comparisonInvokingRowId = null;
       hideComparisonPanel();
-      // Restore focus to the row that opened the comparison
-      if (invokingRowId) {
-        const tr = document.querySelector('tbody tr[data-row-id="' + invokingRowId + '"]');
-        if (tr) tr.focus({ preventScroll: false });
-      }
+      focusRowOrGridFallback(invokingRowId);
     });
     headerRow.appendChild(closeBtn);
     panel.appendChild(headerRow);
@@ -14813,6 +14911,15 @@ const _NetworkPlus = (function () {
     if (wsCaptureBtn && inspectedEval && !mirrorViewerActive) {
       wsCaptureBtn.hidden = false;
       const streamCapture = { enabled: false, timer: null, socketRows: new Map(), sseRows: new Map() };
+      // Retention eviction disposes rows the socket maps may still hold; the
+      // lazy per-event cleanup only ran when that socket spoke again.
+      state.streamRowEvictionSweep = (evictedSet) => {
+        for (const rows of [streamCapture.socketRows, streamCapture.sseRows]) {
+          for (const [socketId, row] of rows) {
+            if (evictedSet.has(row)) rows.delete(socketId);
+          }
+        }
+      };
       const updateStreamCaptureButton = () => {
         wsCaptureBtn.textContent = streamCapture.enabled ? 'Stream capture: On' : 'Stream capture: Off';
         wsCaptureBtn.setAttribute('aria-pressed', streamCapture.enabled ? 'true' : 'false');
@@ -14854,6 +14961,23 @@ const _NetworkPlus = (function () {
       const ingestDrainedStream = (result, variant) => {
         if (!Array.isArray(result) || result.length === 0) return;
         const rowsByVariant = variant === 'sse' ? streamCapture.sseRows : streamCapture.socketRows;
+        // The page-side queue reports its own overflow so a gap in the frame
+        // history is named instead of silent.
+        let overflowCount = 0;
+        result = result.filter((event) => {
+          if (event && event.kind === 'ws-overflow') {
+            overflowCount += Number(event.count) || 0;
+            return false;
+          }
+          return true;
+        });
+        if (overflowCount > 0) {
+          setStatus(
+            'Stream capture dropped ' + overflowCount + ' events in the page queue; frame history may have gaps.',
+          );
+        }
+        // Membership tests run per drained event; a Set keeps them O(1).
+        const pendingSet = new Set(pendingLiveRows);
         // Recording discipline matches live capture: while paused or in a
         // sample session, drained frames and new connections are dropped, not
         // queued. Lifecycle marks of rows already in the table are different —
@@ -14892,7 +15016,9 @@ const _NetworkPlus = (function () {
               );
             }
             createdCount += 1;
-            return createStreamRow(event, variant);
+            const created = createStreamRow(event, variant);
+            pendingSet.add(created);
+            return created;
           },
           getRow: (socketId) => {
             const row = rowsByVariant.get(socketId);
@@ -14902,7 +15028,7 @@ const _NetworkPlus = (function () {
             // rather than in activeRows. Only rows actually gone from the
             // table are dead; treating queued rows as dead dropped those
             // frames and deleted the map entry, silencing the connection.
-            if (row._retentionDisposed || (!state.activeRows.has(row) && !pendingLiveRows.includes(row))) {
+            if (row._retentionDisposed || (!state.activeRows.has(row) && !pendingSet.has(row))) {
               rowsByVariant.delete(socketId);
               return null;
             }
@@ -14913,9 +15039,22 @@ const _NetworkPlus = (function () {
         const renderedRows = changedRows.filter((row) => state.activeRows.has(row));
         if (renderedRows.length > 0 && !replaceRenderedRowStates(renderedRows)) renderBody();
       };
+      // Swallowing every eval failure left the toggle claiming capture was on
+      // while nothing could reach the page; a short streak surfaces it once.
+      let streamEvalFailureTicks = 0;
       const drainStreamQueues = () => {
         inspectedEval('window.__networkPlusWS__ ? window.__networkPlusWS__.drain() : []', (result, errorInfo) => {
-          if (!errorInfo) ingestDrainedStream(result, 'ws');
+          if (errorInfo) {
+            streamEvalFailureTicks += 1;
+            if (streamEvalFailureTicks === 3) {
+              setStatus(
+                'Stream capture cannot reach the inspected page; connections may be missed until the next navigation or toggle.',
+              );
+            }
+            return;
+          }
+          streamEvalFailureTicks = 0;
+          ingestDrainedStream(result, 'ws');
         });
         inspectedEval('window.__networkPlusSSE__ ? window.__networkPlusSSE__.drain() : []', (result, errorInfo) => {
           if (!errorInfo) ingestDrainedStream(result, 'sse');
@@ -15115,11 +15254,9 @@ const _NetworkPlus = (function () {
         resendDialog.close();
       });
       resendDialog.addEventListener('close', () => {
-        const invokerRow = resendInvokerRowId
-          ? tableWrap.querySelector('tr[data-row-id="' + resendInvokerRowId + '"]')
-          : null;
+        const invokerRowId = resendInvokerRowId;
         resendInvokerRowId = null;
-        if (invokerRow) invokerRow.focus({ preventScroll: false });
+        focusRowOrGridFallback(invokerRowId);
       });
     }
   }
