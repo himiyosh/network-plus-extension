@@ -4,6 +4,10 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- ✨ **Japanese dialog coverage** — the export and full-output dialogs, the sample guide's evidence half, empty-state buttons, and resend errors now translate.
+  - Why: several composed strings bypassed the dictionary and overwrote applied translations with hardcoded English.
+- 🐛 **Resend failures** — a dead mirror port now reads "the DevTools session is not connected" instead of Chrome's raw port error.
+- 🐛 **Mirror resend parity** — the mirror tab's success message now warns when recording is paused, matching the DevTools session's wording.
 - 🐛 **Stream transcripts** — live WS/SSE logs no longer enter the 32 MiB body cache, whose eviction could silently wipe an open connection's frames.
   - Why: the cache accounts a body once at admission; a transcript that keeps growing broke the accounting and then lost the data.
 - 🐛 **Mirror reattach** — a reattached tab rebuilds its table when a new DevTools session connects, instead of matching rows by bare id.

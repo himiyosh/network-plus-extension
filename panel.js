@@ -496,12 +496,8 @@ const _NetworkPlus = (function () {
 
   function openExportSafetyDialog(trigger) {
     pendingFullOutboundAction = null;
-    $('#dataSafetyDialogTitle').textContent = 'Export network data';
-    setDataSafetyDialogMode(
-      'export',
-      'Sanitized HAR redacts every URL query and form-like fragment value, URL userinfo, cookies, and every non-allowlisted header value. Omitted bodies are explicitly marked.',
-      '',
-    );
+    $('#dataSafetyDialogTitle').textContent = uiText('dataSafetyTitle');
+    setDataSafetyDialogMode('export', uiText('dataSafetyExportDetail'), '');
     const scope = $('#dataSafetyScope');
     if (scope) {
       const selectedCount = getSelectedExportRows().length;
@@ -529,11 +525,11 @@ const _NetworkPlus = (function () {
     pendingFullOutboundAction =
       typeof source.onConfirm === 'function' ? createOneTimeConfirmationAction(source.onConfirm) : null;
     $('#dataSafetyConfirmBtn').disabled = false;
-    $('#dataSafetyDialogTitle').textContent = source.title || 'Confirm full output';
+    $('#dataSafetyDialogTitle').textContent = source.title || uiText('dataSafetyFullDefaultTitle');
     setDataSafetyDialogMode(
       'full',
-      source.detail || 'Review the sensitive data categories before continuing.',
-      source.confirmLabel || 'Confirm full output',
+      source.detail || uiText('dataSafetyFullDefaultDetail'),
+      source.confirmLabel || uiText('dataSafetyFullDefaultConfirm'),
     );
     showDataSafetyDialog(source.trigger);
     setTimeout(() => $('#dataSafetyConfirmBtn').focus(), 0);
@@ -569,10 +565,9 @@ const _NetworkPlus = (function () {
       // chooser, so the choice is captured before the mode switches.
       const scope = readExportScopeChoice();
       requestFullOutboundAction({
-        title: 'Export full HAR?',
-        detail:
-          'A full HAR can expose Authorization, cookies, every query or fragment value, URL userinfo, non-allowlisted headers, and complete request or response bodies.',
-        confirmLabel: 'Export full HAR',
+        title: uiText('dataSafetyFullHarTitle'),
+        detail: uiText('dataSafetyFullHarDetail'),
+        confirmLabel: uiText('dataSafetyFullHarConfirm'),
         trigger: dataSafetyDialogTrigger,
         onConfirm: () => exportHAR({ mode: 'full', confirmed: true, scope }),
       });
@@ -3509,6 +3504,16 @@ const _NetworkPlus = (function () {
     };
   }
 
+  // The pane frame and the state word translate; display.label itself stays
+  // the canonical English token because logic branches on it.
+  function formatBodyPaneMessage(display) {
+    const labelKey = 'bodyState' + display.label.charAt(0).toUpperCase() + display.label.slice(1);
+    return uiTextFormat('bodyPaneFrame', {
+      label: uiText(labelKey) || display.label,
+      reason: localizeBodyReason(display.reason),
+    });
+  }
+
   function describeResponseContentState(row, error) {
     const rawState = row && row.responseContentState ? row.responseContentState : 'unavailable';
     const state = rawState === 'row-evicted' ? 'evicted' : rawState;
@@ -5504,6 +5509,126 @@ const _NetworkPlus = (function () {
       en: 'Sanitized output is the safe default.',
       ja: 'サニタイズ済み出力が安全な既定です。',
     },
+    dataSafetyExportDetail: {
+      en: 'Sanitized HAR redacts every URL query and form-like fragment value, URL userinfo, cookies, and every non-allowlisted header value. Omitted bodies are explicitly marked.',
+      ja: 'サニタイズ済み HAR では、URL クエリとフォーム形式のフラグメント値、URL のユーザー情報、Cookie、許可リスト外のすべてのヘッダー値が伏せ字化されます。省略されたボディは明示的に記されます。',
+    },
+    dataSafetyFullDefaultTitle: {
+      en: 'Confirm full output',
+      ja: '完全版出力の確認',
+    },
+    dataSafetyFullDefaultDetail: {
+      en: 'Review the sensitive data categories before continuing.',
+      ja: '続行する前に、含まれ得る機微データの分類を確認してください。',
+    },
+    dataSafetyFullDefaultConfirm: {
+      en: 'Confirm full output',
+      ja: '完全版出力を確認',
+    },
+    dataSafetyFullHarTitle: {
+      en: 'Export full HAR?',
+      ja: '完全な HAR をエクスポートしますか？',
+    },
+    dataSafetyFullHarDetail: {
+      en: 'A full HAR can expose Authorization, cookies, every query or fragment value, URL userinfo, non-allowlisted headers, and complete request or response bodies.',
+      ja: '完全な HAR には、Authorization、Cookie、すべてのクエリ・フラグメント値、URL のユーザー情報、許可リスト外のヘッダー、そしてリクエストとレスポンスの完全なボディが含まれることがあります。',
+    },
+    dataSafetyFullHarConfirm: {
+      en: 'Export full HAR',
+      ja: '完全な HAR をエクスポート',
+    },
+    copyFullTitle: {
+      en: 'Copy full {label}?',
+      ja: '完全版 {label} をコピーしますか？',
+    },
+    copyFullDetail: {
+      en: 'The full {label} may include captured credentials or body content.',
+      ja: '完全版 {label} には、キャプチャされた資格情報やボディの内容が含まれることがあります。',
+    },
+    copyFullConfirm: {
+      en: 'Copy full {label}',
+      ja: '完全版 {label} をコピー',
+    },
+    sampleEvidenceHeading: {
+      en: 'Evidence to verify',
+      ja: '確認するエビデンス',
+    },
+    sampleEvidenceFailedRequest: {
+      en: 'Failed request',
+      ja: '失敗したリクエスト',
+    },
+    sampleEvidenceDominantPhase: {
+      en: 'Dominant Timing phase',
+      ja: '支配的な Timing フェーズ',
+    },
+    sampleEvidenceRetryHint: {
+      en: 'Retry hint',
+      ja: '再試行のヒント',
+    },
+    sampleEvidenceLimit: {
+      en: 'Browser evidence limit',
+      ja: 'ブラウザ計測の限界',
+    },
+    sampleEvidenceInspectTiming: {
+      en: 'Inspect Timing evidence',
+      ja: 'Timing エビデンスを確認',
+    },
+    sampleEvidenceInspectRetry: {
+      en: 'Inspect Retry-After header',
+      ja: 'Retry-After ヘッダーを確認',
+    },
+    emptyFilteredAction: {
+      en: 'Clear column filters',
+      ja: '列フィルターを解除',
+    },
+    emptyCaptureAction: {
+      en: 'Explore sample capture',
+      ja: 'サンプルキャプチャを試す',
+    },
+    bodyPaneFrame: {
+      en: '(response body {label}: {reason})',
+      ja: '（レスポンスボディ {label}: {reason}）',
+    },
+    bodyStateOmitted: {
+      en: 'omitted',
+      ja: '省略',
+    },
+    bodyStateEvicted: {
+      en: 'evicted',
+      ja: '破棄済み',
+    },
+    bodyStateUnavailable: {
+      en: 'unavailable',
+      ja: '取得不可',
+    },
+    bodyStateError: {
+      en: 'error',
+      ja: 'エラー',
+    },
+    resendErrMethod: {
+      en: 'The method contains characters that are not allowed in an HTTP method token.',
+      ja: 'メソッドに HTTP メソッドトークンとして使えない文字が含まれています。',
+    },
+    resendErrUrl: {
+      en: 'The URL must be absolute and use http or https.',
+      ja: 'URL は http または https で始まる絶対 URL である必要があります。',
+    },
+    resendErrHeaderShape: {
+      en: 'Each header line needs a "Name: value" shape. First problem: {line}',
+      ja: 'ヘッダー行は「名前: 値」の形式で入力してください。最初の問題行: {line}',
+    },
+    resendErrCurl: {
+      en: 'cURL import failed: {error}.',
+      ja: 'cURL の取り込みに失敗しました: {error}。',
+    },
+    resendErrDispatch: {
+      en: 'Re-send failed: {reason}',
+      ja: '再送信に失敗しました: {reason}',
+    },
+    resendErrNotConnected: {
+      en: 'the DevTools session is not connected; reopen DevTools and try again',
+      ja: 'DevTools セッションに接続していません。DevTools を開き直して再試行してください',
+    },
     dataSafetyWarnRedacts: {
       en: 'Sanitized output redacts every URL query and form-like fragment value, both URL userinfo components, Cookie values, and every header value outside a small structural allowlist.',
       ja: 'サニタイズ済み出力では、URL クエリとフォーム形式のフラグメント値、URL のユーザー情報 2 要素、Cookie 値、そして小さな構造的許可リスト外のすべてのヘッダー値が伏せ字化されます。',
@@ -5779,6 +5904,16 @@ const _NetworkPlus = (function () {
     const entry = UI_TEXT[key];
     if (!entry) return '';
     return typeof entry[activeLanguage] === 'string' ? entry[activeLanguage] : entry.en || '';
+  }
+
+  // Fills {name} slots in a dictionary entry. Values (methods, labels, header
+  // names) stay verbatim; only the frame around them translates.
+  function uiTextFormat(key, replacements) {
+    let text = uiText(key);
+    for (const name of Object.keys(replacements || {})) {
+      text = text.replace('{' + name + '}', String(replacements[name]));
+    }
+    return text;
   }
 
   // Rows keep their canonical English responseContentReason (it crosses the
@@ -8898,14 +9033,14 @@ const _NetworkPlus = (function () {
     container.textContent = '';
     const heading = document.createElement('h3');
     heading.tabIndex = -1;
-    heading.textContent = 'Evidence to verify';
+    heading.textContent = uiText('sampleEvidenceHeading');
     container.appendChild(heading);
 
     const list = document.createElement('dl');
     list.className = 'sample-guide-evidence-list';
     appendSampleGuideEvidenceItem(
       list,
-      'Failed request',
+      uiText('sampleEvidenceFailedRequest'),
       evidence.method +
         ' ' +
         evidence.path +
@@ -8917,7 +9052,7 @@ const _NetworkPlus = (function () {
     );
     appendSampleGuideEvidenceItem(
       list,
-      'Dominant Timing phase',
+      uiText('sampleEvidenceDominantPhase'),
       evidence.dominantPhaseLabel +
         ' · ' +
         evidence.dominantDurationMs.toLocaleString('en-US') +
@@ -8925,10 +9060,10 @@ const _NetworkPlus = (function () {
     );
     appendSampleGuideEvidenceItem(
       list,
-      'Retry hint',
+      uiText('sampleEvidenceRetryHint'),
       evidence.retryHeaderName + ': ' + evidence.retryAfter + ' seconds',
     );
-    appendSampleGuideEvidenceItem(list, 'Browser evidence limit', localizeTimingLimitation(evidence.limitation));
+    appendSampleGuideEvidenceItem(list, uiText('sampleEvidenceLimit'), localizeTimingLimitation(evidence.limitation));
     container.appendChild(list);
 
     const navigationActions = document.createElement('div');
@@ -8940,7 +9075,7 @@ const _NetworkPlus = (function () {
     navigationStatus.setAttribute('aria-atomic', 'true');
     navigationActions.appendChild(
       createSampleGuideEvidenceAction(
-        'Inspect Timing evidence',
+        uiText('sampleEvidenceInspectTiming'),
         'timing',
         evidence,
         navigationStatus,
@@ -8948,7 +9083,7 @@ const _NetworkPlus = (function () {
     );
     navigationActions.appendChild(
       createSampleGuideEvidenceAction(
-        'Inspect Retry-After header',
+        uiText('sampleEvidenceInspectRetry'),
         'headers',
         evidence,
         navigationStatus,
@@ -9628,7 +9763,7 @@ const _NetworkPlus = (function () {
         const action = document.createElement('button');
         action.type = 'button';
         action.className = 'empty-state-action';
-        action.textContent = 'Clear column filters';
+        action.textContent = uiText('emptyFilteredAction');
         action.setAttribute('aria-describedby', description.id);
         action.addEventListener('click', clearColumnFilters);
         emptyState.appendChild(action);
@@ -9637,7 +9772,7 @@ const _NetworkPlus = (function () {
         const action = document.createElement('button');
         action.type = 'button';
         action.className = 'empty-state-action';
-        action.textContent = 'Explore sample capture';
+        action.textContent = uiText('emptyCaptureAction');
         action.setAttribute('aria-describedby', description.id);
         action.addEventListener('click', activateSampleCapture);
         emptyState.appendChild(action);
@@ -10024,9 +10159,9 @@ const _NetworkPlus = (function () {
 
   function requestFullClipboardAction(action, row, responseBody, trigger, label) {
     requestFullOutboundAction({
-      title: 'Copy full ' + label + '?',
-      detail: 'The full ' + label + ' may include captured credentials or body content.',
-      confirmLabel: 'Copy full ' + label,
+      title: uiTextFormat('copyFullTitle', { label }),
+      detail: uiTextFormat('copyFullDetail', { label }),
+      confirmLabel: uiTextFormat('copyFullConfirm', { label }),
       trigger,
       onConfirm: () => {
         const payload = buildClipboardPayload(action, row, {
@@ -10781,7 +10916,7 @@ const _NetworkPlus = (function () {
   function renderCachedResponseContent(row) {
     if (row.responseContentState !== 'cached') {
       const display = describeResponseContentState(row);
-      setResponsePaneMessage('(response body ' + display.label + ': ' + localizeBodyReason(display.reason) + ')');
+      setResponsePaneMessage(formatBodyPaneMessage(display));
       return;
     }
     const resBodyPane = $('#res-body');
@@ -11067,7 +11202,7 @@ const _NetworkPlus = (function () {
       .catch((error) => {
         if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
         const display = describeResponseContentState(row, error);
-        setResponsePaneMessage('(response body ' + display.label + ': ' + localizeBodyReason(display.reason) + ')');
+        setResponsePaneMessage(formatBodyPaneMessage(display));
         if (display.label === 'error') {
           setStatus(
             'Response-body retry failed for request ' +
@@ -14761,6 +14896,9 @@ const _NetworkPlus = (function () {
         if (mirrorViewerResendDispatch) {
           try {
             mirrorViewerResendDispatch(spec, (error) => {
+              // The status line stays English by policy; the paused clause
+              // matches what the DevTools session itself would say, because
+              // applyHostControlState mirrors the host's paused state here.
               setStatus(
                 error
                   ? 'Re-send failed: ' + error.message
@@ -14768,11 +14906,17 @@ const _NetworkPlus = (function () {
                       spec.method +
                       ' to ' +
                       describeResendTarget(spec.url) +
-                      ' from the DevTools session; the result appears once it is captured.',
+                      ' from the DevTools session' +
+                      (state.paused
+                        ? '; recording is paused, so resume it to see the result row.'
+                        : '; the result appears once it is captured.'),
               );
             });
           } catch (error) {
-            const reason = error && error.message ? error.message : 'the DevTools session is not connected';
+            const raw = error && error.message ? error.message : '';
+            const reason = !raw || /disconnect|not connected/i.test(raw)
+              ? 'the DevTools session is not connected; reopen DevTools and try again'
+              : raw;
             setStatus('Re-send failed: ' + reason);
             return error instanceof Error ? error : new Error(reason);
           }
@@ -14824,7 +14968,7 @@ const _NetworkPlus = (function () {
         resendCurlFillBtn.addEventListener('click', () => {
           const parsed = parseCurlCommand(resendCurlInput.value);
           if (!parsed.ok) {
-            showResendError('cURL import failed: ' + parsed.error + '.');
+            showResendError(uiTextFormat('resendErrCurl', { error: parsed.error }));
             return;
           }
           resendMethodInput.value = parsed.spec.method;
@@ -14842,19 +14986,17 @@ const _NetworkPlus = (function () {
       $('#resendSendBtn').addEventListener('click', () => {
         const method = resendMethodInput.value.trim() || 'GET';
         if (!RESEND_METHOD_PATTERN.test(method)) {
-          showResendError('The method contains characters that are not allowed in an HTTP method token.');
+          showResendError(uiText('resendErrMethod'));
           return;
         }
         const url = resendUrlInput.value.trim();
         if (!/^https?:\/\//i.test(url)) {
-          showResendError('The URL must be absolute and use http or https.');
+          showResendError(uiText('resendErrUrl'));
           return;
         }
         const parsedHeaders = parseHeaderLines(resendHeadersInput.value);
         if (parsedHeaders.invalidLines.length > 0) {
-          showResendError(
-            'Each header line needs a "Name: value" shape. First problem: ' + parsedHeaders.invalidLines[0],
-          );
+          showResendError(uiTextFormat('resendErrHeaderShape', { line: parsedHeaders.invalidLines[0] }));
           return;
         }
         const dispatchError = dispatchResendSpec({
@@ -14865,8 +15007,13 @@ const _NetworkPlus = (function () {
           credentials: resendCredentialsInput.checked,
         });
         if (dispatchError) {
-          // Keep the dialog open so the edited request is not lost.
-          showResendError('Re-send failed: ' + dispatchError.message);
+          // Keep the dialog open so the edited request is not lost. Chrome's
+          // raw 'Attempting to use a disconnected port object' names an
+          // internal; the user's situation is that the session is gone.
+          const reason = /disconnect|not connected/i.test(dispatchError.message || '')
+            ? uiText('resendErrNotConnected')
+            : dispatchError.message;
+          showResendError(uiTextFormat('resendErrDispatch', { reason }));
           return;
         }
         resendDialog.close();

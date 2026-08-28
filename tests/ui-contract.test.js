@@ -478,9 +478,9 @@ describe('guided sample capture static contracts', () => {
   test('renders one local-only action only for a truly empty capture', () => {
     expect(js).toContain('const mode = getEmptyStateMode(state.rows.length, visibleRowCount);');
     expect(js).toContain("if (mode === 'filtered')");
-    expect(js).toContain("action.textContent = 'Clear column filters';");
+    expect(js).toContain("action.textContent = uiText('emptyFilteredAction');");
     expect(js).toContain("action.addEventListener('click', clearColumnFilters);");
-    expect(js).toContain("action.textContent = 'Explore sample capture';");
+    expect(js).toContain("action.textContent = uiText('emptyCaptureAction');");
     expect(js).not.toContain("action.setAttribute('aria-label'");
     expect(js).toContain("action.setAttribute('aria-describedby', description.id);");
     expect(js).toContain("action.addEventListener('click', activateSampleCapture);");
@@ -848,17 +848,17 @@ describe('sample evidence guide static contracts', () => {
     expect(guideUiBlock).toContain(
       'deriveSampleGuideEvidence(\n      createSampleCaptureRequests(SAMPLE_CAPTURE_BASE_TIMESTAMP)',
     );
-    expect(guideUiBlock).toContain("heading.textContent = 'Evidence to verify';");
+    expect(guideUiBlock).toContain("heading.textContent = uiText('sampleEvidenceHeading');");
     expect(guideUiBlock).toContain("document.createElement('dl')");
-    expect(guideUiBlock).toContain("appendSampleGuideEvidenceItem(\n      list,\n      'Failed request'");
-    expect(guideUiBlock).toContain("'Dominant Timing phase'");
-    expect(guideUiBlock).toContain("'Retry hint'");
-    expect(guideUiBlock).toContain("'Browser evidence limit'");
+    expect(guideUiBlock).toContain("appendSampleGuideEvidenceItem(\n      list,\n      uiText('sampleEvidenceFailedRequest')");
+    expect(guideUiBlock).toContain("uiText('sampleEvidenceDominantPhase')");
+    expect(guideUiBlock).toContain("uiText('sampleEvidenceRetryHint')");
+    expect(guideUiBlock).toContain("uiText('sampleEvidenceLimit')");
     expect(guideUiBlock).toContain("navigationActions.className = 'sample-guide-evidence-actions';");
     expect(guideUiBlock).toContain("document.createElement('button')");
     expect(guideUiBlock).toContain("button.textContent = label;");
-    expect(guideUiBlock).toContain("'Inspect Timing evidence'");
-    expect(guideUiBlock).toContain("'Inspect Retry-After header'");
+    expect(guideUiBlock).toContain("uiText('sampleEvidenceInspectTiming')");
+    expect(guideUiBlock).toContain("uiText('sampleEvidenceInspectRetry')");
     expect(guideUiBlock).toContain("navigationStatus.setAttribute('role', 'status');");
     expect(guideUiBlock).not.toContain('innerHTML');
     expect(guideUiBlock).not.toMatch(
@@ -1524,7 +1524,7 @@ describe('settings and language contracts', () => {
     // Stored body-unavailability reasons stay canonical English on the row
     // and translate only where rendered.
     expect(js).toContain(
-      "setResponsePaneMessage('(response body ' + display.label + ': ' + localizeBodyReason(display.reason) + ')');",
+      'setResponsePaneMessage(formatBodyPaneMessage(display));',
     );
     expect(js).toContain('const key = LOCALIZED_REASON_KEYS.get(reason);');
     expect(js).toContain('en: NAVIGATION_BODY_UNAVAILABLE_REASON,');
@@ -3425,7 +3425,7 @@ describe('devtools-session mirror contracts', () => {
     expect(js).toContain("'The transfer exceeded its declared size and was refused.'");
     // A disconnected remote resend reports inside the dialog instead of
     // throwing with the dialog stuck open.
-    expect(js).toContain("showResendError('Re-send failed: ' + dispatchError.message);");
+    expect(js).toContain("showResendError(uiTextFormat('resendErrDispatch', { reason }));");
     // Theme and language changes propagate live between the panel and the
     // mirror tab over the shared extension storage.
     expect(js).toContain('chrome.storage.onChanged.addListener((changes, areaName) => {');
@@ -3561,7 +3561,7 @@ describe('export scope contracts', () => {
     expect(css).toMatch(/\.context-menu-submenu\{(?![^}]*display:)[^}]*\}/);
 
     // Full HAR export and the full body copies keep their confirmation.
-    expect(js).toContain("title: 'Copy full ' + label + '?',");
+    expect(js).toContain("title: uiTextFormat('copyFullTitle', { label }),");
     expect(js).toContain("onConfirm: () => exportHAR({ mode: 'full', confirmed: true, scope })");
   });
 
@@ -3631,7 +3631,7 @@ describe('export scope contracts', () => {
     expect(html).toMatch(/id="resendCurlInput"/);
     expect(html).toMatch(/id="resendCurlFillBtn"[^>]*>Fill fields from cURL</);
     expect(js).toContain('const parsed = parseCurlCommand(resendCurlInput.value);');
-    expect(js).toContain("showResendError('cURL import failed: ' + parsed.error + '.');");
+    expect(js).toContain("showResendError(uiTextFormat('resendErrCurl', { error: parsed.error }));");
     expect(js).toContain("return { ok: false, error: 'the cURL flag ' + token + ' is not supported here' };");
     // The parser is pure string work: no network, DOM, or storage access.
     const parserBlock = js.slice(
