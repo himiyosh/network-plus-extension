@@ -8,20 +8,20 @@ This dossier is a repository-local recommendation for a future Chrome Web Store 
 
 ### Upload artifact
 
-- **Release:** `v1.12.0`
-- **ZIP:** `network-plus-extension-1.12.0.zip`
-- **Size:** `206937 bytes`
-- **SHA-256:** `d12593a2d877ade1329aef52e6402f07e83c2a597705f21b7038174011cc6863`
-- **Download:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.12.0/network-plus-extension-1.12.0.zip
+- **Release:** `v1.13.0`
+- **ZIP:** `network-plus-extension-1.13.0.zip`
+- **Size:** `214781 bytes`
+- **SHA-256:** `ec2e5d9804ed24cd9ae3231502321fe25c2b79b3e700341d6d6feb2388c4f8e2`
+- **Download:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.13.0/network-plus-extension-1.13.0.zip
 
-The ZIP was built from the reviewed commit by `npm run extension:package`; a second local build reproduced the same size and digest. Archive entries carry fixed timestamps, so `TZ=UTC npm run extension:package` at tag `v1.12.0` reproduces the same bytes; the entry timestamps are normalized to the ZIP epoch in local time, so a build outside UTC yields the same entry contents under a different digest. The publishing workflow refuses to create a release whose archive does not match this digest. The `v1.12.0` release was publicly observable and its asset was re-downloaded on 2026-08-27, byte-identical to the local build. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
+The ZIP was built from the reviewed commit by `npm run extension:package`; a second local build reproduced the same size and digest. Archive entries carry fixed timestamps normalized in local time as of this release, so `npm run extension:package` at tag `v1.13.0` reproduces the same bytes from any timezone. The publishing workflow refuses to create a release whose archive does not match this digest. Public observation of the `v1.13.0` release is a post-merge step and is not claimed here. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
 
 ### Observed repository facts
 
-- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.12.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
+- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.13.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The package guard allows only the eleven audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift. The one background service worker it admits has a single audited job: minimizing the undocked DevTools window when the pop-out tab opens, through the permissionless chrome.windows API, reading no tab URLs or page data.
 - The same runtime uses Chromium extension APIs without an Edge-only code path. Chrome 151 loaded the manifest without extension errors, all 98 real-browser regression scenarios passed, and the Network+ DevTools panel was confirmed manually.
-- The `v1.12.0` archive built from the reviewed commit is the current repository-backed upload source; the matching GitHub release was created by CI on 2026-08-26 and its asset re-downloaded and byte-compared on 2026-08-27. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
+- The `v1.13.0` archive built from the reviewed commit is the current repository-backed upload source; the matching GitHub release is created by CI after this commit lands on `main`. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
 
 ## Developer account prerequisites
 
@@ -150,8 +150,8 @@ No account, credentials, subscription, remote service, or live customer traffic 
 
 The sections above describe a first submission. When a Chrome Web Store item already exists for this extension, the work is a package update against that item: the account prerequisites are already satisfied and no new item is created.
 
-- The `manifest.json` version must be strictly higher than the version the store currently carries. v1.12.0 satisfies this against v1.11.0, and the release workflow refuses to publish a version that already has a GitHub release, so a version cannot be silently reused.
-- Upload `network-plus-extension-1.12.0.zip` obtained from the trusted release route as a new package on the existing item, and compare the complete 64-character SHA-256 recorded above against the downloaded file before submitting.
+- The `manifest.json` version must be strictly higher than the version the store currently carries. v1.13.0 satisfies this against v1.12.0, and the release workflow refuses to publish a version that already has a GitHub release, so a version cannot be silently reused.
+- Upload `network-plus-extension-1.13.0.zip` obtained from the trusted release route as a new package on the existing item, and compare the complete 64-character SHA-256 recorded above against the downloaded file before submitting.
 - Re-check the listing text, screenshots, and privacy answers against this dossier. The listing is not versioned in the dashboard, so a stale screenshot or description stays live until it is replaced; the four 1280 x 800 screenshots in `docs/store-assets/` were re-captured for this version because the toolbar mark and status bar changed. The image swap itself is scripted: `npm run store:pages -- chrome` clears the slots it is replacing and uploads the current contents of `docs/store-assets/` as a draft, submitting nothing. It runs on the operator's machine, not in CI. The slot-by-slot procedure below remains the fallback when a console changes shape under it.
 - An update is a fresh review. Distribution and visibility settings carry over from the existing item unless the operator changes them, and the previously reviewed package stays live until the new one is approved.
 - Field labels and the navigation path for package updates must be confirmed in the live dashboard, which can change independently of this repository.
