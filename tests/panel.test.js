@@ -6016,6 +6016,9 @@ describe('websocket capture pieces', () => {
         requestPostData: { mimeType: 'text/plain', text: '' },
         responseContent: '',
         responseContentState: 'pending-admission',
+        // Real stream rows carry the socket id; it is what keeps a live,
+        // growing transcript out of the 32 MiB response cache.
+        _wsSocketId: event.socketId,
         size: 0,
         duration: 0,
         statusText: 'Connecting',
@@ -6044,7 +6047,13 @@ describe('websocket capture pieces', () => {
     expect(row.responseContent).toContain('connection open');
     expect(row.responseContent).toContain('↓');
     expect(row.responseContent).toContain('closed (code 1000)');
-    expect(row.responseContentState).toBe('pending-admission');
+    // A live transcript publishes directly as displayable text: state
+    // 'cached' with the decoded text in place, but never entering the
+    // response-cache accounting, whose eviction would destroy the frames of
+    // a connection that is still open.
+    expect(row.responseContentState).toBe('cached');
+    expect(row.responseContentText).toBe(row.responseContent);
+    expect(row.responseContentBytes).toBeGreaterThan(0);
     expect(row._wsSentCount).toBe(1);
     expect(row._wsReceivedCount).toBe(1);
     expect(row.size).toBe('{"data":1}'.length);
@@ -6615,3 +6624,109 @@ describe('mirror remote control (command channel + import transfer)', () => {
     expect(results[0].error).toBe('The import transfer was interrupted.');
   });
 });
+
+// The mirror protocol's session identity and message bounds. Row ids restart
+// at 1 in every DevTools session and a mirror tab keeps its rows across a
+// disconnect, so identity is what stops a reattached tab from aliasing an old
+// session's rows onto a new session's ids — and what stops a duplicated tab,
+// sharing the same port, from settling the other tab's callbacks.
+describe('mirror session identity and bounds', () => {
+  const captureViewer = () => {
+    const seen = { snapshots: [], appended: [], posted: [] };
+    const viewer = np.createMirrorViewerSession({
+      postMessage: (message) => seen.posted.push(message),
+      appendWireRow: (wireRow) => seen.appended.push(wireRow),
+      applyWireSnapshot: (rows, options) => seen.snapshots.push({ rows, options }),
+      getLocalCount: () => 0,
+      getLocalMaxId: () => 0,
+      onHostSync: () => {},
+    });
+    return { viewer, seen };
+  };
+
+  test('a snapshot from a new host session is applied as a rebuild, not a reconcile', () => {
+    const { viewer, seen } = captureViewer();
+    viewer.handleMessage({ type: 'snapshot-start', generation: 1, session: 'session-a', total: 0 });
+    viewer.handleMessage({ type: 'snapshot-end', generation: 1 });
+    viewer.handleMessage({ type: 'snapshot-start', generation: 2, session: 'session-b', total: 0 });
+    viewer.handleMessage({ type: 'snapshot-end', generation: 2 });
+    expect(seen.snapshots).toHaveLength(2);
+    expect(seen.snapshots[0].options.sessionChanged).toBe(false);
+    expect(seen.snapshots[1].options.sessionChanged).toBe(true);
+  });
+
+  test('a pushed row from a different session is ignored and the sync heartbeat forces a resync', () => {
+    const { viewer, seen } = captureViewer();
+    viewer.handleMessage({ type: 'row', session: 'session-a', row: { id: 1 } });
+    expect(seen.appended).toHaveLength(1);
+    viewer.handleMessage({ type: 'row', session: 'session-b', row: { id: 1 } });
+    expect(seen.appended).toHaveLength(1);
+    viewer.handleMessage({ type: 'sync', session: 'session-b', count: 0, maxId: 0, paused: false });
+    expect(seen.posted.filter((message) => message.type === 'snapshot-request')).toHaveLength(1);
+  });
+
+  test('results echoing another viewer nonce never settle this tab, and the echo settles it once', () => {
+    const { viewer, seen } = captureViewer();
+    const outcomes = [];
+    viewer.requestBody(7, (error, payload) => outcomes.push({ error, payload }));
+    const request = seen.posted.find((message) => message.type === 'body-request');
+    expect(typeof request.viewer).toBe('string');
+    viewer.handleMessage({
+      type: 'body-result',
+      requestId: request.requestId,
+      viewer: 'some-other-tab',
+      ok: true,
+      content: 'wrong',
+      encoding: '',
+    });
+    expect(outcomes).toHaveLength(0);
+    viewer.handleMessage({
+      type: 'body-result',
+      requestId: request.requestId,
+      viewer: request.viewer,
+      ok: true,
+      content: 'right',
+      encoding: '',
+    });
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].payload.content).toBe('right');
+  });
+
+  test('snapshot chunks split on the byte bound, not only the 500-row count', () => {
+    const rows = Array.from({ length: 3 }, (_unused, index) => ({
+      id: index + 1,
+      startedDateTime: '2026-08-29T00:00:00.000Z',
+      duration: 1,
+      method: 'WS',
+      url: 'wss://stream.example.test/live',
+      requestHeaders: [],
+      // Half the per-chunk character budget of frame text per row: three rows
+      // would once have shipped as a single 500-row chunk and thrown past the
+      // port limit; the byte bound now flushes after each.
+      requestPostData: { mimeType: 'text/plain', text: 'x'.repeat(1.5 * 1024 * 1024) },
+      status: '',
+      statusText: 'Open',
+      protocol: 'WS',
+      responseHeaders: [],
+      size: 0,
+      type: 'websocket',
+      timings: {},
+      initiator: null,
+    }));
+    const posted = [];
+    const host = np.createMirrorHostSession({
+      postMessage: (message) => posted.push(message),
+      getRows: () => rows,
+      isPaused: () => false,
+      fetchBodyForRow: () => Promise.reject(new Error('unused')),
+    });
+    host.sendSnapshot();
+    const chunkMessages = posted.filter((message) => message.type === 'snapshot-rows');
+    expect(chunkMessages).toHaveLength(3);
+    expect(chunkMessages.every((message) => message.rows.length === 1)).toBe(true);
+    const startMessage = posted.find((message) => message.type === 'snapshot-start');
+    expect(typeof startMessage.session).toBe('string');
+    expect(startMessage.session.length).toBeGreaterThan(0);
+  });
+});
+
