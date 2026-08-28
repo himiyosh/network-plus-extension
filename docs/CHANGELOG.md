@@ -4,6 +4,14 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🐛 **Stream transcripts** — live WS/SSE logs no longer enter the 32 MiB body cache, whose eviction could silently wipe an open connection's frames.
+  - Why: the cache accounts a body once at admission; a transcript that keeps growing broke the accounting and then lost the data.
+- 🐛 **Mirror reattach** — a reattached tab rebuilds its table when a new DevTools session connects, instead of matching rows by bare id.
+  - Why: row ids restart at 1 per session, so id-matching aliased the old session's rows onto the new session's requests.
+- 🔧 **Mirror robustness** — duplicated tabs no longer settle each other's callbacks, snapshot chunks split by size too, and an oversized body is refused honestly instead of timing out.
+- 🐛 **Paused stream closes** — a socket that closes while capture is paused now marks its row Closed with a duration, instead of reading Open forever.
+- 🐛 **Clear-undo after navigation** — rows held by the undo snapshot flip to the honest navigation state too, so Undo no longer grinds them through doomed body fetches.
+- ⚡ **Grid focus** — focusing a row flips two tab stops instead of sweeping every rendered row, and the mirror tab dedupes incoming rows in O(1).
 - ✨ **Changelog format** — entries are one emoji-tagged line again, with an optional `Why:` line under them.
   - Why: entries had drifted to 688 characters on average by v1.12.0; `changelog:check` now caps and tags them.
 - 🐛 **Edge listing link** — both READMEs linked the storefront by Partner Center product GUID and returned 404.

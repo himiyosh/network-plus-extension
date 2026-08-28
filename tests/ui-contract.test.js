@@ -3450,7 +3450,12 @@ describe('navigation persistence contracts', () => {
     const navStart = js.indexOf('chrome.devtools.network.onNavigated.addListener');
     expect(navStart).toBeGreaterThan(-1);
     const navBlock = js.slice(navStart, js.indexOf("setStatus('Capturing...')", navStart));
-    expect(navBlock).toContain('markUnfetchedRowsForNavigation(pendingLiveRows.concat(state.rows))');
+    // The sweep must cover rows held by a pending clear-undo snapshot too:
+    // they were detached from state.rows but keep their request objects, and
+    // Undo would otherwise restore them into doomed body fetches.
+    expect(navBlock).toContain('state.clearUndoSnapshot ? state.clearUndoSnapshot.rows : []');
+    expect(navBlock).toContain('markUnfetchedRowsForNavigation(');
+    expect(navBlock).toContain('pendingLiveRows.concat(state.rows, heldSnapshotRows)');
     expect(navBlock).toContain("'Page navigated; kept '");
     expect(navBlock).toContain("' response bodies were not retrieved in time.'");
     // The listener may mark bodies, but must never drop rows.

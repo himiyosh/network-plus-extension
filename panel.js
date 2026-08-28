@@ -4826,6 +4826,13 @@ const _NetworkPlus = (function () {
   function normalizeIncomingResponseContent(rows, source) {
     for (const row of rows) {
       if (!isRetainedRow(row, state.retainedRows)) continue;
+      if (isLiveStreamRow(row)) {
+        // A connection's first frames often share the commit batch with its
+        // open-attempt; publish them rather than admitting a live transcript
+        // into the cache it must never join.
+        if (typeof row.responseContent === 'string') publishStreamTranscript(row);
+        continue;
+      }
       if (typeof row.responseContent === 'string') {
         const payload = measureResponsePayload(row.responseContent, row.responseContentEncoding, resolveRowResponseCharset(row), isHtmlLikeMime(row.type));
         releaseResponseContent(row, 'loading', false);
@@ -6397,6 +6404,11 @@ const _NetworkPlus = (function () {
   const MIRROR_PROTOCOL_VERSION = 2;
   const MIRROR_PORT_PREFIX = 'networkplus-mirror:';
   const MIRROR_SNAPSHOT_CHUNK_SIZE = 500;
+  // A snapshot chunk is bounded by characters as well as rows: 500 stream rows
+  // can carry ~256 KiB of frame text each, and one oversize postMessage throws,
+  // is swallowed by the port wrapper, and leaves the viewer requesting a fresh
+  // snapshot every second forever. Chunks flush at whichever bound hits first.
+  const MIRROR_SNAPSHOT_CHUNK_LIMIT_CHARS = 2 * 1024 * 1024;
   const MIRROR_SYNC_INTERVAL_MS = 1000;
   const MIRROR_RECONNECT_INTERVAL_MS = 1500;
   // Import files travel the port as base64 chunks; the byte cap keeps one
@@ -6659,6 +6671,30 @@ const _NetworkPlus = (function () {
     return '… earlier frames trimmed …\n' + (firstBreak >= 0 ? tail.slice(firstBreak + 1) : tail);
   }
 
+  // A live stream transcript grows with every drain and is bounded per
+  // direction by appendBoundedWsText, so it must never sit in the 32 MiB
+  // response cache: the cache accounts a body once at admission and evicts by
+  // age, and both halves are wrong for a transcript — growth after admission
+  // went unaccounted, and eviction destroyed the recorded frames of a
+  // connection that was still open. Stream rows publish their transcript
+  // directly in the shape admission would have produced and stay out of the
+  // cache map entirely. Imported WS conversations are static text and keep
+  // ordinary admission.
+  function isLiveStreamRow(row) {
+    return Boolean(row) && typeof row._wsSocketId === 'number';
+  }
+
+  function publishStreamTranscript(row) {
+    const content = typeof row.responseContent === 'string' ? row.responseContent : '';
+    row.responseContent = content;
+    row.responseContentEncoding = '';
+    row.responseContentText = content;
+    row.responseContentBytes = getUtf8ByteLength(content);
+    row.responseContentState = 'cached';
+    row.responseContentReason = '';
+    row.responseContentError = null;
+  }
+
   // Applies drained wrapper events to rows. The context supplies row lookup
   // and creation so the same logic is testable without a DevTools session.
   function ingestWsEvents(events, context) {
@@ -6694,10 +6730,14 @@ const _NetworkPlus = (function () {
             line,
             WS_DIRECTION_TEXT_LIMIT_CHARS,
           );
-          row.responseContentState = 'pending-admission';
-          row.responseContentEncoding = '';
-          row.responseContentText = null;
-          row.responseContentBytes = 0;
+          if (isLiveStreamRow(row)) {
+            publishStreamTranscript(row);
+          } else {
+            row.responseContentState = 'pending-admission';
+            row.responseContentEncoding = '';
+            row.responseContentText = null;
+            row.responseContentBytes = 0;
+          }
         }
         if (event.kind === 'ws-open') row.statusText = 'Open';
         if (event.kind === 'ws-received') {
@@ -6741,6 +6781,26 @@ const _NetworkPlus = (function () {
     return bytes;
   }
 
+  function mirrorSessionToken() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  }
+
+  // Rough serialized size of a wire row, for chunking. Counting the two
+  // transcript directions and headers covers everything that actually grows.
+  function estimateWireRowChars(wireRow) {
+    let chars = 256 + (wireRow.request.url ? wireRow.request.url.length : 0);
+    const postData = wireRow.request.postData;
+    if (postData && typeof postData.text === 'string') chars += postData.text.length;
+    for (const header of wireRow.request.headers) {
+      chars += (header.name ? header.name.length : 0) + (header.value ? header.value.length : 0) + 8;
+    }
+    for (const header of wireRow.response.headers) {
+      chars += (header.name ? header.name.length : 0) + (header.value ? header.value.length : 0) + 8;
+    }
+    return chars;
+  }
+
   function createMirrorHostSession({
     postMessage,
     getRows,
@@ -6752,6 +6812,13 @@ const _NetworkPlus = (function () {
   }) {
     let snapshotGeneration = 0;
     const importTransfers = new Map();
+    // Row ids restart at 1 in every DevTools session, and a mirror tab keeps
+    // its rows after a disconnect. Without a session identity, a reattached
+    // tab would alias the old session's rows onto the new session's ids and
+    // present the wrong evidence. The token travels on everything that
+    // carries or reconciles rows.
+    const sessionToken = mirrorSessionToken();
+    const transferKey = (message) => String(message.viewer || '') + ':' + message.commandId;
     const sendSnapshot = () => {
       snapshotGeneration += 1;
       const generation = snapshotGeneration;
@@ -6759,16 +6826,28 @@ const _NetworkPlus = (function () {
       postMessage({
         type: 'snapshot-start',
         generation,
+        session: sessionToken,
         total: rows.length,
         protocolVersion: MIRROR_PROTOCOL_VERSION,
       });
-      for (let index = 0; index < rows.length; index += MIRROR_SNAPSHOT_CHUNK_SIZE) {
-        postMessage({
-          type: 'snapshot-rows',
-          generation,
-          rows: rows.slice(index, index + MIRROR_SNAPSHOT_CHUNK_SIZE).map(serializeRowForMirror),
-        });
+      let chunk = [];
+      let chunkChars = 0;
+      const flushChunk = () => {
+        if (chunk.length === 0) return;
+        postMessage({ type: 'snapshot-rows', generation, rows: chunk });
+        chunk = [];
+        chunkChars = 0;
+      };
+      for (const row of rows) {
+        const wireRow = serializeRowForMirror(row);
+        const rowChars = estimateWireRowChars(wireRow);
+        if (chunk.length > 0 && (chunk.length >= MIRROR_SNAPSHOT_CHUNK_SIZE || chunkChars + rowChars > MIRROR_SNAPSHOT_CHUNK_LIMIT_CHARS)) {
+          flushChunk();
+        }
+        chunk.push(wireRow);
+        chunkChars += rowChars;
       }
+      flushChunk();
       postMessage({ type: 'snapshot-end', generation });
     };
     const sendSync = () => {
@@ -6777,14 +6856,15 @@ const _NetworkPlus = (function () {
       for (const row of rows) if (row.id > maxId) maxId = row.id;
       postMessage({
         type: 'sync',
+        session: sessionToken,
         count: rows.length,
         maxId,
         paused: isPaused() === true,
         control: typeof getControlState === 'function' ? getControlState() : null,
       });
     };
-    const sendCommandResult = (commandId, error) => {
-      postMessage({ type: 'command-result', commandId, ok: !error, error: error || '' });
+    const sendCommandResult = (commandId, error, viewer) => {
+      postMessage({ type: 'command-result', commandId, viewer, ok: !error, error: error || '' });
     };
     const handleMessage = (message) => {
       if (!message || typeof message !== 'object') return;
@@ -6795,6 +6875,7 @@ const _NetworkPlus = (function () {
       }
       if (message.type === 'body-request') {
         const requestId = message.requestId;
+        const viewer = message.viewer;
         Promise.resolve()
           .then(() => fetchBodyForRow(message.rowId))
           .then(
@@ -6802,6 +6883,7 @@ const _NetworkPlus = (function () {
               postMessage({
                 type: 'body-result',
                 requestId,
+                viewer,
                 ok: true,
                 content: payload.content,
                 encoding: payload.encoding,
@@ -6810,6 +6892,7 @@ const _NetworkPlus = (function () {
               postMessage({
                 type: 'body-result',
                 requestId,
+                viewer,
                 ok: false,
                 error: error && error.message ? error.message : 'Response content is unavailable.',
               }),
@@ -6818,12 +6901,13 @@ const _NetworkPlus = (function () {
       }
       if (message.type === 'command') {
         const commandId = message.commandId;
+        const viewer = message.viewer;
         if (typeof executeCommand !== 'function') {
-          sendCommandResult(commandId, 'This DevTools session does not accept mirror commands.');
+          sendCommandResult(commandId, 'This DevTools session does not accept mirror commands.', viewer);
           return;
         }
         executeCommand(String(message.name || ''), message.args || {}, (error) => {
-          sendCommandResult(commandId, error);
+          sendCommandResult(commandId, error, viewer);
           sendSync();
         });
         return;
@@ -6833,10 +6917,11 @@ const _NetworkPlus = (function () {
           sendCommandResult(
             message.commandId,
             'The file exceeds the ' + MIRROR_IMPORT_MAX_BYTES / (1024 * 1024) + ' MiB mirror transfer limit.',
+            message.viewer,
           );
           return;
         }
-        importTransfers.set(message.commandId, {
+        importTransfers.set(transferKey(message), {
           fileName: String(message.fileName || 'import.har'),
           parts: [],
           receivedChars: 0,
@@ -6848,38 +6933,38 @@ const _NetworkPlus = (function () {
         return;
       }
       if (message.type === 'import-chunk') {
-        const transfer = importTransfers.get(message.commandId);
+        const transfer = importTransfers.get(transferKey(message));
         if (!transfer) return;
         const data = String(message.data || '');
         transfer.receivedChars += data.length;
         if (transfer.receivedChars > transfer.maxChars) {
-          importTransfers.delete(message.commandId);
-          sendCommandResult(message.commandId, 'The transfer exceeded its declared size and was refused.');
+          importTransfers.delete(transferKey(message));
+          sendCommandResult(message.commandId, 'The transfer exceeded its declared size and was refused.', message.viewer);
           return;
         }
         transfer.parts.push(data);
         return;
       }
       if (message.type === 'import-end') {
-        const transfer = importTransfers.get(message.commandId);
-        importTransfers.delete(message.commandId);
+        const transfer = importTransfers.get(transferKey(message));
+        importTransfers.delete(transferKey(message));
         if (!transfer) {
-          sendCommandResult(message.commandId, 'The import transfer was interrupted.');
+          sendCommandResult(message.commandId, 'The import transfer was interrupted.', message.viewer);
           return;
         }
         let bytes;
         try {
           bytes = base64ToBytes(transfer.parts.join(''));
         } catch (_error) {
-          sendCommandResult(message.commandId, 'The transferred file could not be decoded.');
+          sendCommandResult(message.commandId, 'The transferred file could not be decoded.', message.viewer);
           return;
         }
         if (typeof receiveImportFile !== 'function') {
-          sendCommandResult(message.commandId, 'This DevTools session does not accept mirror imports.');
+          sendCommandResult(message.commandId, 'This DevTools session does not accept mirror imports.', message.viewer);
           return;
         }
         receiveImportFile(transfer.fileName, bytes, (error) => {
-          sendCommandResult(message.commandId, error);
+          sendCommandResult(message.commandId, error, message.viewer);
           sendSync();
         });
       }
@@ -6888,7 +6973,7 @@ const _NetworkPlus = (function () {
       sendSnapshot,
       sendSync,
       handleMessage,
-      pushRow: (row) => postMessage({ type: 'row', row: serializeRowForMirror(row) }),
+      pushRow: (row) => postMessage({ type: 'row', session: sessionToken, row: serializeRowForMirror(row) }),
       // A viewer that disconnects mid-transfer would otherwise leave its
       // accumulated chunks (up to the full cap) parked in this map forever.
       dropImportTransfers: () => importTransfers.clear(),
@@ -6908,12 +6993,24 @@ const _NetworkPlus = (function () {
     let nextCommandId = 1;
     const pendingBodyCallbacks = new Map();
     const pendingCommandCallbacks = new Map();
+    // chrome.runtime.connect fires onConnect in every extension context, so a
+    // duplicated mirror tab shares the host's port. Every request carries this
+    // tab's nonce and the host echoes it, so a result can only ever settle
+    // the callbacks of the tab that asked. Results without an echo (an older
+    // host) are accepted as before.
+    const viewerNonce = mirrorSessionToken();
+    const resultIsForAnotherViewer = (message) => message.viewer != null && message.viewer !== viewerNonce;
+    // The host session that produced the rows currently on screen. Row ids
+    // restart at 1 per DevTools session, so rows may only ever be matched by
+    // id within one session; a new token means the table must be rebuilt, not
+    // reconciled.
+    let hostSessionToken = null;
     const requestBody = (rowId, callback) => {
       const requestId = nextBodyRequestId;
       nextBodyRequestId += 1;
       pendingBodyCallbacks.set(requestId, callback);
       try {
-        postMessage({ type: 'body-request', requestId, rowId });
+        postMessage({ type: 'body-request', requestId, rowId, viewer: viewerNonce });
       } catch (error) {
         pendingBodyCallbacks.delete(requestId);
         throw error;
@@ -6950,7 +7047,7 @@ const _NetworkPlus = (function () {
     const sendCommand = (name, args, callback) => {
       const commandId = trackCommand(callback, MIRROR_COMMAND_TIMEOUT_MS);
       try {
-        postMessage({ type: 'command', commandId, name, args: args || {} });
+        postMessage({ type: 'command', commandId, viewer: viewerNonce, name, args: args || {} });
       } catch (error) {
         discardCommand(commandId);
         throw error;
@@ -6959,16 +7056,17 @@ const _NetworkPlus = (function () {
     const sendImportFile = (fileName, bytes, callback) => {
       const commandId = trackCommand(callback, MIRROR_IMPORT_RESULT_TIMEOUT_MS);
       try {
-        postMessage({ type: 'import-begin', commandId, fileName, size: bytes.length });
+        postMessage({ type: 'import-begin', commandId, viewer: viewerNonce, fileName, size: bytes.length });
         const base64 = bytesToBase64(bytes);
         for (let index = 0; index < base64.length; index += MIRROR_IMPORT_CHUNK_CHARS) {
           postMessage({
             type: 'import-chunk',
             commandId,
+            viewer: viewerNonce,
             data: base64.slice(index, index + MIRROR_IMPORT_CHUNK_CHARS),
           });
         }
-        postMessage({ type: 'import-end', commandId });
+        postMessage({ type: 'import-end', commandId, viewer: viewerNonce });
       } catch (error) {
         discardCommand(commandId);
         throw error;
@@ -6978,7 +7076,12 @@ const _NetworkPlus = (function () {
       if (!message || typeof message !== 'object') return;
       switch (message.type) {
         case 'snapshot-start':
-          pendingSnapshot = { generation: message.generation, rows: [] };
+          pendingSnapshot = {
+            generation: message.generation,
+            rows: [],
+            sessionChanged: message.session != null && hostSessionToken != null && message.session !== hostSessionToken,
+            session: message.session,
+          };
           break;
         case 'snapshot-rows':
           if (
@@ -6991,21 +7094,30 @@ const _NetworkPlus = (function () {
           break;
         case 'snapshot-end':
           if (pendingSnapshot && pendingSnapshot.generation === message.generation) {
-            const rows = pendingSnapshot.rows;
+            const snapshot = pendingSnapshot;
             pendingSnapshot = null;
-            applyWireSnapshot(rows);
+            if (snapshot.session != null) hostSessionToken = snapshot.session;
+            applyWireSnapshot(snapshot.rows, { sessionChanged: snapshot.sessionChanged });
           }
           break;
         case 'row':
+          // A pushed row from a different session than the table cannot be
+          // matched by id; the sync heartbeat's mismatch triggers the rebuild.
+          if (message.session != null && hostSessionToken != null && message.session !== hostSessionToken) break;
+          if (message.session != null && hostSessionToken == null) hostSessionToken = message.session;
           if (message.row && typeof message.row === 'object') appendWireRow(message.row);
           break;
         case 'sync': {
           if (typeof onHostSync === 'function') onHostSync(message);
-          const mismatch = message.count !== getLocalCount() || message.maxId !== getLocalMaxId();
+          const sessionChanged =
+            message.session != null && hostSessionToken != null && message.session !== hostSessionToken;
+          const mismatch =
+            sessionChanged || message.count !== getLocalCount() || message.maxId !== getLocalMaxId();
           if (mismatch && !pendingSnapshot) postMessage({ type: 'snapshot-request' });
           break;
         }
         case 'body-result': {
+          if (resultIsForAnotherViewer(message)) return;
           const callback = pendingBodyCallbacks.get(message.requestId);
           if (!callback) return;
           pendingBodyCallbacks.delete(message.requestId);
@@ -7014,6 +7126,7 @@ const _NetworkPlus = (function () {
           break;
         }
         case 'command-result': {
+          if (resultIsForAnotherViewer(message)) return;
           settleCommand(
             message.commandId,
             message.ok ? null : new Error(message.error || 'The DevTools session rejected the command.'),
@@ -7911,21 +8024,27 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 10: Table Row Creation (shared) [Q2]
   // ============================================================
+  // The grid keeps exactly one row in the tab order (roving tabindex). The
+  // focus handler used to enforce that with a full-table sweep — O(rows) per
+  // focus, O(rows²) per arrow-key traversal, the same quadratic trap
+  // replaceRenderedRowStates already replaced with a two-element flip.
+  // Tracking the current stop makes focus O(1); the render paths seed it.
+  let currentRowTabStop = null;
+
   function createTableRow(row, onClick, isTabStop) {
     const tr = document.createElement('tr');
     tr.addEventListener('click', onClick);
     tr.addEventListener('focus', () => {
       state.focusedRow = row;
-      const tbody = $('#tbody');
-      if (tbody) {
-        $all('tr[data-row-id]', tbody).forEach((candidate) => {
-          candidate.tabIndex = candidate === tr ? 0 : -1;
-        });
-      }
+      const previous = currentRowTabStop;
+      if (previous && previous !== tr && previous.isConnected) previous.tabIndex = -1;
+      tr.tabIndex = 0;
+      currentRowTabStop = tr;
     });
     tr.dataset.rowId = row.id;
     tr.id = 'request-row-' + row.id;
     tr.tabIndex = isTabStop ? 0 : -1;
+    if (isTabStop) currentRowTabStop = tr;
     tr.setAttribute('role', 'row');
     tr.setAttribute('aria-keyshortcuts', 'ContextMenu Shift+F10');
     tr.title = 'Press Shift+F10 or the Context Menu key for request actions';
@@ -9756,7 +9875,10 @@ const _NetworkPlus = (function () {
     if (previousTabStop && previousTabStop !== nextTabStop && previousTabStop.isConnected !== false) {
       previousTabStop.tabIndex = -1;
     }
-    if (nextTabStop) nextTabStop.tabIndex = 0;
+    if (nextTabStop) {
+      nextTabStop.tabIndex = 0;
+      currentRowTabStop = nextTabStop;
+    }
     if (focusRowId) {
       const rowToFocus = rowElementById.get(String(focusRowId));
       if (rowToFocus) rowToFocus.focus({ preventScroll: true });
@@ -13781,8 +13903,15 @@ const _NetworkPlus = (function () {
           // Navigation never clears the table. It only ends the browser's
           // willingness to serve the previous document's response bodies, so
           // rows that lost that race flip to an honest terminal state now
-          // instead of failing a doomed retrieval later.
-          const navigatedBodyRows = markUnfetchedRowsForNavigation(pendingLiveRows.concat(state.rows));
+          // instead of failing a doomed retrieval later. Rows held by a
+          // pending clear-undo snapshot are just as doomed — Undo would
+          // otherwise restore them into the prefetch queue, where each grinds
+          // through a 10-second timeout before landing on 'error' instead of
+          // the honest navigation state.
+          const heldSnapshotRows = state.clearUndoSnapshot ? state.clearUndoSnapshot.rows : [];
+          const navigatedBodyRows = markUnfetchedRowsForNavigation(
+            pendingLiveRows.concat(state.rows, heldSnapshotRows),
+          );
           const retainedCount = state.rows.length + pendingLiveRows.length;
           if (retainedCount === 0) return;
           setStatus(
@@ -13876,15 +14005,15 @@ const _NetworkPlus = (function () {
           });
         return row;
       };
+      // Dedupe by id in O(1): every id ever admitted this session. Stale
+      // entries after eviction are harmless — the host never reuses an id
+      // within a session, and a session change rebuilds the set below.
+      const knownRowIds = new Set();
       const appendWireRow = (wireRow) => {
         if (!Number.isInteger(wireRow.id)) return;
-        if (
-          state.rows.some((row) => row.id === wireRow.id) ||
-          pendingLiveRows.some((row) => row.id === wireRow.id)
-        ) {
-          return;
-        }
+        if (knownRowIds.has(wireRow.id)) return;
         const row = buildViewerRowFromWire(wireRow);
+        knownRowIds.add(row.id);
         bumpNextId(row.id);
         const wasAtBottom =
           state.autoScroll &&
@@ -13892,9 +14021,16 @@ const _NetworkPlus = (function () {
         pendingLiveRows.push(row);
         scheduleLiveRows(wasAtBottom);
       };
-      const applyWireSnapshot = (wireRows) => {
+      const applyWireSnapshot = (wireRows, options) => {
         commitPendingLiveRows();
         state.liveRowsAwaitingRender.splice(0, state.liveRowsAwaitingRender.length);
+        if (options && options.sessionChanged && state.rows.length > 0) {
+          // A new DevTools session restarts row ids at 1. Matching its rows
+          // by id against the old session's would alias stale evidence onto
+          // new requests, so the old table goes and the snapshot starts clean.
+          removeRowsFromState(state.rows.slice(), false);
+          setStatus('A new DevTools session connected; the table now mirrors it from the start.');
+        }
         const existingById = new Map(state.rows.map((row) => [row.id, row]));
         const orderedRows = [];
         const freshRows = [];
@@ -13921,6 +14057,9 @@ const _NetworkPlus = (function () {
             (orderIndex.has(b.id) ? orderIndex.get(b.id) : Number.MAX_SAFE_INTEGER),
         );
         for (const row of state.rows) bumpNextId(row.id);
+        knownRowIds.clear();
+        for (const row of state.rows) knownRowIds.add(row.id);
+        for (const row of pendingLiveRows) knownRowIds.add(row.id);
         render();
         updateRetentionStatus();
       };
@@ -14194,10 +14333,19 @@ const _NetworkPlus = (function () {
             // travels to the mirror tab with its real reason.
             return Promise.reject(new Error(row.responseContentReason));
           }
-          return fetchResponsePayload(row).then((payload) => ({
-            content: payload.content,
-            encoding: payload.encoding,
-          }));
+          return fetchResponsePayload(row).then((payload) => {
+            // The local panel refuses bodies over the per-body limit at cache
+            // admission; the mirror path must not serve what the host itself
+            // would refuse — and one oversize port message throws, is
+            // swallowed, and leaves the viewer with a bare 10-second timeout.
+            const payloadChars = typeof payload.content === 'string' ? payload.content.length : 0;
+            if (payloadChars > MAX_RESPONSE_BODY_BYTES) {
+              throw new Error(
+                'Body is ' + fmtBytes(payloadChars) + '; the per-body cache limit is ' + fmtBytes(MAX_RESPONSE_BODY_BYTES) + '.',
+              );
+            }
+            return { content: payload.content, encoding: payload.encoding };
+          });
         },
         getControlState: () => ({
           paused: state.paused === true,
@@ -14474,10 +14622,35 @@ const _NetworkPlus = (function () {
       };
       const ingestDrainedStream = (result, variant) => {
         if (!Array.isArray(result) || result.length === 0) return;
-        // Recording discipline matches live capture: while paused or in a
-        // sample session, drained events are dropped, not queued.
-        if (state.paused || state.sampleCaptureActive) return;
         const rowsByVariant = variant === 'sse' ? streamCapture.sseRows : streamCapture.socketRows;
+        // Recording discipline matches live capture: while paused or in a
+        // sample session, drained frames and new connections are dropped, not
+        // queued. Lifecycle marks of rows already in the table are different —
+        // they are bookkeeping, not recording. The drain destroys the page
+        // queue either way, so a close consumed here and discarded left its
+        // row 'Open' forever, with no duration anywhere the row travels
+        // (grid, HAR, mirror), and its map entry alive until navigation.
+        if (state.paused || state.sampleCaptureActive) {
+          const closedRows = [];
+          for (const event of result) {
+            if (!event || typeof event !== 'object' || typeof event.socketId !== 'number') continue;
+            if (event.kind !== 'ws-closed') continue;
+            const row = rowsByVariant.get(event.socketId);
+            rowsByVariant.delete(event.socketId);
+            if (!row || row._retentionDisposed) continue;
+            row.statusText = 'Closed';
+            if (Number.isFinite(event.at)) {
+              const startedEpoch = getRequestEpoch(row.startedDateTime, INVALID_REQUEST_EPOCH);
+              if (startedEpoch !== INVALID_REQUEST_EPOCH && event.at >= startedEpoch) {
+                row.duration = event.at - startedEpoch;
+              }
+            }
+            closedRows.push(row);
+          }
+          const renderedClosed = closedRows.filter((row) => state.activeRows.has(row));
+          if (renderedClosed.length > 0 && !replaceRenderedRowStates(renderedClosed)) renderBody();
+          return;
+        }
         let createdCount = 0;
         const changedRows = ingestWsEvents(result, {
           createRow: (event) => {
