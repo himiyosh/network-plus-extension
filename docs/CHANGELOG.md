@@ -4,6 +4,10 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- No changes have been recorded since v1.13.0.
+
+## v1.13.0 - 2026-08-29
+
 - 🐛 **Stream queue overflow** — the page-side queue keeps connection lifecycle events, drops data frames first, and the panel reports how many were lost.
   - Why: silent oldest-first trimming could erase a connection's existence or leave it Open forever, with no marker.
 - 🐛 **Stream capture failures** — three straight drain failures surface a status message instead of the toggle silently claiming capture is on.

@@ -81,6 +81,10 @@ const ENTRY_CATEGORIES = Object.freeze({
   '\ud83d\udcdd': 'ドキュメント',
 });
 const ENTRY_MAX_LENGTH = 200;
+// The reopen commit after a release cut seeds Unreleased with exactly this
+// bullet; the changelog gate requires the section to always carry one. It is
+// scaffolding, not a change entry, so the format bounds do not apply to it.
+const PLACEHOLDER_ENTRY_PATTERN = /^- No changes have been recorded since v\d+\.\d+\.\d+\.$/;
 const DETAIL_MAX_LENGTH = 200;
 // A continuation must be a nested bullet. A bare two-space indent is a lazy
 // paragraph continuation in CommonMark, so GitHub folds it onto the entry and
@@ -124,6 +128,7 @@ const validateEntryFormat = (blocks) => {
     .join(' / ');
 
   for (const { entry, details } of blocks) {
+    if (PLACEHOLDER_ENTRY_PATTERN.test(entry)) continue;
     if (!startsWithCategory(entry)) {
       errors.push(`${CHANGELOG_PATH} entry needs a leading category emoji (${categories}): ${entry.slice(0, 60)}`);
     }
@@ -266,6 +271,7 @@ module.exports = {
   checkChangelog,
   ENTRY_CATEGORIES,
   ENTRY_MAX_LENGTH,
+  PLACEHOLDER_ENTRY_PATTERN,
   extractUnreleasedBlocks,
   extractUnreleasedEntries,
   validateEntryFormat,

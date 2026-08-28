@@ -200,6 +200,12 @@ describe('entry format', () => {
     expect(validateEntryFormat(block(`- ${emoji} **Thing** — did something.`))).toEqual([]);
   });
 
+  test('the reopen placeholder is scaffolding, exempt from the format bounds', () => {
+    expect(validateEntryFormat(block('- No changes have been recorded since v1.13.0.'))).toEqual([]);
+    // Only the exact placeholder shape is exempt.
+    expect(validateEntryFormat(block('- No changes have been recorded since the release.'))).toHaveLength(1);
+  });
+
   test('rejects an entry with no category tag', () => {
     const errors = validateEntryFormat(block('- Thing broke and is now fixed.'));
     expect(errors).toHaveLength(1);
