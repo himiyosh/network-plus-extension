@@ -397,7 +397,9 @@ browserTest(
       );
       expect(resendState.open).toBe(true);
       expect(resendState.hidden).toBe(false);
-      expect(resendState.error.startsWith('Re-send failed:')).toBe(true);
+      // The dialog error translates with the panel language ('system' follows
+      // the browser locale), so the pin accepts the frame in either language.
+      expect(/^(Re-send failed:|再送信に失敗しました:)/.test(resendState.error)).toBe(true);
     } finally {
       await page.close();
     }
