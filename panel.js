@@ -4996,7 +4996,9 @@ const _NetworkPlus = (function () {
         ? 'Undo clear, ' + formatRequestCount(remainingCount) + ' available'
         : 'Undo clear',
     );
-    button.title = available ? 'Restore the retained requests and working context from the last Clear' : '';
+    button.title = available
+      ? 'Restore the retained requests and working context from the last ' + (snapshot.actionLabel || 'Clear')
+      : '';
   }
 
   function consumeClearUndoSnapshot(action) {
@@ -5043,7 +5045,11 @@ const _NetworkPlus = (function () {
       ).length;
       disposeClearUndoSnapshot(
         'timeout',
-        'Undo expired; ' + formatRequestCount(remainingCount) + ' from the last Clear released.',
+        'Undo expired; ' +
+          formatRequestCount(remainingCount) +
+          ' from the last ' +
+          (snapshot.actionLabel || 'Clear') +
+          ' released.',
       );
     }, CLEAR_UNDO_TIMEOUT_MS);
     return true;
@@ -12047,7 +12053,7 @@ const _NetworkPlus = (function () {
       const activeHighlights = Array.from(state.highlightedRows.entries()).filter(([row]) =>
         activeRowSet.has(row),
       );
-      state.rows = restorePlan.rows.concat(activeRows);
+      state.rows = restorePlan.rows.concat(activeRows).sort((a, b) => a.id - b.id);
       for (const row of restorePlan.rows) state.activeRows.add(row);
       if (state.automaticResponsePrefetchScheduler) {
         state.automaticResponsePrefetchScheduler.resumeRows(restorePlan.rows);
@@ -13095,18 +13101,47 @@ const _NetworkPlus = (function () {
             showComparisonPanel();
           }));
         }
-        contextMenu.appendChild(createRowMenuButton('Keep Selected (' + selectedCount + ')', () => {
-          commitPendingLiveRows();
-          const rowsToRemove = state.rows.filter((targetRow) => !state.selectedRows.has(targetRow));
+        // Both destroy rows, so both arm the same bounded Undo the toolbar
+        // Clear has — silently and irreversibly dropping rows was the one
+        // destructive action in the panel without a way back. Sample mode is
+        // excluded: its restore path refuses to merge into live traffic.
+        const removeRowsWithUndo = (rowsToRemove, actionLabel, describe) => {
+          if (rowsToRemove.length === 0) {
+            state.selectedRows.clear();
+            renderBody();
+            return;
+          }
+          disposeClearUndoSnapshot('clear');
+          const snapshot = createClearUndoSnapshot(searchPanelVisible);
+          snapshot.rows = rowsToRemove.slice();
+          snapshot.originalCount = rowsToRemove.length;
+          snapshot.actionLabel = actionLabel;
           removeRowsFromState(rowsToRemove, false);
           state.selectedRows.clear();
           renderBody();
+          const undoAvailable = state.sampleCaptureActive ? false : armClearUndoSnapshot(snapshot);
+          setStatus(
+            describe +
+              (undoAvailable ? ' Undo available for ' + CLEAR_UNDO_TIMEOUT_MS / 1000 + ' seconds.' : ''),
+          );
+        };
+        contextMenu.appendChild(createRowMenuButton('Keep Selected (' + selectedCount + ')', () => {
+          commitPendingLiveRows();
+          const rowsToRemove = state.rows.filter((targetRow) => !state.selectedRows.has(targetRow));
+          removeRowsWithUndo(
+            rowsToRemove,
+            'Keep Selected',
+            'Kept ' + formatRequestCount(selectedCount) + '; removed ' + formatRequestCount(rowsToRemove.length) + '.',
+          );
         }));
         contextMenu.appendChild(createRowMenuButton('Delete Selected (' + selectedCount + ')', () => {
           commitPendingLiveRows();
-          removeRowsFromState(Array.from(state.selectedRows), false);
-          state.selectedRows.clear();
-          renderBody();
+          const rowsToRemove = Array.from(state.selectedRows);
+          removeRowsWithUndo(
+            rowsToRemove,
+            'Delete Selected',
+            'Deleted ' + formatRequestCount(rowsToRemove.length) + '.',
+          );
         }));
       }
 
@@ -13147,6 +13182,23 @@ const _NetworkPlus = (function () {
         const nextIndex = event.key === 'ArrowDown'
           ? Math.min(currentIndex + 1, displayedRows.length - 1)
           : Math.max(currentIndex - 1, 0);
+        selectRow(displayedRows[nextIndex], null, true);
+        scrollToSelectedRow();
+      } else if (['Home', 'End', 'PageDown', 'PageUp'].includes(event.key)) {
+        // Single-step navigation does not scale to a grid that retains tens
+        // of thousands of rows; these mirror the menus' existing Home/End.
+        if (displayedRows.length === 0) return;
+        event.preventDefault();
+        const rowHeight = focusedTr.getBoundingClientRect().height || 24;
+        const pageStep = Math.max(1, Math.floor(tableWrap.clientHeight / rowHeight) - 1);
+        const nextIndex =
+          event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? displayedRows.length - 1
+              : event.key === 'PageDown'
+                ? Math.min(currentIndex + pageStep, displayedRows.length - 1)
+                : Math.max(currentIndex - pageStep, 0);
         selectRow(displayedRows[nextIndex], null, true);
         scrollToSelectedRow();
       } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
@@ -13205,7 +13257,27 @@ const _NetworkPlus = (function () {
       const tableRect = tableWrap.getBoundingClientRect();
       const totalSize = isNarrow ? contentRect.height : contentRect.width;
       const primarySize = isNarrow ? tableRect.height : tableRect.width;
-      const currentSplit = calculateMainSplit(primarySize, totalSize, isNarrow);
+      let currentSplit = calculateMainSplit(primarySize, totalSize, isNarrow);
+      // A dragged split leaves details at a fixed px basis with flex-shrink:0,
+      // so shrinking the window crushes the grid toward zero. Re-clamp the
+      // persisted split into the feasible range, or clear it when the window
+      // is too small for the minimums and let the stylesheet's 50% take over.
+      if (details.style.flexBasis && !currentSplit) {
+        const minPrimary = isNarrow ? MIN_TABLE_HEIGHT : MIN_TABLE_WIDTH;
+        const minDetails = isNarrow ? MIN_DETAILS_HEIGHT : MIN_DETAILS_WIDTH;
+        const clampedPrimary = Math.min(
+          Math.max(primarySize, minPrimary),
+          totalSize - RESIZER_WIDTH - minDetails,
+        );
+        const clampedSplit = calculateMainSplit(clampedPrimary, totalSize, isNarrow);
+        if (clampedSplit) {
+          applyMainSplit(clampedSplit);
+          currentSplit = clampedSplit;
+        } else {
+          details.style.flexBasis = '';
+          tableWrap.style.flexBasis = '';
+        }
+      }
       if (currentSplit) {
         resizer.setAttribute('aria-valuenow', String(currentSplit.primaryPercent));
         resizer.setAttribute('aria-valuetext', 'Request list ' + currentSplit.primaryPercent + ' percent');
@@ -13275,7 +13347,28 @@ const _NetworkPlus = (function () {
           inspectorDivider.setAttribute('aria-valuetext', 'Request inspector ' + split.requestPercent + ' percent');
         }
       };
-      window.addEventListener('resize', syncInspectorDividerValue);
+      // A drag freezes both panes at flex:none + px heights; without this, a
+      // later window resize clips the response pane behind overflow:hidden.
+      const rescaleInspectorSplit = () => {
+        if (requestPane.style.height) {
+          const percent = parseFloat(inspectorDivider.getAttribute('aria-valuenow'));
+          const totalHeight = inspectorPanels.getBoundingClientRect().height;
+          const split = Number.isFinite(percent)
+            ? calculateInspectorSplit((percent / 100) * totalHeight, totalHeight)
+            : null;
+          if (split) {
+            applyInspectorSplit(split);
+          } else {
+            // Too small for the dragged split: hand control back to flex.
+            requestPane.style.flex = '';
+            responsePane.style.flex = '';
+            requestPane.style.height = '';
+            responsePane.style.height = '';
+          }
+        }
+        syncInspectorDividerValue();
+      };
+      window.addEventListener('resize', rescaleInspectorSplit);
 
       inspectorDivider.addEventListener('keydown', (event) => {
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
@@ -13535,7 +13628,10 @@ const _NetworkPlus = (function () {
             e.preventDefault();
             navigateKeywordSearch(i, e.shiftKey ? -1 : 1);
           } else if (e.key === 'Escape') {
+            // Closing display:none's the focused input, which silently resets
+            // focus to <body>; hand it back to the control that opens the panel.
             toggleSearchPanel(false);
+            searchToggleBtn.focus();
           }
         });
         row.appendChild(input);

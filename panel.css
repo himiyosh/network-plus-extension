@@ -11,6 +11,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --border:#dde1e6;--control-border:#7c8794;--separator:#7c8794;--hover:rgba(99,102,241,0.06);--row-hover:rgba(99,102,241,0.08);
   --selected:rgba(99,102,241,0.14);--accent:#6366f1;--text-accent:#4338ca;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(99,102,241,0.12);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
+  --search-yellow-badge:#854d0e;--search-red-badge:#b91c1c;--search-green-badge:#15803d;--search-blue-badge:#1d4ed8;--search-purple-badge:#7e22ce;--search-orange-badge:#c2410c;
   --stripe:rgba(0,0,0,0.018);
   --status-2xx-text:#047857;--status-3xx-text:#92400e;--status-4xx-text:#9a3412;--status-5xx-text:#b91c1c;
   --dur-ok-text:#3f6212;--dur-med-text:#854d0e;--dur-slow-text:#b91c1c;
@@ -36,6 +37,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --border:#334155;--control-border:#7c8794;--separator:#7c8794;--hover:rgba(129,140,248,0.08);--row-hover:rgba(129,140,248,0.1);
   --selected:rgba(129,140,248,0.18);--accent:#818cf8;--text-accent:#a5b4fc;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(129,140,248,0.15);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
+  --search-yellow-badge:#fbbf24;--search-red-badge:#ef4444;--search-green-badge:#22c55e;--search-blue-badge:#3b82f6;--search-purple-badge:#a855f7;--search-orange-badge:#f97316;
   --stripe:rgba(255,255,255,0.02);
   --status-2xx-text:#6ee7b7;--status-3xx-text:#fde68a;--status-4xx-text:#fdba74;--status-5xx-text:#fca5a5;
   --dur-ok-text:#bef264;--dur-med-text:#fde047;--dur-slow-text:#fca5a5;
@@ -61,6 +63,7 @@ html[data-theme="dark"]{
   --border:#334155;--control-border:#7c8794;--separator:#7c8794;--hover:rgba(129,140,248,0.08);--row-hover:rgba(129,140,248,0.1);
   --selected:rgba(129,140,248,0.18);--accent:#818cf8;--text-accent:#a5b4fc;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(129,140,248,0.15);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
+  --search-yellow-badge:#fbbf24;--search-red-badge:#ef4444;--search-green-badge:#22c55e;--search-blue-badge:#3b82f6;--search-purple-badge:#a855f7;--search-orange-badge:#f97316;
   --stripe:rgba(255,255,255,0.02);
   --status-2xx-text:#6ee7b7;--status-3xx-text:#fde68a;--status-4xx-text:#fdba74;--status-5xx-text:#fca5a5;
   --dur-ok-text:#bef264;--dur-med-text:#fde047;--dur-slow-text:#fca5a5;
@@ -86,6 +89,7 @@ html[data-theme="light"]{
   --border:#dde1e6;--control-border:#7c8794;--separator:#7c8794;--hover:rgba(99,102,241,0.06);--row-hover:rgba(99,102,241,0.08);
   --selected:rgba(99,102,241,0.14);--accent:#6366f1;--text-accent:#4338ca;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(99,102,241,0.12);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
+  --search-yellow-badge:#854d0e;--search-red-badge:#b91c1c;--search-green-badge:#15803d;--search-blue-badge:#1d4ed8;--search-purple-badge:#7e22ce;--search-orange-badge:#c2410c;
   --stripe:rgba(0,0,0,0.018);
   --status-2xx-text:#047857;--status-3xx-text:#92400e;--status-4xx-text:#9a3412;--status-5xx-text:#b91c1c;
   --dur-ok-text:#3f6212;--dur-med-text:#854d0e;--dur-slow-text:#b91c1c;
@@ -269,6 +273,8 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .details-close-btn{flex:0 0 auto;min-width:24px;min-height:24px;padding:2px 6px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;font:inherit;line-height:1}
 .details-close-btn:hover{background:var(--hover);border-color:var(--accent);color:var(--text-accent)}
 .inspector-panels{display:flex;flex-direction:column;flex:1;overflow:hidden}
+/* display:flex outranks the UA [hidden] rule — the trap that has now shipped three times. */
+.inspector-panels[hidden]{display:none}
 .inspector-half{display:flex;flex-direction:column;flex:1;min-height:80px;overflow:hidden}
 .inspector-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;padding:4px 10px;background:var(--accent-dim);color:var(--text-accent);border-bottom:1px solid var(--border)}
 .inspector-divider{flex:0 0 3px;background:var(--separator);cursor:row-resize}
@@ -279,8 +285,9 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .tab-btn{padding:5px 12px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s,color 0.15s;font-weight:500}
 .tab-btn:hover{color:var(--fg);background:var(--hover)}
 .tab-btn.active{color:var(--text-accent);border-bottom-color:var(--accent);font-weight:700;background:var(--accent-dim)}
-.tab-content-area{flex:1;overflow:auto;position:relative}
-.tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:break-all;font-size:13px;scroll-padding-bottom:32px}
+/* scroll-padding only acts on the scrollport itself; on a non-scrolling child it is inert. */
+.tab-content-area{flex:1;overflow:auto;position:relative;scroll-padding-bottom:32px}
+.tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:break-all;font-size:13px}
 .tab-pane.active{display:block}
 .tab-pane.pane-search-host.active{display:flex;flex-direction:column;min-height:100%}
 .tab-pane.pane-search-host.active[hidden]{display:none}
@@ -832,12 +839,14 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .row-state-badges{display:inline-flex;align-items:center;gap:1px;margin-right:2px;vertical-align:1px}
 .row-state-badge{display:inline-flex;align-items:center;justify-content:center;min-width:10px;height:13px;padding:0 1px;border:1px solid var(--accent);border-radius:3px;color:var(--text-accent);background:var(--content-bg);font-size:9px;font-weight:700;line-height:1}
 /* One chip per matched keyword, carrying that keyword’s own colour. */
-.row-state-badge--kw0{border-color:var(--search-yellow);color:var(--search-yellow)}
-.row-state-badge--kw1{border-color:var(--search-red);color:var(--search-red)}
-.row-state-badge--kw2{border-color:var(--search-green);color:var(--search-green)}
-.row-state-badge--kw3{border-color:var(--search-blue);color:var(--search-blue)}
-.row-state-badge--kw4{border-color:var(--search-purple);color:var(--search-purple)}
-.row-state-badge--kw5{border-color:var(--search-orange);color:var(--search-orange)}
+/* 9px bold text on --content-bg: the raw highlight palette fails AA in the two
+   light theme states, so badges use per-theme text-safe variants of it. */
+.row-state-badge--kw0{border-color:var(--search-yellow-badge);color:var(--search-yellow-badge)}
+.row-state-badge--kw1{border-color:var(--search-red-badge);color:var(--search-red-badge)}
+.row-state-badge--kw2{border-color:var(--search-green-badge);color:var(--search-green-badge)}
+.row-state-badge--kw3{border-color:var(--search-blue-badge);color:var(--search-blue-badge)}
+.row-state-badge--kw4{border-color:var(--search-purple-badge);color:var(--search-purple-badge)}
+.row-state-badge--kw5{border-color:var(--search-orange-badge);color:var(--search-orange-badge)}
 
 /* === Narrow workbench split === */
 @media (max-width:800px){

@@ -84,15 +84,15 @@ const LIVE_COMMIT_BOUNDARIES = [
     label: 'Keep Selected',
     startMarker: "createRowMenuButton('Keep Selected (",
     endMarker: "createRowMenuButton('Delete Selected (",
-    requiredPattern: /commitPendingLiveRows\(\);[\s\S]*removeRowsFromState\(/,
-    diagnostic: 'Keep Selected must commit pending live rows before removeRowsFromState.',
+    requiredPattern: /commitPendingLiveRows\(\);[\s\S]*removeRowsWithUndo\(/,
+    diagnostic: 'Keep Selected must commit pending live rows before removing rows.',
   },
   {
     label: 'Delete Selected',
     startMarker: "createRowMenuButton('Delete Selected (",
     endMarker: 'showAccessiblePopupAt(contextMenu',
-    requiredPattern: /commitPendingLiveRows\(\);[\s\S]*removeRowsFromState\(/,
-    diagnostic: 'Delete Selected must commit pending live rows before removeRowsFromState.',
+    requiredPattern: /commitPendingLiveRows\(\);[\s\S]*removeRowsWithUndo\(/,
+    diagnostic: 'Delete Selected must commit pending live rows before removing rows.',
   },
 ];
 
@@ -1126,7 +1126,7 @@ describe('recoverable Clear Undo static contracts', () => {
     const restoreEnd = js.indexOf('// [U4] Clear', restoreStart);
     const restoreBlock = js.slice(restoreStart, restoreEnd);
     for (const expected of [
-      'state.rows = restorePlan.rows.concat(activeRows);',
+      'state.rows = restorePlan.rows.concat(activeRows).sort((a, b) => a.id - b.id);',
       'state.columnFilterRules = restorePlan.columnFilterRules;',
       'state.sort = restorePlan.sort;',
       'state.paused = restorePlan.paused;',
@@ -1144,7 +1144,7 @@ describe('recoverable Clear Undo static contracts', () => {
     ]) {
       expect(restoreBlock).toContain(expected);
     }
-    expect(restoreBlock).toContain('state.rows = restorePlan.rows.concat(activeRows);');
+    expect(restoreBlock).toContain('state.rows = restorePlan.rows.concat(activeRows).sort((a, b) => a.id - b.id);');
     expect(restoreBlock).not.toContain('state.nextId =');
   });
 
@@ -1349,9 +1349,14 @@ describe('scroll targets clear their sticky furniture', () => {
     const wrap = css.match(/\.tableWrap\{([^}]*)\}/);
     expect(wrap).not.toBeNull();
     expect(wrap[1]).toContain('scroll-padding-top:30px');
+    // scroll-padding acts only on the scrollport; pinning it on .tab-pane
+    // froze the very bug it was meant to guard against.
+    const paneScrollport = css.match(/\.tab-content-area\{([^}]*)\}/);
+    expect(paneScrollport).not.toBeNull();
+    expect(paneScrollport[1]).toContain('scroll-padding-bottom:32px');
     const pane = css.match(/\.tab-pane\{([^}]*)\}/);
     expect(pane).not.toBeNull();
-    expect(pane[1]).toContain('scroll-padding-bottom:32px');
+    expect(pane[1]).not.toContain('scroll-padding-bottom');
   });
 
   // The request line people copy out of the panel must not carry the response
@@ -3815,5 +3820,24 @@ describe('jwt decode display contracts', () => {
     // Display only: the decoder never feeds the clipboard/export pipeline.
     expect(js).not.toContain('decodeJwt(sanitize');
     expect(js).toContain('const JWT_MAX_TOKEN_CHARS = 8192;');
+  });
+});
+
+// Audit follow-ups: the third [hidden]-vs-display recurrence, and badge text
+// that used the raw highlight palette at 9px on light backgrounds.
+describe('audit layout and contrast contracts', () => {
+  test('the comparison view can actually hide the inspector panels', () => {
+    // display:flex outranks the UA [hidden] rule — this exact trap shipped
+    // three times (.topbar button, .data-safety-choices, .inspector-panels).
+    expect(css).toContain('.inspector-panels[hidden]{display:none}');
+  });
+
+  test('keyword badges use text-safe palette variants split by theme', () => {
+    // The light blocks must carry darker text-safe values; the dark blocks
+    // keep the raw palette. Same fg/bg split the method badges already use.
+    expect(css).toContain('--search-yellow-badge:#854d0e');
+    expect(css).toContain('--search-yellow-badge:#fbbf24');
+    expect(css).toContain('.row-state-badge--kw0{border-color:var(--search-yellow-badge);color:var(--search-yellow-badge)}');
+    expect(css).not.toMatch(/\.row-state-badge--kw\d\{[^}]*color:var\(--search-yellow\)/);
   });
 });
