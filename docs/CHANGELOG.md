@@ -2,6 +2,10 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
+## Unreleased
+
+- No changes have been recorded since v1.13.0.
+
 ## v1.13.0 - 2026-08-29
 
 - 🐛 **Stream queue overflow** — the page-side queue keeps connection lifecycle events, drops data frames first, and the panel reports how many were lost.
