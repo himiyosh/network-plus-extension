@@ -397,7 +397,8 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .wf-seg{height:100%;min-width:1px}
 
 /* === KV Grid === */
-.kv{display:grid;grid-template-columns:150px 1fr;gap:1px 12px;font-size:13px}
+/* The key track grows to the longest header name; a fixed 150px painted long names across the value text. */
+.kv{display:grid;grid-template-columns:minmax(150px,max-content) 1fr;gap:1px 12px;font-size:13px}
 .kv .key{color:var(--syn-hdr-name);white-space:nowrap;font-weight:600;padding:3px 0;font-size:12px}
 .kv .val{color:var(--fg);overflow-wrap:break-word;min-width:0;padding:3px 0}
 
@@ -406,6 +407,8 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .statusbar .spacer{flex:1}
 .statusbar > span:not(.sr-only),.status-details > span{min-width:0;max-width:100%;overflow-wrap:anywhere}
 .status-details{display:contents}
+/* display:contents also outranks the UA [hidden] rule; the guard must not live only inside the narrow media block. */
+.status-details[hidden]{display:none}
 .sample-capture-status{padding:2px 6px;border:1px solid var(--accent);border-radius:4px;background:var(--accent-dim);color:var(--text-accent);font-weight:700;white-space:nowrap}
 .sample-capture-status[hidden]{display:none}
 .sample-guide-btn,.sample-exit-btn,.status-details-toggle,.ws-capture-btn{min-height:24px;padding:2px 8px;border:1px solid var(--control-border);border-radius:4px;background:var(--bg);color:var(--fg);font:inherit;font-weight:700;line-height:1.4;cursor:pointer;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s,color 0.15s}
@@ -885,7 +888,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   #supportDialog[open],#supportDialog[open]::backdrop{animation:none}
   .support-option:hover{transform:none}
   .support-option:hover .support-option-badge{transform:none}
-  .support-steam{opacity:.55}
+  .support-steam,.brand-steam{opacity:.55}
   .support-sparkle{opacity:.7}
   .support-heart{opacity:.9}
 }

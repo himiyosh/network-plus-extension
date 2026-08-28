@@ -4,6 +4,14 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🐛 **Stream queue overflow** — the page-side queue keeps connection lifecycle events, drops data frames first, and the panel reports how many were lost.
+  - Why: silent oldest-first trimming could erase a connection's existence or leave it Open forever, with no marker.
+- 🐛 **Stream capture failures** — three straight drain failures surface a status message instead of the toggle silently claiming capture is on.
+- 🔧 **Mirror hygiene** — body requests time out like commands, one import transfer per tab, no unbounded SSE observer types, and evicted rows leave the socket maps.
+- 🐛 **Focus fallbacks** — comparison and resend closes fall back to the grid when the invoking row is gone, and Tab dismisses transient menus.
+- 🐛 **Hidden guards** — `.status-details{display:contents}` defeated `hidden` at wide widths; the toolbar steam now keeps a resting value under reduced motion.
+- 🔧 **Header names** — the Headers/Cookies key column grows to the longest name instead of painting across the value text.
+- 📝 **Language help** — the pre-translation fallback in panel.html matches the dictionary again, pinned by contract.
 - 🐛 **Comparison view** — `.inspector-panels{display:flex}` defeated the `hidden` attribute; the third shipped instance of this trap, now pinned by contract.
 - 🔧 **Keep/Delete Selected** — both arm the same 10-second Undo the toolbar Clear has, instead of destroying rows silently and irreversibly.
 - 🐛 **Badge contrast** — keyword chips used the raw highlight palette as 9px text, failing AA in both light themes; they now use per-theme text-safe variants.

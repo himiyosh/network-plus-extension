@@ -2659,6 +2659,15 @@ browserTest(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      // The media-query change is asynchronous. Focusing the chip before the
+      // wide sync ran only ever worked because [hidden] used to be defeated by
+      // display:contents at wide widths — focusing a display:none element is a
+      // no-op, so wait for the details to actually be visible first.
+      await waitForStatusDetailsState(
+        cdp,
+        { detailsHidden: false, toggleHidden: true },
+        'Wide breakpoint status-details visibility',
+      );
 
       const reverseBreakpointBaseline = await evaluate(
         cdp,
