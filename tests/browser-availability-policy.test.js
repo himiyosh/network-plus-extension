@@ -1141,6 +1141,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
+      title: 'header labels wider than their column clip instead of forcing a horizontal scrollbar',
+    },
+    {
+      skipped: true,
       title: 'the elastic Path column fills a wide wrap while the stored widths stay authoritative',
     },
     {

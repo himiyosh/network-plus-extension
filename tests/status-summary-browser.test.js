@@ -4165,6 +4165,10 @@ browserTest(
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const separator = document.querySelector('th[data-col-id="size"] .col-resizer');
           separator.style.transform = '';
+          // Header cells clip their overflow (wide fallback fonts); this probe
+          // deliberately drags the separator outside its cell, so lift the clip
+          // for the duration of the probe only.
+          separator.closest('th').style.overflow = 'visible';
           const tableRect = tableWrap.getBoundingClientRect();
           const visibleLeft = tableRect.left + tableWrap.clientLeft;
           const visibleRight = visibleLeft + tableWrap.clientWidth;
@@ -4257,6 +4261,7 @@ browserTest(
           window.__gridResizeProbeController.abort();
           separator.style.transform = '';
           separator.style.clipPath = '';
+          separator.closest('th').style.overflow = '';
           document.querySelector('#tableWrap').style.transform = '';
           return measurement;
         })()`,
@@ -4895,6 +4900,55 @@ browserTest(
   TEST_TIMEOUT_MS,
 );
 
+// A wide header font (Linux fallback faces, Verdana) once pushed the last
+// label past the table edge and forced a horizontal scrollbar even though the
+// grid filled the wrap exactly; header cells now clip their labels instead.
+browserTest(
+  'header labels wider than their column clip instead of forcing a horizontal scrollbar',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript:
+        "document.addEventListener('DOMContentLoaded', () => { const style = document.createElement('style'); style.textContent = '.title-row th { font-size: 18px !important; letter-spacing: 2px !important; }'; document.head.appendChild(style); });",
+    });
+    const { cdp } = page;
+    try {
+      await waitForSampleCaptureAction(cdp);
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await evaluate(cdp, "document.querySelector('#detailsCloseBtn').click()");
+      await settleLayout(cdp);
+      const measured = await evaluate(
+        cdp,
+        `(() => {
+          const wrap = document.querySelector('#tableWrap');
+          const last = document.querySelector('th[data-col-id="clientStart"]');
+          const label = last.querySelector('.column-header-label');
+          return {
+            horizontalScroll: wrap.scrollWidth > wrap.clientWidth,
+            gridWidth: Math.round(document.querySelector('#grid').getBoundingClientRect().width),
+            wrapClientWidth: wrap.clientWidth,
+            labelWiderThanCell:
+              label.getBoundingClientRect().width >
+              last.clientWidth - parseFloat(getComputedStyle(last).paddingLeft) - parseFloat(getComputedStyle(last).paddingRight),
+            headerOverflow: getComputedStyle(last).overflow,
+          };
+        })()`,
+      );
+      expect(measured.labelWiderThanCell).toBe(true);
+      expect(measured).toMatchObject({
+        horizontalScroll: false,
+        gridWidth: measured.wrapClientWidth,
+        headerOverflow: 'hidden',
+      });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
 const ELASTIC_GRID_MEASURE = `(() => {
   const tableWrap = document.querySelector('#tableWrap');
   const grid = document.querySelector('#grid');
@@ -4936,13 +4990,13 @@ browserTest(
       expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
       await settleLayout(cdp);
       // Sample activation selects a row, so the pane is open: 1280 - 4 - the
-      // stylesheet's clamp() basis leaves a wrap narrower than the 976px sum.
+      // stylesheet's clamp() basis leaves a wrap narrower than the 992px sum.
       const paneOpen = await evaluate(cdp, ELASTIC_GRID_MEASURE);
-      expect(paneOpen.wrapClientWidth).toBeLessThan(976);
+      expect(paneOpen.wrapClientWidth).toBeLessThan(992);
       expect(paneOpen).toMatchObject({
         horizontalScroll: true,
-        gridStyleWidth: '976px',
-        gridWidth: 976,
+        gridStyleWidth: '992px',
+        gridWidth: 992,
         pathAriaValueNow: '260',
       });
       expect(paneOpen.headerWidths).toEqual({
@@ -4953,9 +5007,9 @@ browserTest(
         domain: 140,
         path: 260,
         type: 90,
-        duration: 72,
+        duration: 80,
         size: 72,
-        clientStart: 96,
+        clientStart: 104,
       });
 
       // Closing the pane widens the wrap past the sum: the surplus lands on
@@ -4963,8 +5017,8 @@ browserTest(
       await evaluate(cdp, "document.querySelector('#detailsCloseBtn').click()");
       await settleLayout(cdp);
       const paneClosed = await evaluate(cdp, ELASTIC_GRID_MEASURE);
-      expect(paneClosed.wrapClientWidth).toBeGreaterThan(976);
-      const closedSurplus = paneClosed.wrapClientWidth - 976;
+      expect(paneClosed.wrapClientWidth).toBeGreaterThan(992);
+      const closedSurplus = paneClosed.wrapClientWidth - 992;
       expect(paneClosed).toMatchObject({
         horizontalScroll: false,
         gridStyleWidth: paneClosed.wrapClientWidth + 'px',
@@ -4994,7 +5048,7 @@ browserTest(
         pathAriaValueNow: '270',
         storedPathWidth: 270,
       });
-      expect(afterKeyboard.headerWidths.path).toBe(270 + (paneClosed.wrapClientWidth - 986));
+      expect(afterKeyboard.headerWidths.path).toBe(270 + (paneClosed.wrapClientWidth - 1002));
 
       // Path hidden: the surplus moves to the last visible column instead.
       await evaluate(
@@ -5017,7 +5071,7 @@ browserTest(
         gridWidth: pathHidden.wrapClientWidth,
         pathAriaValueNow: null,
       });
-      expect(pathHidden.headerWidths.clientStart).toBe(96 + (pathHidden.wrapClientWidth - 716));
+      expect(pathHidden.headerWidths.clientStart).toBe(104 + (pathHidden.wrapClientWidth - 732));
 
       // Widening the wrap with the pane closed (window resize) re-applies the
       // surplus from the observer without tripping the loop-limit error.
@@ -5031,7 +5085,7 @@ browserTest(
       const widened = await evaluate(cdp, ELASTIC_GRID_MEASURE);
       expect(widened.wrapClientWidth).toBeGreaterThan(pathHidden.wrapClientWidth);
       expect(widened).toMatchObject({ horizontalScroll: false, gridWidth: widened.wrapClientWidth });
-      expect(widened.headerWidths.clientStart).toBe(96 + (widened.wrapClientWidth - 716));
+      expect(widened.headerWidths.clientStart).toBe(104 + (widened.wrapClientWidth - 732));
       expect(await evaluate(cdp, 'window.__resizeObserverErrors')).toEqual([]);
       expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).not.toContain(
         'ResizeObserver',

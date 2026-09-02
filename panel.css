@@ -356,7 +356,10 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 
 /* === Table Grid === */
 .grid{border-collapse:separate;border-spacing:0;table-layout:fixed}
-.title-row th{position:sticky;top:0;background:var(--th-bg);border-bottom:2px solid var(--th-border);font-weight:700;text-align:left;padding:7px 8px;white-space:nowrap;z-index:2;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-muted)}
+/* Header labels clip inside their column: a wide fallback font (Linux, Verdana)
+   otherwise spills the last label past the table edge and forces a horizontal
+   scrollbar even when the grid exactly fills the wrap. */
+.title-row th{position:sticky;top:0;background:var(--th-bg);border-bottom:2px solid var(--th-border);font-weight:700;text-align:left;padding:7px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:2;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-muted)}
 .title-row th.sortable-header{cursor:pointer;-webkit-user-select:none;user-select:none}
 .title-row th.waterfall-header{cursor:default;-webkit-user-select:none;user-select:none}
 .title-row th.sortable-header:hover{background:var(--th-bg);color:var(--text-accent);box-shadow:inset 0 -2px 0 var(--accent)}

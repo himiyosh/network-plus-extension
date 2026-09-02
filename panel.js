@@ -298,7 +298,7 @@ const _NetworkPlus = (function () {
     { value: 'notempty', label: 'isNotEmpty' },
   ];
 
-  // Visible defaults sum to 976px: Path (the identifying column) is on the
+  // Visible defaults sum to 992px: Path (the identifying column) is on the
   // first screen at 1280px with the details pane open, and the whole set fits
   // without horizontal scroll once the pane is closed. Match is a 36px state
   // gutter first (a ✓ chip plus one keyword chip fit without clipping).
@@ -312,10 +312,10 @@ const _NetworkPlus = (function () {
     { id: 'type', label: 'Type', width: 90, visible: true },
     { id: 'operation', label: 'Operation', width: 150, visible: false },
     { id: 'customHeader', label: 'Header', width: 160, visible: false },
-    { id: 'duration', label: 'Duration', width: 72, visible: true },
+    { id: 'duration', label: 'Duration', width: 80, visible: true },
     { id: 'size', label: 'Size', width: 72, visible: true },
-    { id: 'clientStart', label: 'Client start', width: 96, visible: true },
-    { id: 'serverDone', label: 'Server done', width: 96, visible: false },
+    { id: 'clientStart', label: 'Client start', width: 104, visible: true },
+    { id: 'serverDone', label: 'Server done', width: 104, visible: false },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
     { id: 'url', label: 'URL', width: 420, visible: false },
     { id: 'waterfall', label: 'Waterfall', width: 200, visible: false },
