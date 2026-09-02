@@ -12,10 +12,10 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --selected:rgba(99,102,241,0.14);--accent:#6366f1;--text-accent:#4338ca;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(99,102,241,0.12);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
   --search-yellow-badge:#854d0e;--search-red-badge:#b91c1c;--search-green-badge:#15803d;--search-blue-badge:#1d4ed8;--search-purple-badge:#7e22ce;--search-orange-badge:#c2410c;
-  --stripe:rgba(0,0,0,0.018);
-  --status-2xx-text:#047857;--status-3xx-text:#92400e;--status-4xx-text:#9a3412;--status-5xx-text:#b91c1c;
+  --stripe:rgba(0,0,0,0.04);--row-rule:rgba(0,0,0,0.08);
+  --status-2xx-text:#065f46;--status-3xx-text:#92400e;--status-4xx-text:#9a3412;--status-5xx-text:#b91c1c;
   --dur-ok-text:#3f6212;--dur-med-text:#854d0e;--dur-slow-text:#b91c1c;
-  --method-get-fg:#047857;--method-post-fg:#92400e;--method-put-fg:#1d4ed8;
+  --method-get-fg:#065f46;--method-post-fg:#92400e;--method-put-fg:#1d4ed8;
   --method-patch-fg:#6d28d9;--method-delete-fg:#b91c1c;--method-head-fg:#0f766e;--method-options-fg:#4338ca;
   --method-get-bg:#d1fae5;--method-post-bg:#fef3c7;--method-put-bg:#dbeafe;
   --method-patch-bg:#ede9fe;--method-delete-bg:#fee2e2;--method-head-bg:#ccfbf1;--method-options-bg:#e0e7ff;--method-ws-fg:#0e7490;--method-ws-bg:#cffafe;--method-sse-fg:#075985;--method-sse-bg:#e0f2fe;
@@ -38,7 +38,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --selected:rgba(129,140,248,0.18);--accent:#818cf8;--text-accent:#a5b4fc;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(129,140,248,0.15);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
   --search-yellow-badge:#fbbf24;--search-red-badge:#ef4444;--search-green-badge:#22c55e;--search-blue-badge:#3b82f6;--search-purple-badge:#a855f7;--search-orange-badge:#f97316;
-  --stripe:rgba(255,255,255,0.02);
+  --stripe:rgba(255,255,255,0.045);--row-rule:rgba(255,255,255,0.09);
   --status-2xx-text:#6ee7b7;--status-3xx-text:#fde68a;--status-4xx-text:#fdba74;--status-5xx-text:#fca5a5;
   --dur-ok-text:#bef264;--dur-med-text:#fde047;--dur-slow-text:#fca5a5;
   --method-get-fg:#6ee7b7;--method-post-fg:#fde68a;--method-put-fg:#93c5fd;
@@ -64,7 +64,7 @@ html[data-theme="dark"]{
   --selected:rgba(129,140,248,0.18);--accent:#818cf8;--text-accent:#a5b4fc;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(129,140,248,0.15);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
   --search-yellow-badge:#fbbf24;--search-red-badge:#ef4444;--search-green-badge:#22c55e;--search-blue-badge:#3b82f6;--search-purple-badge:#a855f7;--search-orange-badge:#f97316;
-  --stripe:rgba(255,255,255,0.02);
+  --stripe:rgba(255,255,255,0.045);--row-rule:rgba(255,255,255,0.09);
   --status-2xx-text:#6ee7b7;--status-3xx-text:#fde68a;--status-4xx-text:#fdba74;--status-5xx-text:#fca5a5;
   --dur-ok-text:#bef264;--dur-med-text:#fde047;--dur-slow-text:#fca5a5;
   --method-get-fg:#6ee7b7;--method-post-fg:#fde68a;--method-put-fg:#93c5fd;
@@ -90,10 +90,10 @@ html[data-theme="light"]{
   --selected:rgba(99,102,241,0.14);--accent:#6366f1;--text-accent:#4338ca;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(99,102,241,0.12);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
   --search-yellow-badge:#854d0e;--search-red-badge:#b91c1c;--search-green-badge:#15803d;--search-blue-badge:#1d4ed8;--search-purple-badge:#7e22ce;--search-orange-badge:#c2410c;
-  --stripe:rgba(0,0,0,0.018);
-  --status-2xx-text:#047857;--status-3xx-text:#92400e;--status-4xx-text:#9a3412;--status-5xx-text:#b91c1c;
+  --stripe:rgba(0,0,0,0.04);--row-rule:rgba(0,0,0,0.08);
+  --status-2xx-text:#065f46;--status-3xx-text:#92400e;--status-4xx-text:#9a3412;--status-5xx-text:#b91c1c;
   --dur-ok-text:#3f6212;--dur-med-text:#854d0e;--dur-slow-text:#b91c1c;
-  --method-get-fg:#047857;--method-post-fg:#92400e;--method-put-fg:#1d4ed8;
+  --method-get-fg:#065f46;--method-post-fg:#92400e;--method-put-fg:#1d4ed8;
   --method-patch-fg:#6d28d9;--method-delete-fg:#b91c1c;--method-head-fg:#0f766e;--method-options-fg:#4338ca;
   --method-get-bg:#d1fae5;--method-post-bg:#fef3c7;--method-put-bg:#dbeafe;
   --method-patch-bg:#ede9fe;--method-delete-bg:#fee2e2;--method-head-bg:#ccfbf1;--method-options-bg:#e0e7ff;--method-ws-fg:#0e7490;--method-ws-bg:#cffafe;--method-sse-fg:#075985;--method-sse-bg:#e0f2fe;
@@ -260,14 +260,16 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .domain-summary-errors{color:var(--status-5xx-text);font-weight:600;white-space:nowrap}
 .domain-summary-empty{color:var(--text-muted);font-size:11px;padding:2px 4px}
 .content{display:flex;flex:1 1 auto;min-width:0;min-height:0}
-.tableWrap{overflow:auto;flex:1 1 50%;min-width:0;scroll-padding-top:30px}
+.tableWrap{overflow:auto;flex:1 1 0%;min-width:0;scroll-padding-top:30px}
 .resizer{flex:0 0 4px;cursor:col-resize;background:var(--separator);z-index:2;transition:background 0.15s}
 .resizer[hidden],.details[hidden]{display:none}
 .resizer:hover,.resizer:focus-visible{background:var(--accent)}
 .content .resizer:focus-visible,.inspector-panels .inspector-divider:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* === Details Panel === */
-.details{display:flex;flex-direction:column;flex:0 0 50%;min-width:300px;min-height:0;overflow:hidden;border-left:1px solid var(--separator)}
+/* Side by side the pane holds a clamped default (or the dragged px basis the script persists) and the grid absorbs the rest.
+   container-type makes the pane the size container for the .kv key/value stacking query. */
+.details{display:flex;flex-direction:column;flex:0 0 clamp(440px,42%,760px);min-width:400px;min-height:0;overflow:hidden;border-left:1px solid var(--separator);container-type:inline-size}
 .details-header{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border-bottom:1px solid var(--border);background:var(--topbar-bg);font-weight:600;font-size:13px}
 #detailsTitle{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .details-close-btn{flex:0 0 auto;min-width:24px;min-height:24px;padding:2px 6px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;font:inherit;line-height:1}
@@ -276,18 +278,21 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 /* display:flex outranks the UA [hidden] rule — the trap that has now shipped three times. */
 .inspector-panels[hidden]{display:none}
 .inspector-half{display:flex;flex-direction:column;flex:1;min-height:80px;overflow:hidden}
-.inspector-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;padding:4px 10px;background:var(--accent-dim);color:var(--text-accent);border-bottom:1px solid var(--border)}
+/* A quiet caption row: the accent-dim fill is reserved for the active tab. */
+.inspector-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:3px 10px;background:var(--surface);color:var(--text-muted);border-bottom:1px solid var(--border)}
 .inspector-divider{flex:0 0 3px;background:var(--separator);cursor:row-resize}
 .inspector-divider:hover,.inspector-divider:focus-visible{background:var(--accent)}
 
 /* === Tabs === */
-.tab-bar{display:flex;flex-wrap:nowrap;overflow-x:auto;background:var(--surface);border-bottom:1px solid var(--border);gap:0;padding:0 6px;scrollbar-width:thin}
-.tab-btn{padding:5px 12px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s,color 0.15s;font-weight:500}
+.tab-bar{display:flex;flex-wrap:nowrap;overflow-x:auto;background:var(--surface);border-bottom:1px solid var(--border);gap:0;padding:0;scrollbar-width:thin}
+/* One weight in both states: a bolder active label reflowed the whole row on every activation. */
+.tab-btn{padding:5px 10px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s,color 0.15s;font-weight:600}
 .tab-btn:hover{color:var(--fg);background:var(--hover)}
-.tab-btn.active{color:var(--text-accent);border-bottom-color:var(--accent);font-weight:700;background:var(--accent-dim)}
+.tab-btn.active{color:var(--text-accent);border-bottom-color:var(--accent);background:var(--accent-dim)}
 /* scroll-padding only acts on the scrollport itself; on a non-scrolling child it is inert. */
 .tab-content-area{flex:1;overflow:auto;position:relative;scroll-padding-bottom:32px}
-.tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:break-all;font-size:13px}
+/* Values wrap at word boundaries; break-all split UUIDs and tokens mid-word. Raw dumps keep break-all in .code-block. */
+.tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:normal;overflow-wrap:anywhere;font-size:13px}
 .tab-pane.active{display:block}
 .tab-pane.pane-search-host.active{display:flex;flex-direction:column;min-height:100%}
 .tab-pane.pane-search-host.active[hidden]{display:none}
@@ -338,7 +343,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .timing-phase-connect{background:var(--search-orange)}.timing-phase-ssl{background:var(--search-purple)}
 .timing-phase-send{background:var(--search-green)}.timing-phase-wait{background:var(--search-yellow)}
 .timing-phase-receive{background:var(--text-accent)}
-.timing-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:10px;color:var(--text-muted);margin-top:6px}
+.timing-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--text-muted);margin-top:6px}
 .timing-legend-item{display:flex;align-items:center;gap:4px}
 .timing-legend-dot{width:10px;height:10px;border-radius:3px;display:inline-block}
 .timing-evidence-note{margin:8px 0 0;padding:6px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--fg);font-size:11px;line-height:1.4}
@@ -359,22 +364,30 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .title-row th.drag-over-left{box-shadow:inset 3px 0 0 var(--accent)}
 .title-row th.drag-over-right{box-shadow:inset -3px 0 0 var(--accent)}
 .title-row th.dragging{opacity:0.4}
-.grid tbody td{border-bottom:1px solid var(--stripe);padding:5px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.grid tbody td{border-bottom:1px solid var(--row-rule);padding:3px 8px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+/* Match is a 36px state gutter: chips only, no visible header text (the th
+   keeps its aria-label/title 'Match' for assistive tech and hover). The clip
+   follows the real width via .gutter-header, so a Match kept at its older
+   64px default by saved prefs still shows its label. */
+.title-row th.gutter-header .column-header-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.grid tbody td[data-col-id="match"]{padding-left:2px;padding-right:2px}
 .grid tbody tr:nth-child(even){background:var(--stripe)}
 .grid tbody tr:hover{background:var(--row-hover)}
 .grid tbody tr.selected{background:var(--selected);box-shadow:inset 0 0 0 2px var(--accent)}
 .grid tbody tr:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* Status code colors */
-.grid tbody tr .status-cell{font-weight:700;font-variant-numeric:tabular-nums}
+/* Regular weight for the common 2xx; only redirects and errors go bold so
+   the Status column outranks the Method pill exactly where it matters. */
+.grid tbody tr .status-cell{font-variant-numeric:tabular-nums}
 .grid tbody tr.status-2xx .status-cell{color:var(--status-2xx-text)}
-.grid tbody tr.status-3xx .status-cell{color:var(--status-3xx-text)}
-.grid tbody tr.status-4xx .status-cell{color:var(--status-4xx-text)}
-.grid tbody tr.status-5xx .status-cell{color:var(--status-5xx-text)}
+.grid tbody tr.status-3xx .status-cell{color:var(--status-3xx-text);font-weight:700}
+.grid tbody tr.status-4xx .status-cell{color:var(--status-4xx-text);font-weight:700}
+.grid tbody tr.status-5xx .status-cell{color:var(--status-5xx-text);font-weight:700}
 
 /* Method colors */
 .grid tbody tr .method-cell{font-weight:700;font-size:11px}
-.method-badge{display:inline-block;min-width:34px;text-align:center;padding:1px 4px;border-radius:5px;font-weight:700;font-size:10.5px;line-height:1.5}
+.method-badge{display:inline-block;min-width:34px;text-align:center;padding:1px 4px;border-radius:5px;font-weight:700;font-size:11px;line-height:1.5}
 .grid tbody tr.method-GET .method-badge{color:var(--method-get-fg);background:var(--method-get-bg)}
 .grid tbody tr.method-POST .method-badge{color:var(--method-post-fg);background:var(--method-post-bg)}
 .grid tbody tr.method-PUT .method-badge{color:var(--method-put-fg);background:var(--method-put-bg)}
@@ -384,6 +397,9 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .grid tbody tr.method-HEAD .method-badge{color:var(--method-head-fg);background:var(--method-head-bg)}
 .grid tbody tr.method-WS .method-badge{color:var(--method-ws-fg);background:var(--method-ws-bg)}
 .grid tbody tr.method-SSE .method-badge{color:var(--method-sse-fg);background:var(--method-sse-bg)}
+/* GET is the default verb: quiet text with no fill, so only the other
+   methods wear a pill and stand out. Keeps --method-get-fg for colour. */
+.grid tbody tr.method-GET .method-badge{background:transparent;padding-left:0;min-width:0;text-align:left}
 .ws-capture-btn[aria-pressed="true"]{background:var(--accent-dim);border-color:var(--accent);color:var(--text-accent)}
 
 /* Duration colors */
@@ -397,15 +413,28 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .wf-seg{height:100%;min-width:1px}
 
 /* === KV Grid === */
-/* The key track grows to the longest header name; a fixed 150px painted long names across the value text. */
-.kv{display:grid;grid-template-columns:minmax(150px,max-content) 1fr;gap:1px 12px;font-size:13px}
-.kv .key{color:var(--syn-hdr-name);white-space:nowrap;font-weight:600;padding:3px 0;font-size:12px}
-.kv .val{color:var(--fg);overflow-wrap:break-word;min-width:0;padding:3px 0}
+/* The key track fits the longest key up to 40% of the grid (220px cap) so short keys sit near their values; longer keys wrap. */
+/* Keys are muted 12px so the 13px values read as the brightest text; a hairline under each cell gives rows a delimiter. */
+/* The key/value gap is the key's right padding, not a grid column-gap, so each row's hairline runs unbroken. */
+.kv{display:grid;grid-template-columns:fit-content(min(220px,40%)) 1fr;gap:0;font-size:13px}
+.kv .key,.kv .val{padding:3px 0;line-height:18px;border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent)}
+.kv .key{color:var(--text-muted);min-width:110px;padding-right:16px;white-space:normal;overflow-wrap:anywhere;font-weight:600;font-size:12px}
+.kv .val{color:var(--fg);overflow-wrap:anywhere;min-width:0}
+/* Under 520px of pane width the key sits above its value; the value keeps the row hairline. */
+@container (max-width:520px){
+  .kv{grid-template-columns:minmax(0,1fr);gap:0}
+  .kv .key{padding-bottom:0;padding-right:0;border-bottom:0}
+  .kv .val{padding-top:0;padding-left:8px}
+}
+.kv-group-heading{display:block;margin:8px 0 2px;padding-bottom:3px;font-size:12px;font-weight:600;color:var(--fg);border-bottom:1px solid var(--border)}
+.tab-pane > .kv-group-heading:first-child{margin-top:0}
 
 /* === Status Bar === */
 .statusbar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:5px 10px;border-top:1px solid var(--border);background:var(--surface);font-size:11px;color:var(--text-muted);flex:0 0 auto;overflow-x:visible;white-space:normal}
 .statusbar .spacer{flex:1}
 .statusbar > span:not(.sr-only),.status-details > span{min-width:0;max-width:100%;overflow-wrap:anywhere}
+/* The message shares its row in both layouts: it may shrink (min-width:0) and wraps a long message instead of pushing the counter down. */
+.statusbar #statusText{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;white-space:normal}
 .status-details{display:contents}
 /* display:contents also outranks the UA [hidden] rule; the guard must not live only inside the narrow media block. */
 .status-details[hidden]{display:none}
@@ -579,7 +608,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .shortcut-form h2{margin:0;font-size:15px;font-style:normal}
 .shortcut-table{width:100%;border-collapse:collapse;font-size:11px}
 .shortcut-table th{text-align:left;padding:4px 8px;border-bottom:2px solid var(--border);color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;font-size:10px}
-.shortcut-table td{padding:5px 8px;border-bottom:1px solid var(--stripe);vertical-align:middle}
+.shortcut-table td{padding:5px 8px;border-bottom:1px solid var(--row-rule);vertical-align:middle}
 .shortcut-table td:first-child{color:var(--text-muted)}
 .shortcut-table td:last-child{color:var(--fg)}
 kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid var(--control-border);border-radius:4px;font-family:monospace;font-size:10px;line-height:1.6;color:var(--fg);box-shadow:0 1px 0 var(--border)}
@@ -753,7 +782,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .filter-popup.show{display:block}
 .filter-popup-header{font-weight:700;margin-bottom:10px;color:var(--text-accent);font-size:13px}
 .filter-popup-list{display:flex;flex-direction:column;gap:1px}
-.filter-section{border-bottom:1px solid var(--stripe)}
+.filter-section{border-bottom:1px solid var(--row-rule)}
 .filter-section:last-child{border-bottom:0}
 .filter-section-toggle{display:flex;align-items:center;gap:8px;width:100%;background:transparent;border:0;padding:7px 6px;cursor:pointer;color:var(--fg);border-radius:6px;font:inherit;text-align:left}
 .filter-section-toggle:hover{background:var(--hover)}
@@ -839,11 +868,11 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 
 /* === Accessible row state cue === */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.row-state-badges{display:inline-flex;align-items:center;gap:1px;margin-right:2px;vertical-align:1px}
-.row-state-badge{display:inline-flex;align-items:center;justify-content:center;min-width:10px;height:13px;padding:0 1px;border:1px solid var(--accent);border-radius:3px;color:var(--text-accent);background:var(--content-bg);font-size:9px;font-weight:700;line-height:1}
+.row-state-badges{display:inline-flex;align-items:center;gap:1px;vertical-align:middle}
+.row-state-badge{display:inline-flex;align-items:center;justify-content:center;min-width:14px;height:15px;padding:0 2px;border:1px solid var(--accent);border-radius:3px;color:var(--text-accent);background:var(--content-bg);font-size:10.5px;font-weight:700;line-height:1}
 /* One chip per matched keyword, carrying that keyword’s own colour. */
-/* 9px bold text on --content-bg: the raw highlight palette fails AA in the two
-   light theme states, so badges use per-theme text-safe variants of it. */
+/* 10.5px bold text on --content-bg: the raw highlight palette fails AA in the
+   two light theme states, so badges use per-theme text-safe variants of it. */
 .row-state-badge--kw0{border-color:var(--search-yellow-badge);color:var(--search-yellow-badge)}
 .row-state-badge--kw1{border-color:var(--search-red-badge);color:var(--search-red-badge)}
 .row-state-badge--kw2{border-color:var(--search-green-badge);color:var(--search-green-badge)}
@@ -852,19 +881,19 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .row-state-badge--kw5{border-color:var(--search-orange-badge);color:var(--search-orange-badge)}
 
 /* === Narrow workbench split === */
+/* One breakpoint: the workbench stacks and the status bar compacts at the same width (NARROW_PANEL_MAX_WIDTH in panel.js). */
 @media (max-width:800px){
+  /* Status text and counter share the row with the disclosure toggle; #statusText keeps the shared shrink/wrap rule above. */
   .statusbar .spacer{display:none}
-  .statusbar #statusText{flex:1 0 100%;overflow-wrap:anywhere;white-space:normal}
-  .statusbar #counter{flex:1 0 100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .statusbar #counter{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .status-details{display:flex;flex:1 0 100%;flex-wrap:wrap;align-items:center;gap:4px 8px;padding-top:4px;border-top:1px solid var(--border)}
   .status-details[hidden]{display:none}
   .status-details > span{min-width:0;max-width:100%;overflow-wrap:anywhere}
-}
-@media (max-width:700px){
+  /* Stacked: the details pane takes 60% of the height and the grid scrolls in the other 40%. */
   .content{flex-direction:column}
-  .tableWrap{flex:1 1 50%;min-height:120px}
+  .tableWrap{flex:1 1 40%;min-height:120px}
   .resizer{flex:0 0 4px;width:100%;height:4px;cursor:row-resize}
-  .details{flex:1 1 50%;min-width:0;min-height:160px;border-left:0;border-top:1px solid var(--separator)}
+  .details{flex:1 1 60%;min-width:0;min-height:160px;border-left:0;border-top:1px solid var(--separator)}
   .content.capture-empty .tableWrap{flex:1 1 100%;min-height:0}
   .content.capture-empty .resizer,.content.capture-empty .details{display:none}
 }

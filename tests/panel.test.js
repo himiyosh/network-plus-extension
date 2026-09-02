@@ -4556,6 +4556,35 @@ describe('domain summary preference', () => {
   });
 });
 
+describe('details pane width preference', () => {
+  test('round-trips a rounded px width and rejects anything below the 400px floor', () => {
+    expect(np.DETAILS_WIDTH_KEY).toBe('networkPlus.detailsWidth.v1');
+    localStorage.getItem.mockReturnValueOnce(null);
+    expect(np.loadDetailsWidthPref()).toBeNull();
+    localStorage.getItem.mockReturnValueOnce('wide');
+    expect(np.loadDetailsWidthPref()).toBeNull();
+    localStorage.getItem.mockReturnValueOnce('399');
+    expect(np.loadDetailsWidthPref()).toBeNull();
+    localStorage.getItem.mockReturnValueOnce('400');
+    expect(np.loadDetailsWidthPref()).toBe(400);
+    localStorage.getItem.mockReturnValueOnce('612.4');
+    expect(np.loadDetailsWidthPref()).toBe(612);
+    np.saveDetailsWidthPref(537.6);
+    expect(localStorage.setItem).toHaveBeenCalledWith('networkPlus.detailsWidth.v1', '538');
+  });
+
+  test('a throwing localStorage degrades to the stylesheet default without throwing', () => {
+    localStorage.getItem.mockImplementationOnce(() => {
+      throw new Error('denied');
+    });
+    expect(np.loadDetailsWidthPref()).toBeNull();
+    localStorage.setItem.mockImplementationOnce(() => {
+      throw new Error('denied');
+    });
+    expect(() => np.saveDetailsWidthPref(500)).not.toThrow();
+  });
+});
+
 describe('WebSocket frame HAR export', () => {
   const wsContext = (row) => ({ createRow: () => {}, getRow: () => row });
 

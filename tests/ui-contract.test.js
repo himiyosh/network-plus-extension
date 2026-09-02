@@ -367,6 +367,48 @@ describe('accessible theme contract', () => {
       expect(contrastRatio(theme['on-accent'], theme['accent-fill'])).toBeGreaterThanOrEqual(4.5);
     }
   });
+
+  // Quiet GET and 2xx text sit directly on the row: the selected tint and the
+  // zebra stripe composited over --bg are the grounds they must clear, and the
+  // light --selected composite (#e5e6fa) is where the old #047857 fell to 4.45.
+  const parseAlphaColor = (value) => {
+    const match = value.match(/^rgba\((\d+),(\d+),(\d+),([\d.]+)\)$/);
+    expect(match).not.toBeNull();
+    return { rgb: match.slice(1, 4).map(Number), alpha: Number(match[4]) };
+  };
+  const compositeOver = (overlay, backgroundHex) => {
+    const { rgb, alpha } = parseAlphaColor(overlay);
+    const base = hexToRgb(backgroundHex);
+    return (
+      '#' +
+      rgb
+        .map((channel, index) => Math.round(channel * alpha + base[index] * (1 - alpha)).toString(16).padStart(2, '0'))
+        .join('')
+    );
+  };
+
+  test('keeps GET and 2xx text at WCAG AA on the selected and zebra row composites', () => {
+    expect(compositeOver(light.selected, light.bg)).toBe('#e5e6fa');
+    for (const [themeName, theme] of [
+      ['light', light],
+      ['system dark', systemDark],
+      ['forced dark', forcedDark],
+      ['forced light', forcedLight],
+    ]) {
+      for (const overlayToken of ['selected', 'stripe']) {
+        const rowBackground = compositeOver(theme[overlayToken], theme.bg);
+        for (const token of ['method-get-fg', 'status-2xx-text']) {
+          const ratio = contrastRatio(theme[token], rowBackground);
+          expect({ themeName, overlayToken, token, rowBackground, ratio }).toEqual(
+            expect.objectContaining({ ratio: expect.any(Number) }),
+          );
+          expect(ratio).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+    expect(light['method-get-fg']).toBe('#065f46');
+    expect(light['status-2xx-text']).toBe('#065f46');
+  });
 });
 
 describe('accessible workbench static contracts', () => {
@@ -430,8 +472,8 @@ describe('accessible workbench static contracts', () => {
     expect(css).toMatch(/\.topbar button\{[^}]*min-height:32px[^}]*white-space:nowrap/);
   });
 
-  test('stacks the workbench and rotates the main separator at 700px', () => {
-    const narrowStart = css.indexOf('@media (max-width:700px)');
+  test('stacks the workbench and rotates the main separator at 800px', () => {
+    const narrowStart = css.indexOf('@media (max-width:800px)');
     const narrow = css.slice(narrowStart, css.indexOf('@media (prefers-reduced-motion:reduce)', narrowStart));
     expect(narrow).toContain('.content{flex-direction:column}');
     expect(narrow).toContain('cursor:row-resize');
@@ -511,7 +553,7 @@ describe('guided sample capture static contracts', () => {
       /classList\.toggle\('capture-empty',\s*(?:visibleRowCount|mode !== 'hidden')/,
     );
 
-    const narrowStart = css.indexOf('@media (max-width:700px)');
+    const narrowStart = css.indexOf('@media (max-width:800px)');
     const narrow = css.slice(narrowStart, css.indexOf('@media (max-width:420px)', narrowStart));
     expect(css.slice(0, narrowStart)).not.toContain('.content.capture-empty');
     expect(narrow).toContain(
@@ -772,12 +814,13 @@ describe('guided sample capture static contracts', () => {
       /@media \(max-width:800px\)\{[\s\S]*?\.status-details > span\{[^}]*min-width:0[^}]*max-width:100%[^}]*overflow-wrap:anywhere/,
     );
     const narrowStatusRule = css.match(/\.statusbar #statusText\{([^}]*)\}/)?.[1] || '';
-    expect(narrowStatusRule).toContain('flex:1 0 100%');
+    expect(narrowStatusRule).toContain('flex:1 1 auto');
+    expect(narrowStatusRule).toContain('min-width:0');
     expect(narrowStatusRule).toContain('overflow-wrap:anywhere');
     expect(narrowStatusRule).toContain('white-space:normal');
     expect(narrowStatusRule).not.toMatch(/overflow:hidden|text-overflow:ellipsis|white-space:nowrap/);
     expect(css).toMatch(
-      /\.statusbar #counter\{[^}]*flex:1 0 100%[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/,
+      /\.statusbar #counter\{[^}]*flex:0 1 auto[^}]*min-width:0[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/,
     );
 
     const initializerStart = js.indexOf('function initializeStatusDetailsDisclosure()');
@@ -2630,7 +2673,7 @@ describe('shortcut help static contracts', () => {
   });
 
   test('shortcut table includes orientation-aware divider arrows for both layouts', () => {
-    // Horizontal layout uses ← / →; vertical (≤700 px) uses ↑ / ↓ for the panel divider
+    // Horizontal layout uses ← / →; vertical (≤800 px) uses ↑ / ↓ for the panel divider
     expect(html).toMatch(/panel divider.*horizontal/i);
     expect(html).toMatch(/panel divider.*vertical/i);
   });

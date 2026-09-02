@@ -11,14 +11,14 @@ const _NetworkPlus = (function () {
   const DEFAULT_COL_WIDTH = 120;
   const KEYBOARD_RESIZE_STEP = 10;
   const KEYBOARD_RESIZE_LARGE_STEP = 40;
-  const MIN_DETAILS_WIDTH = 300;
+  const MIN_DETAILS_WIDTH = 400;
   const MIN_TABLE_WIDTH = 240;
   const MIN_DETAILS_HEIGHT = 160;
   const MIN_TABLE_HEIGHT = 120;
   const MIN_INSPECTOR_PANE_HEIGHT = 80;
   const RESIZER_WIDTH = 4;
   const INSPECTOR_DIVIDER_HEIGHT = 3;
-  const NARROW_PANEL_MAX_WIDTH = 700;
+  const NARROW_PANEL_MAX_WIDTH = 800; // Must match the @media (max-width:800px) block in panel.css
   const POPUP_VIEWPORT_MARGIN = 8;
   const ROW_CONTEXT_MENU_X_OFFSET = 16;
   const ROW_CONTEXT_MENU_Y_OFFSET = 24;
@@ -114,8 +114,9 @@ const _NetworkPlus = (function () {
   const COL_PREF_KEY = 'networkPlus.cols';
   const CUSTOM_HEADER_COLUMN_KEY = 'networkPlus.customHeaderColumn.v1';
   const DOMAIN_SUMMARY_KEY = 'networkPlus.domainSummary.v1'; // '1' = per-domain summary panel shown
+  const DETAILS_WIDTH_KEY = 'networkPlus.detailsWidth.v1'; // dragged side-by-side details pane width in px
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
-  const COL_PREF_VERSION = 3; // Bump when default visibility changes
+  const COL_PREF_VERSION = 4; // Bump when default visibility changes
   const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';
   const UNDOCK_HINT_KEY = 'networkPlus.undockHint.v1'; // '1' = mirror tab's undock explainer dismissed for good
   const LEGACY_FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1'; // retired multi-preset store
@@ -297,20 +298,24 @@ const _NetworkPlus = (function () {
     { value: 'notempty', label: 'isNotEmpty' },
   ];
 
+  // Visible defaults sum to 976px: Path (the identifying column) is on the
+  // first screen at 1280px with the details pane open, and the whole set fits
+  // without horizontal scroll once the pane is closed. Match is a 36px state
+  // gutter first (a ✓ chip plus one keyword chip fit without clipping).
   const DEFAULT_COLUMNS = [
+    { id: 'match', label: 'Match', width: 36, visible: true },
     { id: 'id', label: 'ID', width: 60, visible: true },
-    { id: 'match', label: 'Match', width: 64, visible: true },
-    { id: 'clientStart', label: 'ClientStart', width: 120, visible: true },
-    { id: 'serverDone', label: 'ServerDone', width: 120, visible: true },
     { id: 'method', label: 'Method', width: 80, visible: true },
     { id: 'status', label: 'Status', width: 70, visible: true },
-    { id: 'domain', label: 'Domain', width: 180, visible: true },
+    { id: 'domain', label: 'Domain', width: 140, visible: true },
     { id: 'path', label: 'Path', width: 260, visible: true },
-    { id: 'type', label: 'Type', width: 150, visible: true },
+    { id: 'type', label: 'Type', width: 90, visible: true },
     { id: 'operation', label: 'Operation', width: 150, visible: false },
     { id: 'customHeader', label: 'Header', width: 160, visible: false },
-    { id: 'duration', label: 'Duration', width: 110, visible: true },
-    { id: 'size', label: 'Size', width: 90, visible: true },
+    { id: 'duration', label: 'Duration', width: 72, visible: true },
+    { id: 'size', label: 'Size', width: 72, visible: true },
+    { id: 'clientStart', label: 'Client start', width: 96, visible: true },
+    { id: 'serverDone', label: 'Server done', width: 96, visible: false },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
     { id: 'url', label: 'URL', width: 420, visible: false },
     { id: 'waterfall', label: 'Waterfall', width: 200, visible: false },
@@ -5499,8 +5504,8 @@ const _NetworkPlus = (function () {
       ja: '(パネル分割線上で・横方向)',
     },
     shortcutWhereDividerVertical: {
-      en: 'on panel divider (vertical ≤700 px)',
-      ja: '(パネル分割線上で・縦方向 700 px 以下)',
+      en: 'on panel divider (vertical ≤800 px)',
+      ja: '(パネル分割線上で・縦方向 800 px 以下)',
     },
     shortcutWhereColumnHeader: {
       en: 'on column header',
@@ -6025,9 +6030,12 @@ const _NetworkPlus = (function () {
         for (const sc of savedCols) {
           const def = DEFAULT_COLUMNS.find((d) => d.id === sc.id);
           if (def) {
-            // If schema version changed, reset visibility to current defaults (keep width/order)
+            // If schema version changed, reset visibility to current defaults (keep width/order).
+            // Match alone also takes its default width: it became a chip
+            // gutter in v4, and a v3 64px Match would keep a visible label.
             const vis = needsVisReset ? def.visible : sc.visible;
-            ordered.push({ ...def, visible: vis, width: sc.width });
+            const width = needsVisReset && def.id === 'match' ? def.width : sc.width;
+            ordered.push({ ...def, visible: vis, width });
             used.add(sc.id);
           }
         }
@@ -6095,6 +6103,25 @@ const _NetworkPlus = (function () {
       else localStorage.removeItem(DOMAIN_SUMMARY_KEY);
     } catch (_e) {
       // The panel still toggles for this session without persistence.
+    }
+  }
+
+  // Side-by-side details pane width. Only a dragged/keyed width is stored;
+  // the stacked (narrow) split is height-based and never persisted.
+  function loadDetailsWidthPref() {
+    try {
+      const width = Number(localStorage.getItem(DETAILS_WIDTH_KEY));
+      return Number.isFinite(width) && width >= MIN_DETAILS_WIDTH ? Math.round(width) : null;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function saveDetailsWidthPref(width) {
+    try {
+      localStorage.setItem(DETAILS_WIDTH_KEY, String(Math.round(width)));
+    } catch (_e) {
+      console.warn('Failed to save details pane width');
     }
   }
 
@@ -8289,8 +8316,9 @@ const _NetworkPlus = (function () {
     tr.tabIndex = isTabStop ? 0 : -1;
     if (isTabStop) currentRowTabStop = tr;
     tr.setAttribute('role', 'row');
+    // aria-keyshortcuts carries the context-menu hint; no tr.title so the
+    // hover tooltip is free for each cell's full (possibly truncated) value.
     tr.setAttribute('aria-keyshortcuts', 'ContextMenu Shift+F10');
-    tr.title = 'Press Shift+F10 or the Context Menu key for request actions';
 
     const isSelected = state.selectedRow === row || state.selectedRows.has(row);
     if (state.selectedRow === row) tr.classList.add('selected');
@@ -8377,6 +8405,7 @@ const _NetworkPlus = (function () {
           } else {
             td.textContent = txt;
           }
+          if (txt) td.title = txt;
         }
       } else if (c.id === 'waterfall') {
         td.classList.add('waterfall-cell');
@@ -8436,9 +8465,12 @@ const _NetworkPlus = (function () {
         } else {
           contentHost.textContent = text;
         }
+        // Every text cell carries its full value as the tooltip so a
+        // truncated Domain/Type/Path can be read on hover; the method pill
+        // never truncates.
+        if (c.id !== 'method' && text) td.title = text;
       }
 
-      if (c.id === 'url' || c.id === 'path') td.title = row[c.id] || '';
       tr.appendChild(td);
     }
     if (visibleStateBadges.length > 0) {
@@ -9431,13 +9463,6 @@ const _NetworkPlus = (function () {
     );
 
     const visibleCols = state.columns.filter((c) => c.visible);
-    const updateGridWidth = () => {
-      const totalWidth = state.columns
-        .filter((column) => column.visible)
-        .reduce((sum, column) => sum + clampColumnWidth(column.width), 0);
-      $('#grid').style.width = totalWidth + 'px';
-    };
-    updateGridWidth();
 
     const tr = document.createElement('tr');
     tr.className = 'title-row';
@@ -9457,7 +9482,9 @@ const _NetworkPlus = (function () {
       if (isVisualOnly) {
         th.className = 'waterfall-header';
         th.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
-        th.title = c.label + ': visual timing column; Alt+Left/Right Arrow to reorder';
+        th.title = c.id === 'match'
+          ? c.label + ': search and selection state; Alt+Left/Right Arrow to reorder'
+          : c.label + ': visual timing column; Alt+Left/Right Arrow to reorder';
       } else {
         th.className = 'sortable-header';
         th.setAttribute('aria-haspopup', 'dialog');
@@ -9468,6 +9495,8 @@ const _NetworkPlus = (function () {
         th.setAttribute('aria-sort', sortState);
         th.title = c.label + ': Enter or Space to sort; Alt+Left/Right Arrow to reorder; context menu to filter';
       }
+      // Only a gutter-narrow Match hides its label; a v3 64px Match keeps it.
+      th.classList.toggle('gutter-header', c.id === 'match' && c.width < 44);
 
       const label = document.createElement('span');
       label.className = 'column-header-label';
@@ -9571,9 +9600,10 @@ const _NetworkPlus = (function () {
       const applyColumnWidth = (newWidth) => {
         c.width = clampColumnWidth(newWidth);
         th.style.width = c.width + 'px';
+        if (c.id === 'match') th.classList.toggle('gutter-header', c.width < 44);
         columnResizer.setAttribute('aria-valuenow', String(c.width));
         columnResizer.setAttribute('aria-valuetext', c.label + ' column width ' + c.width + ' pixels');
-        updateGridWidth();
+        applyElasticColumnWidth();
       };
       columnResizer.addEventListener('keydown', (event) => {
         const newWidth = adjustColumnWidth(c.width, event.key, event.shiftKey);
@@ -9591,9 +9621,14 @@ const _NetworkPlus = (function () {
         event.preventDefault();
         event.stopPropagation();
         const startX = event.clientX;
-        const startWidth = th.offsetWidth;
+        // The elastic column renders wider than its stored width (see
+        // applyElasticColumnWidth). Widening starts from what the user sees;
+        // narrowing inside that surplus must not inflate the stored width.
+        const startStored = clampColumnWidth(c.width);
+        const startRendered = th.offsetWidth;
         const handleMouseMove = (moveEvent) => {
-          applyColumnWidth(startWidth + (moveEvent.clientX - startX));
+          const delta = moveEvent.clientX - startX;
+          applyColumnWidth(delta >= 0 ? startRendered + delta : Math.min(startStored, startRendered + delta));
         };
         const handleMouseUp = () => {
           document.removeEventListener('mousemove', handleMouseMove);
@@ -9607,10 +9642,38 @@ const _NetworkPlus = (function () {
       tr.appendChild(th);
     }
     thead.appendChild(tr);
+    applyElasticColumnWidth();
 
     if (focusColId) {
       const headerToFocus = thead.querySelector('th[data-col-id="' + focusColId + '"]');
       if (headerToFocus) headerToFocus.focus({ preventScroll: true });
+    }
+  }
+
+  // The stored column widths (COL_PREF_KEY / DEFAULT_COLUMNS) are the source
+  // of truth for resizing and always sum to the grid's minimum width. When
+  // .tableWrap is wider than that sum the surplus is lent to Path's rendered
+  // width (or the last visible column's when Path is hidden) so the header
+  // band, zebra and row rules reach the right edge instead of stopping at
+  // the column sum. Only style widths change and only when the value differs,
+  // so the ResizeObserver that re-runs this never triggers itself.
+  function applyElasticColumnWidth() {
+    const grid = $('#grid');
+    const thead = $('#thead');
+    const tableWrap = $('#tableWrap');
+    if (!grid || !thead || !tableWrap) return;
+    const visibleCols = state.columns.filter((c) => c.visible);
+    const totalWidth = visibleCols.reduce((sum, c) => sum + clampColumnWidth(c.width), 0);
+    const wrapWidth = Number.isFinite(tableWrap.clientWidth) ? tableWrap.clientWidth : 0;
+    const surplus = Math.max(0, wrapWidth - totalWidth);
+    const elasticCol = visibleCols.find((c) => c.id === 'path') || visibleCols[visibleCols.length - 1];
+    const gridWidth = (totalWidth + surplus) + 'px';
+    if (grid.style.width !== gridWidth) grid.style.width = gridWidth;
+    for (const c of visibleCols) {
+      const th = thead.querySelector('th[data-col-id="' + c.id + '"]');
+      if (!th) continue;
+      const renderedWidth = (c === elasticCol ? clampColumnWidth(c.width) + surplus : clampColumnWidth(c.width)) + 'px';
+      if (th.style.width !== renderedWidth) th.style.width = renderedWidth;
     }
   }
 
@@ -10206,11 +10269,18 @@ const _NetworkPlus = (function () {
   // Section 13: Detail Panel — Fiddler-style tabbed inspector
   // ============================================================
 
+  // Assigned in init once the main-split sync exists. Showing the pane again
+  // must re-clamp its remembered basis against the current window: the sync
+  // skips a hidden pane, so close → shrink window → reopen would otherwise
+  // leave a stale px basis wider than the window allows.
+  let resyncMainSplit = null;
+
   function setDetailsPanelCollapsed(collapsed) {
     const resizer = $('#resizer');
     const details = $('#details');
     if (resizer) resizer.hidden = collapsed;
     if (details) details.hidden = collapsed;
+    if (!collapsed && resyncMainSplit) resyncMainSplit();
   }
 
   function showDetailsPanel() {
@@ -11201,8 +11271,7 @@ const _NetworkPlus = (function () {
     if (row.requestHeaders && row.requestHeaders.length > 0) {
       const title = document.createElement('strong');
       title.textContent = 'Request Headers';
-      title.style.display = 'block';
-      title.style.marginTop = '8px';
+      title.className = 'kv-group-heading';
       reqHeadersPane.appendChild(title);
       reqHeadersPane.appendChild(createKvGrid(row.requestHeaders.map((h) => ({ key: h.name, value: h.value }))));
       const requestJwtSection = createJwtDetailsSection(row.requestHeaders);
@@ -11292,8 +11361,7 @@ const _NetworkPlus = (function () {
     if (row.responseHeaders && row.responseHeaders.length > 0) {
       const title = document.createElement('strong');
       title.textContent = 'Response Headers';
-      title.style.display = 'block';
-      title.style.marginTop = '8px';
+      title.className = 'kv-group-heading';
       resHeadersPane.appendChild(title);
       resHeadersPane.appendChild(createKvGrid(row.responseHeaders.map((h) => ({ key: h.name, value: h.value }))));
       const responseJwtSection = createJwtDetailsSection(row.responseHeaders);
@@ -11354,6 +11422,7 @@ const _NetworkPlus = (function () {
     timingItems.push({ name: 'Total', value: fmtTime(row.duration) });
     const timingTitle = document.createElement('strong');
     timingTitle.textContent = 'Timing Breakdown';
+    timingTitle.className = 'kv-group-heading';
     resTimingPane.appendChild(timingTitle);
     resTimingPane.appendChild(createKvGrid(timingItems));
 
@@ -13341,6 +13410,20 @@ const _NetworkPlus = (function () {
       resizer.setAttribute('aria-valuetext', 'Request list ' + split.primaryPercent + ' percent');
     };
 
+    // A dragged or keyed side-by-side width outlives the session; the
+    // stacked height split does not. The pane holds the px basis and the
+    // grid absorbs the remainder (flex-shrink:0 on .details, 1 on .tableWrap).
+    const rememberMainSplit = (split) => {
+      if (split && split.axis === 'width') saveDetailsWidthPref(split.detailsSize);
+    };
+
+    // Restore the remembered width as the pane's inline basis; the sync below
+    // re-clamps it (or clears it) when the window cannot fit the minimums.
+    const restoreDetailsWidth = () => {
+      const savedWidth = loadDetailsWidthPref();
+      if (savedWidth != null) details.style.flexBasis = savedWidth + 'px';
+    };
+
     const syncMainDividerOrientation = () => {
       const isNarrow = window.innerWidth <= NARROW_PANEL_MAX_WIDTH;
       if (mainSplitIsNarrow != null && mainSplitIsNarrow !== isNarrow) {
@@ -13348,9 +13431,13 @@ const _NetworkPlus = (function () {
         tableWrap.style.flexBasis = '';
         resizer.setAttribute('aria-valuenow', '50');
         resizer.setAttribute('aria-valuetext', 'Request list 50 percent');
+        if (!isNarrow) restoreDetailsWidth();
       }
       mainSplitIsNarrow = isNarrow;
       resizer.setAttribute('aria-orientation', isNarrow ? 'horizontal' : 'vertical');
+      // A collapsed pane has no split to measure; re-clamping against the
+      // full-width grid would overwrite the remembered basis with the minimum.
+      if (details.hidden) return;
       const contentRect = content.getBoundingClientRect();
       const tableRect = tableWrap.getBoundingClientRect();
       const totalSize = isNarrow ? contentRect.height : contentRect.width;
@@ -13359,7 +13446,7 @@ const _NetworkPlus = (function () {
       // A dragged split leaves details at a fixed px basis with flex-shrink:0,
       // so shrinking the window crushes the grid toward zero. Re-clamp the
       // persisted split into the feasible range, or clear it when the window
-      // is too small for the minimums and let the stylesheet's 50% take over.
+      // is too small for the minimums and let the stylesheet's clamp() take over.
       if (details.style.flexBasis && !currentSplit) {
         const minPrimary = isNarrow ? MIN_TABLE_HEIGHT : MIN_TABLE_WIDTH;
         const minDetails = isNarrow ? MIN_DETAILS_HEIGHT : MIN_DETAILS_WIDTH;
@@ -13382,11 +13469,30 @@ const _NetworkPlus = (function () {
       }
     };
 
+    if (window.innerWidth > NARROW_PANEL_MAX_WIDTH) restoreDetailsWidth();
     syncMainDividerOrientation();
+    resyncMainSplit = syncMainDividerOrientation;
     window.addEventListener('resize', () => {
       syncMainDividerOrientation();
       reclampOpenPopups();
     });
+    // The grid's elastic last column follows every wrap resize: window
+    // resizes, the pane opening/closing, and split drags. Feature-detected
+    // so the jsdom-free unit environment keeps working without it. The
+    // write is deferred one frame: resizing the grid can toggle the wrap's
+    // horizontal scrollbar, which changes the observed content box, and a
+    // synchronous write inside the callback is the "ResizeObserver loop
+    // completed with undelivered notifications" error the status bar shows.
+    if (typeof ResizeObserver === 'function') {
+      let elasticFrame = 0;
+      new ResizeObserver(() => {
+        if (elasticFrame) return;
+        elasticFrame = requestAnimationFrame(() => {
+          elasticFrame = 0;
+          applyElasticColumnWidth();
+        });
+      }).observe(tableWrap);
+    }
     resizer.addEventListener('keydown', (event) => {
       const isNarrow = window.innerWidth <= NARROW_PANEL_MAX_WIDTH;
       const expectedKeys = isNarrow ? ['ArrowUp', 'ArrowDown'] : ['ArrowLeft', 'ArrowRight'];
@@ -13399,22 +13505,27 @@ const _NetworkPlus = (function () {
       const currentPrimarySize = isNarrow ? tableRect.height : tableRect.width;
       const split = adjustMainSplitByKeyboard(currentPrimarySize, totalSize, isNarrow, event.key, event.shiftKey);
       applyMainSplit(split);
+      rememberMainSplit(split);
       if (split) setStatus('Request list ' + split.primaryPercent + ' percent');
     });
     resizer.addEventListener('mousedown', (event) => {
       event.preventDefault();
       const isNarrow = window.innerWidth <= NARROW_PANEL_MAX_WIDTH;
+      let draggedSplit = null;
       const handleMouseMove = (moveEvent) => {
         const contentRect = content.getBoundingClientRect();
         const totalSize = isNarrow ? contentRect.height : contentRect.width;
         const pointerPosition = isNarrow
           ? moveEvent.clientY - contentRect.top
           : moveEvent.clientX - contentRect.left;
-        applyMainSplit(calculateMainSplit(pointerPosition, totalSize, isNarrow));
+        const split = calculateMainSplit(pointerPosition, totalSize, isNarrow);
+        applyMainSplit(split);
+        if (split) draggedSplit = split;
       };
       const handleMouseUp = () => {
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
+        rememberMainSplit(draggedSplit);
       };
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
@@ -15436,6 +15547,9 @@ const _NetworkPlus = (function () {
     DOMAIN_SUMMARY_KEY,
     loadDomainSummaryPref,
     saveDomainSummaryPref,
+    DETAILS_WIDTH_KEY,
+    loadDetailsWidthPref,
+    saveDetailsWidthPref,
     computeWaterfallBar,
     computeWaterfallRange,
     loadThemePref,

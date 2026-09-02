@@ -70,5 +70,5 @@ The clipboard and HAR downloads are the only outbound surfaces, and sanitized ou
 
 - Switching between `Recording` and `Paused` must not cause a layout jump: the toolbar indicator always reserves its height. Implementation rule — `.topbar` always carries a `border-top` (transparent is fine) and only its color changes while recording.
 - In a narrow DevTools window, only the toolbar scrolls horizontally, so the table and detail panel keep their horizontal position.
-- At 700 px and below, the request list stacks above the detail panel, and the main divider switches its orientation, cursor, and ARIA role to a horizontal separator.
+- At 800 px and below, the request list stacks above the detail panel, and the main divider switches its orientation, cursor, and ARIA role to a horizontal separator.
 - Filter, column, context, search-scope, and search-color popups stay at least 8 px away from the viewport edge and scroll internally instead of overflowing it.
