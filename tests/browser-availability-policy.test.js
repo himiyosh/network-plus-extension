@@ -411,7 +411,7 @@ const VIEWPORT_CONTRACTS = [
   },
   {
     constantName: 'SEPARATOR_FOCUS_VIEWPORT_WIDTHS',
-    expectedWidths: [320, 375, 414, 700, 701, 768, 1280],
+    expectedWidths: [320, 375, 414, 768, 800, 801, 1280],
     journeyTitle: SEPARATOR_FOCUS_JOURNEY_TITLE,
   },
   {
@@ -548,7 +548,7 @@ test('locks separator focus coverage to acceptance widths and both sides of the 
   assertExactViewportWidths(
     browserSuiteSource,
     'SEPARATOR_FOCUS_VIEWPORT_WIDTHS',
-    [320, 375, 414, 700, 701, 768, 1280],
+    [320, 375, 414, 768, 800, 801, 1280],
   );
 });
 
@@ -1134,6 +1134,23 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title: SEPARATOR_FOCUS_JOURNEY_TITLE,
+    },
+    {
+      skipped: true,
+      title: 'reopening the details pane re-clamps its remembered width to the narrower window',
+    },
+    {
+      skipped: true,
+      title: 'header labels wider than their column clip instead of forcing a horizontal scrollbar',
+    },
+    {
+      skipped: true,
+      title: 'the elastic Path column fills a wide wrap while the stored widths stay authoritative',
+    },
+    {
+      skipped: true,
+      title:
+        'the Match gutter takes the v4 width on upgrade, clips its label only at gutter width, and fits two chips',
     },
   ]);
 });

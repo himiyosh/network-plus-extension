@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
+const { launchPanelPage } = require('./helpers/browser-harness');
 
 const repositoryRoot = path.resolve(__dirname, '..');
 const BROWSER_START_TIMEOUT_MS = 45000;
@@ -19,7 +20,7 @@ const TOOLBAR_VIEWPORT_WIDTHS = [375, 500, 800, 1254, 1255, 1280, 1500];
 const TOOLBAR_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const GRID_FOCUS_VIEWPORT_WIDTHS = [375, 500, 800, 1280];
 const STATUS_WORKSPACE_VIEWPORT_WIDTHS = [320, 375, 414, 768, 1280];
-const SEPARATOR_FOCUS_VIEWPORT_WIDTHS = [320, 375, 414, 700, 701, 768, 1280];
+const SEPARATOR_FOCUS_VIEWPORT_WIDTHS = [320, 375, 414, 768, 800, 801, 1280];
 const SEPARATOR_FOCUS_THEMES = [
   { name: 'system', dataTheme: null, mediaColorScheme: 'dark' },
   { name: 'dark', dataTheme: 'dark', mediaColorScheme: 'light' },
@@ -3767,10 +3768,8 @@ browserTest(
         'shortcutBtn',
       ];
       const visibleColumns = [
-        ['id', 'ID'],
         ['match', 'Match'],
-        ['clientStart', 'ClientStart'],
-        ['serverDone', 'ServerDone'],
+        ['id', 'ID'],
         ['method', 'Method'],
         ['status', 'Status'],
         ['domain', 'Domain'],
@@ -3778,6 +3777,7 @@ browserTest(
         ['type', 'Type'],
         ['duration', 'Duration'],
         ['size', 'Size'],
+        ['clientStart', 'Client start'],
       ];
       const expectedGridTargets = visibleColumns.flatMap(([columnId, label]) => [
         {
@@ -4057,7 +4057,11 @@ browserTest(
           const tableWrap = document.querySelector('#tableWrap');
           tableWrap.scrollLeft = 0;
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          const header = document.querySelector('th[data-col-id="method"]');
+          // Probe the LAST visible header: it is the final th in DOM order, so
+          // once translated over the right edge it paints above the column that
+          // naturally sits there. Method was only probe-safe while the old
+          // default widths happened to place it across the 375px edge.
+          const header = document.querySelector('th[data-col-id="clientStart"]');
           header.style.transform = '';
           const tableRect = tableWrap.getBoundingClientRect();
           const visibleLeft = tableRect.left + tableWrap.clientLeft;
@@ -4132,7 +4136,7 @@ browserTest(
         cdp,
         `(async () => {
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          const header = document.querySelector('th[data-col-id="method"]');
+          const header = document.querySelector('th[data-col-id="clientStart"]');
           const measurement = {
             clickTargets: window.__gridPointerProbe.clickTargets,
             headerDeliveries: window.__gridPointerProbe.headerDeliveries,
@@ -4161,6 +4165,10 @@ browserTest(
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const separator = document.querySelector('th[data-col-id="size"] .col-resizer');
           separator.style.transform = '';
+          // Header cells clip their overflow (wide fallback fonts); this probe
+          // deliberately drags the separator outside its cell, so lift the clip
+          // for the duration of the probe only.
+          separator.closest('th').style.overflow = 'visible';
           const tableRect = tableWrap.getBoundingClientRect();
           const visibleLeft = tableRect.left + tableWrap.clientLeft;
           const visibleRight = visibleLeft + tableWrap.clientWidth;
@@ -4253,12 +4261,13 @@ browserTest(
           window.__gridResizeProbeController.abort();
           separator.style.transform = '';
           separator.style.clipPath = '';
+          separator.closest('th').style.overflow = '';
           document.querySelector('#tableWrap').style.transform = '';
           return measurement;
         })()`,
       );
       expect({
-        method: {
+        clientStart: {
           columnId: headerPointerPoint.columnId,
           hitHeader: headerPointerPoint.hitHeader,
           ...headerPointerMeasurement,
@@ -4273,13 +4282,13 @@ browserTest(
             separatorPointerMeasurement.tableScrollLeft - separatorPointerPoint.tableScrollLeft,
         },
       }).toEqual({
-        method: {
-          columnId: 'method',
+        clientStart: {
+          columnId: 'clientStart',
           hitHeader: true,
-          clickTargets: [{ columnId: 'method', kind: 'header' }],
+          clickTargets: [{ columnId: 'clientStart', kind: 'header' }],
           headerDeliveries: 1,
           ariaSort: 'ascending',
-          focusedColumnId: 'method',
+          focusedColumnId: 'clientStart',
           tableScrollLeft: headerPointerPoint.tableScrollLeft,
           documentScrollLeft: 0,
           documentScrollTop: 0,
@@ -4543,7 +4552,7 @@ browserTest(
       for (const theme of SEPARATOR_FOCUS_THEMES) {
         for (const width of SEPARATOR_FOCUS_VIEWPORT_WIDTHS) {
           await applyScenario(width, theme);
-          const isNarrow = width <= 700;
+          const isNarrow = width <= 800;
           const mainAxis = isNarrow ? 'height' : 'width';
           const mainKey = isNarrow ? 'ArrowDown' : 'ArrowRight';
           const mainCode = isNarrow ? 'ArrowDown' : 'ArrowRight';
@@ -4775,12 +4784,12 @@ browserTest(
         expect(after.ariaValueText).not.toBe(before.ariaValueText);
       };
 
-      for (const width of [700, 701]) {
+      for (const width of [800, 801]) {
         await applyScenario(width, SEPARATOR_FOCUS_THEMES[0]);
         await dragSeparator(
           '#resizer',
           '#tableWrap',
-          width <= 700 ? 'height' : 'width',
+          width <= 800 ? 'height' : 'width',
           20,
         );
         await dragSeparator('#inspector-divider', '#inspector-request', 'height', 20);
@@ -4789,6 +4798,426 @@ browserTest(
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);
       removeProfileDirectory(profileDirectory);
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+// Tier 1 UX review fix-ups: the reopened details pane re-clamps its remembered
+// width, the grid's elastic Path column fills a wide wrap without changing the
+// stored widths, and the Match gutter clips its label by real width.
+const settleLayout = (cdp) =>
+  evaluate(
+    cdp,
+    'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 50))))',
+    true,
+  );
+
+const activateSampleCapture = (cdp) =>
+  evaluate(
+    cdp,
+    `(async () => {
+      const sampleButton = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent.trim() === 'Explore sample capture',
+      );
+      if (!sampleButton) throw new Error('Sample capture action was not found.');
+      sampleButton.click();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return document.querySelectorAll('#tbody tr[data-row-id]').length;
+    })()`,
+    true,
+  );
+
+const MAIN_SPLIT_MEASURE = `(() => {
+  const content = document.querySelector('#content').getBoundingClientRect();
+  const table = document.querySelector('#tableWrap').getBoundingClientRect();
+  const details = document.querySelector('#details');
+  return {
+    detailsHidden: details.hidden,
+    detailsFlexBasis: details.style.flexBasis,
+    detailsWidth: Math.round(details.getBoundingClientRect().width),
+    tableWidth: Math.round(table.width),
+    contentWidth: Math.round(content.width),
+    ariaValueNow: document.querySelector('#resizer').getAttribute('aria-valuenow'),
+  };
+})()`;
+
+browserTest(
+  'reopening the details pane re-clamps its remembered width to the narrower window',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: "localStorage.setItem('networkPlus.detailsWidth.v1', '700');",
+    });
+    const { cdp } = page;
+    try {
+      await waitForSampleCaptureAction(cdp);
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await settleLayout(cdp);
+      const restored = await evaluate(cdp, MAIN_SPLIT_MEASURE);
+      expect(restored).toEqual({
+        detailsHidden: false,
+        detailsFlexBasis: '700px',
+        detailsWidth: 700,
+        tableWidth: 576,
+        contentWidth: 1280,
+        ariaValueNow: '45',
+      });
+
+      // Close the pane, shrink the window past what the remembered 700px
+      // allows, then reopen it by selecting another row.
+      await evaluate(cdp, "document.querySelector('#detailsCloseBtn').click()");
+      await settleLayout(cdp);
+      expect((await evaluate(cdp, MAIN_SPLIT_MEASURE)).detailsHidden).toBe(true);
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 900,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await settleLayout(cdp);
+      await evaluate(cdp, "document.querySelectorAll('#tbody tr[data-row-id]')[1].click()");
+      await settleLayout(cdp);
+      const reopened = await evaluate(cdp, MAIN_SPLIT_MEASURE);
+      // 900 - 4px resizer - 240px minimum grid = 656px, the widest pane that
+      // still honours the minimum grid; the stale 700px would have left 196px.
+      expect(reopened).toEqual({
+        detailsHidden: false,
+        detailsFlexBasis: '656px',
+        detailsWidth: 656,
+        tableWidth: 240,
+        contentWidth: 900,
+        ariaValueNow: '27',
+      });
+      expect(reopened.detailsWidth).toBeGreaterThanOrEqual(400);
+      expect(reopened.detailsWidth).toBeLessThanOrEqual(900 - 4 - 240);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+// A wide header font (Linux fallback faces, Verdana) once pushed the last
+// label past the table edge and forced a horizontal scrollbar even though the
+// grid filled the wrap exactly; header cells now clip their labels instead.
+browserTest(
+  'header labels wider than their column clip instead of forcing a horizontal scrollbar',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript:
+        "document.addEventListener('DOMContentLoaded', () => { const style = document.createElement('style'); style.textContent = '.title-row th { font-size: 18px !important; letter-spacing: 2px !important; }'; document.head.appendChild(style); });",
+    });
+    const { cdp } = page;
+    try {
+      await waitForSampleCaptureAction(cdp);
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await evaluate(cdp, "document.querySelector('#detailsCloseBtn').click()");
+      await settleLayout(cdp);
+      const measured = await evaluate(
+        cdp,
+        `(() => {
+          const wrap = document.querySelector('#tableWrap');
+          const last = document.querySelector('th[data-col-id="clientStart"]');
+          const label = last.querySelector('.column-header-label');
+          return {
+            horizontalScroll: wrap.scrollWidth > wrap.clientWidth,
+            gridWidth: Math.round(document.querySelector('#grid').getBoundingClientRect().width),
+            wrapClientWidth: wrap.clientWidth,
+            labelWiderThanCell:
+              label.getBoundingClientRect().width >
+              last.clientWidth - parseFloat(getComputedStyle(last).paddingLeft) - parseFloat(getComputedStyle(last).paddingRight),
+            headerOverflow: getComputedStyle(last).overflow,
+          };
+        })()`,
+      );
+      expect(measured.labelWiderThanCell).toBe(true);
+      expect(measured).toMatchObject({
+        horizontalScroll: false,
+        gridWidth: measured.wrapClientWidth,
+        headerOverflow: 'hidden',
+      });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+const ELASTIC_GRID_MEASURE = `(() => {
+  const tableWrap = document.querySelector('#tableWrap');
+  const grid = document.querySelector('#grid');
+  const headers = Array.from(document.querySelectorAll('thead th[data-col-id]'));
+  const pathResizer = document.querySelector('th[data-col-id="path"] .col-resizer');
+  const stored = JSON.parse(localStorage.getItem('networkPlus.cols') || '[]');
+  return {
+    wrapClientWidth: tableWrap.clientWidth,
+    horizontalScroll: tableWrap.scrollWidth > tableWrap.clientWidth,
+    gridStyleWidth: grid.style.width,
+    gridWidth: Math.round(grid.getBoundingClientRect().width),
+    headerWidths: Object.fromEntries(
+      headers.map((th) => [th.dataset.colId, Math.round(th.getBoundingClientRect().width)]),
+    ),
+    pathAriaValueNow: pathResizer ? pathResizer.getAttribute('aria-valuenow') : null,
+    storedPathWidth: (stored.find((column) => column.id === 'path') || {}).width ?? null,
+  };
+})()`;
+
+browserTest(
+  'the elastic Path column fills a wide wrap while the stored widths stay authoritative',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1280, height: 800 });
+    const { cdp } = page;
+    try {
+      await waitForSampleCaptureAction(cdp);
+      // A synchronous style write inside the observer callback surfaces as
+      // the "ResizeObserver loop completed with undelivered notifications"
+      // window error; every layout change below must leave this list empty.
+      await evaluate(
+        cdp,
+        `(() => {
+          window.__resizeObserverErrors = [];
+          window.addEventListener('error', (event) => {
+            window.__resizeObserverErrors.push(event.message);
+          });
+        })()`,
+      );
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await settleLayout(cdp);
+      // Sample activation selects a row, so the pane is open: 1280 - 4 - the
+      // stylesheet's clamp() basis leaves a wrap narrower than the 992px sum.
+      const paneOpen = await evaluate(cdp, ELASTIC_GRID_MEASURE);
+      expect(paneOpen.wrapClientWidth).toBeLessThan(992);
+      expect(paneOpen).toMatchObject({
+        horizontalScroll: true,
+        gridStyleWidth: '992px',
+        gridWidth: 992,
+        pathAriaValueNow: '260',
+      });
+      expect(paneOpen.headerWidths).toEqual({
+        match: 36,
+        id: 60,
+        method: 80,
+        status: 70,
+        domain: 140,
+        path: 260,
+        type: 90,
+        duration: 80,
+        size: 72,
+        clientStart: 104,
+      });
+
+      // Closing the pane widens the wrap past the sum: the surplus lands on
+      // Path's rendered width only, and the grid spans the wrap exactly.
+      await evaluate(cdp, "document.querySelector('#detailsCloseBtn').click()");
+      await settleLayout(cdp);
+      const paneClosed = await evaluate(cdp, ELASTIC_GRID_MEASURE);
+      expect(paneClosed.wrapClientWidth).toBeGreaterThan(992);
+      const closedSurplus = paneClosed.wrapClientWidth - 992;
+      expect(paneClosed).toMatchObject({
+        horizontalScroll: false,
+        gridStyleWidth: paneClosed.wrapClientWidth + 'px',
+        gridWidth: paneClosed.wrapClientWidth,
+        pathAriaValueNow: '260',
+      });
+      expect(paneClosed.headerWidths).toEqual({
+        ...paneOpen.headerWidths,
+        path: 260 + closedSurplus,
+      });
+
+      // A keyboard resize on the elastic Path stores the new px (270) while
+      // the rendered width keeps absorbing the recomputed surplus.
+      await evaluate(
+        cdp,
+        `(() => {
+          const resizer = document.querySelector('th[data-col-id="path"] .col-resizer');
+          resizer.focus();
+          resizer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+        })()`,
+      );
+      await settleLayout(cdp);
+      const afterKeyboard = await evaluate(cdp, ELASTIC_GRID_MEASURE);
+      expect(afterKeyboard).toMatchObject({
+        horizontalScroll: false,
+        gridWidth: paneClosed.wrapClientWidth,
+        pathAriaValueNow: '270',
+        storedPathWidth: 270,
+      });
+      expect(afterKeyboard.headerWidths.path).toBe(270 + (paneClosed.wrapClientWidth - 1002));
+
+      // Path hidden: the surplus moves to the last visible column instead.
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#columnsBtn').click();
+          const item = Array.from(document.querySelectorAll('#columnsMenu [role="menuitemcheckbox"]')).find(
+            (button) => button.textContent.trim() === '☑ Path',
+          );
+          if (!item) throw new Error('The Path column toggle was not found.');
+          item.click();
+          document.querySelector('#columnsBtn').click();
+        })()`,
+      );
+      await settleLayout(cdp);
+      const pathHidden = await evaluate(cdp, ELASTIC_GRID_MEASURE);
+      expect(pathHidden.headerWidths.path).toBeUndefined();
+      expect(pathHidden).toMatchObject({
+        horizontalScroll: false,
+        gridWidth: pathHidden.wrapClientWidth,
+        pathAriaValueNow: null,
+      });
+      expect(pathHidden.headerWidths.clientStart).toBe(104 + (pathHidden.wrapClientWidth - 732));
+
+      // Widening the wrap with the pane closed (window resize) re-applies the
+      // surplus from the observer without tripping the loop-limit error.
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1920,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await settleLayout(cdp);
+      const widened = await evaluate(cdp, ELASTIC_GRID_MEASURE);
+      expect(widened.wrapClientWidth).toBeGreaterThan(pathHidden.wrapClientWidth);
+      expect(widened).toMatchObject({ horizontalScroll: false, gridWidth: widened.wrapClientWidth });
+      expect(widened.headerWidths.clientStart).toBe(104 + (widened.wrapClientWidth - 732));
+      expect(await evaluate(cdp, 'window.__resizeObserverErrors')).toEqual([]);
+      expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).not.toContain(
+        'ResizeObserver',
+      );
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+const MATCH_GUTTER_MEASURE = `(() => {
+  const th = document.querySelector('thead th[data-col-id="match"]');
+  const label = th.querySelector('.column-header-label');
+  const stored = JSON.parse(localStorage.getItem('networkPlus.cols') || '[]');
+  return {
+    order: Array.from(document.querySelectorAll('thead th[data-col-id]')).map((header) => header.dataset.colId).slice(0, 3),
+    styleWidth: th.style.width,
+    gutterHeader: th.classList.contains('gutter-header'),
+    labelClipped: label.getBoundingClientRect().width <= 1,
+    ariaLabel: th.getAttribute('aria-label'),
+    title: th.title,
+    storedMatchWidth: (stored.find((column) => column.id === 'match') || {}).width ?? null,
+    storedVersion: localStorage.getItem('networkPlus.cols.v'),
+  };
+})()`;
+
+browserTest(
+  'the Match gutter takes the v4 width on upgrade, clips its label only at gutter width, and fits two chips',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: `if (!localStorage.getItem('__networkPlusSeeded')) {
+        localStorage.setItem('__networkPlusSeeded', '1');
+        localStorage.setItem('networkPlus.cols', JSON.stringify([
+          { id: 'id', visible: true, width: 60 },
+          { id: 'match', visible: true, width: 64 },
+          { id: 'method', visible: true, width: 80 },
+        ]));
+        localStorage.setItem('networkPlus.cols.v', '3');
+      }`,
+    });
+    const { cdp } = page;
+    try {
+      await waitForSampleCaptureAction(cdp);
+      // v3 prefs: the version bump resets Match to the 36px gutter width and
+      // keeps the saved order (ID before Match) and the other widths.
+      expect(await evaluate(cdp, MATCH_GUTTER_MEASURE)).toEqual({
+        order: ['id', 'match', 'method'],
+        styleWidth: '36px',
+        gutterHeader: true,
+        labelClipped: true,
+        ariaLabel: 'Match',
+        title: 'Match: search and selection state; Alt+Left/Right Arrow to reorder',
+        storedMatchWidth: 36,
+        storedVersion: '4',
+      });
+
+      // v4 prefs with a user-kept 64px Match: no reset, label stays visible.
+      await evaluate(
+        cdp,
+        `(() => {
+          localStorage.setItem('networkPlus.cols', JSON.stringify([
+            { id: 'match', visible: true, width: 64 },
+            { id: 'id', visible: true, width: 60 },
+          ]));
+          localStorage.setItem('networkPlus.cols.v', '4');
+        })()`,
+      );
+      await page.navigate();
+      await waitForSampleCaptureAction(cdp);
+      expect(await evaluate(cdp, MATCH_GUTTER_MEASURE)).toEqual({
+        order: ['match', 'id', 'method'],
+        styleWidth: '64px',
+        gutterHeader: false,
+        labelClipped: false,
+        ariaLabel: 'Match',
+        title: 'Match: search and selection state; Alt+Left/Right Arrow to reorder',
+        storedMatchWidth: 64,
+        storedVersion: '4',
+      });
+
+      // Factory defaults: the selected row's ✓ chip and one keyword chip both
+      // fit inside the 36px gutter's content box without clipping.
+      await evaluate(
+        cdp,
+        "localStorage.removeItem('networkPlus.cols'); localStorage.removeItem('networkPlus.cols.v');",
+      );
+      await page.navigate();
+      await waitForSampleCaptureAction(cdp);
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await settleLayout(cdp);
+      await evaluate(
+        cdp,
+        `(() => {
+          const domain = document.querySelector('#tbody tr.selected td[data-col-id="domain"]').textContent.trim();
+          document.querySelector('#searchToggleBtn').click();
+          const input = document.querySelector('.search-keyword-input');
+          input.value = domain;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`,
+      );
+      await delay(600);
+      await settleLayout(cdp);
+      const chips = await evaluate(
+        cdp,
+        `(() => {
+          const td = document.querySelector('#tbody tr.selected td[data-col-id="match"]');
+          const tdRect = td.getBoundingClientRect();
+          const badges = Array.from(td.querySelectorAll('.row-state-badge')).map((badge) => {
+            const rect = badge.getBoundingClientRect();
+            return { text: badge.textContent.trim(), inside: rect.left >= tdRect.left && rect.right <= tdRect.right };
+          });
+          return {
+            columnWidth: Math.round(tdRect.width),
+            clipped: td.scrollWidth > td.clientWidth,
+            badges,
+          };
+        })()`,
+      );
+      expect(chips).toEqual({
+        columnWidth: 36,
+        clipped: false,
+        badges: [
+          { text: '✓', inside: true },
+          { text: '1', inside: true },
+        ],
+      });
+    } finally {
+      await page.close();
     }
   },
   TEST_TIMEOUT_MS,

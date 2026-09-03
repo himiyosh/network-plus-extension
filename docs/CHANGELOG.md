@@ -5,7 +5,18 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 ## Unreleased
 
 - 📝 **Store dossiers** — record the published v1.13.0 release, re-downloaded and byte-compared against builds from two timezones.
-- No changes have been recorded since v1.13.0.
+- 🔧 **Value wrapping** — header, query, cookie and raw values wrap at natural boundaries instead of splitting words and tokens mid-way.
+  - Why: `.tab-pane{word-break:break-all}` applied to every value, so "The access t|oken" and UUIDs broke where a space or delimiter sat one character away.
+- 🔧 **Details pane typography** — three text sizes, muted key labels, an 18px row rhythm with hairlines, a quiet REQUEST/RESPONSE band and fixed-weight tabs.
+- 🔧 **Details pane width** — the side-by-side split defaults to `clamp(440px, 42%, 760px)` and remembers a dragged width across sessions.
+- 🔧 **Narrow layout** — the workbench stacks and the status bar compacts at one 800px breakpoint; stacked mode gives the details pane 60% of the height.
+- 🔧 **Key column** — header names size to their content (110–220px) and stack above their values when the details pane is narrower than 520px.
+- 🔧 **Grid defaults** — the Match gutter comes first, Server done is hidden, and narrower columns keep Path on the first screen at 1280px.
+- ✨ **Elastic Path column** — when the grid is wider than its columns, Path absorbs the surplus so the header band and zebra reach the edge.
+- 🔧 **Grid emphasis** — GET renders as quiet text, 3xx/4xx/5xx statuses are bold, zebra stripes and row rules are visible, rows are 25px.
+- ✨ **Cell tooltips** — hovering any truncated grid cell shows its full value; the Shift+F10 hint moved from the row tooltip to aria only.
+- 🔧 **Column labels** — "ClientStart" and "ServerDone" read "Client start" and "Server done".
+- 🐛 **Light theme contrast** — GET and 2xx text darkened so selected and striped rows keep 4.5:1, pinned by contract.
 
 ## v1.13.0 - 2026-08-29
 
