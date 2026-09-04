@@ -271,17 +271,62 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
    container-type makes the pane the size container for the .kv key/value stacking query. */
 .details{display:flex;flex-direction:column;flex:0 0 clamp(440px,42%,760px);min-width:400px;min-height:0;overflow:hidden;border-left:1px solid var(--separator);container-type:inline-size}
 .details-header{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border-bottom:1px solid var(--border);background:var(--topbar-bg);font-weight:600;font-size:13px}
-#detailsTitle{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The title is a flex row of [METHOD] host/path [?N] [· Operation]: the host never shrinks (up to 60%), the
+   pathname takes what is left and is middle-ellipsised by script so its last segment stays visible. */
+#detailsTitle{flex:1;min-width:0;display:flex;align-items:center;gap:0;white-space:nowrap;overflow:hidden}
+.details-title-text{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.details-title-method{flex:0 0 auto;margin-right:6px;padding:1px 4px;border-radius:5px;font-size:11px;font-weight:700;line-height:1.5;background:var(--surface);color:var(--text-muted)}
+.details-title-method.method-GET{color:var(--method-get-fg);background:var(--method-get-bg)}
+.details-title-method.method-POST{color:var(--method-post-fg);background:var(--method-post-bg)}
+.details-title-method.method-PUT{color:var(--method-put-fg);background:var(--method-put-bg)}
+.details-title-method.method-DELETE{color:var(--method-delete-fg);background:var(--method-delete-bg)}
+.details-title-method.method-PATCH{color:var(--method-patch-fg);background:var(--method-patch-bg)}
+.details-title-method.method-OPTIONS{color:var(--method-options-fg);background:var(--method-options-bg)}
+.details-title-method.method-HEAD{color:var(--method-head-fg);background:var(--method-head-bg)}
+.details-title-method.method-WS{color:var(--method-ws-fg);background:var(--method-ws-bg)}
+.details-title-method.method-SSE{color:var(--method-sse-fg);background:var(--method-sse-bg)}
+.details-title-host{flex:0 0 auto;max-width:60%;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:600;color:var(--fg)}
+/* text-overflow is the backstop: if a sub-pixel rounding difference ever leaves the fitted path one pixel too wide, the row still shows a truncation mark instead of a silent clip. */
+.details-title-path{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:400;color:var(--text-muted)}
+.details-title-query{flex:0 0 auto;margin-left:6px;padding:0 5px;border-radius:999px;font-size:11px;font-weight:600;line-height:16px;background:var(--accent-dim);color:var(--text-accent)}
+.details-title-operation{flex:0 0 auto;margin-left:6px;font-weight:400;color:var(--text-muted)}
 .details-close-btn{flex:0 0 auto;min-width:24px;min-height:24px;padding:2px 6px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;font:inherit;line-height:1}
 .details-close-btn:hover{background:var(--hover);border-color:var(--accent);color:var(--text-accent)}
+.details-close-btn[hidden]{display:none}
+/* One line of response facts that survives every tab change; chips wrap onto a second line at 440px rather than overflow. */
+.details-summary{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;padding:3px 10px;border-bottom:1px solid var(--border);background:var(--surface);font-size:12px;line-height:18px;color:var(--text-muted)}
+.details-summary[hidden]{display:none}
+.details-summary-item{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The separator travels with the item before it: as a leading ::before it
+   started every wrapped line with a dangling middot at the 440px pane. */
+.details-summary-item:has(+ .details-summary-item)::after{content:'·';margin-left:6px;color:var(--text-muted)}
+.details-summary-status{font-weight:700;font-variant-numeric:tabular-nums;color:var(--fg)}
+.details-summary-status--2xx{color:var(--status-2xx-text)}
+.details-summary-status--3xx{color:var(--status-3xx-text)}
+.details-summary-status--4xx{color:var(--status-4xx-text)}
+.details-summary-status--5xx{color:var(--status-5xx-text)}
+/* The header chip is a bordered pill; the trailing separator sits on the item before it, outside the pill. */
+.details-summary-chip{padding:0 6px;border:1px solid var(--border);border-radius:999px;background:var(--content-bg);color:var(--fg)}
+/* Before any selection: one line of guidance instead of two empty tab strips. */
+.inspector-empty{margin:0;padding:12px 10px;color:var(--text-muted);font-size:12px;line-height:1.5}
+.inspector-empty[hidden]{display:none}
 .inspector-panels{display:flex;flex-direction:column;flex:1;overflow:hidden}
 /* display:flex outranks the UA [hidden] rule — the trap that has now shipped three times. */
 .inspector-panels[hidden]{display:none}
 .inspector-half{display:flex;flex-direction:column;flex:1;min-height:80px;overflow:hidden}
-/* A quiet caption row: the accent-dim fill is reserved for the active tab. */
-.inspector-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:3px 10px;background:var(--surface);color:var(--text-muted);border-bottom:1px solid var(--border)}
+/* A quiet caption row that is also the half's collapse toggle: the accent-dim fill is reserved for the active tab. */
+.inspector-label{display:block;width:100%;margin:0;border:0;border-radius:0;text-align:left;font-family:inherit;line-height:inherit;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:3px 10px;background:var(--surface);color:var(--text-muted);border-bottom:1px solid var(--border)}
+.inspector-label::before{content:'▾';display:inline-block;width:12px;margin-right:2px;color:var(--text-muted)}
+.inspector-label:hover{color:var(--fg)}
+.inspector-label:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+/* Collapsed: the half keeps its label and tab bar (~50px) and the other half takes the rest. */
+.inspector-half.is-collapsed{flex:0 0 auto;min-height:0}
+.inspector-half.is-collapsed>.inspector-label::before{content:'▸'}
 .inspector-divider{flex:0 0 3px;background:var(--separator);cursor:row-resize}
 .inspector-divider:hover,.inspector-divider:focus-visible{background:var(--accent)}
+/* With a half collapsed there is nothing to drag; the divider still takes focus for the double-click reset. */
+.inspector-panels.has-collapsed>.inspector-divider{cursor:default}
+.inspector-panels.has-collapsed>.inspector-divider:hover{background:var(--separator)}
 
 /* === Tabs === */
 .tab-bar{display:flex;flex-wrap:nowrap;overflow-x:auto;background:var(--surface);border-bottom:1px solid var(--border);gap:0;padding:0;scrollbar-width:thin}
@@ -289,8 +334,19 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .tab-btn{padding:5px 10px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s,color 0.15s;font-weight:600}
 .tab-btn:hover{color:var(--fg);background:var(--hover)}
 .tab-btn.active{color:var(--text-accent);border-bottom-color:var(--accent);background:var(--accent-dim)}
+/* Query / Cookies carry their item count after the label, 0 included; an empty pane keeps its tab clickable. */
+.tab-btn[data-count]::after{content:attr(data-count);margin-left:4px;font-size:11px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}
+/* The empty tab stays clickable, so its label is interactive text: it keeps a
+   full-opacity token colour (opacity:.55 composited below AA in both themes)
+   and carries a marker as the non-colour signal. Body and Raw count nothing,
+   so theirs is an en dash — a 0 there named a count the tab does not have. */
+.tab-btn.is-empty:not(.active){color:var(--text-muted)}
+.tab-btn.is-empty:not([data-count])::after{content:'\2013';margin-left:4px;font-size:11px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.pane-empty{margin:0;font-size:12px;color:var(--text-muted)}
 /* scroll-padding only acts on the scrollport itself; on a non-scrolling child it is inert. */
-.tab-content-area{flex:1;overflow:auto;position:relative;scroll-padding-bottom:32px}
+.tab-content-area{flex:1;overflow:auto;position:relative;scroll-padding-top:var(--pane-bar-height,36px)}
+/* A collapsed half keeps only its label and tab bar. */
+.inspector-half.is-collapsed>.tab-content-area{display:none}
 /* Values wrap at word boundaries; break-all split UUIDs and tokens mid-word. Raw dumps keep break-all in .code-block. */
 .tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:normal;overflow-wrap:anywhere;font-size:13px}
 .tab-pane.active{display:block}
@@ -304,6 +360,8 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .syn-bool{color:var(--syn-bool);font-weight:600}.syn-null{color:var(--syn-null);font-style:italic}
 .syn-status-line{color:var(--syn-status);font-weight:700}
 .syn-hdr-name{color:var(--syn-hdr-name);font-weight:600}.syn-hdr-val{color:var(--syn-hdr-val)}
+/* Raw view: a hairline between the header block and the body. */
+.raw-body-divider{display:block;height:0;border-top:1px solid var(--border);margin:6px 0}
 /* A hex dump only reads as columns if the columns survive: no soft wrapping,
    no break-all, and horizontal scrolling instead. */
 .code-block.hex-dump{white-space:pre;word-break:normal;overflow-wrap:normal}
@@ -330,11 +388,30 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .json-tree-node[open] > .json-tree-summary::before{transform:rotate(90deg)}
 .json-tree-summary:hover{background:var(--hover)}
 .json-tree-summary:focus-visible{outline:2px solid var(--accent);outline-offset:-1px;border-radius:3px}
+/* The controls and the collapsed-node summary are chrome, not JSON: without this a drag
+   down a folded body copied ' 3 items ', 'Expand all' and the fold caret into the payload,
+   the same defect the URL row's user-select rule closes. */
+.json-tree-ctl,.json-tree-str-toggle,.json-tree-preview{user-select:none;-webkit-user-select:none}
 .json-tree-preview{color:var(--text-muted);font-style:italic;font-size:11px}
 .json-tree-children{padding-left:18px;border-left:1px solid var(--border)}
-.json-tree-line{padding:1px 0}
+/* Summaries start with a 7px marker + 4px gap; plain lines and open closing braces inset the same 11px so sibling keys align. */
+.json-tree-line{padding:1px 0 1px 11px}
 .json-tree-close{padding:1px 0}
+.json-tree-node[open] > .json-tree-close{padding-left:11px}
 .json-tree-more{margin:2px 0;font-size:11px}
+.json-tree-controls{display:flex;gap:10px;margin:0 0 4px 11px;font-size:11px}
+.json-tree-ctl{background:none;border:none;padding:0;color:var(--text-accent);cursor:pointer;font:inherit;text-decoration:underline}
+.json-tree-ctl:hover{opacity:0.8}
+/* A long or multi-line string folds to its first line; the row becomes a flex line so key, value and comma stay together. */
+.json-tree-line--long{display:flex;align-items:flex-start}
+.json-tree-line--long > .syn-key{flex:none}
+/* The separator is an element, not a bare text node: a flex container drops the trailing space of an anonymous text item, so the folded row lost the space after the colon its siblings keep. */
+.json-tree-sep{flex:none;white-space:pre}
+/* flex:0 1 auto, never 1 1 auto: the value box takes its content width and may shrink, so the comma sits immediately after the text instead of being pushed to the far right of a box grown to fill the row. */
+.json-tree-str{flex:0 1 auto;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
+.json-tree-str--expanded{display:block;-webkit-line-clamp:unset;overflow:visible}
+.json-tree-str-toggle{flex:none;background:none;border:none;padding:0 4px;margin-left:2px;color:var(--text-muted);cursor:pointer;font:inherit;line-height:inherit}
+.json-tree-str-toggle:hover{color:var(--text-accent)}
 
 /* === Timing Bar === */
 .timing-bar-wrap{display:flex;height:18px;margin:10px 0;border-radius:6px;overflow:hidden;background:var(--border);box-shadow:var(--shadow-sm)}
@@ -376,7 +453,9 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .grid tbody td[data-col-id="match"]{padding-left:2px;padding-right:2px}
 .grid tbody tr:nth-child(even){background:var(--stripe)}
 .grid tbody tr:hover{background:var(--row-hover)}
-.grid tbody tr.selected{background:var(--selected);box-shadow:inset 0 0 0 2px var(--accent)}
+/* Primary selection: the accent tint wins over hit and highlight tints, plus a 3px accent bar on the left and a 2px ring.
+   The ring colour is a custom property so the current search hit can recolour it without a second box-shadow rule. */
+.grid tbody tr.selected{background:var(--selected) !important;box-shadow:inset 3px 0 0 var(--accent),inset 0 0 0 2px var(--row-ring-color,var(--accent))}
 .grid tbody tr:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* Status code colors */
@@ -429,6 +508,28 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
   .kv .key{padding-bottom:0;padding-right:0;border-bottom:0}
   .kv .val{padding-top:0;padding-left:8px}
 }
+/* Opaque values (tokens, cookies, URLs) in the code face at 12px/18px so the row rhythm is unchanged. */
+.kv .val--mono{font-family:'Cascadia Code',Consolas,'Courier New',monospace;font-size:12px;line-height:18px}
+/* A value past 240 characters shows four lines behind a per-row toggle; the full text stays in the DOM. */
+.kv .val-text.val--clamped{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+/* The controls inside a value cell are chrome, not value: selectable, a drag across
+   the URL row copied the URL plus "?N params - open Query" and "Show full URL". */
+.kv .val-clamp-toggle,.url-breakdown .link-btn{display:inline-block;padding:0;font:inherit;font-size:12px;line-height:18px;user-select:none;-webkit-user-select:none}
+.url-breakdown-line{display:block}
+/* The address is one block of inline spans: a block boundary between its parts put a
+   newline inside the URL, so a drag-select copied a string no tool would accept. Four
+   lines are clipped, not hidden — the whole text stays selectable and findable. */
+.url-breakdown-address{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.url-breakdown-path,.url-breakdown-query-text{overflow-wrap:anywhere}
+.url-breakdown-scheme{color:var(--text-muted)}
+/* Credentials read as address, not as the host: muted like the scheme, and breakable
+   because a token pasted into the userinfo can be longer than the pane is wide. */
+.url-breakdown-userinfo{color:var(--text-muted);overflow-wrap:anywhere}
+.url-breakdown-host{font-weight:600}
+/* The fragment is the last piece of the address and had no rule at all, so a long
+   one ran past the pane instead of wrapping inside it. */
+.url-breakdown-fragment{color:var(--text-muted);overflow-wrap:anywhere}
+.url-breakdown-full[hidden]{display:none}
 .kv-group-heading{display:block;margin:8px 0 2px;padding-bottom:3px;font-size:12px;font-weight:600;color:var(--fg);border-bottom:1px solid var(--border)}
 .tab-pane > .kv-group-heading:first-child{margin-top:0}
 
@@ -593,10 +694,17 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .jwt-note{margin:8px 0 2px;color:var(--text-muted);font-size:11px;line-height:1.45}
 
 /* === View preset (inside the Columns menu) === */
+/* Select all · Deselect all · Reset lead the Columns menu; the group hints below reuse the preset hint style. */
+.columns-header-actions{display:flex;gap:4px;padding:4px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:4px}
+/* Three labels share the row: content-sized bases (outranking .context-menu-item's width:100%) so the menu widens to fit them instead of ellipsising "Deselect all". */
+.columns-header-actions>.columns-header-action{flex:1 1 auto;width:auto;min-width:0;text-align:center;font-size:11px;padding:4px 6px}
+.columns-group-hint{padding:0 4px;margin-top:6px}
 .columns-header-section{border-top:1px solid var(--border);margin-top:6px;padding:8px 4px 2px}
 .columns-header-row{display:flex;gap:4px}
-.columns-header-row input{flex:1;min-width:0;min-height:26px;padding:3px 6px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:11px}
-.columns-header-row .columns-preset-apply{flex:0 0 auto}
+/* The name field keeps enough room for its placeholder: .context-menu-item's width:100%
+   resolved the Apply button's flex basis to the whole row and left the input 14px wide. */
+.columns-header-row input{flex:1 1 auto;min-width:110px;min-height:26px;padding:3px 6px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:11px}
+.columns-header-row .columns-preset-apply{flex:0 0 auto;width:auto}
 .columns-preset-section{border-top:1px solid var(--border);margin-top:6px;padding:8px 4px 2px}
 .columns-preset-hint{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:6px}
 .columns-preset-actions{display:flex;gap:4px}
@@ -731,16 +839,44 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 
 /* === Buttons === */
 .copy-actions{display:flex;justify-content:flex-end;gap:6px;margin-bottom:6px;flex-wrap:wrap}
-.pane-search-bar{display:flex;align-items:center;gap:6px;margin:auto -10px -10px;padding:4px 8px;background:var(--surface);border-top:1px solid var(--border);position:sticky;bottom:0;z-index:2}
-.pane-search-input{flex:1 1 auto;min-width:60px;background:var(--content-bg);color:var(--fg);border:1px solid var(--control-border);border-radius:4px;padding:3px 6px;font:inherit;font-size:12px}
+/* The pane's one toolbar: search on the left, the copy actions on the right, stuck to the top of the scrolling pane. */
+.pane-search-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-10px -10px 8px;padding:4px 8px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:2}
+/* Last in the bar and right-aligned; when even the icon pair will not fit it drops to a second toolbar row instead of overflowing the pane. */
+.pane-search-bar .copy-actions{margin:0 0 0 auto;flex:0 1 auto}
+.pane-search-bar .copy-btn{white-space:nowrap}
+/* The count and the two nav buttons are one control: they wrap together or not at all.
+   It may shrink, though — the count is the part of the bar that gives way first. */
+.pane-search-nav-group{display:flex;flex:0 1 auto;min-width:0;flex-wrap:nowrap;align-items:center;gap:6px}
+/* The query field has a floor, and the count above gives way before it does: at
+   flex:1 1 60px the field was ~62px at the 440px pane and showed "BEACON" for a
+   typed "BEACONWORD". The basis is still the shrunk width, not the placeholder's:
+   a long Japanese placeholder claimed the whole first row when the lines were
+   formed and pushed the copy pair onto a second one before a query was typed. */
+.pane-search-input{flex:1 1 160px;min-width:120px;background:var(--content-bg);color:var(--fg);border:1px solid var(--control-border);border-radius:4px;padding:3px 6px;font:inherit;font-size:12px}
 .pane-search-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.pane-search-count{font-size:11px;color:var(--text-muted);white-space:nowrap}
-.pane-search-nav{min-height:22px;background:var(--bg);border:1px solid var(--control-border);color:var(--text-muted);border-radius:4px;cursor:pointer;padding:1px 7px;font-size:11px}
+.pane-search-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--text-muted);white-space:nowrap}
+.pane-search-nav{flex:none;min-height:22px;background:var(--bg);border:1px solid var(--control-border);color:var(--text-muted);border-radius:4px;cursor:pointer;padding:1px 7px;font-size:11px}
 .pane-search-nav:hover{border-color:var(--accent);color:var(--text-accent)}
 .pane-search-nav:disabled{opacity:.5;cursor:default}
 .pane-search-expand{color:var(--text-accent);border-color:var(--accent)}
 mark.pane-search-hit{background:color-mix(in srgb,var(--search-yellow) var(--hl-primary-pct),transparent);color:inherit;border-radius:2px}
 mark.pane-search-hit-current{background:color-mix(in srgb,var(--search-orange) var(--hl-primary-pct),transparent);box-shadow:inset 0 0 0 2px var(--accent)}
+/* The copy pair gives up its labels before the bar gives up a row, across the WHOLE band
+   where the bar really wraps — measured to 716px of pane in Japanese in the widest bar state
+   (a hit count with a collapsed suffix beside Expand all), not the 460px the icons used to
+   switch at, which left the toolbar one row at 440px and two rows at 538px.
+   730px, not 760px: .details is flex:0 0 clamp(440px,42%,760px) AND its own size container,
+   so a 760px threshold is the container's own ceiling and the labels were unreachable at
+   every width the panel can ship. 730 clears the Japanese wrap band by 14px and still leaves
+   the labels painted for every window from ~1741px up.
+   The .details pane is the size container; the tooltip and the accessible name keep the words. */
+@container (max-width: 730px){
+  .pane-search-bar .copy-btn{padding-left:7px;padding-right:7px}
+  .pane-search-bar .copy-btn .copy-btn-label{display:none}
+  .pane-search-bar .copy-btn::before{content:'\29C9';font-size:12px;line-height:16px}
+  /* Second in the pair is the one that opens the confirmation, the same "..." its label carries. */
+  .pane-search-bar .copy-actions .copy-btn+.copy-btn::before{content:'\29C9\2026'}
+}
 .copy-actions .copy-btn{float:none;margin-left:0}
 .copy-btn{float:right;padding:3px 10px;margin-left:8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;font-size:11px;transition:background-color 0.15s,border-color 0.15s,color 0.15s}
 .copy-btn:hover{background:var(--accent-dim);color:var(--text-accent);border-color:var(--accent)}
@@ -829,8 +965,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 
 /* === Search Highlight & Highlighted Row === */
 .search-highlight{background:color-mix(in srgb,var(--search-yellow) var(--hl-primary-pct),transparent);color:inherit;padding:1px 2px;border-radius:3px;font-weight:500}
-/* Manual highlight rows (right-click context menu) */
-.highlighted-row{box-shadow:inset 0 0 0 1px var(--accent)}
+/* Manual highlight rows (right-click context menu): colour tint plus the ★ chip, no ring — rings mean selection or the current hit. */
 .hl-yellow{background:color-mix(in srgb,var(--search-yellow) var(--hl-row-primary-pct),transparent) !important}
 .hl-red{background:color-mix(in srgb,var(--search-red) var(--hl-row-secondary-pct),transparent) !important}
 .hl-green{background:color-mix(in srgb,var(--search-green) var(--hl-row-secondary-pct),transparent) !important}
@@ -842,16 +977,22 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .hl-swatch:hover{transform:scale(1.2);box-shadow:0 0 0 2px var(--accent)}
 .hl-swatch.hl-yellow{background:var(--search-yellow)}.hl-swatch.hl-red{background:var(--search-red)}.hl-swatch.hl-green{background:var(--search-green)}
 .hl-swatch.hl-blue{background:var(--search-blue)}.hl-swatch.hl-purple{background:var(--search-purple)}.hl-swatch.hl-orange{background:var(--search-orange)}
-/* Search match row highlights */
-.search-match-row{box-shadow:inset 0 0 0 1px var(--accent)}
-/* Per-keyword row highlights */
+/* Search hits: keyword-colour tint only (per-keyword rules below); the current hit adds a 2px ring in that colour. */
 .search-row-0{background:color-mix(in srgb,var(--search-yellow) var(--hl-row-primary-pct),transparent) !important}
 .search-row-1{background:color-mix(in srgb,var(--search-red) var(--hl-row-secondary-pct),transparent) !important}
 .search-row-2{background:color-mix(in srgb,var(--search-green) var(--hl-row-secondary-pct),transparent) !important}
 .search-row-3{background:color-mix(in srgb,var(--search-blue) var(--hl-row-secondary-pct),transparent) !important}
 .search-row-4{background:color-mix(in srgb,var(--search-purple) var(--hl-row-secondary-pct),transparent) !important}
 .search-row-5{background:color-mix(in srgb,var(--search-orange) var(--hl-row-secondary-pct),transparent) !important}
-.multi-selected{background:color-mix(in srgb,var(--accent) var(--multi-selected-pct),transparent) !important;box-shadow:inset 0 0 0 1px var(--accent)}
+/* The current hit is usually also the primary selection: the ring colour property lets the accent bar and the keyword ring share one row. */
+.search-match-current.search-row-0{--row-ring-color:var(--search-yellow);box-shadow:inset 0 0 0 2px var(--row-ring-color)}
+.search-match-current.search-row-1{--row-ring-color:var(--search-red);box-shadow:inset 0 0 0 2px var(--row-ring-color)}
+.search-match-current.search-row-2{--row-ring-color:var(--search-green);box-shadow:inset 0 0 0 2px var(--row-ring-color)}
+.search-match-current.search-row-3{--row-ring-color:var(--search-blue);box-shadow:inset 0 0 0 2px var(--row-ring-color)}
+.search-match-current.search-row-4{--row-ring-color:var(--search-purple);box-shadow:inset 0 0 0 2px var(--row-ring-color)}
+.search-match-current.search-row-5{--row-ring-color:var(--search-orange);box-shadow:inset 0 0 0 2px var(--row-ring-color)}
+/* Multi-selection: accent tint plus the ✓ chip, no ring. */
+.multi-selected{background:color-mix(in srgb,var(--accent) var(--multi-selected-pct),transparent) !important}
 
 /* Subdued context menu */
 .context-menu{min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-context-menu);padding:6px}
@@ -884,14 +1025,8 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .row-state-badge--kw5{border-color:var(--search-orange-badge);color:var(--search-orange-badge)}
 
 /* === Narrow workbench split === */
-/* One breakpoint: the workbench stacks and the status bar compacts at the same width (NARROW_PANEL_MAX_WIDTH in panel.js). */
+/* Layout breakpoint (NARROW_PANEL_MAX_WIDTH in panel.js): the workbench stacks here. The status bar compacts earlier, in the 900px block below. */
 @media (max-width:800px){
-  /* Status text and counter share the row with the disclosure toggle; #statusText keeps the shared shrink/wrap rule above. */
-  .statusbar .spacer{display:none}
-  .statusbar #counter{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .status-details{display:flex;flex:1 0 100%;flex-wrap:wrap;align-items:center;gap:4px 8px;padding-top:4px;border-top:1px solid var(--border)}
-  .status-details[hidden]{display:none}
-  .status-details > span{min-width:0;max-width:100%;overflow-wrap:anywhere}
   /* Stacked: the details pane takes 60% of the height and the grid scrolls in the other 40%. */
   .content{flex-direction:column}
   .tableWrap{flex:1 1 40%;min-height:120px}
@@ -899,6 +1034,16 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
   .details{flex:1 1 60%;min-width:0;min-height:160px;border-left:0;border-top:1px solid var(--separator)}
   .content.capture-empty .tableWrap{flex:1 1 100%;min-height:0}
   .content.capture-empty .resizer,.content.capture-empty .details{display:none}
+}
+/* === Compact status bar === */
+/* Status breakpoint (STATUS_DETAILS_MEDIA_QUERY in panel.js): side by side between 801 and 900px the full counter row no longer fits on one line, so the details go behind the toggle before the layout stacks. */
+@media (max-width:900px){
+  /* Status text and counter share the row with the disclosure toggle; #statusText keeps the shared shrink/wrap rule above. */
+  .statusbar .spacer{display:none}
+  .statusbar #counter{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .status-details{display:flex;flex:1 0 100%;flex-wrap:wrap;align-items:center;gap:4px 8px;padding-top:4px;border-top:1px solid var(--border)}
+  .status-details[hidden]{display:none}
+  .status-details > span{min-width:0;max-width:100%;overflow-wrap:anywhere}
 }
 @media (max-width:420px){
   .sample-guide-evidence-list{grid-template-columns:minmax(0,1fr)}

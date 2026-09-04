@@ -16,6 +16,11 @@ const STARTUP_POLL_INITIAL_DELAY_MS = 50;
 const STARTUP_POLL_MAX_DELAY_MS = 1000;
 const CDP_COMMAND_TIMEOUT_MS = 10000;
 const TRANSIENT_PROFILE_CLEANUP_ERRORS = new Set(['ENOTEMPTY', 'EBUSY']);
+// Chromium sometimes dies during startup before it ever writes
+// DevToolsActivePort ("Browser exited before DevTools started ... SIGKILL"),
+// which failed the suite on a non-assertion. One more spawn, on a brand-new
+// profile directory, turns that into a slow launch instead of a red suite.
+const BROWSER_START_ATTEMPTS = 2;
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -286,33 +291,58 @@ async function waitForPanelReady(cdp) {
   );
 }
 
+function browserArguments(profileDirectory) {
+  return [
+    '--headless=new',
+    '--remote-debugging-port=0',
+    `--user-data-dir=${profileDirectory}`,
+    '--allow-file-access-from-files',
+    '--disable-background-networking',
+    '--disable-default-apps',
+    '--disable-extensions',
+    '--no-default-browser-check',
+    '--no-first-run',
+    '--no-sandbox',
+    'about:blank',
+  ];
+}
+
+// Spawns the browser and connects CDP to its first page target, retrying the
+// whole bring-up once on a fresh profile directory. Only the bring-up is
+// retried: once CDP is attached, a failure is the panel's, not the browser's,
+// and must reach the test unchanged.
+async function startBrowserSession(executable) {
+  const failures = [];
+  for (let attempt = 1; attempt <= BROWSER_START_ATTEMPTS; attempt += 1) {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-browser-'));
+    const browserProcess = spawn(executable, browserArguments(profileDirectory), { stdio: 'ignore' });
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      const pageTarget = await findPageTarget(browserWebSocketUrl, () => true);
+      const cdp = await connectCdp(pageTarget.webSocketDebuggerUrl);
+      return { browserProcess, profileDirectory, cdp };
+    } catch (error) {
+      failures.push('attempt ' + attempt + ' failed: ' + error.message);
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
+    }
+  }
+  throw new Error(
+    'The browser never started in ' +
+      BROWSER_START_ATTEMPTS +
+      ' attempts, each on its own fresh profile directory (' +
+      executable +
+      '). ' +
+      failures.join(' '),
+  );
+}
+
 // Launches the panel with a stub script installed BEFORE panel.js runs —
 // the piece plain evaluate() cannot do — by starting on about:blank,
 // registering Page.addScriptToEvaluateOnNewDocument, then navigating.
 async function launchPanelPage({ executable, query = '', initScript = null, width = 1280, height = 800 }) {
-  const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-browser-'));
-  const browserProcess = spawn(
-    executable,
-    [
-      '--headless=new',
-      '--remote-debugging-port=0',
-      `--user-data-dir=${profileDirectory}`,
-      '--allow-file-access-from-files',
-      '--disable-background-networking',
-      '--disable-default-apps',
-      '--disable-extensions',
-      '--no-default-browser-check',
-      '--no-first-run',
-      '--no-sandbox',
-      'about:blank',
-    ],
-    { stdio: 'ignore' },
-  );
-  let cdp = null;
+  const { browserProcess, profileDirectory, cdp } = await startBrowserSession(executable);
   try {
-    const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
-    const pageTarget = await findPageTarget(browserWebSocketUrl, () => true);
-    cdp = await connectCdp(pageTarget.webSocketDebuggerUrl);
     await cdp.send('Runtime.enable');
     await cdp.send('Page.enable');
     if (initScript) {
@@ -327,7 +357,7 @@ async function launchPanelPage({ executable, query = '', initScript = null, widt
     await cdp.send('Page.navigate', { url: panelUrlWithQuery(query) });
     await waitForPanelReady(cdp);
   } catch (error) {
-    if (cdp) await cdp.close();
+    await cdp.close();
     await stopBrowser(browserProcess);
     removeProfileDirectory(profileDirectory);
     throw error;
@@ -339,7 +369,7 @@ async function launchPanelPage({ executable, query = '', initScript = null, widt
       await waitForPanelReady(cdp);
     },
     close: async () => {
-      if (cdp) await cdp.close();
+      await cdp.close();
       await stopBrowser(browserProcess);
       removeProfileDirectory(profileDirectory);
     },
@@ -356,6 +386,7 @@ module.exports = {
   evaluate,
   stopBrowser,
   removeProfileDirectory,
+  startBrowserSession,
   launchPanelPage,
   panelUrlWithQuery,
 };

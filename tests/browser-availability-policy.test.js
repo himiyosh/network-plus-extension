@@ -1152,5 +1152,77 @@ test('retains the local-only skip when no browser executable is discoverable', (
       title:
         'the Match gutter takes the v4 width on upgrade, clips its label only at gutter width, and fits two chips',
     },
+    {
+      skipped: true,
+      title: 'the details header names the request in parts and the summary strip survives tab changes',
+    },
+    {
+      skipped: true,
+      title: 'long URLs ellipsise in the header, break down in the URL row, and clamp long header values',
+    },
+    {
+      skipped: true,
+      title:
+        'selecting the URL row yields the whole address for every URL shape, credentials and fragment included',
+    },
+    {
+      skipped: true,
+      title:
+        'the details header is either the whole URL or visibly truncated, at every pane width in both languages',
+    },
+    {
+      skipped: true,
+      title:
+        'tabs carry counts, mark an empty pane instead of dimming it, and fall back to Headers without losing the picked tab',
+    },
+    {
+      skipped: true,
+      title: 'Body and Raw carry one sticky top toolbar that holds search and the copy actions',
+    },
+    {
+      skipped: true,
+      title: 'a pane-search hit behind a reveal presses the control that owns the hidden node',
+    },
+    {
+      skipped: true,
+      title:
+        'the JSON tree aligns sibling keys, folds deep nodes and long strings, and Raw splits the request line',
+    },
+    {
+      skipped: true,
+      title: 'the pane toolbar height only falls as the pane widens and the query field stays readable',
+    },
+    {
+      skipped: true,
+      title: 'the inspector halves collapse from their labels, persist, and restore with a double-click',
+    },
+    {
+      skipped: true,
+      title: 'the details pane shows one guidance line until a request is selected',
+    },
+    {
+      skipped: true,
+      title: 'reopening the details pane by selection replaces the close notice with the new request',
+    },
+    {
+      skipped: true,
+      title: 'the status bar compacts to one row between 801 and 900px while the workbench stacks only at 800',
+    },
+    {
+      skipped: true,
+      title: 'the Columns menu groups its checkboxes under the button and Reset restores the defaults',
+    },
+    {
+      skipped: true,
+      title: 'primary, multi, highlighted, hit, and current-hit rows each carry their own look',
+    },
+    {
+      skipped: true,
+      title: 'the row context menu speaks one language end to end',
+    },
+    {
+      skipped: true,
+      title: 'the pane toolbar, Columns menu, inspector divider and tab bars speak one language',
+    },
   ]);
 });
