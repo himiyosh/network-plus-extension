@@ -5601,12 +5601,19 @@ browserTest(
           };
         })()`,
       );
-      expect(wrappedStrip.rowCount).toBe(2);
+      // How MANY rows the six items take is a font-metric outcome — CI's
+      // fallback face wraps them into three where this machine takes two — so
+      // the properties are pinned instead of the count: the strip wraps rather
+      // than overflowing, and the status still opens it.
+      expect(wrappedStrip.rowCount).toBeGreaterThan(1);
       expect(wrappedStrip.overflow).toBeLessThanOrEqual(0);
-      expect(wrappedStrip.firstOfEachRow).toEqual(['503 Service Unavailable', 'Retry-After: 30']);
-      // Nothing draws a leading separator any more; every item but the last
-      // draws a trailing one, so it travels with the item it follows.
-      expect(wrappedStrip.leadingSeparators).toEqual(['none', 'none']);
+      expect(wrappedStrip.firstOfEachRow[0]).toBe('503 Service Unavailable');
+      expect(wrappedStrip.firstOfEachRow).toHaveLength(wrappedStrip.rowCount);
+      // Nothing draws a leading separator any more, so no wrapped line can
+      // open on a dangling middot however many lines the face produces; every
+      // item but the last draws a trailing one, so it travels with the item it
+      // follows.
+      expect(wrappedStrip.leadingSeparators).toEqual(new Array(wrappedStrip.rowCount).fill('none'));
       expect(wrappedStrip.trailingSeparators).toEqual(['"·"', '"·"', '"·"', '"·"', '"·"', 'none']);
       await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       await settleLayout(cdp);
