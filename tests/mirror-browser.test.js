@@ -374,12 +374,19 @@ browserTest(
         })()`,
       );
       await delay(150);
+      // The panel is in Japanese here, and the row menu now translates with
+      // it — an English label at this point is the mixed-language bug back.
       await evaluate(
         page.cdp,
         `(() => {
+          const labels = Array.from(document.querySelectorAll('.context-menu-item')).map((el) => el.textContent);
+          if (labels.includes('Edit and resend...')) {
+            throw new Error('The row menu kept an English label while the panel was Japanese: ' + labels.join(' | '));
+          }
           const item = Array.from(document.querySelectorAll('.context-menu-item')).find(
-            (el) => el.textContent === 'Edit and resend...',
+            (el) => el.textContent === '編集して再送...',
           );
+          if (!item) throw new Error('The Japanese resend entry was missing: ' + labels.join(' | '));
           item.click();
           return true;
         })()`,

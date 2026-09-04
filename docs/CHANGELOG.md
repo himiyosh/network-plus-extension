@@ -9,7 +9,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
   - Why: `.tab-pane{word-break:break-all}` applied to every value, so "The access t|oken" and UUIDs broke where a space or delimiter sat one character away.
 - 🔧 **Details pane typography** — three text sizes, muted key labels, an 18px row rhythm with hairlines, a quiet REQUEST/RESPONSE band and fixed-weight tabs.
 - 🔧 **Details pane width** — the side-by-side split defaults to `clamp(440px, 42%, 760px)` and remembers a dragged width across sessions.
-- 🔧 **Narrow layout** — the workbench stacks and the status bar compacts at one 800px breakpoint; stacked mode gives the details pane 60% of the height.
+- 🔧 **Narrow layout** — the workbench stacks at 800px and the status bar compacts from 900px; stacked mode gives the details pane 60% of the height.
 - 🔧 **Key column** — header names size to their content (110–220px) and stack above their values when the details pane is narrower than 520px.
 - 🔧 **Grid defaults** — the Match gutter comes first, Server done is hidden, and narrower columns keep Path on the first screen at 1280px.
 - ✨ **Elastic Path column** — when the grid is wider than its columns, Path absorbs the surplus so the header band and zebra reach the edge.
@@ -17,6 +17,24 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 - ✨ **Cell tooltips** — hovering any truncated grid cell shows its full value; the Shift+F10 hint moved from the row tooltip to aria only.
 - 🔧 **Column labels** — "ClientStart" and "ServerDone" read "Client start" and "Server done".
 - 🐛 **Light theme contrast** — GET and 2xx text darkened so selected and striped rows keep 4.5:1, pinned by contract.
+- ✨ **Request identity** — the details header reads as a method badge, the host, a fitted path and a query count, with a tooltip and a Copy URL control.
+  - Why: a 1,215-character request line was one ellipsised run, so the part that identifies the request was the part that got cut.
+- 🐛 **Header truncation** — whatever the header drops now carries a visible ellipsis, so it can never paint a shorter URL than the request used.
+- ✨ **Response summary** — a strip under the title keeps status, type, size, duration, protocol and a notable header visible on every tab.
+- ✨ **URL breakdown** — the URL row shows the address in parts with a control that opens the Query tab, and long values clamp behind a Show all toggle.
+- 🐛 **URL selection** — selecting the URL row yields the whole address, including credentials, query and fragment, and none of the controls beside it.
+- ✨ **Tab counts** — Query and Cookies carry their count, an empty pane is marked, and a tab that has nothing for the new request falls back to Headers.
+- 🔧 **Pane toolbar** — search and the copy actions share one sticky toolbar at the top of the pane instead of a band above and a bar below.
+- 🔧 **JSON tree** — sibling keys line up, long strings fold, deep nodes start collapsed, and Expand all reaches a hit inside a collapsed node.
+- 🔧 **Raw tab** — the request line separates method, path and protocol, a rule marks where the body starts, and a JSON body is highlighted.
+- ✨ **Collapsible inspectors** — clicking REQUEST or RESPONSE collapses that half; the split and the collapsed state survive a reload.
+- 🔧 **Row states** — primary selection, multi-selection, search hits and the current hit are told apart instead of sharing one look.
+- 🔧 **Columns menu** — checkboxes group under Identity, Timing and Payload, with Select all, Deselect all and Reset in a header row.
+- ✨ **Empty state** — before a selection the pane explains how to open a request instead of showing two empty tab strips.
+- 🔧 **Row menu order** — Filter, then Select and Compare, then the copy formats behind disclosures, instead of six copy formats first.
+- ✨ **Japanese UI** — the row menu, pane toolbars, Columns menu, inspector labels and screen-reader names all speak Japanese.
+- 🐛 **Empty-tab contrast** — the empty-tab signal is a muted label and a marker at full opacity, so it keeps 4.5:1 in both themes.
+- 🐛 **Observer leak** — the pane search keeps one resize observer per pane instead of leaving one behind on every row selection.
 
 ## v1.13.0 - 2026-08-29
 

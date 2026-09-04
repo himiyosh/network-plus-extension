@@ -104,7 +104,7 @@ There is no browser-specific branch in the source. The only extension APIs used 
 Verified for Chrome:
 
 - Chrome 151 loads `manifest.json` with no extension errors.
-- All 98 real-browser regression tests pass under Chrome 151 (`CHROME_BIN=<path> npx jest tests/status-summary-browser.test.js tests/browser-availability-policy.test.js`).
+- All 121 real-browser regression tests pass under Chrome 151 (`CHROME_BIN=<path> npx jest tests/status-summary-browser.test.js tests/browser-availability-policy.test.js`).
 - The `Network+` tab appearing in a real Chrome DevTools window was confirmed manually. Only this last step sits outside automated coverage: DevTools extension panels do not load reliably under automation — no probe could enumerate even the built-in panels — so CI cannot assert it.
 
 ### First run

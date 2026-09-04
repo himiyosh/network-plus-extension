@@ -11,7 +11,7 @@
     <div class="left">
       <button id="pauseBtn" title="Pause recording" aria-label="Pause recording" class="icon-btn">⏸️</button>
       <div class="separator"></div>
-      <button id="supportBtn" title="Support Network+ development (optional)" data-i18n-title="titleSupportBtn" aria-label="Network+ for DevTools — support development, optional" aria-haspopup="dialog" aria-controls="supportDialog" class="brand support-btn">
+      <button id="supportBtn" title="Support Network+ development (optional)" data-i18n-title="titleSupportBtn" aria-label="Network+ for DevTools — support development, optional" data-i18n-aria-label="ariaSupportBtn" aria-haspopup="dialog" aria-controls="supportDialog" class="brand support-btn">
         <span class="brand-text">Network<span class="brand-plus">+</span></span>
         <span class="brand-sub">
           <span class="brand-otter-window" aria-hidden="true">
@@ -215,10 +215,10 @@
       <button id="searchToggleBtn" title="Toggle search panel (Ctrl+F)" data-i18n-title="titleSearchToggle" aria-keyshortcuts="Control+F Meta+F" aria-controls="searchPanel" aria-expanded="false">🔍 Search</button>
       <span id="searchCount" class="search-count" aria-hidden="true"></span><span id="searchCountStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
       <div class="separator"></div>
-      <button id="clearBtn" title="Clear all requests" data-i18n-title="titleClearBtn" aria-label="Clear all requests" aria-keyshortcuts="Control+L Meta+K" class="icon-btn clear-btn-danger">🗑️</button>
+      <button id="clearBtn" title="Clear all requests" data-i18n-title="titleClearBtn" aria-label="Clear all requests" data-i18n-aria-label="titleClearBtn" aria-keyshortcuts="Control+L Meta+K" class="icon-btn clear-btn-danger">🗑️</button>
       <div class="separator"></div>
-      <button id="importBtn" title="Import (HAR/SAZ)" data-i18n-title="titleImportBtn" aria-label="Import HAR or SAZ" aria-busy="false" class="icon-btn">📥</button>
-      <button id="exportHarBtn" title="Export network data (sanitized by default)" data-i18n-title="titleExportBtn" aria-label="Export network data; sanitized by default" class="icon-btn">📤</button>
+      <button id="importBtn" title="Import (HAR/SAZ)" data-i18n-title="titleImportBtn" aria-label="Import HAR or SAZ" data-i18n-aria-label="ariaImportBtn" aria-busy="false" class="icon-btn">📥</button>
+      <button id="exportHarBtn" title="Export network data (sanitized by default)" data-i18n-title="titleExportBtn" aria-label="Export network data; sanitized by default" data-i18n-aria-label="ariaExportBtn" class="icon-btn">📤</button>
       <input type="file" id="importFile" accept=".har,.saz" style="display:none" />
     </div>
     <div class="right">
@@ -226,8 +226,8 @@
       <button id="columnsBtn" aria-haspopup="menu" aria-controls="columnsMenu" aria-expanded="false">🗂️ Columns</button>
       <div class="separator"></div>
       <button id="settingsBtn" aria-haspopup="dialog" aria-controls="settingsDialog" aria-expanded="false">🎛️ Settings</button>
-      <button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" data-i18n-title="titlePopoutBtn" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>
-      <button id="shortcutBtn" title="Keyboard shortcuts (?)" data-i18n-title="titleShortcutBtn" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutDialog">⌨️ ?</button>
+      <button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" data-i18n-title="titlePopoutBtn" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" data-i18n-aria-label="ariaPopoutBtn" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>
+      <button id="shortcutBtn" title="Keyboard shortcuts (?)" data-i18n-title="titleShortcutBtn" aria-label="Keyboard shortcuts" data-i18n-aria-label="ariaShortcutBtn" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutDialog">⌨️ ?</button>
     </div>
   </header>
   <div class="search-panel" id="searchPanel" role="search" aria-label="Search requests" style="display:none">
@@ -254,21 +254,24 @@
     <div class="resizer" id="resizer" role="separator" tabindex="0" title="Resize request list and details with arrow keys" data-i18n-title="titleResizer" aria-label="Resize request list and request details" aria-controls="tableWrap details" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Request list 50 percent"></div>
     <aside class="details" id="details" aria-label="Request details">
       <div class="details-header">
-        <div id="detailsTitle">Select a request...</div>
-        <button id="detailsCloseBtn" class="details-close-btn" type="button" title="Close request details" data-i18n-title="titleDetailsClose" aria-label="Close request details">✕</button>
+        <div id="detailsTitle"><span class="details-title-text">Select a request...</span></div>
+        <button id="detailsCopyUrlBtn" class="details-close-btn details-copy-url-btn" type="button" title="Copy sanitized URL" data-i18n-title="titleDetailsCopyUrl" aria-label="Copy sanitized URL" data-i18n-aria-label="titleDetailsCopyUrl" hidden>⧉</button>
+        <button id="detailsCloseBtn" class="details-close-btn" type="button" title="Close request details" data-i18n-title="titleDetailsClose" aria-label="Close request details" data-i18n-aria-label="titleDetailsClose">✕</button>
       </div>
+      <div id="detailsSummary" class="details-summary" hidden></div>
       <div id="comparePanel" class="compare-panel" hidden aria-label="Request comparison" aria-hidden="true"></div>
+      <p id="inspectorEmptyState" class="inspector-empty" data-i18n="inspectorEmptyHint" hidden>Select a request to inspect it — click a row, ↑↓ to move, Enter to open</p>
       <div class="inspector-panels">
         <div class="inspector-half" id="inspector-request">
-          <div class="inspector-label">Request</div>
-          <div class="tab-bar" id="req-tab-bar" role="tablist" aria-label="Request details">
+          <button id="inspector-request-toggle" class="inspector-label" type="button" aria-expanded="true" aria-controls="inspector-request-content" title="Collapse the Request inspector to its tabs" aria-label="Request" data-i18n-aria-label="ariaInspectorRequestToggle">Request</button>
+          <div class="tab-bar" id="req-tab-bar" role="tablist" aria-label="Request details" data-i18n-aria-label="ariaRequestTabs">
             <button id="req-tab-headers" class="tab-btn active" data-tab="req-headers" role="tab" aria-selected="true" aria-controls="req-headers" tabindex="0">Headers</button>
             <button id="req-tab-body" class="tab-btn" data-tab="req-body" role="tab" aria-selected="false" aria-controls="req-body" tabindex="-1">Body</button>
             <button id="req-tab-query" class="tab-btn" data-tab="req-query" role="tab" aria-selected="false" aria-controls="req-query" tabindex="-1">Query</button>
             <button id="req-tab-cookies" class="tab-btn" data-tab="req-cookies" role="tab" aria-selected="false" aria-controls="req-cookies" tabindex="-1">Cookies</button>
             <button id="req-tab-raw" class="tab-btn" data-tab="req-raw" role="tab" aria-selected="false" aria-controls="req-raw" tabindex="-1">Raw</button>
           </div>
-          <div class="tab-content-area">
+          <div class="tab-content-area" id="inspector-request-content">
             <div class="tab-pane active" id="req-headers" role="tabpanel" aria-labelledby="req-tab-headers"></div>
             <div class="tab-pane" id="req-body" role="tabpanel" aria-labelledby="req-tab-body" hidden></div>
             <div class="tab-pane" id="req-query" role="tabpanel" aria-labelledby="req-tab-query" hidden></div>
@@ -276,10 +279,10 @@
             <div class="tab-pane" id="req-raw" role="tabpanel" aria-labelledby="req-tab-raw" hidden></div>
           </div>
         </div>
-        <div class="inspector-divider" id="inspector-divider" role="separator" tabindex="0" title="Resize request and response inspectors with arrow keys" data-i18n-title="titleInspectorDivider" aria-label="Resize request and response inspectors" aria-controls="inspector-request inspector-response" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Request inspector 50 percent"></div>
+        <div class="inspector-divider" id="inspector-divider" role="separator" tabindex="0" title="Resize request and response inspectors with arrow keys; double-click to restore 50/50" data-i18n-title="titleInspectorDivider" aria-label="Resize request and response inspectors" data-i18n-aria-label="ariaInspectorDivider" aria-controls="inspector-request inspector-response" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Request inspector 50 percent"></div>
         <div class="inspector-half" id="inspector-response">
-          <div class="inspector-label">Response</div>
-          <div class="tab-bar" id="res-tab-bar" role="tablist" aria-label="Response details">
+          <button id="inspector-response-toggle" class="inspector-label" type="button" aria-expanded="true" aria-controls="inspector-response-content" title="Collapse the Response inspector to its tabs" aria-label="Response" data-i18n-aria-label="ariaInspectorResponseToggle">Response</button>
+          <div class="tab-bar" id="res-tab-bar" role="tablist" aria-label="Response details" data-i18n-aria-label="ariaResponseTabs">
             <button id="res-tab-headers" class="tab-btn active" data-tab="res-headers" role="tab" aria-selected="true" aria-controls="res-headers" tabindex="0">Headers</button>
             <button id="res-tab-body" class="tab-btn" data-tab="res-body" role="tab" aria-selected="false" aria-controls="res-body" tabindex="-1">Body</button>
             <button id="res-tab-preview" class="tab-btn" data-tab="res-preview" role="tab" aria-selected="false" aria-controls="res-preview" tabindex="-1">Preview</button>
@@ -287,7 +290,7 @@
             <button id="res-tab-timing" class="tab-btn" data-tab="res-timing" role="tab" aria-selected="false" aria-controls="res-timing" tabindex="-1">Timing</button>
             <button id="res-tab-raw" class="tab-btn" data-tab="res-raw" role="tab" aria-selected="false" aria-controls="res-raw" tabindex="-1">Raw</button>
           </div>
-          <div class="tab-content-area">
+          <div class="tab-content-area" id="inspector-response-content">
             <div class="tab-pane active" id="res-headers" role="tabpanel" aria-labelledby="res-tab-headers"></div>
             <div class="tab-pane" id="res-body" role="tabpanel" aria-labelledby="res-tab-body" hidden></div>
             <div class="tab-pane" id="res-preview" role="tabpanel" aria-labelledby="res-tab-preview" hidden></div>

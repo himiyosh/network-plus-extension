@@ -82,14 +82,14 @@ const LIVE_COMMIT_BOUNDARIES = [
   },
   {
     label: 'Keep Selected',
-    startMarker: "createRowMenuButton('Keep Selected (",
-    endMarker: "createRowMenuButton('Delete Selected (",
+    startMarker: "createRowMenuButton(uiTextFormat('menuKeepSelected',",
+    endMarker: "createRowMenuButton(uiTextFormat('menuDeleteSelected',",
     requiredPattern: /commitPendingLiveRows\(\);[\s\S]*removeRowsWithUndo\(/,
     diagnostic: 'Keep Selected must commit pending live rows before removing rows.',
   },
   {
     label: 'Delete Selected',
-    startMarker: "createRowMenuButton('Delete Selected (",
+    startMarker: "createRowMenuButton(uiTextFormat('menuDeleteSelected',",
     endMarker: 'showAccessiblePopupAt(contextMenu',
     requiredPattern: /commitPendingLiveRows\(\);[\s\S]*removeRowsWithUndo\(/,
     diagnostic: 'Delete Selected must commit pending live rows before removing rows.',
@@ -365,7 +365,31 @@ describe('accessible theme contract', () => {
         }
       }
       expect(contrastRatio(theme['on-accent'], theme['accent-fill'])).toBeGreaterThanOrEqual(4.5);
+      // An empty pane's tab stays clickable, so its 12px/600 label is
+      // interactive text on the tab bar's --surface. It must clear AA at the
+      // opacity it is painted with, which is why it is painted at 1. The
+      // active tab paints the same pair over its --accent-dim fill.
+      expect(contrastRatio(theme['text-muted'], theme.surface)).toBeGreaterThanOrEqual(4.5);
+      const activeTabBackground = compositeOver(theme['accent-dim'], theme.surface);
+      expect(contrastRatio(theme['text-muted'], activeTabBackground)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(theme['text-accent'], activeTabBackground)).toBeGreaterThanOrEqual(4.5);
     }
+    // The signal is the marker, not a dimmed label: opacity:.55 composited
+    // #526170 on #f0f2f5 down to 3.0, and #a8b4c5 on #1e293b down to 2.9.
+    // Anchored on the selector, not on the exact one the fix happened to
+    // write: the likeliest regression re-adds opacity to the rule that now
+    // carries the colour (`.tab-btn.is-empty:not(.active)`), or folds the
+    // empty tab into a grouped selector beside another dimmed control. The
+    // class-name run cannot cross a brace, so it stays inside one rule.
+    expect(css).not.toMatch(/\.tab-btn\.is-empty[^{}]*\{[^}]*opacity/);
+    expect(css).toContain('.tab-btn.is-empty:not(.active){color:var(--text-muted)}');
+    // The numeric marker is the counted tabs' own: Body and Raw count nothing,
+    // so an empty one of those takes an en dash instead of a "0" that named a
+    // count the tab never had. Same token, so the same composited ratio.
+    expect(css).toContain(
+      ".tab-btn.is-empty:not([data-count])::after{content:'\\2013';margin-left:4px;font-size:11px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}",
+    );
+    expect(js).toContain('if (count !== null && INSPECTOR_COUNTED_TABS.has(tabId)) {');
   });
 
   // Quiet GET and 2xx text sit directly on the row: the selected tint and the
@@ -810,8 +834,26 @@ describe('guided sample capture static contracts', () => {
       /\.status-details\{display:flex;[^}]*flex:1 0 100%;[^}]*flex-wrap:wrap[^}]*border-top:1px solid var\(--border\)/,
     );
     expect(css).toContain('.status-details[hidden]{display:none}');
-    expect(css).toMatch(
-      /@media \(max-width:800px\)\{[\s\S]*?\.status-details > span\{[^}]*min-width:0[^}]*max-width:100%[^}]*overflow-wrap:anywhere/,
+    // The status bar compacts at 900px while the workbench stacks at 800px:
+    // between 801 and 900 the side-by-side layout still has to fit the bar on
+    // one row. The compact rules live only in the 900 block, after the 800
+    // layout block and before the 420 block.
+    expect(js).toContain("const STATUS_DETAILS_MEDIA_QUERY = '(max-width: 900px)';");
+    expect(js).toContain('const NARROW_PANEL_MAX_WIDTH = 800;');
+    const layoutBlockStart = css.indexOf('@media (max-width:800px)');
+    const statusBlockStart = css.indexOf('@media (max-width:900px)');
+    expect(statusBlockStart).toBeGreaterThan(layoutBlockStart);
+    const smallBlockStart = css.indexOf('@media (max-width:420px)', layoutBlockStart);
+    expect(statusBlockStart).toBeLessThan(smallBlockStart);
+    const layoutBlock = css.slice(layoutBlockStart, statusBlockStart);
+    expect(layoutBlock).not.toContain('.status-details');
+    expect(layoutBlock).not.toContain('.statusbar');
+    const statusBlock = css.slice(statusBlockStart, smallBlockStart);
+    expect(statusBlock).not.toContain('.content{');
+    expect(statusBlock).not.toContain('.details{');
+    expect(statusBlock).toContain('.statusbar .spacer{display:none}');
+    expect(statusBlock).toMatch(
+      /@media \(max-width:900px\)\{[\s\S]*?\.status-details > span\{[^}]*min-width:0[^}]*max-width:100%[^}]*overflow-wrap:anywhere/,
     );
     const narrowStatusRule = css.match(/\.statusbar #statusText\{([^}]*)\}/)?.[1] || '';
     expect(narrowStatusRule).toContain('flex:1 1 auto');
@@ -1394,9 +1436,22 @@ describe('scroll targets clear their sticky furniture', () => {
     expect(wrap[1]).toContain('scroll-padding-top:30px');
     // scroll-padding acts only on the scrollport; pinning it on .tab-pane
     // froze the very bug it was meant to guard against.
+    // The pane toolbar wraps to two rows in a narrow pane, so the inset is a
+    // measured custom property with the one-row height as its fallback.
     const paneScrollport = css.match(/\.tab-content-area\{([^}]*)\}/);
     expect(paneScrollport).not.toBeNull();
-    expect(paneScrollport[1]).toContain('scroll-padding-bottom:32px');
+    expect(paneScrollport[1]).toContain('scroll-padding-top:var(--pane-bar-height,36px)');
+    // One scrollport carries all five panes of a half, so the inset is read
+    // back from the pane that is showing and re-synced on every tab change —
+    // never left behind by the pane that measured it.
+    expect(js).toContain("const activePane = scrollport.querySelector('.tab-pane.active');");
+    expect(js).toContain("scrollport.style.setProperty('--pane-bar-height', Math.max(0, barHeight) + 'px');");
+    expect(js).toContain('syncScrollportBarInset(contentArea);');
+    // One observer per pane, re-pointed at each new bar: a fresh observer per
+    // render leaked two to four observers per row selection.
+    expect(js).toContain('if (!pane._paneBarObserver) {');
+    expect(js).toContain('pane._paneBarObserver.disconnect();');
+    expect(js).toContain('pane._paneBarObserver.observe(bar);');
     const pane = css.match(/\.tab-pane\{([^}]*)\}/);
     expect(pane).not.toBeNull();
     expect(pane[1]).not.toContain('scroll-padding-bottom');
@@ -1461,7 +1516,7 @@ describe('translation coverage', () => {
   // English in a Japanese panel. Tagging and translating must stay in step.
   test('every data-i18n key in the markup has both an en and a ja string', () => {
     const used = new Set(
-      Array.from(html.matchAll(/data-i18n(?:-title)?="([^"]+)"/g), (match) => match[1]),
+      Array.from(html.matchAll(/data-i18n(?:-title|-aria-label)?="([^"]+)"/g), (match) => match[1]),
     );
     expect(used.size).toBeGreaterThan(100);
     const dictionaryStart = js.indexOf('const UI_TEXT = {');
@@ -1533,15 +1588,27 @@ describe('settings and language contracts', () => {
       (match) => match[1],
     );
     expect(titleKeys.length).toBeGreaterThanOrEqual(17);
+    const ariaLabelKeys = Array.from(html.matchAll(/data-i18n-aria-label="([^"]+)"/g)).map(
+      (match) => match[1],
+    );
+    expect(ariaLabelKeys.length).toBeGreaterThanOrEqual(13);
     // Strings the panel composes in JavaScript resolve through uiText(key);
     // a typoed key there would fall back to empty text just as silently.
     const uiTextKeys = Array.from(js.matchAll(/uiText\('(\w+)'\)/g)).map((match) => match[1]);
     expect(uiTextKeys.length).toBeGreaterThanOrEqual(10);
+    // uiTextFormat's key never matches the uiText pattern (its argument list
+    // continues past the quote), so every {slot} template — the pane-search
+    // frames, the copy-full prompts, the composed status lines — sat outside
+    // this check until it was collected on its own.
+    const uiTextFormatKeys = Array.from(js.matchAll(/uiTextFormat\('(\w+)'/g)).map(
+      (match) => match[1],
+    );
+    expect(uiTextFormatKeys.length).toBeGreaterThanOrEqual(28);
     const dictStart = js.indexOf('const UI_TEXT = {');
     expect(dictStart).toBeGreaterThan(-1);
     const dict = js.slice(dictStart, js.indexOf('\n  };', dictStart));
     const dictKeys = Array.from(dict.matchAll(/^ {4}(\w+): \{/gm)).map((match) => match[1]);
-    for (const key of [...htmlKeys, ...titleKeys, ...uiTextKeys]) {
+    for (const key of [...htmlKeys, ...titleKeys, ...ariaLabelKeys, ...uiTextKeys, ...uiTextFormatKeys]) {
       expect(dictKeys).toContain(key);
     }
     for (const key of dictKeys) {
@@ -1560,6 +1627,45 @@ describe('settings and language contracts', () => {
     expect(js).toContain("document.querySelectorAll('[data-i18n-title]')");
     expect(js).toContain("UI_TEXT[el.getAttribute('data-i18n-title')]");
     expect(js).toContain('el.title = entry[activeLanguage];');
+    // An icon-only control whose title translates but whose aria-label does
+    // not leaves assistive tech on English; both header buttons carry the
+    // aria hook, and applyLanguage rewrites it from the same dictionary.
+    expect(js).toContain("document.querySelectorAll('[data-i18n-aria-label]')");
+    expect(js).toContain("UI_TEXT[el.getAttribute('data-i18n-aria-label')]");
+    expect(js).toContain("el.setAttribute('aria-label', entry[activeLanguage]);");
+    expect(html).toMatch(
+      /id="detailsCopyUrlBtn"[^>]*data-i18n-title="titleDetailsCopyUrl"[^>]*aria-label="Copy sanitized URL" data-i18n-aria-label="titleDetailsCopyUrl"/,
+    );
+    expect(html).toMatch(
+      /id="detailsCloseBtn"[^>]*data-i18n-title="titleDetailsClose"[^>]*aria-label="Close request details" data-i18n-aria-label="titleDetailsClose"/,
+    );
+    // Every control that carries a translated tooltip and a separate
+    // accessible name carries the aria hook too, so the two cannot drift
+    // into different languages.
+    for (const [id, key] of [
+      ['supportBtn', 'ariaSupportBtn'],
+      ['clearBtn', 'titleClearBtn'],
+      ['importBtn', 'ariaImportBtn'],
+      ['exportHarBtn', 'ariaExportBtn'],
+      ['popoutBtn', 'ariaPopoutBtn'],
+      ['shortcutBtn', 'ariaShortcutBtn'],
+      ['inspector-divider', 'ariaInspectorDivider'],
+      ['req-tab-bar', 'ariaRequestTabs'],
+      ['res-tab-bar', 'ariaResponseTabs'],
+      ['inspector-request-toggle', 'ariaInspectorRequestToggle'],
+      ['inspector-response-toggle', 'ariaInspectorResponseToggle'],
+    ]) {
+      expect([id, new RegExp('id="' + id + '"[^>]*data-i18n-aria-label="' + key + '"').test(html)]).toEqual([
+        id,
+        true,
+      ]);
+    }
+    // The collapse toggles name the half the way their own tooltip and status
+    // line name it, and still end on the English caption they paint: dropping
+    // the caption would break the label-in-name match voice control relies on,
+    // and leading with the English noun left one control carrying two names.
+    expect(js).toContain("ja: 'リクエストインスペクター (Request)',");
+    expect(js).toContain("ja: 'レスポンスインスペクター (Response)',");
     expect(html).not.toMatch(/id="pauseBtn"[^>]*data-i18n-title/);
     expect(html).not.toMatch(/id="undoClearBtn"[^>]*data-i18n-title/);
     // The empty state re-renders in place on a language change: the render
@@ -2069,11 +2175,20 @@ describe('outbound data-safety static contracts', () => {
     expect(js).toContain("exportScope === 'selected' ? '-selected' : ''");
     expect(js).toContain("const payload = buildClipboardPayload(action, row, { mode: 'sanitized', responseBody });");
     expect(js).toContain("buildMultiRowClipboardPayload(rows, 'summary', { mode: 'sanitized' })");
-    expect(js).toContain("['url', 'Copy sanitized URL']");
-    expect(js).toContain("['curl', 'Copy sanitized cURL']");
-    expect(js).toContain("['fetch', 'Copy sanitized fetch']");
-    expect(js).toContain("['powershell', 'Copy sanitized PowerShell']");
-    expect((js.match(/label: 'Copy sanitized'/g) || []).length).toBeGreaterThanOrEqual(4);
+    // The row menu's six sanitized formats: the label is a dictionary key and
+    // the status message stays the canonical English one.
+    expect(js).toContain("['summary', 'menuCopySanitizedSummary', 'Copied sanitized summary'],");
+    expect(js).toContain("['url', 'menuCopySanitizedUrl', 'Copied sanitized URL'],");
+    expect(js).toContain("['curl', 'menuCopySanitizedCurl', 'Copied sanitized cURL'],");
+    expect(js).toContain("['fetch', 'menuCopySanitizedFetch', 'Copied sanitized fetch'],");
+    expect(js).toContain("['powershell', 'menuCopySanitizedPowershell', 'Copied sanitized PowerShell'],");
+    expect(js).toContain("['markdown', 'menuCopySanitizedMarkdown', 'Copied sanitized Markdown'],");
+    // The four pane toolbars read the same dictionary key as the row menu's
+    // disclosure, so the label cannot drift into a second English literal.
+    expect((js.match(/label: uiText\('menuCopySanitized'\)/g) || []).length).toBe(4);
+    expect((js.match(/label: uiText\('paneCopyFull'\)/g) || []).length).toBe(4);
+    expect(js).not.toContain("label: 'Copy sanitized'");
+    expect(js).not.toContain("label: 'Copy full...'");
   });
 
   test('cannot build full clipboard or HAR output until a confirmation callback runs', () => {
@@ -2109,7 +2224,10 @@ describe('outbound data-safety static contracts', () => {
     expect(innerHtmlAssignments).toHaveLength(1);
     expect(js).toContain('pauseBtn.innerHTML = state.paused ? PLAY_ICON_SVG : PAUSE_ICON_SVG;');
     expect(js).not.toMatch(/dataSafety[^\n]*innerHTML|innerHTML[^\n]*dataSafety/);
-    expect(js).toContain("button.textContent = action.label;");
+    // The copy action's label lives in its own span (a narrow pane hides it and
+    // keeps the CSS icon), and it is still written as text, never as markup.
+    expect(js).toContain("label.textContent = action.label;");
+    expect(js).toContain("button.setAttribute('aria-label', action.label);");
     expect(js).toContain("$('#dataSafetyDialogDetail').textContent = detail;");
   });
 
@@ -2455,7 +2573,27 @@ describe('visual-state dark-mode parity', () => {
       const rule = css.match(new RegExp(`\\.hl-${color}\\{([^}]*)\\}`))[1];
       expect(rule).not.toContain('box-shadow');
     }
-    expect(css).toContain('.grid tbody tr.selected{background:var(--selected);box-shadow:inset 0 0 0 2px var(--accent)}');
+    // Primary selection: accent tint (over any hit or highlight tint), a 3px
+    // accent bar on the left, and a 2px ring whose colour the current search
+    // hit may override; multi-selection and highlights carry no ring.
+    expect(css).toContain(
+      '.grid tbody tr.selected{background:var(--selected) !important;box-shadow:inset 3px 0 0 var(--accent),inset 0 0 0 2px var(--row-ring-color,var(--accent))}',
+    );
+    expect(css).toMatch(/\.multi-selected\{(?![^}]*box-shadow)[^}]*\}/);
+    expect(css).not.toMatch(/\.highlighted-row\{/);
+    expect(css).not.toMatch(/\.search-match-row\{/);
+    for (const [selector, token] of [
+      [0, 'yellow'],
+      [1, 'red'],
+      [2, 'green'],
+      [3, 'blue'],
+      [4, 'purple'],
+      [5, 'orange'],
+    ]) {
+      expect(css).toContain(
+        `.search-match-current.search-row-${selector}{--row-ring-color:var(--search-${token});box-shadow:inset 0 0 0 2px var(--row-ring-color)}`,
+      );
+    }
   });
 
   test('visual-state highlight rules do not use dark-only selector overrides', () => {
@@ -2604,9 +2742,9 @@ describe('view preset static contracts', () => {
   test('update and reset handlers check return values and surface storage errors', () => {
     const menuBlock = columnsMenuBlock();
     expect(menuBlock).toContain('const ok = saveViewPreset(buildViewPresetFromState());');
-    expect(menuBlock).toContain("setStatus('Could not save preset. Storage unavailable or data too large.');");
+    expect(menuBlock).toContain("setStatus(uiText('columnsPresetSaveFailedStatus'));");
     expect(menuBlock).toContain('if (!clearViewPreset())');
-    expect(menuBlock).toContain("setStatus('Could not reset preset. Storage unavailable.');");
+    expect(menuBlock).toContain("setStatus(uiText('columnsPresetResetFailedStatus'));");
   });
 
   test('clicks on controls a handler re-rendered away never dismiss the hosting popup', () => {
@@ -3168,7 +3306,8 @@ describe('two-request diff comparison', () => {
   test('compare context menu item requires exactly two selected rows', () => {
     // The comparison action must only appear when exactly 2 rows are selected
     expect(js).toContain("selectedCount === 2");
-    expect(js).toContain("'Compare 2 selected requests'");
+    expect(js).toContain("createRowMenuButton(uiText('menuCompareTwo'), () => {");
+    expect(js).toContain("      en: 'Compare 2 selected requests',");
   });
 
   test('comparison panel is dismissed when a single row is clicked (selectRow clears comparedRows)', () => {
@@ -3312,10 +3451,19 @@ describe('detail pane search contracts', () => {
     expect(js).toMatch(/mark\.className = 'pane-search-hit';\s*\n\s*mark\.textContent =/);
     expect(css).toContain('mark.pane-search-hit{background:color-mix(in srgb,var(--search-yellow) var(--hl-primary-pct),transparent)');
     expect(css).toContain('mark.pane-search-hit-current');
-    // The bar is pinned to the bottom of the pane, flush with its edges.
-    expect(css).toMatch(/\.pane-search-bar\{[^}]*position:sticky[^}]*bottom:0/);
+    // The bar is the pane's one toolbar: stuck to the top of the scrolling
+    // pane, flush with its edges, with the copy actions adopted into it.
+    expect(css).toMatch(/\.pane-search-bar\{[^}]*position:sticky[^}]*top:0/);
     expect(css).toMatch(/\.tab-pane\.pane-search-host\.active\{[^}]*flex-direction:column[^}]*min-height:100%/);
-    expect(js).toContain('pane.appendChild(bar);');
+    expect(js).toContain('pane.insertBefore(bar, pane.firstChild);');
+    expect(js).toContain("const copyActions = pane.querySelector(':scope > .copy-actions');");
+    expect(js).toContain('if (copyActions) bar.appendChild(copyActions);');
+    expect(css).toContain('.pane-search-bar .copy-actions{margin:0 0 0 auto;flex:0 1 auto}');
+    // A 440px pane cannot hold search, Expand all, both nav buttons and both
+    // copy buttons on one line under wide fallback fonts, so the bar wraps the
+    // copy actions onto a second row rather than overflowing the pane.
+    expect(css).toMatch(/\.pane-search-bar\{[^}]*flex-wrap:wrap/);
+    expect(css).not.toMatch(/\.pane-search-bar \.copy-actions\{[^}]*flex-wrap:nowrap/);
   });
 
   test('bounds the hit count so huge bodies stay responsive', () => {
@@ -3325,8 +3473,14 @@ describe('detail pane search contracts', () => {
 
   test('counts hits hidden in collapsed content and offers Expand all', () => {
     expect(js).toContain('function expandPaneTruncations(pane, bar)');
-    expect(js).toContain("count.textContent += ' (+' + collapsedHits + ' collapsed)';");
-    expect(js).toContain('expandBtn.hidden = collapsedHits === 0;');
+    expect(js).toContain(
+      "count.textContent += uiTextFormat('paneSearchCollapsedSuffix', { count: collapsedHits });",
+    );
+    // One expand-everything owner per pane: where the JSON tree renders its
+    // own controls they do the revealing and the toolbar adds no second button.
+    expect(js).toContain('expandBtn.hidden = collapsedHits === 0 || treeOwnsExpansion;');
+    expect(js).toContain("const treeOwnsExpansion = !!pane.querySelector('.json-tree-controls');");
+    expect(js).toContain("expandBtn.addEventListener('click', expandEverything);");
     // Both truncating panes provide their full source text for the count.
     expect(js).toContain('attachPaneSearch(resBodyPane, text);');
     expect(js).toContain('attachPaneSearch(reqBodyPane, text);');
@@ -3368,7 +3522,7 @@ describe('search options and preference persistence contracts', () => {
 describe('devtools-session mirror contracts', () => {
   test('the toolbar offers a pop-out that opens this panel as a browser tab', () => {
     expect(html).toContain(
-      '<button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" data-i18n-title="titlePopoutBtn" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>',
+      '<button id="popoutBtn" title="Open Network+ in a browser tab; it mirrors this DevTools session (Ctrl/⌘+Shift+M)" data-i18n-title="titlePopoutBtn" aria-label="Open Network+ in a browser tab; it mirrors this DevTools session" data-i18n-aria-label="ariaPopoutBtn" aria-keyshortcuts="Control+Shift+M Meta+Shift+M" class="icon-btn" hidden>🪟</button>',
     );
     expect(js).toContain("window.open('panel.html?view=window&src=' + encodeURIComponent(String(inspectedTabId)))");
     // The button only appears where a DevTools session can host a mirror.
@@ -3549,14 +3703,19 @@ describe('export scope contracts', () => {
   test('row quick filters feed the same multiText rules the Filters popup edits', () => {
     // The pair is built for whichever column the pointer landed on, so any
     // column can be isolated or excluded in one click, not only the domain.
-    expect(js).toContain("createRowMenuButton('Only ' + suffix, () => applyQuickFilter('contains'), 'Only ' + fullSuffix)");
-    expect(js).toContain(
-      "createRowMenuButton('Exclude ' + suffix, () => applyQuickFilter('notcontains'), 'Exclude ' + fullSuffix)",
-    );
+    expect(js).toContain("quickFilterText('menuFilterOnly', quickFilterTarget, shortValue),");
+    expect(js).toContain("() => applyQuickFilter('contains'),");
+    expect(js).toContain("quickFilterText('menuFilterOnly', quickFilterTarget, quickFilterTarget.value),");
+    expect(js).toContain("quickFilterText('menuFilterExclude', quickFilterTarget, shortValue),");
+    expect(js).toContain("() => applyQuickFilter('notcontains'),");
+    expect(js).toContain("quickFilterText('menuFilterExclude', quickFilterTarget, quickFilterTarget.value),");
     // The rule carries the whole value; only the menu label is shortened, and
     // the tooltip keeps the full text so it stays inspectable before clicking.
     expect(js).toContain('applyColumnQuickFilterTo(quickFilterTarget.id, quickFilterTarget.value, op)');
-    expect(js).toContain("const suffix = quickFilterTarget.label + ' ' + shortenMenuValue(quickFilterTarget.value);");
+    expect(js).toContain("const shortValue = shortenMenuValue(quickFilterTarget.value);");
+    expect(js).toContain(
+      "uiTextFormat(key, { column: menuColumnLabel(target.id, target.label), value });",
+    );
     expect(js).toContain("if (title && title !== text) button.title = title;");
     // A query string is per-request state, so a rule built from one matches a
     // single request — the opposite of what excluding noise asks for.
@@ -3597,7 +3756,9 @@ describe('export scope contracts', () => {
 
     // Collapsed by default, so the menu keeps the height it had; the label
     // names what it hands out at the point of choosing rather than after.
-    expect(js).toContain("fullCopyToggle.textContent = '▸ Copy full (unsanitized)';");
+    expect(js).toContain("fullCopyToggle.textContent = '▸ ' + fullCopyLabel;");
+    expect(js).toContain("const fullCopyLabel = uiText('menuCopyFull');");
+    expect(js).toContain("      en: 'Copy full (unsanitized)',");
     expect(js).toContain("fullCopyToggle.setAttribute('aria-expanded', 'false');");
     expect(js).toContain('fullCopyGroup.hidden = true;');
     expect(js).toContain('fullCopyGroup.hidden = !expanding;');
@@ -3812,13 +3973,14 @@ describe('stream capture contracts (WebSocket + SSE)', () => {
 
 describe('markdown copy and HAR websocket import contracts', () => {
   test('markdown copy is offered sanitized in the menu and as a full format', () => {
-    expect(js).toContain("['markdown', 'Copy sanitized Markdown'],");
-    expect(js).toContain("'Copy sanitized Markdown table (' + targetRows.length + ' rows)'");
+    expect(js).toContain("['markdown', 'menuCopySanitizedMarkdown', 'Copied sanitized Markdown'],");
+    expect(js).toContain("uiTextFormat('menuCopySanitizedTable', { count: targetRows.length })");
+    expect(js).toContain("      en: 'Copy sanitized Markdown table ({count} rows)',");
     expect(js).toContain("if (action === 'markdown') return formatRowMarkdown(targetRow);");
     expect(js).toContain("action === 'markdown' || REQUEST_CLIPBOARD_ACTIONS.has(action)");
     // The full variant moved out of the retired dialog's <select> and into the
     // row menu's collapsed full-copy group, keeping every format it offered.
-    expect(js).toContain("['markdown', 'Markdown'],");
+    expect(js).toContain("['markdown', 'Markdown', 'menuCopyFullMarkdown'],");
     expect(html).not.toContain('id="dataSafetyCopyFormat"');
   });
 
@@ -3846,8 +4008,10 @@ describe('edit-and-resend contracts', () => {
     expect(js).toContain('if (resendDialog && (mirrorViewerResendDispatch || (inspectedEval && !mirrorViewerActive))) {');
     expect(js).toContain('inspectedEval(buildResendEvalSource(spec), (result, errorInfo) => {');
     expect(js).toContain('if (resendActions && canResendRow(contextMenuRow)) {');
-    expect(js).toContain("createRowMenuButton('Resend unchanged', () => {");
-    expect(js).toContain("createRowMenuButton('Edit and resend...', () => {");
+    expect(js).toContain("createRowMenuButton(uiText('menuResendUnchanged'), () => {");
+    expect(js).toContain("createRowMenuButton(uiText('menuResendEdit'), () => {");
+    expect(js).toContain("      en: 'Resend unchanged',");
+    expect(js).toContain("      en: 'Edit and resend...',");
     // The composed request is a new fetch in the page; nothing in-flight is touched.
     expect(js).toContain('fetch(spec.url, init).catch(function () {});');
     expect(js).toContain("row.method !== 'WS'");
@@ -3896,6 +4060,230 @@ describe('audit layout and contrast contracts', () => {
 
   test('the toolbar steam keeps a visible resting value under reduced motion', () => {
     expect(css).toContain('.support-steam,.brand-steam{opacity:.55}');
+  });
+
+  test('the inspector halves collapse from their labels and remember the split', () => {
+    // The REQUEST / RESPONSE captions are real buttons: Enter and Space come
+    // free, aria-expanded names the state, and the tooltip is composed from
+    // the dictionary so the language switch re-runs its sync.
+    expect(html).toMatch(
+      /<button id="inspector-request-toggle" class="inspector-label" type="button" aria-expanded="true" aria-controls="inspector-request-content"/,
+    );
+    expect(html).toMatch(
+      /<button id="inspector-response-toggle" class="inspector-label" type="button" aria-expanded="true" aria-controls="inspector-response-content"/,
+    );
+    expect(html).toMatch(/<div class="tab-content-area" id="inspector-request-content">/);
+    expect(html).toMatch(/<div class="tab-content-area" id="inspector-response-content">/);
+    expect(css).toContain('.inspector-label:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}');
+    // Collapsed: label + tab bar only, no 80px floor, and the other half takes the rest.
+    expect(css).toContain('.inspector-half.is-collapsed{flex:0 0 auto;min-height:0}');
+    expect(css).toContain('.inspector-half.is-collapsed>.tab-content-area{display:none}');
+    expect(css).toContain('.inspector-panels.has-collapsed>.inspector-divider{cursor:default}');
+    // Only one half may be collapsed; drag and keyboard resize pause while
+    // one is; double-click restores 50/50; the split persists like the width.
+    expect(js).toContain("const INSPECTOR_SPLIT_KEY = 'networkPlus.inspectorSplit.v1';");
+    expect(js).toContain('setCollapsedInspectorHalf(planInspectorCollapse(collapsedInspectorHalf, half), true);');
+    expect(js.split('if (collapsedInspectorHalf) return;').length - 1).toBe(2);
+    expect(js).toContain("inspectorDivider.addEventListener('dblclick'");
+    expect(js).toContain('resyncInspectorSplit = restoreInspectorSplit;');
+    expect(js).toContain("window.addEventListener('resize', rescaleInspectorSplit);");
+    expect(js).toContain('if (!collapsed && resyncInspectorSplit) resyncInspectorSplit();');
+    expect(js).toContain('if (refreshInspectorToggleTitles) refreshInspectorToggleTitles();');
+    // The half name is a dictionary key, not a hard-coded English noun: the
+    // tooltip, the divider's value text and the status line all read it
+    // through uiText, so a Japanese sentence carries a Japanese noun.
+    expect(js).toContain("labelKey: 'inspectorHalfRequest' }");
+    expect(js).toContain("labelKey: 'inspectorHalfResponse' }");
+    expect(js).not.toMatch(/inspectorHalves = \{[\s\S]{0,400}label: 'Request'/);
+    expect(js).toContain('half: uiText(labelKey),');
+    expect(js).toContain('half: uiText(inspectorHalves[changedHalf].labelKey),');
+    expect(js).toContain(
+      "uiTextFormat('inspectorHalfCollapsedValue', { half: uiText(inspectorHalves[collapsedInspectorHalf].labelKey) }),",
+    );
+    expect(js).toContain("if (inspectorPref.collapsed) setCollapsedInspectorHalf(inspectorPref.collapsed, false);");
+  });
+
+  test('the details pane shows one guidance line before a selection', () => {
+    expect(html).toMatch(
+      /<p id="inspectorEmptyState" class="inspector-empty" data-i18n="inspectorEmptyHint" hidden>Select a request to inspect it — click a row, ↑↓ to move, Enter to open<\/p>\s*<div class="inspector-panels">/,
+    );
+    expect(css).toContain('.inspector-empty[hidden]{display:none}');
+    const clearBlock = js.slice(js.indexOf('function clearDetailsPanel()'), js.indexOf('let detailsTitlePath'));
+    expect(clearBlock).toContain('setInspectorEmptyState(true);');
+    // The halves come back before the pane opens so the remembered split can measure them.
+    const selectBlock = js.slice(js.indexOf('function selectRow('), js.indexOf('const titleParts'));
+    expect(selectBlock.indexOf('setInspectorEmptyState(false);')).toBeGreaterThan(-1);
+    expect(selectBlock.indexOf('setInspectorEmptyState(false);')).toBeLessThan(selectBlock.indexOf('showDetailsPanel(row);'));
+    expect(js).toContain('setInspectorEmptyState(!state.selectedRow);');
+    // Reopening by selection answers the "closed" notice with the row that
+    // reopened the pane, not with the message the notice displaced.
+    expect(js).toContain("setStatus(uiText('statusDetailsClosed'));");
+    expect(js).toContain('[UI_TEXT.statusDetailsClosed.en, UI_TEXT.statusDetailsClosed.ja],');
+    expect(js).toContain("uiTextFormat('statusRowSelected', { request: selectionSummary })");
+    expect(js).toContain('const selectionSummary = selectedRow ? planRowSelectionStatus(selectedRow) : \'\';');
+    expect(js).not.toContain("setStatus('Request details closed. Select a request to reopen.');");
+  });
+
+  test('a method only becomes a class token through the grid allow-list', () => {
+    // One allow-list, two call sites: the grid row and the details header.
+    // The header used to build its class from the raw method string.
+    expect(js).toContain('function methodClassToken(method)');
+    expect(js).toContain("if (HTTP_METHODS.indexOf(upper) > -1 || upper === 'WS' || upper === 'SSE') return 'method-' + upper;");
+    expect(js).toContain('const methodClass = methodClassToken(row.method);');
+    expect(js).toContain('if (methodClass) tr.classList.add(methodClass);');
+    expect(js).toContain("badge.className = ('details-title-method ' + methodClassToken(row.method)).trim();");
+    expect(js).not.toContain("'details-title-method method-' + String(row.method).toUpperCase()");
+  });
+
+  test('the summary strip separator trails the item it follows so a wrapped line cannot open on it', () => {
+    expect(css).toContain(".details-summary-item:has(+ .details-summary-item)::after{content:'·';margin-left:6px;color:var(--text-muted)}");
+    // No leading separator survives, so the chip needs no suppression rule.
+    expect(css).not.toContain('.details-summary-item + .details-summary-item::before');
+    expect(css).not.toContain('.details-summary-chip::before');
+    expect(css).toMatch(/\.details-summary\{[^}]*flex-wrap:wrap/);
+  });
+
+  test('the URL breakdown offers its reveal only when the full string adds something', () => {
+    expect(js).toContain('if (url !== parts.scheme + parts.userinfo + parts.host + parts.pathname) {');
+    expect(js).toContain("toggle.className = 'link-btn url-breakdown-toggle-btn';");
+    expect(js).toContain("toggle.textContent = uiText('urlBreakdownShowFull');");
+  });
+
+  test('the details tooltip truncates the tail and keeps the method and scheme', () => {
+    expect(js).toContain('const DETAILS_TITLE_TOOLTIP_MAX_CHARS = 300;');
+    expect(js).toContain("const fullTitle = titleParts.join(' ');");
+    expect(js).toContain(": fullTitle.slice(0, DETAILS_TITLE_TOOLTIP_MAX_CHARS) + '…';");
+    // The old rule dropped the method and the whole query past 300 chars.
+    expect(js).not.toContain('url.length < 300 ? titleParts.join(\' \') : parts.host + parts.pathname');
+  });
+
+  test('the header fit is one measurement pass, not a measure-and-retry loop', () => {
+    const fitBlock = js.slice(js.indexOf('function fitDetailsTitle()'), js.indexOf('function renderDetailsTitle('));
+    expect(fitBlock).toContain("const operationEl = title.querySelector('.details-title-operation');");
+    // The widest form and the lifted host cap are written before any exit, so
+    // a row whose pathname already fits does not keep the 60% CSS cap.
+    expect(fitBlock).toContain("if (hostEl) hostEl.style.maxWidth = 'none';");
+    expect(fitBlock).toContain('if (operationEl) operationEl.hidden = false;');
+    expect(fitBlock.indexOf("if (hostEl) hostEl.style.maxWidth = 'none';")).toBeLessThan(
+      fitBlock.indexOf('if (!title.clientWidth) return;'),
+    );
+    // The operation gives way first; only then is the host capped.
+    expect(fitBlock).toContain('if (operationEl) operationEl.hidden = !keepOperation;');
+    expect(fitBlock.indexOf('if (operationEl) operationEl.hidden = !keepOperation;')).toBeLessThan(
+      fitBlock.indexOf("hostEl.style.maxWidth = hostUsed + 'px';"),
+    );
+    // The path text is chosen once, from a pixel budget, by a pure planner.
+    expect(fitBlock).toContain('const pathText = planTitlePathText(full, pool - hostUsed, measure);');
+    // The path's own text is the last write, and nothing reads the DOM back
+    // after it. The block that DID read the host back and deleted the path's
+    // leading '…' whenever the host happened to CSS-ellipsise is gone: it
+    // painted a complete-looking path across the whole 400-450px band.
+    expect(fitBlock).toContain('pathEl.textContent = pathText;');
+    expect(fitBlock).not.toContain('pathEl.textContent = endpoint;');
+    expect(fitBlock).not.toContain('hostEl.scrollWidth > hostEl.clientWidth');
+    expect(fitBlock.indexOf('pathEl.textContent = pathText;')).toBeGreaterThan(
+      fitBlock.indexOf("hostEl.style.maxWidth = hostUsed + 'px';"),
+    );
+    // The three retry loops that each fixed one branch and broke another are gone.
+    expect(fitBlock).not.toMatch(/\bwhile\s*\(/);
+    expect(fitBlock).not.toContain('detailsTitlePathBudget');
+  });
+
+  test('the selection line follows the selection instead of naming a row that is no longer selected', () => {
+    const showBlock = js.slice(js.indexOf('function showDetailsPanel('), js.indexOf('function closeDetailsPanel('));
+    expect(showBlock).toContain('selectionStatusText = restored === summaryLine && summaryLine ? summaryLine : null;');
+    expect(showBlock).toContain(
+      "} else if (statusText && selectionStatusText && statusText.textContent === selectionStatusText) {",
+    );
+    expect(showBlock).toContain('setStatus(summaryLine);');
+  });
+
+  test('the panel exports a row-state seam instead of its mutable state object', () => {
+    // A test that seeds panel state through the export block can silently
+    // change how the panel behaves for every later test in the file.
+    const exportBlock = js.slice(js.lastIndexOf('  return {'));
+    expect(exportBlock).not.toMatch(/^\s{4}state,$/m);
+    expect(js).toContain('function createTableRow(row, onClick, isTabStop, rowState) {');
+    expect(js).toContain('const rowStateSource = rowState || state;');
+    expect(js).toContain('const isSelected = rowStateSource.selectedRow === row || rowStateSource.selectedRows.has(row);');
+    expect(js).toContain('const srch = rowStateSource.search;');
+  });
+
+  test('the summary strip states the protocol once, and both Headers panes defer to it', () => {
+    // Response > Headers already dropped its repeated rows; Request > Headers
+    // kept a Protocol row that said the same thing one line lower. Both now
+    // fall back to a row only when the strip could not render the value.
+    expect(js).toContain(
+      "if (!summaryPlan.protocol) resInfoItems.push({ key: uiText('detailsInfoProtocol'), value: row.protocol || '' });",
+    );
+    expect(js).toContain(
+      "...(summaryPlan.protocol ? [] : [{ key: uiText('detailsInfoProtocol'), value: row.protocol || '' }]),",
+    );
+    // Method and the GraphQL Operation are request-only facts; they stay.
+    expect(js).toContain("{ key: uiText('detailsInfoMethod'), value: row.method || '' },");
+    expect(js).toContain(
+      "...(row.operation ? [{ key: uiText('detailsInfoOperation'), value: row.operation }] : []),",
+    );
+    expect(js).toContain("if (plan.protocol) addItem(plan.protocol, 'details-summary-protocol');");
+  });
+
+  test('the Columns menu groups its checkboxes and can reset to the defaults', () => {
+    const menuBlock = js.slice(
+      js.indexOf('const COLUMN_MENU_GROUPS'),
+      js.indexOf("$('#thead').addEventListener('contextmenu'"),
+    );
+    expect(menuBlock).toContain("uiText('columnsSelectAll')");
+    expect(menuBlock).toContain("uiText('columnsDeselectAll')");
+    expect(menuBlock).toContain("uiText('columnsReset')");
+    expect(menuBlock).toContain('applyDefaultColumnLayout(state.columns, DEFAULT_COLUMNS);');
+    for (const key of ['columnsGroupIdentity', 'columnsGroupTiming', 'columnsGroupPayload']) {
+      expect(menuBlock).toContain("key: '" + key + "'");
+    }
+    expect(menuBlock).toContain("groupHint.className = 'columns-preset-hint columns-group-hint';");
+    expect(menuBlock).toContain("presetHint.textContent = uiText('columnsSavedView');");
+    expect(js).not.toContain('Preset · columns + filters');
+    // Anchored under the button and capped to the space below it.
+    expect(js).toContain('const spaceBelow = Math.round(window.innerHeight - rect.bottom - POPUP_VIEWPORT_MARGIN);');
+    expect(js).toContain("columnsContextMenu.style.maxHeight = spaceBelow + 'px';");
+    expect(css).toContain('.columns-header-actions{');
+  });
+
+  test('the row menu leads with filters and keeps both copy groups behind disclosures', () => {
+    const menuBlock = js.slice(js.indexOf('const openRowContextMenu = '), js.indexOf("tableWrap.addEventListener('contextmenu'"));
+    const order = [
+      "filterMenuLabel.textContent = uiText('menuFilter');",
+      "createRowMenuButton(uiText(isMultiSelected ? 'menuDeselect' : 'menuSelect')",
+      "colorRow.setAttribute('aria-label', uiText('menuHighlightColor'));",
+      "createRowMenuButton(uiText('menuCompareTwo')",
+      "createRowMenuButton(uiTextFormat('menuKeepSelected',",
+      "createRowMenuButton(uiTextFormat('menuDeleteSelected',",
+      "sanitizedCopyToggle.textContent = '▸ ' + sanitizedCopyLabel;",
+      "fullCopyToggle.textContent = '▸ ' + fullCopyLabel;",
+      "createRowMenuButton(uiText('menuResendUnchanged')",
+      'showAccessiblePopupAt(contextMenu',
+    ];
+    const positions = order.map((marker) => menuBlock.indexOf(marker));
+    expect(positions.every((position) => position > -1)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    // The domain pair stays one click away whichever cell was right-clicked.
+    expect(menuBlock).toContain("quickFilterColumn && quickFilterColumn.id !== 'domain' && quickFilterDomain");
+    expect(menuBlock).toContain("() => applyDomainQuickFilterTo(quickFilterDomainTarget.value, 'contains')");
+    // Both copy groups share the disclosure pattern and keep the sanitized routing.
+    expect(menuBlock).toContain('sanitizedCopyGroup.hidden = !expanding;');
+    expect(menuBlock).toContain("sanitizedCopyGroup.setAttribute('role', 'group');");
+    expect(menuBlock).toContain("copySanitizedAction(action, contextMenuRow, '', copiedMessage);");
+    expect(menuBlock).not.toContain("'Copy (sanitized)'");
+    // Every string the menu paints goes through the dictionary, so the whole
+    // menu is one language: no bare English literal is handed to a menu item.
+    expect(menuBlock).not.toMatch(/createRowMenuButton\(\s*'/);
+    for (const labelAssignment of [
+      "filterMenuLabel.textContent = uiText('menuFilter');",
+      "compareLabel.textContent = uiText('menuCompare');",
+      "resendLabel.textContent = uiText('menuResend');",
+      "          : uiText('menuHighlight');",
+    ]) {
+      expect(menuBlock).toContain(labelAssignment);
+    }
   });
 
   test('keyword badges use text-safe palette variants split by theme', () => {

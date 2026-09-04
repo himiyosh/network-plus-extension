@@ -18,7 +18,7 @@ const _NetworkPlus = (function () {
   const MIN_INSPECTOR_PANE_HEIGHT = 80;
   const RESIZER_WIDTH = 4;
   const INSPECTOR_DIVIDER_HEIGHT = 3;
-  const NARROW_PANEL_MAX_WIDTH = 800; // Must match the @media (max-width:800px) block in panel.css
+  const NARROW_PANEL_MAX_WIDTH = 800; // Layout breakpoint: must match the @media (max-width:800px) block in panel.css
   const POPUP_VIEWPORT_MARGIN = 8;
   const ROW_CONTEXT_MENU_X_OFFSET = 16;
   const ROW_CONTEXT_MENU_Y_OFFSET = 24;
@@ -27,7 +27,10 @@ const _NetworkPlus = (function () {
   const REQUEST_COUNT_ANNOUNCE_MS = 1000;
   const SEARCH_COUNT_ANNOUNCE_MS = 500;
   const RETENTION_ANNOUNCE_MS = 750;
-  const STATUS_DETAILS_MEDIA_QUERY = '(max-width: 800px)';
+  // The status bar compacts before the workbench stacks: between 801 and
+  // 900px the side-by-side layout is too narrow for the full counter row.
+  // Must match the @media (max-width:900px) block in panel.css.
+  const STATUS_DETAILS_MEDIA_QUERY = '(max-width: 900px)';
   const DATA_SAFETY_ANNOUNCE_MS = 500;
   const CLEAR_UNDO_TIMEOUT_MS = 10000;
   const COPY_FEEDBACK_DURATION_MS = 1800;
@@ -104,6 +107,11 @@ const _NetworkPlus = (function () {
   const JSON_TREE_MAX_CHILDREN = 100;
   const JSON_TREE_MAX_DEPTH = 20;
   const JSON_TREE_PREVIEW_KEYS = 3;
+  // Root (0), its children (1) and grandchildren (2) open by default; deeper
+  // nodes start folded so a big payload reads as an outline first.
+  const JSON_TREE_OPEN_DEPTH = 2;
+  // A string past this length, or one carrying a newline, folds to its first line.
+  const JSON_TREE_LONG_STRING_CHARS = 120;
 
   const THEME_KEY = 'networkPlus.theme';
   const LANG_KEY = 'networkPlus.lang';
@@ -113,8 +121,14 @@ const _NetworkPlus = (function () {
   const LANGS = ['system', 'en', 'ja'];
   const COL_PREF_KEY = 'networkPlus.cols';
   const CUSTOM_HEADER_COLUMN_KEY = 'networkPlus.customHeaderColumn.v1';
+  // What the custom-header column is called before a header is configured.
+  // Matches its DEFAULT_COLUMNS label, and is the one value the row menu
+  // translates rather than quoting back.
+  const CUSTOM_HEADER_DEFAULT_LABEL = 'Header';
   const DOMAIN_SUMMARY_KEY = 'networkPlus.domainSummary.v1'; // '1' = per-domain summary panel shown
   const DETAILS_WIDTH_KEY = 'networkPlus.detailsWidth.v1'; // dragged side-by-side details pane width in px
+  const INSPECTOR_SPLIT_KEY = 'networkPlus.inspectorSplit.v1'; // request/response split percent + collapsed half
+  const INSPECTOR_HALVES = ['request', 'response'];
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
   const COL_PREF_VERSION = 4; // Bump when default visibility changes
   const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';
@@ -470,6 +484,8 @@ const _NetworkPlus = (function () {
         return true;
       })
       .catch((_error) => {
+        // Shared with the row menu's copy formats, whose status lines are
+        // deliberately still English; it translates with them, not here.
         setStatus('Clipboard copy failed. No data was copied.');
         return false;
       });
@@ -834,6 +850,64 @@ const _NetworkPlus = (function () {
     return calculateInspectorSplit(currentRequestSize + delta, totalSize);
   }
 
+  // Pure: which half is collapsed after its label is clicked. Only one half
+  // may be collapsed at a time, so collapsing the second re-expands the first.
+  function planInspectorCollapse(collapsedHalf, clickedHalf) {
+    if (!INSPECTOR_HALVES.includes(clickedHalf)) return collapsedHalf || null;
+    return collapsedHalf === clickedHalf ? null : clickedHalf;
+  }
+
+  // Pure: the persisted split shape. Anything outside the allow-list (a
+  // percent that leaves no room for either pane, an unknown half) degrades
+  // to the default so a hand-edited or stale entry cannot wedge the pane.
+  function normalizeInspectorSplitPref(raw) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const percent = Number(source.percent);
+    return {
+      percent: Number.isFinite(percent) && percent > 0 && percent < 100 ? Math.round(percent) : null,
+      collapsed: INSPECTOR_HALVES.includes(source.collapsed) ? source.collapsed : null,
+    };
+  }
+
+  // Pure: the row-state classes createTableRow stamps on a <tr>. The primary
+  // selection, a multi-selection, a manual highlight, and a search hit each
+  // carry their own look; the current hit adds the keyword-coloured ring.
+  function planRowStateClasses(rowState) {
+    const classes = [];
+    if (rowState.primary) classes.push('selected');
+    if (rowState.multi) classes.push('multi-selected');
+    if (rowState.highlightColor) classes.push('highlighted-row', rowState.highlightColor);
+    if (Number.isInteger(rowState.searchColorIdx)) {
+      classes.push('search-match-row', 'search-row-' + rowState.searchColorIdx);
+      if (rowState.searchCurrent) classes.push('search-match-current');
+    }
+    return classes;
+  }
+
+  // Pure: the status text to write when the details pane reopens. Only the
+  // "closed" notice is replaced, and only by what it displaced; any other
+  // message (a sample-capture summary, a copy result) stays untouched.
+  function planDetailsReopenStatus(currentText, closedTexts, savedText) {
+    if (!Array.isArray(closedTexts) || !closedTexts.includes(currentText)) return null;
+    return typeof savedText === 'string' ? savedText : '';
+  }
+
+  // Pure: the request a status summary names — method · host · status, with
+  // the parts a row lacks left out. Reopening the pane by selecting a row
+  // answers "select a request to reopen" with that row, so the bar describes
+  // the new selection instead of replaying the message the notice displaced.
+  function planRowSelectionStatus(row) {
+    const source = row || {};
+    const summary = planDetailsSummary(source);
+    const parts = [];
+    const method = String(source.method || '').trim();
+    if (method) parts.push(method);
+    const host = splitUrlForTitle(source.url).host;
+    if (host) parts.push(host);
+    if (summary.status) parts.push(summary.status.text);
+    return parts.join(' · ');
+  }
+
   function clampColumnWidth(width) {
     const numericWidth = Number.isFinite(width) ? width : DEFAULT_COL_WIDTH;
     return Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, Math.round(numericWidth)));
@@ -929,6 +1003,186 @@ const _NetworkPlus = (function () {
     } catch (_e) {
       return { domain: '', path: url };
     }
+  }
+
+  // Element ids the panel mints for aria-controls pairs. A counter, not a
+  // random string, so the same render produces the same document twice.
+  let domIdCounter = 0;
+  function nextDomId() {
+    domIdCounter += 1;
+    return String(domIdCounter);
+  }
+
+  // The details header and the URL breakdown need the pieces extractUrlParts
+  // folds together: host, pathname without the query, and the parameter count.
+  // Opaque schemes keep extractUrlParts' rule (the scheme stands in for the
+  // host); an unparsable string becomes a bare pathname so it still renders.
+  //
+  // The parts are exhaustive: scheme + userinfo + host + pathname + search +
+  // hash reconstructs the URL. URL.host drops any credentials, so a row built
+  // from host alone rendered — and copied — 'https://creds.example.test/vault'
+  // for a request made as 'https://alice:s3cret@creds.example.test/vault'.
+  function splitUrlForTitle(url) {
+    const raw = String(url == null ? '' : url);
+    try {
+      const u = new URL(raw);
+      const queryCount = Array.from(u.searchParams.keys()).length;
+      const hash = u.hash || '';
+      const credentials = u.username || u.password ? u.username + (u.password ? ':' + u.password : '') + '@' : '';
+      if (u.host) {
+        return {
+          host: u.host,
+          userinfo: credentials,
+          pathname: u.pathname,
+          search: u.search || '',
+          hash,
+          queryCount,
+          scheme: u.protocol + '//',
+        };
+      }
+      return { host: u.protocol, userinfo: '', pathname: u.pathname, search: u.search || '', hash, queryCount, scheme: '' };
+    } catch (_e) {
+      return { host: '', userinfo: '', pathname: raw, search: '', hash: '', queryCount: 0, scheme: '' };
+    }
+  }
+
+  // The largest n in [0, max] whose candidate still measures inside `budget`,
+  // or 0 when none does. Every caller builds a candidate that only grows with
+  // n, so a bisection is exact and needs no retry.
+  function longestFittingLength(max, build, measure, budget) {
+    let low = 0;
+    let high = Math.max(0, max);
+    let best = 0;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (measure(build(mid)) <= budget) {
+        best = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return best;
+  }
+
+  // Shortens a pathname to `budget` CSS pixels, measured by `measure`, so the
+  // last segment — the endpoint name people scan for — stays whole whenever it
+  // fits at all and the head gives way instead. The result is total: it is
+  // either the pathname itself or a string carrying a '…', so the header can
+  // never assert a URL the request did not have.
+  function planTitlePathText(pathname, budget, measure) {
+    const text = String(pathname == null ? '' : pathname);
+    const limit = Number(budget) || 0;
+    if (!text) return text;
+    if (limit > 0 && measure(text) <= limit) return text;
+    const slash = text.lastIndexOf('/');
+    const endpoint = slash > 0 ? text.slice(slash) : text;
+    if (slash > 0 && limit > 0 && measure('…' + endpoint) <= limit) {
+      const head = longestFittingLength(slash, (n) => text.slice(0, n) + '…' + endpoint, measure, limit);
+      return text.slice(0, head) + '…' + endpoint;
+    }
+    // Not even the endpoint fits: its own head gives way and the leading '…'
+    // stays, so a shortened name is never read as the name the request had.
+    const kept = longestFittingLength(
+      endpoint.length - 1,
+      (n) => '…' + endpoint.slice(endpoint.length - n),
+      measure,
+      limit,
+    );
+    return '…' + endpoint.slice(endpoint.length - kept);
+  }
+
+  // Values without whitespace can only wrap where the renderer is told to;
+  // splitting after & ; / lets wrapped lines start at the delimiters instead
+  // of mid-token. Text with whitespace already has natural break points.
+  function splitAtDelimiters(text) {
+    const value = String(text == null ? '' : text);
+    if (!value || /\s/.test(value) || !/[&;/]/.test(value)) return [value];
+    const segments = [];
+    let start = 0;
+    for (let i = 0; i < value.length; i++) {
+      const ch = value[i];
+      if (ch === '&' || ch === ';' || ch === '/') {
+        segments.push(value.slice(start, i + 1));
+        start = i + 1;
+      }
+    }
+    if (start < value.length) segments.push(value.slice(start));
+    return segments;
+  }
+
+  const KV_CLAMP_CHARS = 240;
+
+  function planKvValue(value) {
+    const text = value == null ? '' : String(value);
+    return {
+      text,
+      chars: text.length,
+      clamped: text.length > KV_CLAMP_CHARS,
+      segments: splitAtDelimiters(text),
+    };
+  }
+
+  // Opaque values (tokens, ids, cookies, URLs) read better in a monospace
+  // face where every glyph is a column; prose-like values stay proportional.
+  const MONO_VALUE_KEYS = new Set([
+    'url',
+    'authorization',
+    'cookie',
+    'setcookie',
+    'etag',
+    'ifnonematch',
+    'xrequestid',
+    'traceparent',
+  ]);
+  const MONO_VALUE_MIN_CHARS = 40;
+
+  function isMonoValue(key, value) {
+    const normalizedKey = normalizeSensitiveKey(String(key == null ? '' : key).replace(/\s*#\d+$/, ''));
+    if (normalizedKey && MONO_VALUE_KEYS.has(normalizedKey)) return true;
+    const text = value == null ? '' : String(value);
+    return text.length > MONO_VALUE_MIN_CHARS && !/\s/.test(text);
+  }
+
+  // One line of response facts the tabs never hide: status, media type, size,
+  // duration, protocol, GraphQL operation, and the one header that explains
+  // the status (Retry-After, Location, or the WWW-Authenticate scheme).
+  function planDetailsSummary(row) {
+    const source = row || {};
+    const status = Number(source.status);
+    const hasStatus = Number.isInteger(status) && status > 0;
+    const statusText = String(source.statusText || '').trim();
+    const responseHeaders = Array.isArray(source.responseHeaders) ? source.responseHeaders : [];
+    const contentTypeHeader = getHeaderValue(responseHeaders, 'content-type').split(';')[0].trim();
+    const rowType = source.type && source.type !== 'x-unknown' ? String(source.type) : '';
+    let chip = null;
+    if (hasStatus) {
+      if (status === 429 || status === 503) {
+        const retryAfter = getHeaderValue(responseHeaders, 'retry-after').trim();
+        if (retryAfter) chip = { name: 'Retry-After', value: retryAfter };
+      } else if (status >= 300 && status < 400) {
+        const location = getHeaderValue(responseHeaders, 'location').trim();
+        if (location) chip = { name: 'Location', value: location };
+      } else if (status === 401) {
+        const scheme = getHeaderValue(responseHeaders, 'www-authenticate').trim().split(/[\s,]/)[0];
+        if (scheme) chip = { name: 'WWW-Authenticate', value: scheme };
+      }
+    }
+    return {
+      status: hasStatus
+        ? {
+            code: status,
+            text: statusText ? status + ' ' + statusText : String(status),
+            statusClass: classifyStatusClass(status),
+          }
+        : null,
+      contentType: contentTypeHeader || rowType,
+      size: fmtBytes(source.size),
+      duration: fmtTime(source.duration),
+      protocol: String(source.protocol || ''),
+      operation: String(source.operation || ''),
+      chip,
+    };
   }
 
   // The initiator column links into the Sources panel via openResource, which
@@ -2046,7 +2300,13 @@ const _NetworkPlus = (function () {
       statusText: String(source.statusText || ''),
       type: String(source.type || ''),
       // The operation label is a derived name (GraphQL operationName or
-      // JSON-RPC method), never a payload value; CSV prints it for triage.
+      // JSON-RPC method), never a payload value. Open follow-up, deliberately
+      // not settled here: THREE sanitized sinks print it verbatim — this row
+      // view (which feeds the sanitized summary and Markdown copies),
+      // formatRowMarkdown's Operation field, and formatRowsCsv's operation
+      // column — and redacting operationName inside a copied body hides
+      // nothing while the query string beside it is copied verbatim and
+      // carries the same name.
       operation: String(source.operation || ''),
       protocol: String(source.protocol || ''),
       size: Number.isFinite(source.size) ? source.size : 0,
@@ -5573,15 +5833,15 @@ const _NetworkPlus = (function () {
     },
     copyFullTitle: {
       en: 'Copy full {label}?',
-      ja: '完全版 {label} をコピーしますか？',
+      ja: '完全版{label}をコピーしますか？',
     },
     copyFullDetail: {
       en: 'The full {label} may include captured credentials or body content.',
-      ja: '完全版 {label} には、キャプチャされた資格情報やボディの内容が含まれることがあります。',
+      ja: '完全版{label}には、キャプチャされた資格情報やボディの内容が含まれることがあります。',
     },
     copyFullConfirm: {
       en: 'Copy full {label}',
-      ja: '完全版 {label} をコピー',
+      ja: '完全版{label}をコピー',
     },
     sampleEvidenceHeading: {
       en: 'Evidence to verify',
@@ -5621,7 +5881,10 @@ const _NetworkPlus = (function () {
     },
     bodyPaneFrame: {
       en: '(response body {label}: {reason})',
-      ja: '（レスポンスボディ {label}: {reason}）',
+      // Both slots take another dictionary entry, so the English frame's
+      // spaces around them cannot survive into Japanese; the separator is the
+      // full-width colon, which carries its own spacing.
+      ja: '（レスポンスボディ{label}：{reason}）',
     },
     bodyStateOmitted: {
       en: 'omitted',
@@ -5808,12 +6071,67 @@ const _NetworkPlus = (function () {
       ja: '矢印キーでリクエスト一覧と詳細の高さを調整',
     },
     titleInspectorDivider: {
-      en: 'Resize request and response inspectors with arrow keys',
-      ja: '矢印キーでリクエスト / レスポンス インスペクターの幅を調整',
+      en: 'Resize request and response inspectors with arrow keys; double-click to restore 50/50',
+      ja: '矢印キーでリクエスト / レスポンス インスペクターの幅を調整、ダブルクリックで 50/50 に戻す',
+    },
+    // Accessible names for controls whose aria-label says something other
+    // than their tooltip. Every en here is byte-identical to the authored
+    // attribute in panel.html, so applyLanguage is a no-op in English.
+    ariaSupportBtn: {
+      en: 'Network+ for DevTools — support development, optional',
+      ja: 'Network+ for DevTools — 開発の支援 (任意)',
+    },
+    ariaImportBtn: {
+      en: 'Import HAR or SAZ',
+      ja: 'HAR または SAZ をインポート',
+    },
+    ariaExportBtn: {
+      en: 'Export network data; sanitized by default',
+      ja: 'ネットワークデータをエクスポート、既定でサニタイズ済み',
+    },
+    ariaPopoutBtn: {
+      en: 'Open Network+ in a browser tab; it mirrors this DevTools session',
+      ja: 'Network+ をブラウザのタブで開く。この DevTools セッションをミラー表示します',
+    },
+    ariaShortcutBtn: {
+      en: 'Keyboard shortcuts',
+      ja: 'キーボードショートカット',
+    },
+    ariaInspectorDivider: {
+      en: 'Resize request and response inspectors',
+      ja: 'リクエストとレスポンスのインスペクターのサイズを変更',
+    },
+    ariaRequestTabs: {
+      en: 'Request details',
+      ja: 'リクエストの詳細',
+    },
+    ariaResponseTabs: {
+      en: 'Response details',
+      ja: 'レスポンスの詳細',
+    },
+    // The collapse toggles keep their English caption as visible chrome, so
+    // the localized name has to contain that caption verbatim — a name that
+    // dropped it would leave voice control with nothing to match (WCAG 2.5.3).
+    // The half is named the way its own tooltip and status line name it, so
+    // one control does not carry two nouns for the same thing. The English
+    // caption stays visible on the button, so the name has to end on it:
+    // WCAG 2.5.3 label-in-name is what voice control matches, and a name
+    // without "Request" in it leaves "click Request" with nothing to hit.
+    ariaInspectorRequestToggle: {
+      en: 'Request',
+      ja: 'リクエストインスペクター (Request)',
+    },
+    ariaInspectorResponseToggle: {
+      en: 'Response',
+      ja: 'レスポンスインスペクター (Response)',
     },
     titleDetailsClose: {
       en: 'Close request details',
       ja: 'リクエスト詳細を閉じる',
+    },
+    titleDetailsCopyUrl: {
+      en: 'Copy sanitized URL',
+      ja: 'サニタイズ済み URL をコピー',
     },
     titleSampleExit: {
       en: 'Remove the complete local sample and restore the prior recording state and column filters',
@@ -5927,6 +6245,672 @@ const _NetworkPlus = (function () {
       en: 'This image could not be decoded.',
       ja: 'この画像はデコードできませんでした。',
     },
+    // The two body/preview panes' own "there is nothing here" lines, and the
+    // control that opens a truncated body. Their siblings in these same panes
+    // already translate, so an English line here read as a rendering fault
+    // rather than as a state.
+    bodyPaneNoResponseBody: {
+      en: '(no response body)',
+      ja: '（レスポンスボディはありません）',
+    },
+    previewPaneNoPreview: {
+      en: '(no preview available)',
+      ja: '（プレビューは利用できません）',
+    },
+    bodyPaneShowFullCached: {
+      en: 'Show full cached body ({size})',
+      ja: 'キャッシュされたボディ全体を表示（{size}）',
+    },
+    detailsEmptyTitle: {
+      en: 'Select a request...',
+      ja: 'リクエストを選択してください...',
+    },
+    detailsQueryCount: {
+      en: '{count} query parameters',
+      ja: 'クエリパラメーター {count} 件',
+    },
+    detailsQueryCountOne: {
+      en: '1 query parameter',
+      ja: 'クエリパラメーター 1 件',
+    },
+    // The Headers panes' leading grid names request and response facts, and
+    // the two group headings sit above lists of captured header names. Both
+    // are panel nouns, not captured data, so both translate — an English
+    // "Method" between a Japanese toolbar and a Japanese empty state was the
+    // last mixed-language seam in the pane.
+    detailsInfoMethod: {
+      en: 'Method',
+      ja: 'メソッド',
+    },
+    detailsInfoOperation: {
+      en: 'Operation',
+      ja: 'オペレーション',
+    },
+    detailsInfoUrl: {
+      en: 'URL',
+      ja: 'URL',
+    },
+    detailsInfoProtocol: {
+      en: 'Protocol',
+      ja: 'プロトコル',
+    },
+    detailsInfoStatus: {
+      en: 'Status',
+      ja: 'ステータス',
+    },
+    detailsInfoSize: {
+      en: 'Size',
+      ja: 'サイズ',
+    },
+    detailsInfoDuration: {
+      en: 'Duration',
+      ja: '所要時間',
+    },
+    detailsRequestHeadersHeading: {
+      en: 'Request Headers',
+      ja: 'リクエストヘッダー',
+    },
+    detailsResponseHeadersHeading: {
+      en: 'Response Headers',
+      ja: 'レスポンスヘッダー',
+    },
+    // The Timing pane's own heading. The phase names under it are the HAR's
+    // own keys and stay as captured, the way header names do.
+    detailsTimingBreakdownHeading: {
+      en: 'Timing Breakdown',
+      ja: 'タイミング内訳',
+    },
+    // The one row in that grid the panel writes itself rather than reading
+    // from the HAR, so it is the one row that has to translate with the
+    // heading above it.
+    detailsTimingTotal: {
+      en: 'Total',
+      ja: '合計',
+    },
+    // The three response panes say this while the body is still being
+    // fetched; the states after it already go through bodyPaneFrame.
+    bodyPaneLoading: {
+      en: '(loading...)',
+      ja: '（読み込み中...）',
+    },
+    urlBreakdownOpenQuery: {
+      en: '?{count} params — open Query',
+      ja: '?{count} 件のパラメーター — Query を開く',
+    },
+    urlBreakdownOpenQueryOne: {
+      en: '?1 param — open Query',
+      ja: '?1 件のパラメーター — Query を開く',
+    },
+    urlBreakdownShowFull: {
+      en: 'Show full URL',
+      ja: '完全な URL を表示',
+    },
+    urlBreakdownHideFull: {
+      en: 'Hide full URL',
+      ja: '完全な URL を隠す',
+    },
+    kvShowAll: {
+      en: 'Show all ({count} chars)',
+      ja: 'すべて表示（{count} 文字）',
+    },
+    kvShowLess: {
+      en: 'Show less',
+      ja: '折りたたむ',
+    },
+    emptyRequestBody: {
+      en: 'No request body',
+      ja: 'リクエストボディはありません',
+    },
+    emptyQueryParams: {
+      en: 'No query parameters',
+      ja: 'クエリパラメーターはありません',
+    },
+    emptyQueryParamsBodyHint: {
+      en: 'No query parameters — this {method} carries its data in Body',
+      ja: 'クエリパラメーターはありません — この {method} はデータを Body で送っています',
+    },
+    // A row that reached the panel without a method (an import, a request
+    // still in flight) has no verbatim noun to slot in, and the English word
+    // "request" inside the Japanese frame was the bug.
+    emptyQueryParamsBodyHintNoMethod: {
+      en: 'No query parameters — this request carries its data in Body',
+      ja: 'クエリパラメーターはありません — このリクエストはデータを Body で送っています',
+    },
+    emptyRequestCookies: {
+      en: 'No cookies were sent',
+      ja: 'Cookie は送信されていません',
+    },
+    emptySetCookieHeaders: {
+      en: 'No set-cookie headers',
+      ja: 'set-cookie ヘッダーはありません',
+    },
+    jsonTreeExpandAll: {
+      en: 'Expand all',
+      ja: 'すべて展開',
+    },
+    jsonTreeCollapseAll: {
+      en: 'Collapse all',
+      ja: 'すべて折りたたむ',
+    },
+    jsonTreeShowFullString: {
+      en: 'Show the full string',
+      ja: '文字列全体を表示',
+    },
+    jsonTreeHideFullString: {
+      en: 'Show the first line only',
+      ja: '先頭行だけを表示',
+    },
+    inspectorEmptyHint: {
+      en: 'Select a request to inspect it — click a row, ↑↓ to move, Enter to open',
+      ja: 'リクエストを選択すると内容を確認できます — 行をクリック、↑↓ で移動、Enter で開く',
+    },
+    statusDetailsClosed: {
+      en: 'Request details closed. Select a request to reopen.',
+      ja: 'リクエスト詳細を閉じました。リクエストを選択すると再び開きます。',
+    },
+    statusRowSelected: {
+      en: 'Selected {request}.',
+      ja: '{request} を選択しました。',
+    },
+    // The band labels themselves stay English product chrome; these are the
+    // half names the composed tooltips, aria values and status lines slot in,
+    // so a Japanese sentence does not carry an English noun.
+    inspectorHalfRequest: {
+      en: 'Request',
+      ja: 'リクエスト',
+    },
+    inspectorHalfResponse: {
+      en: 'Response',
+      ja: 'レスポンス',
+    },
+    inspectorCollapseHalfTitle: {
+      en: 'Collapse the {half} inspector to its tabs',
+      ja: '{half}インスペクターをタブだけに折りたたむ',
+    },
+    inspectorExpandHalfTitle: {
+      en: 'Expand the {half} inspector',
+      ja: '{half}インスペクターを展開する',
+    },
+    inspectorHalfCollapsedStatus: {
+      en: '{half} inspector collapsed. Double-click the divider to restore 50/50.',
+      ja: '{half}インスペクターを折りたたみました。仕切りをダブルクリックすると 50/50 に戻ります。',
+    },
+    inspectorHalfExpandedStatus: {
+      en: '{half} inspector expanded.',
+      ja: '{half}インスペクターを展開しました。',
+    },
+    inspectorHalfCollapsedValue: {
+      en: '{half} inspector collapsed',
+      ja: '{half}インスペクターは折りたたみ中',
+    },
+    inspectorSplitResetStatus: {
+      en: 'Request and response inspectors restored to 50/50.',
+      ja: 'リクエストとレスポンスのインスペクターを 50/50 に戻しました。',
+    },
+    // The non-collapsed counterpart of inspectorHalfCollapsedValue: the
+    // divider's aria-valuetext and the keyboard-resize status line are the
+    // same sentence, so they read the same entry.
+    inspectorHalfPercentValue: {
+      en: '{half} inspector {percent} percent',
+      ja: '{half}インスペクター {percent} パーセント',
+    },
+    detailsComparingTwo: {
+      en: 'Comparing 2 requests',
+      ja: '2 件のリクエストを比較中',
+    },
+    columnsSelectAll: {
+      en: 'Select all',
+      ja: 'すべて選択',
+    },
+    columnsDeselectAll: {
+      en: 'Deselect all',
+      ja: 'すべて解除',
+    },
+    columnsReset: {
+      en: 'Reset',
+      ja: 'リセット',
+    },
+    columnsResetTitle: {
+      en: 'Restore the default column visibility and widths',
+      ja: '列の表示と幅を既定に戻す',
+    },
+    columnsResetStatus: {
+      en: 'Columns reset to the default visibility and widths.',
+      ja: '列の表示と幅を既定に戻しました。',
+    },
+    columnsGroupIdentity: {
+      en: 'Identity',
+      ja: '識別',
+    },
+    columnsGroupTiming: {
+      en: 'Timing',
+      ja: 'タイミング',
+    },
+    columnsGroupPayload: {
+      en: 'Payload',
+      ja: 'ペイロード',
+    },
+    columnsSavedView: {
+      en: 'Saved view',
+      ja: '保存したビュー',
+    },
+    columnsHeaderColumn: {
+      en: 'Header column',
+      ja: 'ヘッダー列',
+    },
+    columnsHeaderNameLabel: {
+      en: 'Header name for the configurable column',
+      ja: '設定可能な列に表示するヘッダー名',
+    },
+    columnsHeaderApply: {
+      en: 'Apply',
+      ja: '適用',
+    },
+    columnsDomainSummary: {
+      en: 'Domain summary',
+      ja: 'ドメイン別サマリー',
+    },
+    columnsDomainSummaryToggle: {
+      en: 'Show domain summary',
+      ja: 'ドメイン別サマリーを表示',
+    },
+    columnsDomainSummaryShownStatus: {
+      en: 'Domain summary shown.',
+      ja: 'ドメイン別サマリーを表示しました。',
+    },
+    columnsDomainSummaryHiddenStatus: {
+      en: 'Domain summary hidden.',
+      ja: 'ドメイン別サマリーを非表示にしました。',
+    },
+    columnsMenuLabel: {
+      en: 'Visible columns',
+      ja: '表示する列',
+    },
+    columnsPresetApply: {
+      en: 'Apply',
+      ja: '適用',
+    },
+    columnsPresetApplySavedTitle: {
+      en: 'Restore your saved columns and filters',
+      ja: '保存した列とフィルターを復元する',
+    },
+    columnsPresetApplyDefaultTitle: {
+      en: 'Restore the default columns and clear filters',
+      ja: '既定の列に戻し、フィルターを消去する',
+    },
+    columnsPresetUpdate: {
+      en: 'Update',
+      ja: '更新',
+    },
+    columnsPresetUpdateTitle: {
+      en: 'Save the current columns and filters as the preset',
+      ja: '現在の列とフィルターをプリセットとして保存する',
+    },
+    columnsPresetForget: {
+      en: 'Forget saved preset',
+      ja: '保存したプリセットを破棄',
+    },
+    columnsPresetForgetTitle: {
+      en: 'Delete the saved preset — Apply then restores the default view',
+      ja: '保存したプリセットを削除する — 以後 [適用] は既定のビューに戻します',
+    },
+    columnsPresetAppliedStatus: {
+      en: 'Applied preset.',
+      ja: 'プリセットを適用しました。',
+    },
+    columnsPresetAppliedDefaultStatus: {
+      en: 'Applied default view.',
+      ja: '既定のビューを適用しました。',
+    },
+    columnsPresetSaveFailedStatus: {
+      en: 'Could not save preset. Storage unavailable or data too large.',
+      ja: 'プリセットを保存できませんでした。ストレージが使えないか、データが大きすぎます。',
+    },
+    columnsPresetUpdatedStatus: {
+      en: 'Preset updated with the current view.',
+      ja: '現在のビューでプリセットを更新しました。',
+    },
+    columnsPresetResetFailedStatus: {
+      en: 'Could not reset preset. Storage unavailable.',
+      ja: 'プリセットをリセットできませんでした。ストレージが使えません。',
+    },
+    columnsPresetResetStatus: {
+      en: 'Preset reset. Apply now restores the default view.',
+      ja: 'プリセットをリセットしました。以後 [適用] は既定のビューに戻します。',
+    },
+    // The detail-pane toolbar composes its placeholder, tooltips and
+    // accessible names around the name of the pane it sits in, so the pane
+    // names are dictionary entries rather than an English lookup table.
+    paneNameRequestBody: {
+      en: 'request body',
+      ja: 'リクエストボディ',
+    },
+    paneNameRawRequest: {
+      en: 'raw request',
+      ja: '生リクエスト',
+    },
+    paneNameResponseBody: {
+      en: 'response body',
+      ja: 'レスポンスボディ',
+    },
+    paneNameRawResponse: {
+      en: 'raw response',
+      ja: '生レスポンス',
+    },
+    paneNameFallback: {
+      en: 'this view',
+      ja: 'このビュー',
+    },
+    paneSearchPlaceholder: {
+      en: 'Search in {pane}',
+      ja: '{pane}内を検索',
+    },
+    paneSearchInputLabel: {
+      en: 'Search within the {pane} view',
+      ja: '{pane}ビュー内を検索',
+    },
+    paneSearchPrevTitle: {
+      en: 'Previous match (Shift+Enter)',
+      ja: '前の一致 (Shift+Enter)',
+    },
+    paneSearchPrevLabel: {
+      en: 'Previous match in the {pane} view',
+      ja: '{pane}ビュー内の前の一致',
+    },
+    paneSearchNextTitle: {
+      en: 'Next match (Enter)',
+      ja: '次の一致 (Enter)',
+    },
+    paneSearchNextLabel: {
+      en: 'Next match in the {pane} view',
+      ja: '{pane}ビュー内の次の一致',
+    },
+    paneSearchExpandTitle: {
+      en: 'Some matches are inside collapsed or truncated content. Expand everything to include them.',
+      ja: '一部の一致は折りたたまれた内容や省略された内容の中にあります。すべて展開すると含まれます。',
+    },
+    paneSearchExpandLabel: {
+      en: 'Expand collapsed content in the {pane} view to reveal all matches',
+      ja: '{pane}ビューの折りたたまれた内容を展開してすべての一致を表示',
+    },
+    paneSearchNoMatches: {
+      en: 'No matches',
+      ja: '一致なし',
+    },
+    paneSearchCollapsedSuffix: {
+      en: ' (+{count} collapsed)',
+      ja: ' (+{count} 件は折りたたみ内)',
+    },
+    paneSearchInvalidRegex: {
+      en: 'Invalid regular expression: {error}',
+      ja: '正規表現が不正です: {error}',
+    },
+    paneCopyFull: {
+      en: 'Copy full...',
+      ja: 'フルでコピー...',
+    },
+    // Toasts for the copy controls this toolbar owns. The row menu's own
+    // copy formats deliberately keep their canonical English status text.
+    statusCopiedSanitizedUrl: {
+      en: 'Copied sanitized URL',
+      ja: 'サニタイズ済み URL をコピーしました',
+    },
+    statusCopiedSanitizedRequestBody: {
+      en: 'Copied sanitized request body',
+      ja: 'サニタイズ済みリクエストボディをコピーしました',
+    },
+    statusCopiedSanitizedRawRequest: {
+      en: 'Copied sanitized raw request',
+      ja: 'サニタイズ済み生リクエストをコピーしました',
+    },
+    statusCopiedSanitizedResponseBody: {
+      en: 'Copied sanitized response body',
+      ja: 'サニタイズ済みレスポンスボディをコピーしました',
+    },
+    statusCopiedSanitizedRawResponse: {
+      en: 'Copied sanitized raw response',
+      ja: 'サニタイズ済み生レスポンスをコピーしました',
+    },
+    statusCopiedFullConfirmed: {
+      en: 'Copied full {label} after confirmation',
+      ja: '確認のうえ完全版{label}をコピーしました',
+    },
+    menuCopySanitized: {
+      en: 'Copy sanitized',
+      ja: 'サニタイズ済みをコピー',
+    },
+    menuRequestActions: {
+      en: 'Request actions',
+      ja: 'リクエストの操作',
+    },
+    menuFilter: {
+      en: 'Filter',
+      ja: 'フィルター',
+    },
+    menuFilterOnly: {
+      en: 'Only {column} {value}',
+      ja: '{column}: {value} のみ',
+    },
+    menuFilterExclude: {
+      en: 'Exclude {column} {value}',
+      ja: '{column}: {value} を除外',
+    },
+    menuSelect: {
+      en: 'Select',
+      ja: '選択',
+    },
+    menuDeselect: {
+      en: 'Deselect',
+      ja: '選択解除',
+    },
+    menuHighlight: {
+      en: 'Highlight',
+      ja: 'ハイライト',
+    },
+    menuHighlightRows: {
+      en: 'Highlight ({count} rows)',
+      ja: 'ハイライト ({count} 行)',
+    },
+    menuHighlightColor: {
+      en: 'Highlight color',
+      ja: 'ハイライトの色',
+    },
+    menuHighlightColorNamed: {
+      en: 'Highlight {color}',
+      ja: '{color}でハイライト',
+    },
+    menuUnhighlight: {
+      en: 'Unhighlight',
+      ja: 'ハイライト解除',
+    },
+    menuUnhighlightRows: {
+      en: 'Unhighlight ({count})',
+      ja: 'ハイライト解除 ({count})',
+    },
+    menuClearHighlights: {
+      en: 'Clear All Highlights',
+      ja: 'すべてのハイライトを解除',
+    },
+    menuCompare: {
+      en: 'Compare',
+      ja: '比較',
+    },
+    menuCompareTwo: {
+      en: 'Compare 2 selected requests',
+      ja: '選択した 2 件のリクエストを比較',
+    },
+    menuKeepSelected: {
+      en: 'Keep Selected ({count})',
+      ja: '選択した行を残す ({count})',
+    },
+    menuDeleteSelected: {
+      en: 'Delete Selected ({count})',
+      ja: '選択した行を削除 ({count})',
+    },
+    menuCopySanitizedSummary: {
+      en: 'Copy sanitized summary',
+      ja: 'サニタイズ済みの概要をコピー',
+    },
+    menuCopySanitizedUrl: {
+      en: 'Copy sanitized URL',
+      ja: 'サニタイズ済み URL をコピー',
+    },
+    menuCopySanitizedCurl: {
+      en: 'Copy sanitized cURL',
+      ja: 'サニタイズ済み cURL をコピー',
+    },
+    menuCopySanitizedFetch: {
+      en: 'Copy sanitized fetch',
+      ja: 'サニタイズ済み fetch をコピー',
+    },
+    menuCopySanitizedPowershell: {
+      en: 'Copy sanitized PowerShell',
+      ja: 'サニタイズ済み PowerShell をコピー',
+    },
+    menuCopySanitizedMarkdown: {
+      en: 'Copy sanitized Markdown',
+      ja: 'サニタイズ済み Markdown をコピー',
+    },
+    menuCopySanitizedTable: {
+      en: 'Copy sanitized Markdown table ({count} rows)',
+      ja: 'サニタイズ済み Markdown テーブルをコピー ({count} 行)',
+    },
+    menuCopyFull: {
+      en: 'Copy full (unsanitized)',
+      ja: 'フル (未サニタイズ) でコピー',
+    },
+    menuCopyFullSummary: {
+      en: 'Copy full request summary',
+      ja: 'リクエスト概要をフルコピー',
+    },
+    menuCopyFullUrl: {
+      en: 'Copy full URL',
+      ja: 'URL をフルコピー',
+    },
+    menuCopyFullCurl: {
+      en: 'Copy full cURL',
+      ja: 'cURL をフルコピー',
+    },
+    menuCopyFullFetch: {
+      en: 'Copy full fetch',
+      ja: 'fetch をフルコピー',
+    },
+    menuCopyFullPowershell: {
+      en: 'Copy full PowerShell',
+      ja: 'PowerShell をフルコピー',
+    },
+    menuCopyFullMarkdown: {
+      en: 'Copy full Markdown',
+      ja: 'Markdown をフルコピー',
+    },
+    menuCopyFullRawRequest: {
+      en: 'Copy full raw request',
+      ja: '生リクエストをフルコピー',
+    },
+    menuCopyFullRequestBody: {
+      en: 'Copy full request body',
+      ja: 'リクエストボディをフルコピー',
+    },
+    menuResend: {
+      en: 'Resend',
+      ja: '再送',
+    },
+    menuResendUnchanged: {
+      en: 'Resend unchanged',
+      ja: 'そのまま再送',
+    },
+    menuResendEdit: {
+      en: 'Edit and resend...',
+      ja: '編集して再送...',
+    },
+    menuColumnMatch: {
+      en: 'Match',
+      ja: 'マッチ',
+    },
+    menuColumnId: {
+      en: 'ID',
+      ja: 'ID',
+    },
+    menuColumnMethod: {
+      en: 'Method',
+      ja: 'メソッド',
+    },
+    menuColumnStatus: {
+      en: 'Status',
+      ja: 'ステータス',
+    },
+    menuColumnDomain: {
+      en: 'Domain',
+      ja: 'ドメイン',
+    },
+    menuColumnPath: {
+      en: 'Path',
+      ja: 'パス',
+    },
+    menuColumnType: {
+      en: 'Type',
+      ja: '種別',
+    },
+    menuColumnOperation: {
+      en: 'Operation',
+      ja: 'オペレーション',
+    },
+    menuColumnCustomHeader: {
+      en: 'Header',
+      ja: 'ヘッダー',
+    },
+    menuColumnDuration: {
+      en: 'Duration',
+      ja: '所要時間',
+    },
+    menuColumnSize: {
+      en: 'Size',
+      ja: 'サイズ',
+    },
+    menuColumnClientStart: {
+      en: 'Client start',
+      ja: 'クライアント開始',
+    },
+    menuColumnServerDone: {
+      en: 'Server done',
+      ja: 'サーバー完了',
+    },
+    menuColumnInitiator: {
+      en: 'Initiator',
+      ja: '呼び出し元',
+    },
+    menuColumnUrl: {
+      en: 'URL',
+      ja: 'URL',
+    },
+    menuColumnWaterfall: {
+      en: 'Waterfall',
+      ja: 'ウォーターフォール',
+    },
+    menuColorYellow: {
+      en: 'Yellow',
+      ja: '黄',
+    },
+    menuColorRed: {
+      en: 'Red',
+      ja: '赤',
+    },
+    menuColorGreen: {
+      en: 'Green',
+      ja: '緑',
+    },
+    menuColorBlue: {
+      en: 'Blue',
+      ja: '青',
+    },
+    menuColorPurple: {
+      en: 'Purple',
+      ja: '紫',
+    },
+    menuColorOrange: {
+      en: 'Orange',
+      ja: 'オレンジ',
+    },
   };
 
   let activeLanguage = 'en';
@@ -5945,7 +6929,10 @@ const _NetworkPlus = (function () {
   function uiTextFormat(key, replacements) {
     let text = uiText(key);
     for (const name of Object.keys(replacements || {})) {
-      text = text.replace('{' + name + '}', String(replacements[name]));
+      // split/join, not String.replace: capture-derived values (URL paths,
+      // domains, cell values, header names) reach here, and $&, $`, $', $$ or
+      // $<name> inside one would be read as a replacement pattern.
+      text = text.split('{' + name + '}').join(String(replacements[name]));
     }
     return text;
   }
@@ -5997,10 +6984,54 @@ const _NetworkPlus = (function () {
       const entry = UI_TEXT[el.getAttribute('data-i18n-title')];
       if (entry && typeof entry[activeLanguage] === 'string') el.title = entry[activeLanguage];
     }
+    // A tooltip that translates while its aria-label does not leaves screen
+    // readers on English; icon-only controls carry the hook on both.
+    const labelled = document.querySelectorAll('[data-i18n-aria-label]');
+    for (const el of labelled) {
+      const entry = UI_TEXT[el.getAttribute('data-i18n-aria-label')];
+      if (entry && typeof entry[activeLanguage] === 'string') el.setAttribute('aria-label', entry[activeLanguage]);
+    }
     const select = $('#langSelect');
     if (select) select.value = normalized;
     refreshEmptyStateLanguage();
+    refreshDetailsEmptyTitle();
+    refreshSelectedRowDetailsLanguage();
+    if (refreshInspectorToggleTitles) refreshInspectorToggleTitles();
     setStatus('Language=' + normalized);
+  }
+
+  // The details pane is painted once per selection, so its toolbars, tab
+  // labels and kv keys would otherwise stay in the previous language until
+  // the reader clicked another row. Repaint the open pane from the same
+  // renderer the selection uses: the picked tab survives because the counts
+  // are unchanged, and a pane search and the panes' scroll offsets restart.
+  // A comparison owns the pane instead and is left standing: renderRowDetails
+  // would paint one request over the two-request diff, and re-running
+  // renderComparisonPanel here would not be a language switch either, because
+  // that panel's own chrome (its close button, its legend labels) is written
+  // in English rather than read from UI_TEXT. So the limitation is exact: a
+  // language switch made while a comparison is open leaves the comparison's
+  // chrome in the language it was painted in, and the next comparison the
+  // reader opens is painted afresh. Localizing that panel is its own change.
+  // A pane the reader closed also stays closed: closeDetailsPanel hides the
+  // pane but leaves state.selectedRow standing (the row keeps its selection,
+  // and a click on it reopens the pane), so gating on the selection alone
+  // reopened a pane the reader had explicitly dismissed the moment they
+  // switched language. The pane's own hidden flag is what says whether it is
+  // open.
+  function refreshSelectedRowDetailsLanguage() {
+    if (!state.selectedRow || state.comparedRows) return;
+    const details = $('#details');
+    if (!details || details.hidden) return;
+    renderRowDetails(state.selectedRow);
+  }
+
+  // The details header's empty state is the only header text that translates;
+  // a selected request or a comparison keeps its own composed title.
+  function refreshDetailsEmptyTitle() {
+    if (state.selectedRow || state.comparedRows) return;
+    const title = $('#detailsTitle');
+    if (title) setDetailsTitleText(uiText('detailsEmptyTitle'));
   }
 
   // ============================================================
@@ -6066,7 +7097,7 @@ const _NetworkPlus = (function () {
 
   function syncCustomHeaderColumnLabel() {
     const column = state.columns.find((c) => c.id === 'customHeader');
-    if (column) column.label = customHeaderColumnName || 'Header';
+    if (column) column.label = customHeaderColumnName || CUSTOM_HEADER_DEFAULT_LABEL;
   }
 
   function loadCustomHeaderColumnName() {
@@ -6123,6 +7154,36 @@ const _NetworkPlus = (function () {
     } catch (_e) {
       console.warn('Failed to save details pane width');
     }
+  }
+
+  // Request/response split inside the details pane: the dragged or keyed
+  // percent and which half (if any) is collapsed to its label + tab bar.
+  function loadInspectorSplitPref() {
+    try {
+      return normalizeInspectorSplitPref(JSON.parse(localStorage.getItem(INSPECTOR_SPLIT_KEY) || 'null'));
+    } catch (_e) {
+      return normalizeInspectorSplitPref(null);
+    }
+  }
+
+  function saveInspectorSplitPref(pref) {
+    try {
+      localStorage.setItem(INSPECTOR_SPLIT_KEY, JSON.stringify(normalizeInspectorSplitPref(pref)));
+    } catch (_e) {
+      console.warn('Failed to save inspector split');
+    }
+  }
+
+  // Pure: restores the factory visibility and width of every column while
+  // keeping the person's order and the configurable header's bound name.
+  function applyDefaultColumnLayout(columns, defaults) {
+    for (const column of columns) {
+      const def = defaults.find((candidate) => candidate.id === column.id);
+      if (!def) continue;
+      column.visible = def.visible;
+      column.width = def.width;
+    }
+    return columns;
   }
 
   function getRowHeaderColumnValue(row) {
@@ -6196,6 +7257,72 @@ const _NetworkPlus = (function () {
     return text.length > QUICK_FILTER_LABEL_MAX_CHARS
       ? text.slice(0, QUICK_FILTER_LABEL_MAX_CHARS - 1) + '…'
       : text;
+  }
+
+  // The row menu builds sentences around a column name ("Only Domain x"), so
+  // the name has to translate with the sentence it sits in. This lookup is
+  // for menu text only: the grid header and its stored layout keep the
+  // DEFAULT_COLUMNS label, and every entry's en matches that label verbatim.
+  const MENU_COLUMN_LABEL_KEYS = {
+    match: 'menuColumnMatch',
+    id: 'menuColumnId',
+    method: 'menuColumnMethod',
+    status: 'menuColumnStatus',
+    domain: 'menuColumnDomain',
+    path: 'menuColumnPath',
+    type: 'menuColumnType',
+    operation: 'menuColumnOperation',
+    customHeader: 'menuColumnCustomHeader',
+    duration: 'menuColumnDuration',
+    size: 'menuColumnSize',
+    clientStart: 'menuColumnClientStart',
+    serverDone: 'menuColumnServerDone',
+    initiator: 'menuColumnInitiator',
+    url: 'menuColumnUrl',
+    waterfall: 'menuColumnWaterfall',
+  };
+
+  function menuColumnLabel(colId, fallback) {
+    const runtimeLabel = String(fallback == null ? '' : fallback);
+    // The custom-header column is renamed at runtime to the header it shows
+    // ("x-request-id"), so the configured name is what the sentence must
+    // quote; the dictionary entry only covers the unconfigured "Header".
+    // Whether it is configured is state, not text: comparing the label
+    // against "Header" sent a column bound to a header actually named
+    // "Header" back to the dictionary, which then quoted a translated UI
+    // noun in place of the captured header name.
+    if (colId === 'customHeader' && customHeaderColumnName) {
+      return customHeaderColumnName;
+    }
+    const key = MENU_COLUMN_LABEL_KEYS[colId];
+    const localized = key ? uiText(key) : '';
+    return localized || runtimeLabel;
+  }
+
+  // HIGHLIGHT_COLORS.name is the canonical English name the swatch class is
+  // built from; only what the reader sees is translated.
+  const MENU_COLOR_LABEL_KEYS = {
+    'hl-yellow': 'menuColorYellow',
+    'hl-red': 'menuColorRed',
+    'hl-green': 'menuColorGreen',
+    'hl-blue': 'menuColorBlue',
+    'hl-purple': 'menuColorPurple',
+    'hl-orange': 'menuColorOrange',
+  };
+
+  function menuHighlightColorLabel(highlightColor) {
+    const key = MENU_COLOR_LABEL_KEYS[highlightColor.cls];
+    const localized = key ? uiText(key) : '';
+    return localized || highlightColor.name;
+  }
+
+  // The one allow-list a method may become a class token through. Every
+  // caller that colours by method goes through it, so a hostile method string
+  // ("GET evil", 'GET"') can never inject an extra token.
+  function methodClassToken(method) {
+    const upper = String(method == null ? '' : method).toUpperCase();
+    if (HTTP_METHODS.indexOf(upper) > -1 || upper === 'WS' || upper === 'SSE') return 'method-' + upper;
+    return '';
   }
 
   function compareRowValues(a, b, colId) {
@@ -8131,6 +9258,55 @@ const _NetworkPlus = (function () {
   const statsSummaryStructures = new WeakMap();
   const statusSummaryInspectHandlers = new WeakMap();
 
+  // Appends text with a <wbr> after every & ; / when the value has no
+  // whitespace of its own. <wbr> adds nothing to textContent, so what the
+  // pane shows and what copy actions read stay the same string.
+  function appendBreakableText(container, text) {
+    const segments = splitAtDelimiters(text);
+    if (segments.length === 1) {
+      container.appendChild(document.createTextNode(segments[0]));
+      return;
+    }
+    segments.forEach((segment, index) => {
+      container.appendChild(document.createTextNode(segment));
+      if (index < segments.length - 1) container.appendChild(document.createElement('wbr'));
+    });
+  }
+
+  // A value past KV_CLAMP_CHARS shows four lines and a per-row toggle; the
+  // full text stays in the DOM (clamped by CSS, not truncated) so selection,
+  // find-in-page, and copy still see all of it.
+  function renderKvValue(valEl, value) {
+    const plan = planKvValue(value);
+    if (!plan.clamped) {
+      if (plan.segments.length === 1) {
+        valEl.textContent = plan.text;
+      } else {
+        appendBreakableText(valEl, plan.text);
+      }
+      return;
+    }
+    const textEl = document.createElement('div');
+    textEl.className = 'val-text val--clamped';
+    appendBreakableText(textEl, plan.text);
+    const countLabel = plan.chars.toLocaleString('en-US');
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'link-btn val-clamp-toggle';
+    toggle.textContent = uiTextFormat('kvShowAll', { count: countLabel });
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.addEventListener('click', () => {
+      const expand = textEl.classList.contains('val--clamped');
+      textEl.classList.toggle('val--clamped', !expand);
+      toggle.setAttribute('aria-expanded', String(expand));
+      toggle.textContent = expand ? uiText('kvShowLess') : uiTextFormat('kvShowAll', { count: countLabel });
+    });
+    valEl.appendChild(textEl);
+    valEl.appendChild(toggle);
+  }
+
+  // Items carry {key|name, value} plus optional `node` (a prebuilt value
+  // node that replaces the text), `mono` (monospace value), and `className`.
   function createKvGrid(items) {
     const grid = document.createElement('div');
     grid.className = 'kv';
@@ -8139,12 +9315,129 @@ const _NetworkPlus = (function () {
       keyEl.className = 'key';
       keyEl.textContent = item.name || item.key || '';
       const valEl = document.createElement('div');
-      valEl.className = 'val';
-      valEl.textContent = item.value == null ? '' : String(item.value);
+      valEl.className = 'val' + (item.mono ? ' val--mono' : '') + (item.className ? ' ' + item.className : '');
+      if (item.node) {
+        valEl.appendChild(item.node);
+      } else {
+        renderKvValue(valEl, item.value == null ? '' : String(item.value));
+      }
       grid.appendChild(keyEl);
       grid.appendChild(valEl);
     }
     return grid;
+  }
+
+  // The URL row of Request > Headers: origin, pathname, a link into the Query
+  // tab, and the raw string behind a toggle — instead of one 1,200-character
+  // value that pushed every request header below the fold.
+  function createUrlBreakdown(row) {
+    const url = String((row && row.url) || '');
+    const parts = splitUrlForTitle(url);
+    const wrap = document.createElement('div');
+    wrap.className = 'url-breakdown';
+    if (!parts.host || !parts.scheme) {
+      appendBreakableText(wrap, url);
+      return wrap;
+    }
+    const line = (className) => {
+      const el = document.createElement('div');
+      el.className = 'url-breakdown-line ' + className;
+      wrap.appendChild(el);
+      return el;
+    };
+    // Every part of the ADDRESS lives in one block as inline spans. While the
+    // origin, path, query and fragment were sibling blocks, a drag across the
+    // row put a newline inside the URL itself, so the copied text was not an
+    // address any tool would accept. Only the chrome that is not part of the
+    // URL — the Query control and the reveal toggle — keeps its own line.
+    const address = document.createElement('div');
+    address.className = 'url-breakdown-address';
+    wrap.appendChild(address);
+    const scheme = document.createElement('span');
+    scheme.className = 'url-breakdown-scheme';
+    scheme.textContent = parts.scheme;
+    address.appendChild(scheme);
+    // Credentials sit between the scheme and the host and are part of the
+    // address the request used. Without this span the row read, and copied,
+    // an origin the request never contacted under that identity.
+    if (parts.userinfo) {
+      const userinfo = document.createElement('span');
+      userinfo.className = 'url-breakdown-userinfo';
+      userinfo.textContent = parts.userinfo;
+      address.appendChild(userinfo);
+    }
+    const host = document.createElement('span');
+    host.className = 'url-breakdown-host';
+    host.textContent = parts.host;
+    address.appendChild(host);
+    address.appendChild(document.createElement('wbr'));
+    const pathSpan = document.createElement('span');
+    pathSpan.className = 'url-breakdown-path';
+    appendBreakableText(pathSpan, parts.pathname);
+    address.appendChild(pathSpan);
+    // The query and the fragment are part of the URL, so they belong in the
+    // selectable value. While the query lived only inside a button label and
+    // the hidden full text, selecting the row and copying yielded
+    // scheme+host+path with the query silently dropped — a plausible URL that
+    // was not the one the request made. The Query tab is reached by a control
+    // BESIDE the text now, not by the only place the query appeared.
+    if (parts.search) {
+      address.appendChild(document.createElement('wbr'));
+      const queryText = document.createElement('span');
+      queryText.className = 'url-breakdown-query-text';
+      appendBreakableText(queryText, parts.search);
+      address.appendChild(queryText);
+    }
+    if (parts.hash) {
+      const fragment = document.createElement('span');
+      fragment.className = 'url-breakdown-fragment';
+      appendBreakableText(fragment, parts.hash);
+      address.appendChild(fragment);
+    }
+    if (parts.search && parts.queryCount > 0) {
+      const queryLine = line('url-breakdown-query-action');
+      const queryButton = document.createElement('button');
+      queryButton.type = 'button';
+      queryButton.className = 'link-btn url-breakdown-query-btn';
+      queryButton.textContent =
+        parts.queryCount === 1
+          ? uiText('urlBreakdownOpenQueryOne')
+          : uiTextFormat('urlBreakdownOpenQuery', { count: parts.queryCount.toLocaleString('en-US') });
+      queryButton.addEventListener('click', () => {
+        activateInspectorTab('req-tab-bar', 'req-query', true);
+      });
+      queryLine.appendChild(queryButton);
+    }
+    // The lines above already spell out scheme, credentials, host, path,
+    // query and fragment, so the reveal earns its place only when the full
+    // string still carries something more. On a URL the lines account for
+    // entirely it revealed the text already on screen.
+    if (url !== parts.scheme + parts.userinfo + parts.host + parts.pathname) {
+      const toggleLine = line('url-breakdown-toggle');
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'link-btn url-breakdown-toggle-btn';
+      toggle.textContent = uiText('urlBreakdownShowFull');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggleLine.appendChild(toggle);
+      const full = document.createElement('div');
+      full.className = 'url-breakdown-full';
+      // Named ownership, so a pane-search hit inside the hidden text presses
+      // THIS toggle rather than whichever collapsed control the row holds
+      // first — and so assistive tech can follow the pair.
+      full.id = 'urlBreakdownFull-' + nextDomId();
+      toggle.setAttribute('aria-controls', full.id);
+      full.hidden = true;
+      appendBreakableText(full, url);
+      wrap.appendChild(full);
+      toggle.addEventListener('click', () => {
+        const reveal = full.hidden;
+        full.hidden = !reveal;
+        toggle.setAttribute('aria-expanded', String(reveal));
+        toggle.textContent = reveal ? uiText('urlBreakdownHideFull') : uiText('urlBreakdownShowFull');
+      });
+    }
+    return wrap;
   }
 
   function createStatsSummaryStructure(statsElement) {
@@ -8301,7 +9594,11 @@ const _NetworkPlus = (function () {
   // Tracking the current stop makes focus O(1); the render paths seed it.
   let currentRowTabStop = null;
 
-  function createTableRow(row, onClick, isTabStop) {
+  // rowState is the seam a test seeds to prove the row-state classes are
+  // wired in: the selection, highlight and search state createTableRow reads
+  // for this row, defaulting to the live module state.
+  function createTableRow(row, onClick, isTabStop, rowState) {
+    const rowStateSource = rowState || state;
     const tr = document.createElement('tr');
     tr.addEventListener('click', onClick);
     tr.addEventListener('focus', () => {
@@ -8320,26 +9617,30 @@ const _NetworkPlus = (function () {
     // hover tooltip is free for each cell's full (possibly truncated) value.
     tr.setAttribute('aria-keyshortcuts', 'ContextMenu Shift+F10');
 
-    const isSelected = state.selectedRow === row || state.selectedRows.has(row);
-    if (state.selectedRow === row) tr.classList.add('selected');
-    if (state.selectedRows.has(row)) tr.classList.add('multi-selected');
+    const isSelected = rowStateSource.selectedRow === row || rowStateSource.selectedRows.has(row);
     tr.setAttribute('aria-selected', String(isSelected));
     const visibleStateBadges = [];
     if (isSelected) {
       visibleStateBadges.push({ text: '✓', label: 'Selected request' });
     }
     // Manual highlight (context menu)
-    const hlColor = state.highlightedRows.get(row);
+    const hlColor = rowStateSource.highlightedRows.get(row);
     if (hlColor) {
-      tr.classList.add('highlighted-row', hlColor);
       visibleStateBadges.push({ text: '★', label: 'Highlighted request' });
     }
     // Unified search match highlight — apply first matching keyword color
-    const srch = state.search;
+    const srch = rowStateSource.search;
     const rowColorSet = srch.rowColors.get(row);
+    const firstColor = rowColorSet && rowColorSet.size > 0 ? rowColorSet.values().next().value : null;
+    const rowStateClasses = planRowStateClasses({
+      primary: rowStateSource.selectedRow === row,
+      multi: rowStateSource.selectedRows.has(row),
+      highlightColor: hlColor || null,
+      searchColorIdx: firstColor,
+      searchCurrent: srch.currentIndex >= 0 && srch.matches[srch.currentIndex] === row,
+    });
+    if (rowStateClasses.length > 0) tr.classList.add(...rowStateClasses);
     if (rowColorSet && rowColorSet.size > 0) {
-      const firstColor = rowColorSet.values().next().value;
-      tr.classList.add('search-match-row', 'search-row-' + firstColor);
       const rowKeywordSet = srch.rowKeywords.get(row) || new Set();
       const matchedKeywords = Array.from(rowKeywordSet).sort((a, b) => a - b);
       const keywordNumbers = matchedKeywords.map((keywordIndex) => keywordIndex + 1);
@@ -8361,14 +9662,9 @@ const _NetworkPlus = (function () {
           label: searchMatchLabel,
         });
       }
-      if (srch.currentIndex >= 0 && srch.matches[srch.currentIndex] === row) {
-        tr.classList.add('search-match-current');
-      }
     }
-    if (row.method) {
-      const method = row.method.toUpperCase();
-      if (HTTP_METHODS.indexOf(method) > -1 || method === 'WS' || method === 'SSE') tr.classList.add('method-' + method);
-    }
+    const methodClass = methodClassToken(row.method);
+    if (methodClass) tr.classList.add(methodClass);
     // Status code row class
     const statusClass = classifyStatusClass(row.status);
     if (statusClass !== 'other') tr.classList.add('status-' + statusClass);
@@ -8997,10 +10293,32 @@ const _NetworkPlus = (function () {
     return $all('.tab-btn', bar).find((button) => button.dataset.tab === tabId) || null;
   }
 
-  function activateInspectorTab(barId, tabId, moveFocus) {
+  // The tab a person last picked in each bar. Every row selection re-applies
+  // it; when that pane has nothing for the new row, Headers shows instead
+  // without overwriting the choice, so the next row that does have cookies
+  // (or query parameters) brings the picked tab back.
+  const inspectorTabChoice = {};
+  const INSPECTOR_FALLBACK_TAB = Object.freeze({
+    'req-tab-bar': 'req-headers',
+    'res-tab-bar': 'res-headers',
+  });
+  // Tabs whose label carries a count. Body, Preview and Raw are either never
+  // empty or only known after the async body fetch, so they stay uncounted.
+  const INSPECTOR_COUNTED_TABS = new Set(['req-query', 'req-cookies', 'res-cookies']);
+
+  // Pure: which tab a bar shows for a row, given the person's choice and the
+  // known item counts (0 = empty). An empty choice falls back to Headers.
+  function planInspectorTabActivation(choice, counts, fallbackTab) {
+    if (!choice) return fallbackTab || null;
+    if (counts && counts[choice] === 0) return fallbackTab || choice;
+    return choice;
+  }
+
+  function activateInspectorTab(barId, tabId, moveFocus, options) {
     const bar = $('#' + barId);
     const activeButton = getInspectorTabButton(barId, tabId);
     if (!bar || !activeButton) return null;
+    if (!(options && options.transient)) inspectorTabChoice[barId] = tabId;
     const buttons = $all('.tab-btn', bar);
     const contentArea = bar.nextElementSibling;
     buttons.forEach((candidate) => {
@@ -9016,6 +10334,7 @@ const _NetworkPlus = (function () {
         pane.hidden = !isActive;
       });
     }
+    syncScrollportBarInset(contentArea);
     if (moveFocus) {
       activeButton.focus();
       activeButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -9044,6 +10363,67 @@ const _NetworkPlus = (function () {
       $all('.tab-btn', bar).find((button) => button.classList.contains('active')) ||
       $('.tab-btn', bar);
     if (activeButton) activateInspectorTab(barId, activeButton.dataset.tab, false);
+  }
+
+  // Stamps every tab of a bar with what its pane holds for the current row:
+  // data-count (Query / Cookies, rendered by CSS after the label) and
+  // is-empty (muted label, still clickable and painted at full opacity).
+  // counts maps tab id -> item count; tabs without an entry are unknown and
+  // keep their plain look. The number is only for the tabs that count items:
+  // Body and Raw hold one document, so a "0" beside them announced a count
+  // they never had — CSS gives those an en dash instead. Then the picked tab
+  // is re-applied, or Headers when the picked pane is empty.
+  function applyInspectorTabSignals(barId, counts) {
+    const bar = $('#' + barId);
+    if (!bar) return null;
+    $all('.tab-btn', bar).forEach((button) => {
+      const tabId = button.dataset.tab;
+      const count = Object.prototype.hasOwnProperty.call(counts, tabId) ? counts[tabId] : null;
+      if (count !== null && INSPECTOR_COUNTED_TABS.has(tabId)) {
+        button.dataset.count = count.toLocaleString('en-US');
+      } else {
+        delete button.dataset.count;
+      }
+      button.classList.toggle('is-empty', count === 0);
+    });
+    const target = planInspectorTabActivation(
+      inspectorTabChoice[barId],
+      counts,
+      INSPECTOR_FALLBACK_TAB[barId],
+    );
+    return target ? activateInspectorTab(barId, target, false, { transient: true }) : null;
+  }
+
+  // The response bar is stamped twice for one row: the cookies are counted
+  // while the row renders, Body and Raw only once the cached body lands (or
+  // fails to). Keeping the counts here lets the second pass add its own
+  // without clearing the first pass' — applyInspectorTabSignals reads the
+  // whole bar from the object it is given.
+  const responseTabCounts = Object.create(null);
+
+  function applyResponseTabSignals(counts, options) {
+    if (options && options.reset) {
+      for (const tabId of Object.keys(responseTabCounts)) delete responseTabCounts[tabId];
+    }
+    Object.assign(responseTabCounts, counts);
+    return applyInspectorTabSignals('res-tab-bar', responseTabCounts);
+  }
+
+  function resetInspectorTabSignals() {
+    for (const tabId of Object.keys(responseTabCounts)) delete responseTabCounts[tabId];
+    $all('.tab-btn', $('#details')).forEach((button) => {
+      delete button.dataset.count;
+      button.classList.remove('is-empty');
+    });
+  }
+
+  // The muted one-liner an empty pane shows instead of a bare parenthesis.
+  function renderPaneEmptyMessage(pane, text) {
+    const message = document.createElement('p');
+    message.className = 'pane-empty';
+    message.textContent = text;
+    pane.appendChild(message);
+    return message;
   }
 
   let sampleGuideDialogTrigger = null;
@@ -10274,6 +11654,17 @@ const _NetworkPlus = (function () {
   // skips a hidden pane, so close → shrink window → reopen would otherwise
   // leave a stale px basis wider than the window allows.
   let resyncMainSplit = null;
+  // Same deferral for the request/response split: its remembered percent can
+  // only be applied once the pane has a height.
+  let resyncInspectorSplit = null;
+  // The collapse toggles' tooltips are composed in JavaScript, so the
+  // language switch re-runs their sync instead of a data-i18n-title.
+  let refreshInspectorToggleTitles = null;
+  // The status text the "closed" notice displaced, restored on reopen.
+  let statusBeforeDetailsClose = null;
+  // The selection line the reopen wrote, so a later selection can replace it
+  // instead of leaving the bar naming a request that is no longer selected.
+  let selectionStatusText = null;
 
   function setDetailsPanelCollapsed(collapsed) {
     const resizer = $('#resizer');
@@ -10281,10 +11672,36 @@ const _NetworkPlus = (function () {
     if (resizer) resizer.hidden = collapsed;
     if (details) details.hidden = collapsed;
     if (!collapsed && resyncMainSplit) resyncMainSplit();
+    if (!collapsed && resyncInspectorSplit) resyncInspectorSplit();
   }
 
-  function showDetailsPanel() {
+  function showDetailsPanel(selectedRow) {
     setDetailsPanelCollapsed(false);
+    // Reopening by selection is the answer to "select a request to reopen",
+    // so the notice must not outlive the pane it describes. What replaces it
+    // is this row's own summary — replaying the message the notice displaced
+    // put a stale line (a split reset, a copy result) back on the bar.
+    const statusText = $('#statusText');
+    const selectionSummary = selectedRow ? planRowSelectionStatus(selectedRow) : '';
+    const summaryLine = selectionSummary
+      ? uiTextFormat('statusRowSelected', { request: selectionSummary })
+      : '';
+    if (statusText && statusBeforeDetailsClose != null) {
+      const replacement = summaryLine || statusBeforeDetailsClose;
+      const restored = planDetailsReopenStatus(
+        statusText.textContent,
+        [UI_TEXT.statusDetailsClosed.en, UI_TEXT.statusDetailsClosed.ja],
+        replacement,
+      );
+      if (restored != null) setStatus(restored);
+      selectionStatusText = restored === summaryLine && summaryLine ? summaryLine : null;
+    } else if (statusText && selectionStatusText && statusText.textContent === selectionStatusText) {
+      // That line names one request. The selection has moved, so it follows
+      // the selection rather than going stale on the row it still names.
+      setStatus(summaryLine);
+      selectionStatusText = summaryLine || null;
+    }
+    statusBeforeDetailsClose = null;
   }
 
   function closeDetailsPanel() {
@@ -10297,14 +11714,264 @@ const _NetworkPlus = (function () {
     const focusTarget = rowFocusTarget || $('#filterBtn');
     if (focusTarget) focusTarget.focus({ preventScroll: true });
     if (rowFocusTarget) rowFocusTarget.scrollIntoView({ block: 'nearest' });
-    setStatus('Request details closed. Select a request to reopen.');
+    const statusText = $('#statusText');
+    statusBeforeDetailsClose = statusText ? statusText.textContent : '';
+    setStatus(uiText('statusDetailsClosed'));
+  }
+
+  // Before any selection the pane shows one line of guidance instead of two
+  // empty tab strips; the inspector halves return with the next selection.
+  function setInspectorEmptyState(empty) {
+    const inspectorPanels = $('.inspector-panels');
+    const emptyState = $('#inspectorEmptyState');
+    if (inspectorPanels) {
+      inspectorPanels.hidden = empty;
+      if (empty) inspectorPanels.setAttribute('aria-hidden', 'true');
+      else inspectorPanels.removeAttribute('aria-hidden');
+    }
+    if (emptyState) emptyState.hidden = !empty;
   }
 
   function clearDetailsPanel() {
-    $('#detailsTitle').textContent = 'Select a request...';
+    setDetailsTitleText(uiText('detailsEmptyTitle'));
+    resetDetailsHeader();
+    resetInspectorTabSignals();
     $all('.tab-pane', $('#details')).forEach((pane) => {
       pane.textContent = '';
     });
+    setInspectorEmptyState(true);
+  }
+
+  let detailsTitlePath = '';
+  let detailsTitleMeasureContext = null;
+  const DETAILS_TITLE_HOST_MIN_PX = 80;
+  const DETAILS_TITLE_TOOLTIP_MAX_CHARS = 300;
+
+  // #detailsTitle is a flex row, so a bare text node in it is an anonymous
+  // flex item that cannot be given overflow or text-overflow: the empty state
+  // and the comparison heading overflowed the pane instead of ellipsising.
+  // Every plain title goes through an element that can.
+  function setDetailsTitleText(text) {
+    const title = $('#detailsTitle');
+    if (!title) return;
+    title.textContent = '';
+    const label = document.createElement('span');
+    label.className = 'details-title-text';
+    label.textContent = text;
+    title.appendChild(label);
+  }
+
+  // Everything selectRow adds around the title text: the tooltip, the copy
+  // button, the summary strip. The comparison writers set their own title
+  // text and call this so no stale request identity survives next to it.
+  function resetDetailsHeader() {
+    detailsTitlePath = '';
+    const title = $('#detailsTitle');
+    if (title && typeof title.removeAttribute === 'function') title.removeAttribute('title');
+    const copyButton = $('#detailsCopyUrlBtn');
+    if (copyButton) copyButton.hidden = true;
+    const summary = $('#detailsSummary');
+    if (summary) {
+      summary.hidden = true;
+      summary.textContent = '';
+    }
+  }
+
+  function getDetailsTitleMeasureContext() {
+    if (detailsTitleMeasureContext === null) {
+      const canvas = document.createElement('canvas');
+      const context = canvas && typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+      detailsTitleMeasureContext = context && typeof context.measureText === 'function' ? context : false;
+    }
+    return detailsTitleMeasureContext || null;
+  }
+
+  // Text width in an element's own font. The canvas is shared and re-fonted
+  // per call site; without a 2d context the fit stays approximate, never absent.
+  function createTitleTextMeasurer(element) {
+    const style = getComputedStyle(element);
+    const context = getDetailsTitleMeasureContext();
+    if (context) {
+      context.font = [style.fontStyle, style.fontWeight, style.fontSize, style.fontFamily].join(' ');
+      return (text) => context.measureText(text).width;
+    }
+    const approximateGlyph = (parseFloat(style.fontSize) || 13) * 0.55;
+    return (text) => text.length * approximateGlyph;
+  }
+
+  // Lays the header out in ONE pass over the container's own width. Three
+  // rounds of a measure-and-retry loop each repaired one branch and broke
+  // another, because every branch re-read a box the previous branch had just
+  // mutated: the host cap was decided from a stale width, and the path's
+  // leading ellipsis was inherited from a test taken before the cap existed.
+  //
+  // The rule the row is spent by, in order:
+  //   1. The last path segment is the endpoint name and the most valuable
+  //      token, so it is kept whole whenever it fits at all.
+  //   2. The host takes every pixel the endpoint leaves; when that is not
+  //      enough it is capped and CSS-ellipsises, and its own trailing '…' is
+  //      then the row's visible truncation marker.
+  //   3. Anything dropped from the path is replaced by a '…' in the path.
+  //   4. The operation yields first — the summary strip below already names
+  //      it — and the query chip is a count, so it never claims a query.
+  //
+  // The invariant this holds, asserted as a property across every fixture row
+  // and pane width: what the header renders either IS the request's method,
+  // host and pathname, or it carries a visible truncation marker. There is no
+  // third case, and no width at which the header names a URL that never was.
+  function fitDetailsTitle() {
+    const title = $('#detailsTitle');
+    const pathEl = title && typeof title.querySelector === 'function' ? title.querySelector('.details-title-path') : null;
+    if (!pathEl || !detailsTitlePath) return;
+    const full = detailsTitlePath;
+    const hostEl = title.querySelector('.details-title-host');
+    const operationEl = title.querySelector('.details-title-operation');
+    // Widest form first, and before any early exit: the host's 60% CSS cap is
+    // a guess that ignores what the row has left, so the fit owns the host's
+    // width outright. Returning early while the cap still stood left it in
+    // place for every row whose pathname happened to fit unshortened.
+    if (hostEl) hostEl.style.maxWidth = 'none';
+    if (operationEl) operationEl.hidden = false;
+    pathEl.textContent = full;
+    if (!title.clientWidth) return;
+
+    // The one measurement pass. Everything after it is a write.
+    const titleWidth = title.clientWidth;
+    let fixedWidth = 0;
+    let operationWidth = 0;
+    for (let part = title.firstElementChild; part; part = part.nextElementSibling) {
+      if (part === pathEl || part === hostEl) continue;
+      const rect = part.getBoundingClientRect();
+      if (!rect.width) continue;
+      const partStyle = getComputedStyle(part);
+      const outer = rect.width + (parseFloat(partStyle.marginLeft) || 0) + (parseFloat(partStyle.marginRight) || 0);
+      if (part === operationEl) operationWidth = outer;
+      else fixedWidth += outer;
+    }
+    // flex:0 0 auto and max-width:none, so this box IS the host's own text.
+    const hostWidth = hostEl ? hostEl.getBoundingClientRect().width : 0;
+    const measure = createTitleTextMeasurer(pathEl);
+    const slash = full.lastIndexOf('/');
+    const endpoint = slash > 0 ? full.slice(slash) : full;
+    // What the path must be left if the endpoint is to stay whole: the whole
+    // pathname when it is short, and '…' plus the endpoint when it is not.
+    // Reserving the bare endpoint instead was one ellipsis-width short, and
+    // the path fell through to giving away the endpoint's own head.
+    const pathReserve = Math.min(measure(full), measure('…' + endpoint));
+    // One pixel of slack absorbs the difference between what the canvas
+    // measures and what the layout engine rounds to.
+    let pool = Math.max(0, titleWidth - fixedWidth - 1);
+
+    const keepOperation = operationWidth > 0 && hostWidth + pathReserve + operationWidth <= pool;
+    if (operationEl) operationEl.hidden = !keepOperation;
+    if (keepOperation) pool = Math.max(0, pool - operationWidth);
+
+    let hostUsed = hostWidth;
+    if (hostEl) {
+      if (hostWidth + pathReserve > pool) {
+        hostUsed = Math.min(hostWidth, Math.max(DETAILS_TITLE_HOST_MIN_PX, Math.floor(pool - pathReserve)));
+        hostEl.style.maxWidth = hostUsed + 'px';
+      } else {
+        hostEl.style.maxWidth = 'none';
+      }
+    }
+    const pathText = planTitlePathText(full, pool - hostUsed, measure);
+    pathEl.textContent = pathText;
+    // A path that has lost content keeps its own '…' whatever the host is
+    // doing, and nothing is read back after this write. An earlier round
+    // dropped that mark whenever the host happened to CSS-ellipsise, to avoid
+    // "…example.te……/edge"; across the whole 400-450px band it instead painted
+    // "securepubads.example.test/final-segment.js" — a complete-looking path
+    // the request never had. A false URL is not a trade this header can make,
+    // and the two marks do not in fact collide: the capped host stops short of
+    // its own box, so a gap already separates its bold mark from the path's
+    // muted one.
+  }
+
+  // The structured header: [METHOD] host/pathname [?N] [· Operation]. The
+  // space text node after the badge is invisible in the flex row but keeps
+  // the title's textContent reading "METHOD host/path" rather than
+  // "METHODhost/path". textContent is not what assistive tech announces: a
+  // part the fit hides (the operation at a narrow pane) leaves the
+  // accessibility tree while staying in textContent, which is why the
+  // summary strip below carries the operation at those widths.
+  function renderDetailsTitle(row, titleParts) {
+    const title = $('#detailsTitle');
+    if (!title) return;
+    const url = String(row.url || '');
+    const parts = splitUrlForTitle(url);
+    title.textContent = '';
+    if (row.method) {
+      const badge = document.createElement('span');
+      badge.className = ('details-title-method ' + methodClassToken(row.method)).trim();
+      badge.textContent = row.method;
+      title.appendChild(badge);
+      title.appendChild(document.createTextNode(' '));
+    }
+    const host = document.createElement('span');
+    host.className = 'details-title-host';
+    host.textContent = parts.host;
+    title.appendChild(host);
+    const pathEl = document.createElement('span');
+    pathEl.className = 'details-title-path';
+    pathEl.textContent = parts.pathname;
+    title.appendChild(pathEl);
+    if (parts.queryCount > 0) {
+      const query = document.createElement('span');
+      query.className = 'details-title-query';
+      query.textContent = '?' + parts.queryCount.toLocaleString('en-US');
+      query.title =
+        parts.queryCount === 1
+          ? uiText('detailsQueryCountOne')
+          : uiTextFormat('detailsQueryCount', { count: parts.queryCount.toLocaleString('en-US') });
+      title.appendChild(query);
+    }
+    if (row.operation) {
+      const operation = document.createElement('span');
+      operation.className = 'details-title-operation';
+      operation.textContent = '· ' + row.operation;
+      title.appendChild(operation);
+    }
+    // Truncate the tail, never the head: dropping the method and the whole
+    // query left the longest URLs — the ones that need the tooltip — with a
+    // tooltip that said less than the header above it.
+    const fullTitle = titleParts.join(' ');
+    title.title =
+      fullTitle.length <= DETAILS_TITLE_TOOLTIP_MAX_CHARS
+        ? fullTitle
+        : fullTitle.slice(0, DETAILS_TITLE_TOOLTIP_MAX_CHARS) + '…';
+    detailsTitlePath = parts.pathname;
+    const copyButton = $('#detailsCopyUrlBtn');
+    if (copyButton) copyButton.hidden = false;
+    fitDetailsTitle();
+  }
+
+  function renderDetailsSummary(row) {
+    const plan = planDetailsSummary(row);
+    const strip = $('#detailsSummary');
+    if (!strip) return plan;
+    strip.textContent = '';
+    const addItem = (text, className, titleText) => {
+      const item = document.createElement('span');
+      item.className = 'details-summary-item ' + className;
+      item.textContent = text;
+      if (titleText) item.title = titleText;
+      strip.appendChild(item);
+    };
+    if (plan.status) {
+      addItem(plan.status.text, 'details-summary-status details-summary-status--' + plan.status.statusClass);
+    }
+    if (plan.contentType) addItem(plan.contentType, 'details-summary-type');
+    if (plan.size) addItem(plan.size, 'details-summary-size');
+    if (plan.duration) addItem(plan.duration, 'details-summary-duration');
+    if (plan.protocol) addItem(plan.protocol, 'details-summary-protocol');
+    if (plan.operation) addItem(plan.operation, 'details-summary-operation');
+    if (plan.chip) {
+      const chipText = plan.chip.name + ': ' + plan.chip.value;
+      addItem(chipText, 'details-summary-chip', chipText);
+    }
+    strip.hidden = !strip.firstChild;
+    return plan;
   }
 
   function parseCookieHeader(headerValue) {
@@ -10330,12 +11997,17 @@ const _NetworkPlus = (function () {
       const payload = buildClipboardPayload(action, row, { mode: 'sanitized', responseBody });
       return writeClipboardPayload(payload.text, message || 'Copied sanitized data');
     } catch (_error) {
+      // Same shared failure path as the row menu's copies: still English.
       setStatus('Sanitized copy failed closed. No data was copied.');
       return Promise.resolve();
     }
   }
 
-  function requestFullClipboardAction(action, row, responseBody, trigger, label) {
+  // labelKey names the pane the button sits in; the confirmation sentences
+  // and the toast slot the localized pane name in, so a Japanese frame no
+  // longer carries an English noun.
+  function requestFullClipboardAction(action, row, responseBody, trigger, labelKey) {
+    const label = uiText(labelKey);
     requestFullOutboundAction({
       title: uiTextFormat('copyFullTitle', { label }),
       detail: uiTextFormat('copyFullDetail', { label }),
@@ -10347,27 +12019,30 @@ const _NetworkPlus = (function () {
           confirmed: true,
           responseBody,
         });
-        return writeClipboardPayload(payload.text, 'Copied full ' + label + ' after confirmation');
+        return writeClipboardPayload(payload.text, uiTextFormat('statusCopiedFullConfirmed', { label }));
       },
     });
   }
 
   // Every format the retired "Copy full request..." dialog offered in its
   // picker, now reachable straight from the row menu.
+  // The third entry is the menu label's dictionary key; the second stays the
+  // canonical English name the status line reports after the copy.
   const FULL_COPY_FORMATS = [
-    ['summary', 'request summary'],
-    ['url', 'URL'],
-    ['curl', 'cURL'],
-    ['fetch', 'fetch'],
-    ['powershell', 'PowerShell'],
-    ['markdown', 'Markdown'],
-    ['rawRequest', 'raw request'],
-    ['requestBody', 'request body'],
+    ['summary', 'request summary', 'menuCopyFullSummary'],
+    ['url', 'URL', 'menuCopyFullUrl'],
+    ['curl', 'cURL', 'menuCopyFullCurl'],
+    ['fetch', 'fetch', 'menuCopyFullFetch'],
+    ['powershell', 'PowerShell', 'menuCopyFullPowershell'],
+    ['markdown', 'Markdown', 'menuCopyFullMarkdown'],
+    ['rawRequest', 'raw request', 'menuCopyFullRawRequest'],
+    ['requestBody', 'request body', 'menuCopyFullRequestBody'],
   ];
 
   function copyFullAction(action, row, label) {
     try {
       const payload = buildClipboardPayload(action, row, { mode: 'full', confirmed: true });
+      // Row-menu format: its status line stays the canonical English one.
       return writeClipboardPayload(payload.text, 'Copied unsanitized full ' + label);
     } catch (_error) {
       setStatus('Full copy failed. No data was copied.');
@@ -10379,12 +12054,20 @@ const _NetworkPlus = (function () {
   // Query text per pane id, so the query survives re-renders and row switches.
   const paneSearchQueries = new Map();
 
-  const PANE_SEARCH_LABELS = {
-    'req-body': 'request body',
-    'req-raw': 'raw request',
-    'res-body': 'response body',
-    'res-raw': 'raw response',
+  // The pane name is a noun the toolbar's placeholder, tooltips, accessible
+  // names and copy confirmations all compose sentences around, so it is a
+  // dictionary key rather than an English literal; every en matches the name
+  // the toolbar has always shown.
+  const PANE_SEARCH_LABEL_KEYS = {
+    'req-body': 'paneNameRequestBody',
+    'req-raw': 'paneNameRawRequest',
+    'res-body': 'paneNameResponseBody',
+    'res-raw': 'paneNameRawResponse',
   };
+
+  function paneSearchLabel(paneId) {
+    return uiText(PANE_SEARCH_LABEL_KEYS[paneId] || 'paneNameFallback');
+  }
 
   function clearPaneSearchHits(pane) {
     const marks = Array.from(pane.querySelectorAll('mark.pane-search-hit'));
@@ -10448,12 +12131,98 @@ const _NetworkPlus = (function () {
     return { marks, truncated };
   }
 
-  // Open every collapsed <details> ancestor so the current hit is visible.
-  function revealPaneSearchHit(mark) {
+  // The folds that keep a hit in layout while hiding it: a folded long string
+  // clipped by -webkit-line-clamp, and a clamped value cell. Both have a box,
+  // so offsetParent is NOT null inside them — the reveal's first version
+  // missed the very case its brief named.
+  const PANE_SEARCH_FOLD_SELECTOR = '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped';
+
+  // The pane the mark belongs to, and whether the reader is looking at it.
+  // attachPaneSearch runs on all four Body/Raw panes and a stored query
+  // re-highlights every one of them, so a mark in an inactive .tab-pane also
+  // has offsetParent === null: revealing on that test alone opened nodes and
+  // pressed controls in a pane nobody had on screen.
+  function isPaneSearchHitDisplayed(mark) {
+    const pane = mark && typeof mark.closest === 'function' ? mark.closest('.tab-pane') : null;
+    if (!pane) return false;
+    return typeof pane.getClientRects === 'function' ? pane.getClientRects().length > 0 : !pane.hidden;
+  }
+
+  // The nearest ancestor fold that actually clips this mark, or null. Only
+  // the vertical edges matter: both folds cut the text off after N lines.
+  function paneSearchClippingFold(mark) {
+    const markRect = mark.getBoundingClientRect();
+    for (let node = mark.parentElement; node; node = node.parentElement) {
+      if (node.classList && node.classList.contains('tab-pane')) break;
+      if (typeof node.matches !== 'function' || !node.matches(PANE_SEARCH_FOLD_SELECTOR)) continue;
+      const rect = node.getBoundingClientRect();
+      if (markRect.bottom > rect.bottom + 0.5 || markRect.top < rect.top - 0.5) return node;
+    }
+    return null;
+  }
+
+  // Out of sight: either no layout box at all (a collapsed <details>, a node
+  // behind the hidden attribute) or a box a fold clips away.
+  function isPaneSearchHitObscured(mark) {
+    if (typeof mark.getClientRects !== 'function') return false;
+    if (mark.getClientRects().length === 0) return true;
+    return paneSearchClippingFold(mark) !== null;
+  }
+
+  // The toggle that owns `hidden`: the one whose aria-controls names it. The
+  // first collapsed link button under the same parent is not the same thing —
+  // a value cell can hold several, and pressing the wrong one revealed a
+  // different node while leaving the hit where it was.
+  function paneSearchRevealerFor(hidden) {
+    const parent = hidden.parentElement;
+    if (!parent) return null;
+    const candidates = Array.from(parent.querySelectorAll('button[aria-controls]'));
+    const owner = candidates.find(
+      (button) => hidden.id && button.getAttribute('aria-controls') === hidden.id,
+    );
+    if (owner) return owner.getAttribute('aria-expanded') === 'false' ? owner : null;
+    // No declared ownership: fall back to a collapsed toggle that is a direct
+    // sibling of the hidden node, never one nested somewhere else beneath it.
+    for (let sibling = parent.firstElementChild; sibling; sibling = sibling.nextElementSibling) {
+      if (sibling === hidden) continue;
+      if (
+        sibling.classList &&
+        sibling.classList.contains('link-btn') &&
+        sibling.getAttribute('aria-expanded') === 'false'
+      ) {
+        return sibling;
+      }
+    }
+    return null;
+  }
+
+  // Open every collapsed <details> ancestor, unfold a long string the hit
+  // sits in, expand a clamped value around it, and press open whatever a
+  // reveal toggle still hides, so the current hit is visible. Only ever
+  // called for a hit in the pane the reader is actually looking at.
+  function revealPaneSearchHit(mark, pane) {
+    const longString = mark.parentElement ? mark.parentElement.closest('.json-tree-str') : null;
+    if (longString) setJsonTreeStringExpanded(longString, true);
     let node = mark.parentElement ? mark.parentElement.closest('details') : null;
     while (node) {
       if (!node.open) node.open = true;
       node = node.parentElement ? node.parentElement.closest('details') : null;
+    }
+    const clamped = mark.parentElement ? mark.parentElement.closest('.val--clamped') : null;
+    const clampToggle = clamped ? clamped.nextElementSibling : null;
+    if (clampToggle && clampToggle.classList && clampToggle.classList.contains('val-clamp-toggle')) {
+      clampToggle.click();
+    }
+    // "Show full URL" and its kind keep their content in the DOM behind the
+    // hidden attribute: a hit in there matches and highlights while the
+    // reader sees an unchanged pane. The toggle beside it is the way in.
+    // The walk stops AT the pane rather than at <html>: above the pane are the
+    // inactive tab panes' shared ancestors, the collapsed inspector half and
+    // the details pane itself, none of which is a reveal this search owns.
+    for (let hidden = mark.parentElement; hidden && hidden !== pane; hidden = hidden.parentElement) {
+      if (!hidden.hidden) continue;
+      const revealer = paneSearchRevealerFor(hidden);
+      if (revealer) revealer.click();
     }
     mark.scrollIntoView({ block: 'nearest' });
   }
@@ -10475,6 +12244,20 @@ const _NetworkPlus = (function () {
     }
   }
 
+  // The sticky toolbar covers the top of the scrollport, so scroll targets
+  // inside that pane must be inset past it. Its height is not a constant: the
+  // copy actions wrap onto a second row in a narrow pane, so measure the real
+  // bar. One scrollport is shared by all five panes of a half, so the inset
+  // belongs to whichever pane is showing — a wrapped 58px Body bar used to
+  // leave Headers scrolling under a 58px gap it does not have.
+  function syncScrollportBarInset(scrollport) {
+    if (!scrollport || !scrollport.classList || !scrollport.classList.contains('tab-content-area')) return;
+    const activePane = scrollport.querySelector('.tab-pane.active');
+    const bar = activePane ? activePane._paneSearchBar : null;
+    const barHeight = bar && bar.isConnected ? Math.round(bar.getBoundingClientRect().height) : 0;
+    scrollport.style.setProperty('--pane-bar-height', Math.max(0, barHeight) + 'px');
+  }
+
   function hasCollapsedPaneContent(pane, bar) {
     return Array.from(pane.querySelectorAll('button.link-btn')).some(
       (button) => !bar.contains(button) && !button.dataset.paneSearchExpanded,
@@ -10488,15 +12271,21 @@ const _NetworkPlus = (function () {
   function attachPaneSearch(pane, fullText) {
     if (!pane) return;
     const paneId = pane.id;
-    const paneLabel = PANE_SEARCH_LABELS[paneId] || 'this view';
+    const paneLabel = paneSearchLabel(paneId);
+    // One "expand everything" affordance per pane. Where the JSON tree renders
+    // its own Expand / Collapse controls they own the job — the tree's Expand
+    // all clicks through the truncation buttons too, so hits inside collapsed
+    // content are still revealed — and the toolbar does not add a second
+    // button beside them. The "(+N collapsed)" count still points at them.
+    const treeOwnsExpansion = !!pane.querySelector('.json-tree-controls');
 
     const bar = document.createElement('div');
     bar.className = 'pane-search-bar';
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'pane-search-input';
-    input.placeholder = 'Search in ' + paneLabel;
-    input.setAttribute('aria-label', 'Search within the ' + paneLabel + ' view');
+    input.placeholder = uiTextFormat('paneSearchPlaceholder', { pane: paneLabel });
+    input.setAttribute('aria-label', uiTextFormat('paneSearchInputLabel', { pane: paneLabel }));
     const count = document.createElement('span');
     count.className = 'pane-search-count';
     count.setAttribute('role', 'status');
@@ -10504,24 +12293,30 @@ const _NetworkPlus = (function () {
     const prevBtn = document.createElement('button');
     prevBtn.className = 'pane-search-nav';
     prevBtn.textContent = '↑';
-    prevBtn.title = 'Previous match (Shift+Enter)';
-    prevBtn.setAttribute('aria-label', 'Previous match in the ' + paneLabel + ' view');
+    prevBtn.title = uiText('paneSearchPrevTitle');
+    prevBtn.setAttribute('aria-label', uiTextFormat('paneSearchPrevLabel', { pane: paneLabel }));
     const nextBtn = document.createElement('button');
     nextBtn.className = 'pane-search-nav';
     nextBtn.textContent = '↓';
-    nextBtn.title = 'Next match (Enter)';
-    nextBtn.setAttribute('aria-label', 'Next match in the ' + paneLabel + ' view');
+    nextBtn.title = uiText('paneSearchNextTitle');
+    nextBtn.setAttribute('aria-label', uiTextFormat('paneSearchNextLabel', { pane: paneLabel }));
     const expandBtn = document.createElement('button');
     expandBtn.className = 'pane-search-nav pane-search-expand';
-    expandBtn.textContent = 'Expand all';
-    expandBtn.title = 'Some matches are inside collapsed or truncated content. Expand everything to include them.';
-    expandBtn.setAttribute('aria-label', 'Expand collapsed content in the ' + paneLabel + ' view to reveal all matches');
+    expandBtn.textContent = uiText('jsonTreeExpandAll');
+    expandBtn.title = uiText('paneSearchExpandTitle');
+    expandBtn.setAttribute('aria-label', uiTextFormat('paneSearchExpandLabel', { pane: paneLabel }));
     expandBtn.hidden = true;
+    // The count and the buttons that act on it are one cluster, so a wrap
+    // moves all of them: as flat children of a wrapping bar the ↑ and the ↓
+    // of the same control landed on different rows, a pane apart.
+    const navGroup = document.createElement('div');
+    navGroup.className = 'pane-search-nav-group';
+    navGroup.appendChild(count);
+    navGroup.appendChild(expandBtn);
+    navGroup.appendChild(prevBtn);
+    navGroup.appendChild(nextBtn);
     bar.appendChild(input);
-    bar.appendChild(count);
-    bar.appendChild(expandBtn);
-    bar.appendChild(prevBtn);
-    bar.appendChild(nextBtn);
+    bar.appendChild(navGroup);
 
     let marks = [];
     let currentIndex = -1;
@@ -10536,12 +12331,12 @@ const _NetworkPlus = (function () {
         marks.length > 0
           ? (currentIndex >= 0 ? currentIndex + 1 + ' / ' : '') + total
           : query
-            ? 'No matches'
+            ? uiText('paneSearchNoMatches')
             : '';
       if (collapsedHits > 0) {
-        count.textContent += ' (+' + collapsedHits + ' collapsed)';
+        count.textContent += uiTextFormat('paneSearchCollapsedSuffix', { count: collapsedHits });
       }
-      expandBtn.hidden = collapsedHits === 0;
+      expandBtn.hidden = collapsedHits === 0 || treeOwnsExpansion;
       const disabled = marks.length === 0;
       prevBtn.disabled = disabled;
       nextBtn.disabled = disabled;
@@ -10555,7 +12350,15 @@ const _NetworkPlus = (function () {
       const mark = currentIndex >= 0 ? marks[currentIndex] : null;
       if (mark) {
         mark.classList.add('pane-search-hit-current');
-        if (scroll) revealPaneSearchHit(mark);
+        // A hit inside a collapsed <details> — or one a fold clips while
+        // keeping its box — is an ordinary match the reader cannot see: the
+        // count said "1 / 1" while the pane showed nothing, and the collapsed
+        // suffix cannot point at it because the text is already in the DOM.
+        // Reveal it even when no scroll was asked for, but only in the pane
+        // that is on screen: this runs for all four Body/Raw panes at once.
+        if (isPaneSearchHitDisplayed(mark) && (scroll || isPaneSearchHitObscured(mark))) {
+          revealPaneSearchHit(mark, pane);
+        }
       }
       updateCount();
     };
@@ -10573,7 +12376,7 @@ const _NetworkPlus = (function () {
         ? compileSearchQuery(query, searchOptions).error
         : null;
       input.classList.toggle('pane-search-input-error', !!compiledError);
-      input.title = compiledError ? 'Invalid regular expression: ' + compiledError : '';
+      input.title = compiledError ? uiTextFormat('paneSearchInvalidRegex', { error: compiledError }) : '';
       if (query.trim() && !compiledError) {
         const result = applyPaneSearchHits(pane, query, searchOptions);
         marks = result.marks;
@@ -10641,11 +12444,29 @@ const _NetworkPlus = (function () {
       });
     }
 
-    // The bar is a bottom-pinned footer: it sticks to the pane's lower edge
-    // while long content scrolls, and margin-top:auto keeps it at the bottom
-    // for short content (the pane becomes a min-height flex column).
+    // One toolbar per pane: the bar sits at the top and sticks there while
+    // long content scrolls, and the pane's copy actions (rendered first by
+    // addCopyActions) move into it, right-aligned, so content starts directly
+    // under a single band instead of between a copy band and a footer.
+    const copyActions = pane.querySelector(':scope > .copy-actions');
+    if (copyActions) bar.appendChild(copyActions);
     pane.classList.add('pane-search-host');
-    pane.appendChild(bar);
+    pane.insertBefore(bar, pane.firstChild);
+    // The bar this pane owns; syncScrollportBarInset reads it back when the
+    // pane is the one showing.
+    pane._paneSearchBar = bar;
+    if (typeof ResizeObserver === 'function') {
+      // One observer per pane for the life of the session, re-pointed at the
+      // new bar: attachPaneSearch runs two to four times per selection, and
+      // an observer per bar accumulated one leak per render.
+      if (!pane._paneBarObserver) {
+        pane._paneBarObserver = new ResizeObserver(() => syncScrollportBarInset(pane.parentElement));
+      } else {
+        pane._paneBarObserver.disconnect();
+      }
+      pane._paneBarObserver.observe(bar);
+    }
+    syncScrollportBarInset(pane.parentElement);
     const storedQuery = paneSearchQueries.get(paneId) || '';
     if (storedQuery) {
       input.value = storedQuery;
@@ -10655,13 +12476,22 @@ const _NetworkPlus = (function () {
     }
   }
 
+  // The label sits in its own span so the narrowest pane can hide it and keep
+  // the CSS icon: at the 440px pane minimum the Japanese pair alone pushed
+  // every toolbar onto a second 63px row before a query was even typed. The
+  // accessible name and the tooltip carry the full label at every width.
   function addCopyActions(container, actions) {
     const wrapper = document.createElement('div');
     wrapper.className = 'copy-actions';
     for (const action of actions) {
       const button = document.createElement('button');
       button.className = 'copy-btn';
-      button.textContent = action.label;
+      button.title = action.label;
+      button.setAttribute('aria-label', action.label);
+      const label = document.createElement('span');
+      label.className = 'copy-btn-label';
+      label.textContent = action.label;
+      button.appendChild(label);
       button.addEventListener('click', () => action.onClick(button));
       wrapper.appendChild(button);
     }
@@ -10724,6 +12554,13 @@ const _NetworkPlus = (function () {
   function renderJsonHighlighted(jsonText) {
     const pre = document.createElement('pre');
     pre.className = 'code-block code-json';
+    appendJsonHighlight(pre, jsonText);
+    return pre;
+  }
+
+  // Appends the highlighted tokens of jsonText to target as bare spans, so
+  // the Raw view can colour a body inside its own <pre> without nesting one.
+  function appendJsonHighlight(target, jsonText) {
     // Tokenize JSON string with a regex that captures keys, strings, numbers, booleans, null
     const TOKEN_RE = /("(?:\\.|[^"\\])*")\s*:|("(?:\\.|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b)|(\bnull\b)/g;
     let lastIndex = 0;
@@ -10731,43 +12568,47 @@ const _NetworkPlus = (function () {
     while ((match = TOKEN_RE.exec(jsonText)) !== null) {
       // Append plain text before this match
       if (match.index > lastIndex) {
-        pre.appendChild(document.createTextNode(jsonText.substring(lastIndex, match.index)));
+        target.appendChild(document.createTextNode(jsonText.substring(lastIndex, match.index)));
       }
       const span = document.createElement('span');
       if (match[1]) {
-        // JSON key (property name)
+        // JSON key (property name). The whitespace the token swallowed
+        // between the key and its colon is re-emitted verbatim so the
+        // rendered text still equals the source.
         span.className = 'syn-key';
         span.textContent = match[1];
-        pre.appendChild(span);
-        pre.appendChild(document.createTextNode(':'));
+        target.appendChild(span);
+        const gap = match[0].slice(match[1].length, -1);
+        if (gap) target.appendChild(document.createTextNode(gap));
+        target.appendChild(document.createTextNode(':'));
       } else if (match[2]) {
         // String value
         span.className = 'syn-str';
         span.textContent = match[2];
-        pre.appendChild(span);
+        target.appendChild(span);
       } else if (match[3]) {
         // Number
         span.className = 'syn-num';
         span.textContent = match[3];
-        pre.appendChild(span);
+        target.appendChild(span);
       } else if (match[4]) {
         // Boolean
         span.className = 'syn-bool';
         span.textContent = match[4];
-        pre.appendChild(span);
+        target.appendChild(span);
       } else if (match[5]) {
         // null
         span.className = 'syn-null';
         span.textContent = match[5];
-        pre.appendChild(span);
+        target.appendChild(span);
       }
       lastIndex = TOKEN_RE.lastIndex;
     }
     // Remaining text
     if (lastIndex < jsonText.length) {
-      pre.appendChild(document.createTextNode(jsonText.substring(lastIndex)));
+      target.appendChild(document.createTextNode(jsonText.substring(lastIndex)));
     }
-    return pre;
+    return target;
   }
 
   /**
@@ -10785,6 +12626,46 @@ const _NetworkPlus = (function () {
 
     const container = document.createElement('div');
     container.className = 'json-tree code-block';
+    let nodeCount = 0;
+
+    // The separator after a key. A folded row is a flex container, and a bare
+    // ": " text node there is an anonymous flex item whose trailing space is
+    // dropped: the row read `"trace":"…"` beside siblings reading
+    // `"host": "edge-07"`. An element of its own keeps the space, and the
+    // row's textContent is unchanged either way.
+    function appendJsonKeySeparator(parent) {
+      const separator = document.createElement('span');
+      separator.className = 'json-tree-sep';
+      separator.textContent = ': ';
+      parent.appendChild(separator);
+    }
+
+    // Long or multi-line strings fold to their first line with a toggle. The
+    // whole string stays one text node (pane search walks text nodes and a
+    // drag-select copies it whole); only CSS hides the rest until expanded.
+    function createLongStringValue(val, line, comma) {
+      line.classList.add('json-tree-line--long');
+      const value = document.createElement('span');
+      value.className = 'syn-str json-tree-str';
+      // Escaped exactly like a short value (createValueSpan's JSON.stringify):
+      // a raw string between two literal quotes rendered a value containing a
+      // quote or a backslash ambiguously and did not round-trip. Quotes and
+      // body are ONE text node — split across three, a pane search spanning
+      // the opening quote had no single node to match in.
+      value.textContent = JSON.stringify(val);
+      line.appendChild(value);
+      // The comma closes the value, so it goes next to it: appended after the
+      // fold control the row read `"key": "value…" ▸,`.
+      if (comma) line.appendChild(document.createTextNode(comma));
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'json-tree-str-toggle';
+      toggle.addEventListener('click', () => {
+        setJsonTreeStringExpanded(value, !value.classList.contains('json-tree-str--expanded'));
+      });
+      line.appendChild(toggle);
+      setJsonTreeStringExpanded(value, false);
+    }
 
     function createValueSpan(val) {
       const span = document.createElement('span');
@@ -10824,7 +12705,7 @@ const _NetworkPlus = (function () {
           keySpan.className = 'syn-key';
           keySpan.textContent = JSON.stringify(keyName);
           line.appendChild(keySpan);
-          line.appendChild(document.createTextNode(': '));
+          appendJsonKeySeparator(line);
         }
         const valSpan = document.createElement('span');
         valSpan.className = 'syn-str';
@@ -10843,10 +12724,14 @@ const _NetworkPlus = (function () {
           keySpan.className = 'syn-key';
           keySpan.textContent = JSON.stringify(keyName);
           line.appendChild(keySpan);
-          line.appendChild(document.createTextNode(': '));
+          appendJsonKeySeparator(line);
         }
-        line.appendChild(createValueSpan(value));
-        if (comma) line.appendChild(document.createTextNode(comma));
+        if (isLongJsonString(value)) {
+          createLongStringValue(value, line, comma);
+        } else {
+          line.appendChild(createValueSpan(value));
+          if (comma) line.appendChild(document.createTextNode(comma));
+        }
         return line;
       }
 
@@ -10864,7 +12749,7 @@ const _NetworkPlus = (function () {
           keySpan.className = 'syn-key';
           keySpan.textContent = JSON.stringify(keyName);
           line.appendChild(keySpan);
-          line.appendChild(document.createTextNode(': '));
+          appendJsonKeySeparator(line);
         }
         line.appendChild(document.createTextNode(openBrace + closeBrace + comma));
         return line;
@@ -10872,16 +12757,24 @@ const _NetworkPlus = (function () {
 
       const details = document.createElement('details');
       details.className = 'json-tree-node';
-      details.open = true;
+      details.open = depth <= JSON_TREE_OPEN_DEPTH;
+      details.dataset.depth = String(depth);
+      nodeCount += 1;
 
       const summary = document.createElement('summary');
       summary.className = 'json-tree-summary';
+      // Dragging across a summary to select its text must not fold the node:
+      // a click that ends with a live selection is a selection, not a toggle.
+      summary.addEventListener('click', (event) => {
+        const selection = typeof window.getSelection === 'function' ? window.getSelection() : null;
+        if (selection && !selection.isCollapsed) event.preventDefault();
+      });
       if (keyName !== undefined) {
         const keySpan = document.createElement('span');
         keySpan.className = 'syn-key';
         keySpan.textContent = JSON.stringify(keyName);
         summary.appendChild(keySpan);
-        summary.appendChild(document.createTextNode(': '));
+        appendJsonKeySeparator(summary);
       }
       summary.appendChild(document.createTextNode(openBrace));
       // Collapsed preview
@@ -10945,32 +12838,156 @@ const _NetworkPlus = (function () {
       return details;
     }
 
-    container.appendChild(buildNode(parsed, undefined, true, 0));
+    const root = buildNode(parsed, undefined, true, 0);
+    // Expand / Collapse all above a tree with more than one node. Collapse
+    // keeps the root open so the outline stays visible. These are not
+    // .link-btn on purpose: the pane search treats every .link-btn as a
+    // truncation control it must click through.
+    if (nodeCount > 1) {
+      const controls = document.createElement('div');
+      controls.className = 'json-tree-controls';
+      const setAllOpen = (open) => {
+        container.querySelectorAll('details.json-tree-node').forEach((node) => {
+          node.open = open || node.dataset.depth === '0';
+        });
+      };
+      // This is the pane's only "expand everything" control (the toolbar
+      // suppresses its own next to it), so it also clicks through the
+      // truncation buttons and unfolds the long strings — otherwise a pane
+      // search hit inside "... Show all 300 items" would stay unreachable.
+      const expandEverything = () => {
+        setAllOpen(true);
+        for (let round = 0; round < 60; round++) {
+          const expanders = Array.from(container.querySelectorAll('button.link-btn')).filter(
+            (button) => !button.dataset.paneSearchExpanded,
+          );
+          if (expanders.length === 0) break;
+          for (const button of expanders) {
+            button.dataset.paneSearchExpanded = 'true';
+            button.click();
+          }
+        }
+        container.querySelectorAll('.json-tree-str').forEach((span) => {
+          setJsonTreeStringExpanded(span, true);
+        });
+      };
+      const expandBtn = document.createElement('button');
+      expandBtn.type = 'button';
+      expandBtn.className = 'json-tree-ctl';
+      expandBtn.textContent = uiText('jsonTreeExpandAll');
+      expandBtn.addEventListener('click', expandEverything);
+      const collapseBtn = document.createElement('button');
+      collapseBtn.type = 'button';
+      collapseBtn.className = 'json-tree-ctl';
+      collapseBtn.textContent = uiText('jsonTreeCollapseAll');
+      collapseBtn.addEventListener('click', () => setAllOpen(false));
+      controls.appendChild(expandBtn);
+      controls.appendChild(collapseBtn);
+      container.appendChild(controls);
+    }
+    container.appendChild(root);
     return container;
+  }
+
+  function isLongJsonString(value) {
+    return (
+      typeof value === 'string' &&
+      (value.length > JSON_TREE_LONG_STRING_CHARS || value.indexOf('\n') !== -1)
+    );
+  }
+
+  // Folds or unfolds a long-string value; the toggle button follows the span.
+  function setJsonTreeStringExpanded(valueSpan, expanded) {
+    valueSpan.classList.toggle('json-tree-str--expanded', expanded);
+    const toggle = valueSpan.nextElementSibling;
+    if (toggle && toggle.classList && toggle.classList.contains('json-tree-str-toggle')) {
+      toggle.textContent = expanded ? '▾' : '▸';
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.setAttribute(
+        'aria-label',
+        expanded ? uiText('jsonTreeHideFullString') : uiText('jsonTreeShowFullString'),
+      );
+      toggle.title = expanded ? uiText('jsonTreeHideFullString') : uiText('jsonTreeShowFullString');
+    }
+  }
+
+  // Splits a request line into its three parts on the first and last space.
+  // A status line ("HTTP/1.1 200 OK") or a line with fewer than two spaces
+  // returns null so the caller keeps it whole.
+  function splitRawRequestLine(line) {
+    const first = line.indexOf(' ');
+    const last = line.lastIndexOf(' ');
+    if (first < 1 || last <= first) return null;
+    if (/^HTTP\//i.test(line)) return null;
+    return {
+      method: line.slice(0, first),
+      path: line.slice(first + 1, last),
+      protocol: line.slice(last + 1),
+    };
   }
 
   /**
    * Render raw HTTP text with syntax highlighting.
-   * First line = status/request line (bold), header names colored, body as-is.
+   * First line = status/request line (bold; a request line splits into
+   * method, path and protocol), header names colored, a hairline divider
+   * before the body, and a JSON body highlighted in place.
    */
   function renderRawHighlighted(rawText) {
     const pre = document.createElement('pre');
     pre.className = 'code-block code-raw';
     const lines = rawText.split('\n');
-    let inBody = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (i === 0) {
         // Request/Status line
-        const span = document.createElement('span');
-        span.className = 'syn-status-line';
-        span.textContent = line;
-        pre.appendChild(span);
-      } else if (!inBody && line.trim() === '') {
-        // Empty line = separator between headers and body
-        inBody = true;
+        const cr = line.endsWith('\r') ? '\r' : '';
+        const core = cr ? line.slice(0, -1) : line;
+        const parts = splitRawRequestLine(core);
+        if (parts) {
+          const method = document.createElement('span');
+          method.className = 'syn-status-line';
+          method.textContent = parts.method;
+          pre.appendChild(method);
+          pre.appendChild(document.createTextNode(' '));
+          const path = document.createElement('span');
+          path.className = 'syn-hdr-val';
+          path.textContent = parts.path;
+          pre.appendChild(path);
+          pre.appendChild(document.createTextNode(' '));
+          const protocol = document.createElement('span');
+          protocol.className = 'syn-status-line';
+          protocol.textContent = parts.protocol;
+          pre.appendChild(protocol);
+        } else {
+          const span = document.createElement('span');
+          span.className = 'syn-status-line';
+          span.textContent = core;
+          pre.appendChild(span);
+        }
+        if (cr) pre.appendChild(document.createTextNode(cr));
+      } else if (line.trim() === '') {
+        // Empty line = separator between headers and body. Its own text and
+        // the newline after it are emitted first: the pane's textContent has
+        // to stay the source text character for character. Then a hairline
+        // divider and the body — highlighted when it parses as JSON. The
+        // builders always emit that separator, so a body-less message (every
+        // GET) would otherwise end on a stray hairline: divide only when
+        // there is a body to divide from.
         pre.appendChild(document.createTextNode(line));
-      } else if (!inBody) {
+        if (i < lines.length - 1) pre.appendChild(document.createTextNode('\n'));
+        const body = lines.slice(i + 1).join('\n');
+        if (body !== '') {
+          const divider = document.createElement('span');
+          divider.className = 'raw-body-divider';
+          pre.appendChild(divider);
+          if (formatJsonSafe(body) !== null) {
+            appendJsonHighlight(pre, body);
+          } else {
+            pre.appendChild(document.createTextNode(body));
+          }
+        }
+        break;
+      } else {
         // Header line: "Name: Value"
         const colonIdx = line.indexOf(':');
         if (colonIdx > 0) {
@@ -10985,9 +13002,6 @@ const _NetworkPlus = (function () {
         } else {
           pre.appendChild(document.createTextNode(line));
         }
-      } else {
-        // Body — try to detect JSON for highlighting
-        pre.appendChild(document.createTextNode(line));
       }
       if (i < lines.length - 1) pre.appendChild(document.createTextNode('\n'));
     }
@@ -11095,6 +13109,9 @@ const _NetworkPlus = (function () {
     if (row.responseContentState !== 'cached') {
       const display = describeResponseContentState(row);
       setResponsePaneMessage(formatBodyPaneMessage(display));
+      // A pane holding only the reason a body is missing is an empty pane,
+      // and its tab says so the same way the request half's Body tab does.
+      applyResponseTabSignals({ 'res-body': 0, 'res-raw': 0 });
       return;
     }
     const resBodyPane = $('#res-body');
@@ -11130,7 +13147,7 @@ const _NetworkPlus = (function () {
       } else if (displayText.length > TRUNCATE_LIMIT) {
         bodyPre.textContent = displayText.substring(0, TRUNCATE_LIMIT);
         const showMore = document.createElement('button');
-        showMore.textContent = 'Show full cached body (' + fmtBytes(row.responseContentBytes) + ')';
+        showMore.textContent = uiTextFormat('bodyPaneShowFullCached', { size: fmtBytes(row.responseContentBytes) });
         if (!row._previewTruncationCounted) {
           row._previewTruncationCounted = true;
           state.retention.truncatedBodies += 1;
@@ -11144,18 +13161,18 @@ const _NetworkPlus = (function () {
         resBodyPane.appendChild(bodyPre);
         resBodyPane.appendChild(showMore);
       } else {
-        bodyPre.textContent = displayText || '(no response body)';
+        bodyPre.textContent = displayText || uiText('bodyPaneNoResponseBody');
         resBodyPane.appendChild(bodyPre);
       }
     }
     addCopyActions(resBodyPane, [
       {
-        label: 'Copy sanitized',
-        onClick: () => copySanitizedAction('responseBody', row, rawContent, 'Copied sanitized response body'),
+        label: uiText('menuCopySanitized'),
+        onClick: () => copySanitizedAction('responseBody', row, rawContent, uiText('statusCopiedSanitizedResponseBody')),
       },
       {
-        label: 'Copy full...',
-        onClick: (button) => requestFullClipboardAction('responseBody', row, rawContent, button, 'response body'),
+        label: uiText('paneCopyFull'),
+        onClick: (button) => requestFullClipboardAction('responseBody', row, rawContent, button, 'paneNameResponseBody'),
       },
     ]);
 
@@ -11183,7 +13200,7 @@ const _NetworkPlus = (function () {
       if (previewFormatted) {
         resPreviewPane.appendChild(renderJsonHighlighted(previewFormatted));
       } else {
-        resPreviewPane.textContent = '(no preview available)';
+        resPreviewPane.textContent = uiText('previewPaneNoPreview');
       }
     }
 
@@ -11192,17 +13209,25 @@ const _NetworkPlus = (function () {
     const rawResPre = renderRawHighlighted(buildRawResponseText(row, displayText));
     addCopyActions(resRawPane, [
       {
-        label: 'Copy sanitized',
-        onClick: () => copySanitizedAction('rawResponse', row, rawContent, 'Copied sanitized raw response'),
+        label: uiText('menuCopySanitized'),
+        onClick: () => copySanitizedAction('rawResponse', row, rawContent, uiText('statusCopiedSanitizedRawResponse')),
       },
       {
-        label: 'Copy full...',
-        onClick: (button) => requestFullClipboardAction('rawResponse', row, rawContent, button, 'raw response'),
+        label: uiText('paneCopyFull'),
+        onClick: (button) => requestFullClipboardAction('rawResponse', row, rawContent, button, 'paneNameRawResponse'),
       },
     ]);
     resRawPane.appendChild(rawResPre);
     attachPaneSearch(resBodyPane, text);
     attachPaneSearch(resRawPane);
+    // Body holds one document, so an empty one takes the en-dash marker, not
+    // a "0" that would read as a count of zero items. Raw carries the status
+    // line and the headers whatever the body was, so it is empty only when
+    // there is nothing to build it from.
+    applyResponseTabSignals({
+      'res-body': displayText ? 1 : 0,
+      'res-raw': rawResPre.textContent ? 1 : 0,
+    });
   }
 
   function selectRow(row, event, moveFocus, extraAffectedRows) {
@@ -11249,31 +13274,49 @@ const _NetworkPlus = (function () {
     }
     if (!replaceRenderedRowStates(affectedRows)) renderBody();
     if (!row) return;
-    showDetailsPanel();
+    renderRowDetails(row);
+  }
+
+  // Paints the details pane for one row. Split out of selectRow so a language
+  // change can repaint the open pane in place (see applyLanguage) without
+  // going back through selection, which would clear a multi-row selection and
+  // re-announce the row.
+  function renderRowDetails(row) {
+    // The halves must be visible before the pane opens so the remembered
+    // request/response split can measure them.
+    setInspectorEmptyState(false);
+    showDetailsPanel(row);
 
     const titleParts = [];
     if (row.method) titleParts.push(row.method);
     titleParts.push(row.url || '');
-    $('#detailsTitle').textContent = titleParts.join(' ');
+    renderDetailsTitle(row, titleParts);
+    const summaryPlan = renderDetailsSummary(row);
 
     // === REQUEST TABS ===
 
     // Request > Headers
     const reqHeadersPane = $('#req-headers');
     reqHeadersPane.textContent = '';
+    // Protocol follows the Response rows' rule: the summary strip above
+    // already states it, so the row stays only when the strip could not.
     const reqInfo = createKvGrid([
-      { key: 'Method', value: row.method || '' },
-      ...(row.operation ? [{ key: 'Operation', value: row.operation }] : []),
-      { key: 'URL', value: row.url || '' },
-      { key: 'Protocol', value: row.protocol || '' },
+      { key: uiText('detailsInfoMethod'), value: row.method || '' },
+      ...(row.operation ? [{ key: uiText('detailsInfoOperation'), value: row.operation }] : []),
+      { key: uiText('detailsInfoUrl'), node: createUrlBreakdown(row), mono: true },
+      ...(summaryPlan.protocol ? [] : [{ key: uiText('detailsInfoProtocol'), value: row.protocol || '' }]),
     ]);
     reqHeadersPane.appendChild(reqInfo);
     if (row.requestHeaders && row.requestHeaders.length > 0) {
       const title = document.createElement('strong');
-      title.textContent = 'Request Headers';
+      title.textContent = uiText('detailsRequestHeadersHeading');
       title.className = 'kv-group-heading';
       reqHeadersPane.appendChild(title);
-      reqHeadersPane.appendChild(createKvGrid(row.requestHeaders.map((h) => ({ key: h.name, value: h.value }))));
+      reqHeadersPane.appendChild(
+        createKvGrid(
+          row.requestHeaders.map((h) => ({ key: h.name, value: h.value, mono: isMonoValue(h.name, h.value) })),
+        ),
+      );
       const requestJwtSection = createJwtDetailsSection(row.requestHeaders);
       if (requestJwtSection) reqHeadersPane.appendChild(requestJwtSection);
     }
@@ -11295,39 +13338,62 @@ const _NetworkPlus = (function () {
 
       addCopyActions(reqBodyPane, [
         {
-          label: 'Copy sanitized',
-          onClick: () => copySanitizedAction('requestBody', row, '', 'Copied sanitized request body'),
+          label: uiText('menuCopySanitized'),
+          onClick: () => copySanitizedAction('requestBody', row, '', uiText('statusCopiedSanitizedRequestBody')),
         },
         {
-          label: 'Copy full...',
-          onClick: (button) => requestFullClipboardAction('requestBody', row, '', button, 'request body'),
+          label: uiText('paneCopyFull'),
+          onClick: (button) => requestFullClipboardAction('requestBody', row, '', button, 'paneNameRequestBody'),
         },
       ]);
       attachPaneSearch(reqBodyPane, text);
     } else {
-      reqBodyPane.textContent = '(no request body)';
+      renderPaneEmptyMessage(reqBodyPane, uiText('emptyRequestBody'));
     }
+    const hasRequestBody = !!(row.requestPostData && row.requestPostData.text);
 
     // Request > Query
     const reqQueryPane = $('#req-query');
     reqQueryPane.textContent = '';
     const queryParams = parseQueryString(row.url || '');
     if (queryParams.length > 0) {
-      reqQueryPane.appendChild(createKvGrid(queryParams));
+      reqQueryPane.appendChild(
+        createKvGrid(queryParams.map((p) => ({ name: p.name, value: p.value, mono: isMonoValue(p.name, p.value) }))),
+      );
+    } else if (hasRequestBody) {
+      // A POST with no query string is not missing anything: point at Body.
+      const hintMethod = String(row.method || '').trim();
+      renderPaneEmptyMessage(
+        reqQueryPane,
+        hintMethod
+          ? uiTextFormat('emptyQueryParamsBodyHint', { method: hintMethod })
+          : uiText('emptyQueryParamsBodyHintNoMethod'),
+      );
     } else {
-      reqQueryPane.textContent = '(no query parameters)';
+      renderPaneEmptyMessage(reqQueryPane, uiText('emptyQueryParams'));
     }
 
     // Request > Cookies
     const reqCookiesPane = $('#req-cookies');
     reqCookiesPane.textContent = '';
     const cookieHeader = getHeaderValue(row.requestHeaders, 'cookie');
-    if (cookieHeader) {
-      const cookies = parseCookieHeader(cookieHeader);
-      reqCookiesPane.appendChild(createKvGrid(cookies.map((c) => ({ key: c.name, value: c.value }))));
+    const cookies = cookieHeader ? parseCookieHeader(cookieHeader) : [];
+    if (cookies.length > 0) {
+      reqCookiesPane.appendChild(
+        createKvGrid(cookies.map((c) => ({ key: c.name, value: c.value, mono: isMonoValue(c.name, c.value) }))),
+      );
     } else {
-      reqCookiesPane.textContent = '(no cookies)';
+      renderPaneEmptyMessage(reqCookiesPane, uiText('emptyRequestCookies'));
     }
+
+    // Tab signals: counts on Query / Cookies, an empty marker on a pane that
+    // holds nothing (the label keeps full contrast), and Headers in place of
+    // a picked tab that has nothing for this row.
+    applyInspectorTabSignals('req-tab-bar', {
+      'req-body': hasRequestBody ? 1 : 0,
+      'req-query': queryParams.length,
+      'req-cookies': cookies.length,
+    });
 
     // Request > Raw
     const reqRawPane = $('#req-raw');
@@ -11335,12 +13401,12 @@ const _NetworkPlus = (function () {
     const rawReqPre = renderRawHighlighted(buildRawRequestText(row));
     addCopyActions(reqRawPane, [
       {
-        label: 'Copy sanitized',
-        onClick: () => copySanitizedAction('rawRequest', row, '', 'Copied sanitized raw request'),
+        label: uiText('menuCopySanitized'),
+        onClick: () => copySanitizedAction('rawRequest', row, '', uiText('statusCopiedSanitizedRawRequest')),
       },
       {
-        label: 'Copy full...',
-        onClick: (button) => requestFullClipboardAction('rawRequest', row, '', button, 'raw request'),
+        label: uiText('paneCopyFull'),
+        onClick: (button) => requestFullClipboardAction('rawRequest', row, '', button, 'paneNameRawRequest'),
       },
     ]);
     reqRawPane.appendChild(rawReqPre);
@@ -11351,25 +13417,30 @@ const _NetworkPlus = (function () {
     // Response > Headers
     const resHeadersPane = $('#res-headers');
     resHeadersPane.textContent = '';
-    const resInfo = createKvGrid([
-      { key: 'Status', value: row.status + ' ' + (row.statusText || '') },
-      { key: 'Protocol', value: row.protocol || '' },
-      { key: 'Size', value: fmtBytes(row.size) },
-      { key: 'Duration', value: fmtTime(row.duration) },
-    ]);
-    resHeadersPane.appendChild(resInfo);
+    // The summary strip under the title already states status, protocol,
+    // size, and duration; only a value the strip could not show keeps a row.
+    const resInfoItems = [];
+    if (!summaryPlan.status) resInfoItems.push({ key: uiText('detailsInfoStatus'), value: row.status + ' ' + (row.statusText || '') });
+    if (!summaryPlan.protocol) resInfoItems.push({ key: uiText('detailsInfoProtocol'), value: row.protocol || '' });
+    if (!summaryPlan.size) resInfoItems.push({ key: uiText('detailsInfoSize'), value: fmtBytes(row.size) });
+    if (!summaryPlan.duration) resInfoItems.push({ key: uiText('detailsInfoDuration'), value: fmtTime(row.duration) });
+    if (resInfoItems.length > 0) resHeadersPane.appendChild(createKvGrid(resInfoItems));
     if (row.responseHeaders && row.responseHeaders.length > 0) {
       const title = document.createElement('strong');
-      title.textContent = 'Response Headers';
+      title.textContent = uiText('detailsResponseHeadersHeading');
       title.className = 'kv-group-heading';
       resHeadersPane.appendChild(title);
-      resHeadersPane.appendChild(createKvGrid(row.responseHeaders.map((h) => ({ key: h.name, value: h.value }))));
+      resHeadersPane.appendChild(
+        createKvGrid(
+          row.responseHeaders.map((h) => ({ key: h.name, value: h.value, mono: isMonoValue(h.name, h.value) })),
+        ),
+      );
       const responseJwtSection = createJwtDetailsSection(row.responseHeaders);
       if (responseJwtSection) resHeadersPane.appendChild(responseJwtSection);
     }
 
     // Response > Body, Preview, Raw — populated from the shared response cache
-    setResponsePaneMessage('(loading...)');
+    setResponsePaneMessage(uiText('bodyPaneLoading'));
     cacheResponseContent(row)
       .then((cachedRow) => {
         if (!shouldRenderSelectedRow(state.selectedRow, cachedRow)) return;
@@ -11379,6 +13450,7 @@ const _NetworkPlus = (function () {
         if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
         const display = describeResponseContentState(row, error);
         setResponsePaneMessage(formatBodyPaneMessage(display));
+        applyResponseTabSignals({ 'res-body': 0, 'res-raw': 0 });
         if (display.label === 'error') {
           setStatus(
             'Response-body retry failed for request ' +
@@ -11397,11 +13469,20 @@ const _NetworkPlus = (function () {
     );
     if (setCookieHeaders.length > 0) {
       resCookiesPane.appendChild(
-        createKvGrid(setCookieHeaders.map((h, i) => ({ key: 'Set-Cookie #' + (i + 1), value: h.value }))),
+        createKvGrid(
+          setCookieHeaders.map((h, i) => ({
+            key: 'Set-Cookie #' + (i + 1),
+            value: h.value,
+            mono: isMonoValue('Set-Cookie', h.value),
+          })),
+        ),
       );
     } else {
-      resCookiesPane.textContent = '(no set-cookie headers)';
+      renderPaneEmptyMessage(resCookiesPane, uiText('emptySetCookieHeaders'));
     }
+    // Body and Raw are not known yet — the body is still in flight — so they
+    // are left unstamped until renderCachedResponseContent reports them.
+    applyResponseTabSignals({ 'res-cookies': setCookieHeaders.length }, { reset: true });
 
     // Response > Timing
     const resTimingPane = $('#res-timing');
@@ -11419,9 +13500,9 @@ const _NetworkPlus = (function () {
         }
       }
     }
-    timingItems.push({ name: 'Total', value: fmtTime(row.duration) });
+    timingItems.push({ name: uiText('detailsTimingTotal'), value: fmtTime(row.duration) });
     const timingTitle = document.createElement('strong');
-    timingTitle.textContent = 'Timing Breakdown';
+    timingTitle.textContent = uiText('detailsTimingBreakdownHeading');
     timingTitle.className = 'kv-group-heading';
     resTimingPane.appendChild(timingTitle);
     resTimingPane.appendChild(createKvGrid(timingItems));
@@ -11613,7 +13694,7 @@ const _NetworkPlus = (function () {
     const heading = document.createElement('h2');
     heading.id = panelTitleId;
     heading.className = 'compare-title';
-    heading.textContent = 'Comparing 2 requests';
+    heading.textContent = uiText('detailsComparingTwo');
     headerRow.appendChild(heading);
     const closeBtn = document.createElement('button');
     closeBtn.className = 'compare-close-btn';
@@ -11759,10 +13840,15 @@ const _NetworkPlus = (function () {
 
   function showComparisonPanel() {
     showDetailsPanel();
+    // The comparison keeps its own header; no single request's tooltip, copy
+    // button, or summary strip may stay behind next to it.
+    resetDetailsHeader();
     const panel = $('#comparePanel');
     const inspectorPanels = $('.inspector-panels');
+    const emptyState = $('#inspectorEmptyState');
     if (panel) { panel.hidden = false; panel.removeAttribute('aria-hidden'); }
     if (inspectorPanels) { inspectorPanels.hidden = true; inspectorPanels.setAttribute('aria-hidden', 'true'); }
+    if (emptyState) emptyState.hidden = true;
     // Move focus into the comparison panel after the context menu has finished closing
     setTimeout(() => {
       const closeBtn = panel && panel.querySelector('.compare-close-btn');
@@ -12190,6 +14276,15 @@ const _NetworkPlus = (function () {
     const undoClearButton = $('#undoClearBtn');
     const detailsCloseButton = $('#detailsCloseBtn');
     if (detailsCloseButton) detailsCloseButton.addEventListener('click', closeDetailsPanel);
+    // The same sanitized-URL payload as the row context menu; the toast is
+    // localized because this button sits in the pane the language switch owns.
+    const detailsCopyUrlButton = $('#detailsCopyUrlBtn');
+    if (detailsCopyUrlButton) {
+      detailsCopyUrlButton.addEventListener('click', () => {
+        if (!state.selectedRow || state.comparedRows) return;
+        copySanitizedAction('url', state.selectedRow, '', uiText('statusCopiedSanitizedUrl'));
+      });
+    }
 
     const restoreSearchNavigation = (restorePlan) => {
       state.search.currentIndex = restorePlan.searchCurrentRow
@@ -12268,7 +14363,7 @@ const _NetworkPlus = (function () {
       restoreSearchNavigation(restorePlan);
       updateSearchUI();
       if (restorePlan.comparedRows) {
-        $('#detailsTitle').textContent = 'Comparing 2 requests';
+        setDetailsTitleText(uiText('detailsComparingTwo'));
         renderComparisonPanel(restorePlan.comparedRows[0], restorePlan.comparedRows[1]);
         showComparisonPanel();
       }
@@ -12402,7 +14497,6 @@ const _NetworkPlus = (function () {
     columnsContextMenu.style.position = 'fixed';
     columnsContextMenu.style.display = 'none';
     columnsContextMenu.setAttribute('role', 'menu');
-    columnsContextMenu.setAttribute('aria-label', 'Visible columns');
     installPopupKeyboardSupport(columnsContextMenu);
     document.body.appendChild(columnsContextMenu);
 
@@ -12426,48 +14520,75 @@ const _NetworkPlus = (function () {
       showAccessiblePopupAt(filterPopup, x, y, trigger);
     };
 
+    // The checkboxes read as three questions — which request, when, what —
+    // instead of one 16-item list. Match leads Identity as the state gutter.
+    const COLUMN_MENU_GROUPS = [
+      {
+        key: 'columnsGroupIdentity',
+        ids: ['match', 'id', 'method', 'status', 'domain', 'path', 'url', 'operation', 'customHeader'],
+      },
+      { key: 'columnsGroupTiming', ids: ['clientStart', 'serverDone', 'duration', 'waterfall'] },
+      { key: 'columnsGroupPayload', ids: ['type', 'size', 'initiator'] },
+    ];
+
     const renderColumnsContextMenu = () => {
       columnsContextMenu.textContent = '';
+      // Rebuilt on every open, so the name follows a language switch made
+      // while the menu was closed.
+      columnsContextMenu.setAttribute('aria-label', uiText('columnsMenuLabel'));
 
+      // Every header action rebuilds the menu, so focus is handed back to
+      // its first item rather than left on a detached button.
+      const refocusColumnsMenu = () => {
+        const firstItem = getPopupFocusableItems(columnsContextMenu, true)[0];
+        if (firstItem) firstItem.focus();
+      };
+      const createColumnsHeaderButton = (label, onActivate) => {
+        const button = document.createElement('button');
+        button.textContent = label;
+        button.className = 'context-menu-item columns-header-action';
+        button.setAttribute('role', 'menuitem');
+        button.addEventListener('click', () => {
+          onActivate();
+          saveColumnPrefs();
+          render();
+          renderColumnsContextMenu();
+          refocusColumnsMenu();
+        });
+        return button;
+      };
       const btnRow = document.createElement('div');
-      btnRow.style.cssText = 'display:flex;gap:4px;padding:4px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:4px';
-      const selectAllBtn = document.createElement('button');
-      selectAllBtn.textContent = 'Select All';
-      selectAllBtn.className = 'context-menu-item';
-      selectAllBtn.setAttribute('role', 'menuitem');
-      selectAllBtn.style.cssText = 'flex:1;text-align:center;font-size:11px;padding:4px';
-      selectAllBtn.addEventListener('click', () => {
-        state.columns.forEach((column) => { column.visible = true; });
-        saveColumnPrefs();
-        render();
-        renderColumnsContextMenu();
-        const firstItem = getPopupFocusableItems(columnsContextMenu, true)[0];
-        if (firstItem) firstItem.focus();
+      btnRow.className = 'columns-header-actions';
+      btnRow.appendChild(
+        createColumnsHeaderButton(uiText('columnsSelectAll'), () => {
+          state.columns.forEach((column) => { column.visible = true; });
+        }),
+      );
+      btnRow.appendChild(
+        createColumnsHeaderButton(uiText('columnsDeselectAll'), () => {
+          state.columns.forEach((column) => { column.visible = false; });
+        }),
+      );
+      // Reset restores the factory visibility and widths only: the column
+      // order, the filters, and the bound header name are the person's.
+      const resetBtn = createColumnsHeaderButton(uiText('columnsReset'), () => {
+        applyDefaultColumnLayout(state.columns, DEFAULT_COLUMNS);
+        setStatus(uiText('columnsResetStatus'));
       });
-      const deselectAllBtn = document.createElement('button');
-      deselectAllBtn.textContent = 'Deselect All';
-      deselectAllBtn.className = 'context-menu-item';
-      deselectAllBtn.setAttribute('role', 'menuitem');
-      deselectAllBtn.style.cssText = 'flex:1;text-align:center;font-size:11px;padding:4px';
-      deselectAllBtn.addEventListener('click', () => {
-        state.columns.forEach((column) => { column.visible = false; });
-        saveColumnPrefs();
-        render();
-        renderColumnsContextMenu();
-        const firstItem = getPopupFocusableItems(columnsContextMenu, true)[0];
-        if (firstItem) firstItem.focus();
-      });
-      btnRow.appendChild(selectAllBtn);
-      btnRow.appendChild(deselectAllBtn);
+      resetBtn.title = uiText('columnsResetTitle');
+      btnRow.appendChild(resetBtn);
       columnsContextMenu.appendChild(btnRow);
 
-      state.columns.forEach((current) => {
+      const appendColumnItem = (current) => {
         const item = document.createElement('button');
         item.className = 'context-menu-item';
         item.setAttribute('role', 'menuitemcheckbox');
         item.setAttribute('aria-checked', String(current.visible));
         const updateItem = () => {
-          item.textContent = (current.visible ? '☑ ' : '☐ ') + current.label;
+          // The grid header keeps current.label; the menu reads the same
+          // menu-only lookup the row menu's sentences use, so the runtime
+          // name of the custom-header column still wins there.
+          item.textContent = (current.visible ? '☑ ' : '☐ ') + menuColumnLabel(current.id, current.label);
           item.setAttribute('aria-checked', String(current.visible));
         };
         updateItem();
@@ -12478,7 +14599,24 @@ const _NetworkPlus = (function () {
           render();
         });
         columnsContextMenu.appendChild(item);
-      });
+      };
+      const groupedIds = new Set();
+      for (const group of COLUMN_MENU_GROUPS) {
+        const members = group.ids
+          .map((id) => state.columns.find((column) => column.id === id))
+          .filter(Boolean);
+        if (members.length === 0) continue;
+        const groupHint = document.createElement('div');
+        groupHint.className = 'columns-preset-hint columns-group-hint';
+        groupHint.textContent = uiText(group.key);
+        columnsContextMenu.appendChild(groupHint);
+        members.forEach((column) => {
+          groupedIds.add(column.id);
+          appendColumnItem(column);
+        });
+      }
+      // A column outside every group still has to be reachable.
+      state.columns.filter((column) => !groupedIds.has(column.id)).forEach(appendColumnItem);
 
       // The configurable header column: type a header name, Apply binds
       // the column to it (and shows it if it was hidden).
@@ -12486,7 +14624,7 @@ const _NetworkPlus = (function () {
       headerSection.className = 'columns-header-section';
       const headerHint = document.createElement('div');
       headerHint.className = 'columns-preset-hint';
-      headerHint.textContent = 'Header column';
+      headerHint.textContent = uiText('columnsHeaderColumn');
       headerSection.appendChild(headerHint);
       const headerRow = document.createElement('div');
       headerRow.className = 'columns-header-row';
@@ -12496,12 +14634,12 @@ const _NetworkPlus = (function () {
       headerInput.placeholder = 'x-request-id';
       headerInput.spellcheck = false;
       headerInput.value = customHeaderColumnName;
-      headerInput.setAttribute('aria-label', 'Header name for the configurable column');
+      headerInput.setAttribute('aria-label', uiText('columnsHeaderNameLabel'));
       const headerApply = document.createElement('button');
       headerApply.id = 'customHeaderApplyBtn';
       headerApply.className = 'context-menu-item columns-preset-apply';
       headerApply.setAttribute('role', 'menuitem');
-      headerApply.textContent = 'Apply';
+      headerApply.textContent = uiText('columnsHeaderApply');
       headerApply.addEventListener('click', () => {
         saveCustomHeaderColumnName(headerInput.value);
         const column = state.columns.find((c) => c.id === 'customHeader');
@@ -12524,7 +14662,7 @@ const _NetworkPlus = (function () {
       domainSection.className = 'columns-header-section';
       const domainHint = document.createElement('div');
       domainHint.className = 'columns-preset-hint';
-      domainHint.textContent = 'Domain summary';
+      domainHint.textContent = uiText('columnsDomainSummary');
       domainSection.appendChild(domainHint);
       const domainToggle = document.createElement('button');
       domainToggle.id = 'domainSummaryToggle';
@@ -12532,7 +14670,7 @@ const _NetworkPlus = (function () {
       domainToggle.setAttribute('role', 'menuitemcheckbox');
       const updateDomainToggle = () => {
         domainToggle.textContent =
-          (state.domainSummaryVisible ? '☑ ' : '☐ ') + 'Show domain summary';
+          (state.domainSummaryVisible ? '☑ ' : '☐ ') + uiText('columnsDomainSummaryToggle');
         domainToggle.setAttribute('aria-checked', String(state.domainSummaryVisible));
       };
       updateDomainToggle();
@@ -12541,7 +14679,9 @@ const _NetworkPlus = (function () {
         saveDomainSummaryPref(state.domainSummaryVisible);
         updateDomainToggle();
         if (state.syncDomainSummary) state.syncDomainSummary();
-        setStatus(state.domainSummaryVisible ? 'Domain summary shown.' : 'Domain summary hidden.');
+        setStatus(
+          uiText(state.domainSummaryVisible ? 'columnsDomainSummaryShownStatus' : 'columnsDomainSummaryHiddenStatus'),
+        );
       });
       domainSection.appendChild(domainToggle);
       columnsContextMenu.appendChild(domainSection);
@@ -12554,7 +14694,7 @@ const _NetworkPlus = (function () {
 
       const presetHint = document.createElement('div');
       presetHint.className = 'columns-preset-hint';
-      presetHint.textContent = 'Preset · columns + filters';
+      presetHint.textContent = uiText('columnsSavedView');
       presetSection.appendChild(presetHint);
 
       const hasCustomPreset = hasStoredViewPreset();
@@ -12570,10 +14710,10 @@ const _NetworkPlus = (function () {
       const applyPresetBtn = document.createElement('button');
       applyPresetBtn.className = 'context-menu-item columns-preset-apply';
       applyPresetBtn.setAttribute('role', 'menuitem');
-      applyPresetBtn.textContent = 'Apply';
-      applyPresetBtn.title = hasCustomPreset
-        ? 'Restore your saved columns and filters'
-        : 'Restore the default columns and clear filters';
+      applyPresetBtn.textContent = uiText('columnsPresetApply');
+      applyPresetBtn.title = uiText(
+        hasCustomPreset ? 'columnsPresetApplySavedTitle' : 'columnsPresetApplyDefaultTitle',
+      );
       applyPresetBtn.addEventListener('click', () => {
         const { preset, error: presetError } = loadViewPreset();
         if (presetError) {
@@ -12587,23 +14727,23 @@ const _NetworkPlus = (function () {
         syncSearchUIAfterRender();
         updateTableSummary(countVisibleRows());
         refreshAfterPresetChange('.columns-preset-apply');
-        setStatus(preset ? 'Applied preset.' : 'Applied default view.');
+        setStatus(uiText(preset ? 'columnsPresetAppliedStatus' : 'columnsPresetAppliedDefaultStatus'));
       });
       actionRow.appendChild(applyPresetBtn);
 
       const updatePresetBtn = document.createElement('button');
       updatePresetBtn.className = 'context-menu-item columns-preset-update';
       updatePresetBtn.setAttribute('role', 'menuitem');
-      updatePresetBtn.textContent = 'Update';
-      updatePresetBtn.title = 'Save the current columns and filters as the preset';
+      updatePresetBtn.textContent = uiText('columnsPresetUpdate');
+      updatePresetBtn.title = uiText('columnsPresetUpdateTitle');
       updatePresetBtn.addEventListener('click', () => {
         const ok = saveViewPreset(buildViewPresetFromState());
         if (!ok) {
-          setStatus('Could not save preset. Storage unavailable or data too large.');
+          setStatus(uiText('columnsPresetSaveFailedStatus'));
           return;
         }
         refreshAfterPresetChange('.columns-preset-update');
-        setStatus('Preset updated with the current view.');
+        setStatus(uiText('columnsPresetUpdatedStatus'));
       });
       actionRow.appendChild(updatePresetBtn);
       presetSection.appendChild(actionRow);
@@ -12612,15 +14752,15 @@ const _NetworkPlus = (function () {
         const resetPresetBtn = document.createElement('button');
         resetPresetBtn.className = 'context-menu-item columns-preset-reset';
         resetPresetBtn.setAttribute('role', 'menuitem');
-        resetPresetBtn.textContent = 'Forget saved preset';
-        resetPresetBtn.title = 'Delete the saved preset — Apply then restores the default view';
+        resetPresetBtn.textContent = uiText('columnsPresetForget');
+        resetPresetBtn.title = uiText('columnsPresetForgetTitle');
         resetPresetBtn.addEventListener('click', () => {
           if (!clearViewPreset()) {
-            setStatus('Could not reset preset. Storage unavailable.');
+            setStatus(uiText('columnsPresetResetFailedStatus'));
             return;
           }
           refreshAfterPresetChange('.columns-preset-apply');
-          setStatus('Preset reset. Apply now restores the default view.');
+          setStatus(uiText('columnsPresetResetStatus'));
         });
         presetSection.appendChild(resetPresetBtn);
       }
@@ -12647,8 +14787,23 @@ const _NetworkPlus = (function () {
         return;
       }
       renderColumnsContextMenu();
+      // Reset before positioning: this handler writes top and maxHeight only
+      // when there is space below the button, so without clearing them first
+      // it depends on clampPopupToViewport happening to clear them for it —
+      // a cap from the previous open (or the pre-resize viewport) would
+      // otherwise survive into this one and clip a menu that now fits.
+      columnsContextMenu.style.top = '';
+      columnsContextMenu.style.maxHeight = '';
       const rect = event.currentTarget.getBoundingClientRect();
       showAccessiblePopupAt(columnsContextMenu, rect.left, rect.bottom, columnsBtn);
+      // Anchored under its button and capped to the space below it, so a
+      // menu taller than the viewport scrolls instead of climbing over the
+      // toolbar (the generic clamp would push it up to fit).
+      const spaceBelow = Math.round(window.innerHeight - rect.bottom - POPUP_VIEWPORT_MARGIN);
+      if (spaceBelow > 0) {
+        columnsContextMenu.style.top = Math.round(rect.bottom) + 'px';
+        columnsContextMenu.style.maxHeight = spaceBelow + 'px';
+      }
     });
 
     filterBtn.addEventListener('click', (event) => {
@@ -12779,6 +14934,8 @@ const _NetworkPlus = (function () {
     // Tab switching for inspector panels
     initializeInspectorTabBar('req-tab-bar');
     initializeInspectorTabBar('res-tab-bar');
+    // Nothing is selected at start: guidance line instead of empty tab strips.
+    setInspectorEmptyState(!state.selectedRow);
 
     render();
 
@@ -13042,7 +15199,6 @@ const _NetworkPlus = (function () {
     contextMenu.style.display = 'none';
     contextMenu.style.zIndex = '1000';
     contextMenu.setAttribute('role', 'menu');
-    contextMenu.setAttribute('aria-label', 'Request actions');
     installPopupKeyboardSupport(contextMenu);
     document.body.appendChild(contextMenu);
 
@@ -13091,86 +15247,16 @@ const _NetworkPlus = (function () {
       contextMenuRow = row;
       contextMenuInvokerRowId = String(row.id);
       state.focusedRow = row;
+      // Set on open, not on creation: the language can change after init.
+      contextMenu.setAttribute('aria-label', uiText('menuRequestActions'));
       contextMenu.textContent = '';
       const isMultiSelected = state.selectedRows.has(contextMenuRow);
       const targetRows = isMultiSelected && state.selectedRows.size > 0 ? [...state.selectedRows] : [contextMenuRow];
       const allHighlighted = targetRows.every((targetRow) => state.highlightedRows.has(targetRow));
 
-      const copyLabel = document.createElement('div');
-      copyLabel.className = 'context-menu-label';
-      copyLabel.setAttribute('role', 'presentation');
-      copyLabel.textContent = 'Copy (sanitized)';
-      contextMenu.appendChild(copyLabel);
-      for (const [action, label] of [
-        ['summary', 'Copy sanitized summary'],
-        ['url', 'Copy sanitized URL'],
-        ['curl', 'Copy sanitized cURL'],
-        ['fetch', 'Copy sanitized fetch'],
-        ['powershell', 'Copy sanitized PowerShell'],
-        ['markdown', 'Copy sanitized Markdown'],
-      ]) {
-        contextMenu.appendChild(createRowMenuButton(label, () => {
-          copySanitizedAction(action, contextMenuRow, '', label.replace('Copy', 'Copied'));
-        }));
-      }
-      if (targetRows.length > 1) {
-        contextMenu.appendChild(
-          createRowMenuButton('Copy sanitized Markdown table (' + targetRows.length + ' rows)', () => {
-            const payload = buildMarkdownTablePayload(targetRows);
-            if (!payload.ok) {
-              setStatus('Clipboard copy failed during sanitization. No data was copied.');
-              return;
-            }
-            writeClipboardPayload(payload.text, 'Copied a sanitized Markdown table of ' + targetRows.length + ' requests');
-          }),
-        );
-      }
-      // Full output used to open a modal that both picked the format and took
-      // the confirmation. The picker is the part people actually came for, so
-      // it lives in the menu now, collapsed behind one entry that names what
-      // it hands out — the menu keeps the height it had, and reaching a format
-      // costs one click instead of a dialog round trip.
-      const fullCopyRow = contextMenuRow;
-      const fullCopyGroup = document.createElement('div');
-      fullCopyGroup.className = 'context-menu-submenu';
-      fullCopyGroup.setAttribute('role', 'group');
-      fullCopyGroup.setAttribute('aria-label', 'Copy full (unsanitized)');
-      fullCopyGroup.hidden = true;
-      const fullCopyToggle = document.createElement('button');
-      fullCopyToggle.className = 'context-menu-item context-menu-disclosure';
-      fullCopyToggle.setAttribute('role', 'menuitem');
-      fullCopyToggle.setAttribute('aria-expanded', 'false');
-      fullCopyToggle.textContent = '▸ Copy full (unsanitized)';
-      fullCopyToggle.addEventListener('click', () => {
-        const expanding = fullCopyGroup.hidden;
-        fullCopyGroup.hidden = !expanding;
-        fullCopyToggle.setAttribute('aria-expanded', String(expanding));
-        fullCopyToggle.textContent = (expanding ? '▾' : '▸') + ' Copy full (unsanitized)';
-        // The menu just changed height; keep it inside the viewport.
-        reclampOpenPopups();
-      });
-      contextMenu.appendChild(fullCopyToggle);
-      for (const [action, label] of FULL_COPY_FORMATS) {
-        fullCopyGroup.appendChild(
-          createRowMenuButton('Copy full ' + label, () => copyFullAction(action, fullCopyRow, label)),
-        );
-      }
-      contextMenu.appendChild(fullCopyGroup);
-
-      if (resendActions && canResendRow(contextMenuRow)) {
-        const resendLabel = document.createElement('div');
-        resendLabel.className = 'context-menu-label';
-        resendLabel.setAttribute('role', 'presentation');
-        resendLabel.textContent = 'Resend';
-        contextMenu.appendChild(resendLabel);
-        const resendRow = contextMenuRow;
-        contextMenu.appendChild(createRowMenuButton('Resend unchanged', () => {
-          resendActions.sendNow(resendRow);
-        }));
-        contextMenu.appendChild(createRowMenuButton('Edit and resend...', () => {
-          setTimeout(() => resendActions.openDialog(resendRow, resendRow.id), 0);
-        }));
-      }
+      // Order follows how often each block is reached from a row: filter the
+      // capture, mark or compare rows, then the copy formats behind two
+      // disclosures (sanitized first, full last).
 
       // The fastest triage move on a noisy capture: isolate or exclude a
       // domain straight from the row, feeding the same multiText rules the
@@ -13184,41 +15270,85 @@ const _NetworkPlus = (function () {
       })();
       const quickFilterDomain = String(contextMenuRow.domain || '').trim();
       const quickFilterTarget =
-        quickFilterColumn || (quickFilterDomain ? { id: 'domain', label: 'domain', value: quickFilterDomain } : null);
+        quickFilterColumn || (quickFilterDomain ? { id: 'domain', label: 'Domain', value: quickFilterDomain } : null);
+      // The pointer's column decides the first pair; the domain pair stays
+      // one click away whichever cell was right-clicked.
+      const quickFilterDomainTarget =
+        quickFilterColumn && quickFilterColumn.id !== 'domain' && quickFilterDomain
+          ? { id: 'domain', label: 'Domain', value: quickFilterDomain }
+          : null;
+      // The column name is part of the sentence, so it translates with the
+      // frame around it; the value stays verbatim capture data.
+      const quickFilterText = (key, target, value) =>
+        uiTextFormat(key, { column: menuColumnLabel(target.id, target.label), value });
       if (quickFilterTarget) {
         const filterMenuLabel = document.createElement('div');
         filterMenuLabel.className = 'context-menu-label';
         filterMenuLabel.setAttribute('role', 'presentation');
-        filterMenuLabel.textContent = 'Filter';
+        filterMenuLabel.textContent = uiText('menuFilter');
         contextMenu.appendChild(filterMenuLabel);
-        const suffix = quickFilterTarget.label + ' ' + shortenMenuValue(quickFilterTarget.value);
-        const fullSuffix = quickFilterTarget.label + ' ' + quickFilterTarget.value;
+        const shortValue = shortenMenuValue(quickFilterTarget.value);
         const applyQuickFilter = (op) =>
           applyColumnQuickFilterTo(quickFilterTarget.id, quickFilterTarget.value, op);
         contextMenu.appendChild(
-          createRowMenuButton('Only ' + suffix, () => applyQuickFilter('contains'), 'Only ' + fullSuffix),
+          createRowMenuButton(
+            quickFilterText('menuFilterOnly', quickFilterTarget, shortValue),
+            () => applyQuickFilter('contains'),
+            quickFilterText('menuFilterOnly', quickFilterTarget, quickFilterTarget.value),
+          ),
         );
         contextMenu.appendChild(
-          createRowMenuButton('Exclude ' + suffix, () => applyQuickFilter('notcontains'), 'Exclude ' + fullSuffix),
+          createRowMenuButton(
+            quickFilterText('menuFilterExclude', quickFilterTarget, shortValue),
+            () => applyQuickFilter('notcontains'),
+            quickFilterText('menuFilterExclude', quickFilterTarget, quickFilterTarget.value),
+          ),
         );
+        if (quickFilterDomainTarget) {
+          const shortDomain = shortenMenuValue(quickFilterDomainTarget.value);
+          contextMenu.appendChild(
+            createRowMenuButton(
+              quickFilterText('menuFilterOnly', quickFilterDomainTarget, shortDomain),
+              () => applyDomainQuickFilterTo(quickFilterDomainTarget.value, 'contains'),
+              quickFilterText('menuFilterOnly', quickFilterDomainTarget, quickFilterDomainTarget.value),
+            ),
+          );
+          contextMenu.appendChild(
+            createRowMenuButton(
+              quickFilterText('menuFilterExclude', quickFilterDomainTarget, shortDomain),
+              () => applyDomainQuickFilterTo(quickFilterDomainTarget.value, 'notcontains'),
+              quickFilterText('menuFilterExclude', quickFilterDomainTarget, quickFilterDomainTarget.value),
+            ),
+          );
+        }
       }
+
+      contextMenu.appendChild(createRowMenuButton(uiText(isMultiSelected ? 'menuDeselect' : 'menuSelect'), () => {
+        if (isMultiSelected) state.selectedRows.delete(contextMenuRow);
+        else state.selectedRows.add(contextMenuRow);
+        renderBody();
+      }));
 
       const hlLabel = document.createElement('div');
       hlLabel.className = 'context-menu-label';
       hlLabel.setAttribute('role', 'presentation');
-      hlLabel.textContent = targetRows.length > 1 ? 'Highlight (' + targetRows.length + ' rows)' : 'Highlight';
+      hlLabel.textContent =
+        targetRows.length > 1
+          ? uiTextFormat('menuHighlightRows', { count: targetRows.length })
+          : uiText('menuHighlight');
       contextMenu.appendChild(hlLabel);
 
       const colorRow = document.createElement('div');
       colorRow.className = 'context-menu-colors';
       colorRow.setAttribute('role', 'group');
-      colorRow.setAttribute('aria-label', 'Highlight color');
+      colorRow.setAttribute('aria-label', uiText('menuHighlightColor'));
       for (const highlightColor of HIGHLIGHT_COLORS) {
+        const colorName = menuHighlightColorLabel(highlightColor);
         const swatch = document.createElement('button');
         swatch.className = 'hl-swatch ' + highlightColor.cls;
-        swatch.title = highlightColor.name;
+        swatch.title = colorName;
         swatch.setAttribute('role', 'menuitem');
-        swatch.setAttribute('aria-label', 'Highlight ' + highlightColor.name);
+        swatch.setAttribute('aria-label', uiTextFormat('menuHighlightColorNamed', { color: colorName }));
         swatch.addEventListener('click', () => {
           targetRows.forEach((targetRow) => { state.highlightedRows.set(targetRow, highlightColor.cls); });
           renderBody();
@@ -13230,7 +15360,9 @@ const _NetworkPlus = (function () {
 
       if (allHighlighted) {
         contextMenu.appendChild(createRowMenuButton(
-          targetRows.length > 1 ? 'Unhighlight (' + targetRows.length + ')' : 'Unhighlight',
+          targetRows.length > 1
+            ? uiTextFormat('menuUnhighlightRows', { count: targetRows.length })
+            : uiText('menuUnhighlight'),
           () => {
             targetRows.forEach((targetRow) => { state.highlightedRows.delete(targetRow); });
             renderBody();
@@ -13238,14 +15370,8 @@ const _NetworkPlus = (function () {
         ));
       }
 
-      contextMenu.appendChild(createRowMenuButton(isMultiSelected ? 'Deselect' : 'Select', () => {
-        if (isMultiSelected) state.selectedRows.delete(contextMenuRow);
-        else state.selectedRows.add(contextMenuRow);
-        renderBody();
-      }));
-
       if (state.highlightedRows.size > 0) {
-        contextMenu.appendChild(createRowMenuButton('Clear All Highlights', () => {
+        contextMenu.appendChild(createRowMenuButton(uiText('menuClearHighlights'), () => {
           state.highlightedRows.clear();
           renderBody();
         }));
@@ -13257,13 +15383,13 @@ const _NetworkPlus = (function () {
           const compareLabel = document.createElement('div');
           compareLabel.className = 'context-menu-label';
           compareLabel.setAttribute('role', 'presentation');
-          compareLabel.textContent = 'Compare';
+          compareLabel.textContent = uiText('menuCompare');
           contextMenu.appendChild(compareLabel);
           const [rowX, rowY] = [...state.selectedRows];
-          contextMenu.appendChild(createRowMenuButton('Compare 2 selected requests', () => {
+          contextMenu.appendChild(createRowMenuButton(uiText('menuCompareTwo'), () => {
             state.comparedRows = [rowX, rowY];
             state.comparisonInvokingRowId = contextMenuInvokerRowId;
-            $('#detailsTitle').textContent = 'Comparing 2 requests';
+            setDetailsTitleText(uiText('detailsComparingTwo'));
             renderComparisonPanel(rowX, rowY);
             showComparisonPanel();
           }));
@@ -13292,7 +15418,7 @@ const _NetworkPlus = (function () {
               (undoAvailable ? ' Undo available for ' + CLEAR_UNDO_TIMEOUT_MS / 1000 + ' seconds.' : ''),
           );
         };
-        contextMenu.appendChild(createRowMenuButton('Keep Selected (' + selectedCount + ')', () => {
+        contextMenu.appendChild(createRowMenuButton(uiTextFormat('menuKeepSelected', { count: selectedCount }), () => {
           commitPendingLiveRows();
           const rowsToRemove = state.rows.filter((targetRow) => !state.selectedRows.has(targetRow));
           removeRowsWithUndo(
@@ -13301,7 +15427,7 @@ const _NetworkPlus = (function () {
             'Kept ' + formatRequestCount(selectedCount) + '; removed ' + formatRequestCount(rowsToRemove.length) + '.',
           );
         }));
-        contextMenu.appendChild(createRowMenuButton('Delete Selected (' + selectedCount + ')', () => {
+        contextMenu.appendChild(createRowMenuButton(uiTextFormat('menuDeleteSelected', { count: selectedCount }), () => {
           commitPendingLiveRows();
           const rowsToRemove = Array.from(state.selectedRows);
           removeRowsWithUndo(
@@ -13309,6 +15435,104 @@ const _NetworkPlus = (function () {
             'Delete Selected',
             'Deleted ' + formatRequestCount(rowsToRemove.length) + '.',
           );
+        }));
+      }
+
+      // The six sanitized formats sit behind one disclosure, mirroring the
+      // full-copy group below it: the menu opens at the height of its actions
+      // and a format is one click away.
+      const sanitizedCopyLabel = uiText('menuCopySanitized');
+      const sanitizedCopyGroup = document.createElement('div');
+      sanitizedCopyGroup.className = 'context-menu-submenu';
+      sanitizedCopyGroup.setAttribute('role', 'group');
+      sanitizedCopyGroup.setAttribute('aria-label', sanitizedCopyLabel);
+      sanitizedCopyGroup.hidden = true;
+      const sanitizedCopyToggle = document.createElement('button');
+      sanitizedCopyToggle.className = 'context-menu-item context-menu-disclosure';
+      sanitizedCopyToggle.setAttribute('role', 'menuitem');
+      sanitizedCopyToggle.setAttribute('aria-expanded', 'false');
+      sanitizedCopyToggle.textContent = '▸ ' + sanitizedCopyLabel;
+      sanitizedCopyToggle.addEventListener('click', () => {
+        const expanding = sanitizedCopyGroup.hidden;
+        sanitizedCopyGroup.hidden = !expanding;
+        sanitizedCopyToggle.setAttribute('aria-expanded', String(expanding));
+        sanitizedCopyToggle.textContent = (expanding ? '▾' : '▸') + ' ' + sanitizedCopyLabel;
+        reclampOpenPopups();
+      });
+      contextMenu.appendChild(sanitizedCopyToggle);
+      // The label translates; the status message stays the canonical English
+      // one every other sanitized copy sink already reports.
+      for (const [action, labelKey, copiedMessage] of [
+        ['summary', 'menuCopySanitizedSummary', 'Copied sanitized summary'],
+        ['url', 'menuCopySanitizedUrl', 'Copied sanitized URL'],
+        ['curl', 'menuCopySanitizedCurl', 'Copied sanitized cURL'],
+        ['fetch', 'menuCopySanitizedFetch', 'Copied sanitized fetch'],
+        ['powershell', 'menuCopySanitizedPowershell', 'Copied sanitized PowerShell'],
+        ['markdown', 'menuCopySanitizedMarkdown', 'Copied sanitized Markdown'],
+      ]) {
+        sanitizedCopyGroup.appendChild(createRowMenuButton(uiText(labelKey), () => {
+          copySanitizedAction(action, contextMenuRow, '', copiedMessage);
+        }));
+      }
+      if (targetRows.length > 1) {
+        sanitizedCopyGroup.appendChild(
+          createRowMenuButton(uiTextFormat('menuCopySanitizedTable', { count: targetRows.length }), () => {
+            const payload = buildMarkdownTablePayload(targetRows);
+            if (!payload.ok) {
+              setStatus('Clipboard copy failed during sanitization. No data was copied.');
+              return;
+            }
+            writeClipboardPayload(payload.text, 'Copied a sanitized Markdown table of ' + targetRows.length + ' requests');
+          }),
+        );
+      }
+      contextMenu.appendChild(sanitizedCopyGroup);
+
+      // Full output used to open a modal that both picked the format and took
+      // the confirmation. The picker is the part people actually came for, so
+      // it lives in the menu now, collapsed behind one entry that names what
+      // it hands out — the menu keeps the height it had, and reaching a format
+      // costs one click instead of a dialog round trip.
+      const fullCopyRow = contextMenuRow;
+      const fullCopyLabel = uiText('menuCopyFull');
+      const fullCopyGroup = document.createElement('div');
+      fullCopyGroup.className = 'context-menu-submenu';
+      fullCopyGroup.setAttribute('role', 'group');
+      fullCopyGroup.setAttribute('aria-label', fullCopyLabel);
+      fullCopyGroup.hidden = true;
+      const fullCopyToggle = document.createElement('button');
+      fullCopyToggle.className = 'context-menu-item context-menu-disclosure';
+      fullCopyToggle.setAttribute('role', 'menuitem');
+      fullCopyToggle.setAttribute('aria-expanded', 'false');
+      fullCopyToggle.textContent = '▸ ' + fullCopyLabel;
+      fullCopyToggle.addEventListener('click', () => {
+        const expanding = fullCopyGroup.hidden;
+        fullCopyGroup.hidden = !expanding;
+        fullCopyToggle.setAttribute('aria-expanded', String(expanding));
+        fullCopyToggle.textContent = (expanding ? '▾' : '▸') + ' ' + fullCopyLabel;
+        // The menu just changed height; keep it inside the viewport.
+        reclampOpenPopups();
+      });
+      contextMenu.appendChild(fullCopyToggle);
+      for (const [action, label, labelKey] of FULL_COPY_FORMATS) {
+        fullCopyGroup.appendChild(
+          createRowMenuButton(uiText(labelKey), () => copyFullAction(action, fullCopyRow, label)),
+        );
+      }
+      contextMenu.appendChild(fullCopyGroup);
+
+      if (resendActions && canResendRow(contextMenuRow)) {
+        const resendLabel = document.createElement('div');
+        resendLabel.className = 'context-menu-label';
+        resendLabel.setAttribute('role', 'presentation');
+        resendLabel.textContent = uiText('menuResend');
+        contextMenu.appendChild(resendLabel);
+        const resendRow = contextMenuRow;
+        contextMenu.appendChild(createRowMenuButton(uiText('menuResendUnchanged'), () => {
+          resendActions.sendNow(resendRow);
+        }));
+        contextMenu.appendChild(createRowMenuButton(uiText('menuResendEdit'), () => {
+          setTimeout(() => resendActions.openDialog(resendRow, resendRow.id), 0);
         }));
       }
 
@@ -13492,6 +15716,20 @@ const _NetworkPlus = (function () {
           applyElasticColumnWidth();
         });
       }).observe(tableWrap);
+      // The header pathname is ellipsised by measurement, so it follows the
+      // pane's own width: split drags and keyboard resizes change it without
+      // any window resize. Same one-frame deferral as the grid observer.
+      const detailsPane = $('#details');
+      if (detailsPane) {
+        let titleFrame = 0;
+        new ResizeObserver(() => {
+          if (titleFrame) return;
+          titleFrame = requestAnimationFrame(() => {
+            titleFrame = 0;
+            fitDetailsTitle();
+          });
+        }).observe(detailsPane);
+      }
     }
     resizer.addEventListener('keydown', (event) => {
       const isNarrow = window.innerWidth <= NARROW_PANEL_MAX_WIDTH;
@@ -13537,52 +15775,194 @@ const _NetworkPlus = (function () {
     if (inspectorDivider && inspectorPanels) {
       const requestPane = $('#inspector-request');
       const responsePane = $('#inspector-response');
+      const inspectorHalves = {
+        request: { pane: requestPane, toggle: $('#inspector-request-toggle'), bar: $('#req-tab-bar'), labelKey: 'inspectorHalfRequest' },
+        response: { pane: responsePane, toggle: $('#inspector-response-toggle'), bar: $('#res-tab-bar'), labelKey: 'inspectorHalfResponse' },
+      };
+      // The divider's value text and the keyboard-resize status line are the
+      // same sentence about the request half, so both compose it here rather
+      // than each pasting an English one together.
+      const inspectorPercentValue = (percent) =>
+        uiTextFormat('inspectorHalfPercentValue', {
+          half: uiText(inspectorHalves.request.labelKey),
+          percent,
+        });
+      // The remembered split: a dragged or keyed percent (null = the
+      // stylesheet's 50/50) and the half collapsed to its label + tab bar.
+      // Both outlive the session next to the details width preference.
+      const inspectorPref = loadInspectorSplitPref();
+      let inspectorSplitPercent = inspectorPref.percent === 50 ? null : inspectorPref.percent;
+      let collapsedInspectorHalf = null;
+      const rememberInspectorSplit = () => {
+        saveInspectorSplitPref({
+          percent: inspectorSplitPercent == null ? 50 : inspectorSplitPercent,
+          collapsed: collapsedInspectorHalf,
+        });
+      };
+      const clearInspectorSplitStyles = () => {
+        requestPane.style.flex = '';
+        responsePane.style.flex = '';
+        requestPane.style.height = '';
+        responsePane.style.height = '';
+      };
       const applyInspectorSplit = (split) => {
         if (!split) return;
         requestPane.style.flex = 'none';
         responsePane.style.flex = 'none';
         requestPane.style.height = split.requestSize + 'px';
         responsePane.style.height = split.responseSize + 'px';
+        inspectorSplitPercent = split.requestPercent;
         inspectorDivider.setAttribute('aria-valuenow', String(split.requestPercent));
-        inspectorDivider.setAttribute('aria-valuetext', 'Request inspector ' + split.requestPercent + ' percent');
+        inspectorDivider.setAttribute('aria-valuetext', inspectorPercentValue(split.requestPercent));
       };
       const syncInspectorDividerValue = () => {
+        if (collapsedInspectorHalf) {
+          inspectorDivider.setAttribute('aria-valuenow', collapsedInspectorHalf === 'request' ? '0' : '100');
+          inspectorDivider.setAttribute(
+            'aria-valuetext',
+            uiTextFormat('inspectorHalfCollapsedValue', { half: uiText(inspectorHalves[collapsedInspectorHalf].labelKey) }),
+          );
+          return;
+        }
         const split = calculateInspectorSplit(
           requestPane.getBoundingClientRect().height,
           inspectorPanels.getBoundingClientRect().height,
         );
-        if (split) {
-          inspectorDivider.setAttribute('aria-valuenow', String(split.requestPercent));
-          inspectorDivider.setAttribute('aria-valuetext', 'Request inspector ' + split.requestPercent + ' percent');
+        // Before the first selection the panes have no height and there is
+        // nothing to measure. The remembered percent is still the truth, and
+        // writing it is what replaces the authored English attribute, so the
+        // divider never announces one language while the pane speaks another.
+        const percent = split ? split.requestPercent : inspectorSplitPercent == null ? 50 : inspectorSplitPercent;
+        inspectorDivider.setAttribute('aria-valuenow', String(percent));
+        inspectorDivider.setAttribute('aria-valuetext', inspectorPercentValue(percent));
+      };
+      // The labels are the collapse toggles; their tooltip and aria-expanded
+      // follow the state, and the language switch re-runs this for the tooltip.
+      const syncInspectorToggles = () => {
+        for (const half of INSPECTOR_HALVES) {
+          const { toggle, labelKey } = inspectorHalves[half];
+          if (!toggle) continue;
+          const collapsed = collapsedInspectorHalf === half;
+          toggle.setAttribute('aria-expanded', String(!collapsed));
+          toggle.title = uiTextFormat(collapsed ? 'inspectorExpandHalfTitle' : 'inspectorCollapseHalfTitle', {
+            half: uiText(labelKey),
+          });
         }
+        inspectorPanels.classList.toggle('has-collapsed', collapsedInspectorHalf !== null);
+        inspectorDivider.setAttribute('aria-disabled', String(collapsedInspectorHalf !== null));
+        // The divider's value text names the same half, so the language
+        // switch that re-runs this must re-compose it too.
+        syncInspectorDividerValue();
+      };
+      // Percents are of the space the panes share (the divider excluded), so
+      // a re-applied or restored split lands on the percent it was saved as.
+      const splitForPercent = (percent) => {
+        const totalHeight = inspectorPanels.getBoundingClientRect().height;
+        if (!Number.isFinite(percent) || totalHeight <= 0) return null;
+        return calculateInspectorSplit((percent / 100) * (totalHeight - INSPECTOR_DIVIDER_HEIGHT), totalHeight);
       };
       // A drag freezes both panes at flex:none + px heights; without this, a
       // later window resize clips the response pane behind overflow:hidden.
+      // With a half collapsed both heights go back to flex (auto + 1), and a
+      // pane too short for the dragged split also hands control to flex.
       const rescaleInspectorSplit = () => {
-        if (requestPane.style.height) {
-          const percent = parseFloat(inspectorDivider.getAttribute('aria-valuenow'));
-          const totalHeight = inspectorPanels.getBoundingClientRect().height;
-          const split = Number.isFinite(percent)
-            ? calculateInspectorSplit((percent / 100) * totalHeight, totalHeight)
-            : null;
-          if (split) {
-            applyInspectorSplit(split);
-          } else {
-            // Too small for the dragged split: hand control back to flex.
-            requestPane.style.flex = '';
-            responsePane.style.flex = '';
-            requestPane.style.height = '';
-            responsePane.style.height = '';
-          }
+        // A hidden pane has no height to share out; leave the split alone.
+        if (inspectorPanels.getBoundingClientRect().height <= 0) return;
+        if (collapsedInspectorHalf) {
+          clearInspectorSplitStyles();
+        } else if (requestPane.style.height) {
+          const split = splitForPercent(parseFloat(inspectorDivider.getAttribute('aria-valuenow')));
+          if (split) applyInspectorSplit(split);
+          else clearInspectorSplitStyles();
         }
         syncInspectorDividerValue();
       };
       window.addEventListener('resize', rescaleInspectorSplit);
+      // The panes' shared height also moves without a window resize: the
+      // summary strip renders after the pane opens, the stacked main split
+      // is dragged. Same one-frame deferral as the grid observer; the panes
+      // are children, so re-applying their heights cannot resize the panels.
+      if (typeof ResizeObserver === 'function') {
+        let inspectorFrame = 0;
+        new ResizeObserver(() => {
+          if (inspectorFrame) return;
+          inspectorFrame = requestAnimationFrame(() => {
+            inspectorFrame = 0;
+            rescaleInspectorSplit();
+          });
+        }).observe(inspectorPanels);
+      }
+      // The remembered percent is applied once the pane has a height (it is
+      // hidden until the first selection) and only while nothing has been
+      // dragged since: a live drag already owns the inline heights.
+      const restoreInspectorSplit = () => {
+        if (collapsedInspectorHalf) {
+          clearInspectorSplitStyles();
+        } else if (!requestPane.style.height && inspectorSplitPercent != null) {
+          applyInspectorSplit(splitForPercent(inspectorSplitPercent));
+        }
+        syncInspectorDividerValue();
+      };
+      resyncInspectorSplit = restoreInspectorSplit;
+      refreshInspectorToggleTitles = syncInspectorToggles;
+
+      const setCollapsedInspectorHalf = (next, announce) => {
+        const previous = collapsedInspectorHalf;
+        collapsedInspectorHalf = next;
+        for (const half of INSPECTOR_HALVES) {
+          inspectorHalves[half].pane.classList.toggle('is-collapsed', next === half);
+        }
+        syncInspectorToggles();
+        restoreInspectorSplit();
+        const changedHalf = next || previous;
+        if (announce && changedHalf) {
+          setStatus(
+            uiTextFormat(next ? 'inspectorHalfCollapsedStatus' : 'inspectorHalfExpandedStatus', {
+              half: uiText(inspectorHalves[changedHalf].labelKey),
+            }),
+          );
+        }
+      };
+      const toggleInspectorHalf = (half) => {
+        setCollapsedInspectorHalf(planInspectorCollapse(collapsedInspectorHalf, half), true);
+        rememberInspectorSplit();
+      };
+      for (const half of INSPECTOR_HALVES) {
+        const { toggle, bar } = inspectorHalves[half];
+        if (toggle) toggle.addEventListener('click', () => toggleInspectorHalf(half));
+        // Picking a tab in a collapsed half is a request to read it.
+        if (bar) {
+          bar.addEventListener('click', (event) => {
+            if (collapsedInspectorHalf === half && event.target.closest('.tab-btn')) toggleInspectorHalf(half);
+          });
+        }
+      }
+      // Double-clicking the divider is the one-step way back to 50/50 with
+      // both halves open, whatever was dragged or collapsed.
+      const resetInspectorSplit = () => {
+        inspectorSplitPercent = null;
+        clearInspectorSplitStyles();
+        setCollapsedInspectorHalf(null, false);
+        inspectorDivider.setAttribute('aria-valuenow', '50');
+        inspectorDivider.setAttribute('aria-valuetext', inspectorPercentValue(50));
+        syncInspectorDividerValue();
+        rememberInspectorSplit();
+        setStatus(uiText('inspectorSplitResetStatus'));
+      };
+      inspectorDivider.addEventListener('dblclick', (event) => {
+        event.preventDefault();
+        resetInspectorSplit();
+      });
+      // The collapsed half is restored at once (a class, no measurement); the
+      // percent waits for the pane to have a height (resyncInspectorSplit).
+      if (inspectorPref.collapsed) setCollapsedInspectorHalf(inspectorPref.collapsed, false);
+      else syncInspectorToggles();
 
       inspectorDivider.addEventListener('keydown', (event) => {
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
         event.preventDefault();
         event.stopPropagation();
+        if (collapsedInspectorHalf) return;
         const totalSize = inspectorPanels.getBoundingClientRect().height;
         const split = adjustInspectorSplitByKeyboard(
           requestPane.getBoundingClientRect().height,
@@ -13591,18 +15971,26 @@ const _NetworkPlus = (function () {
           event.shiftKey,
         );
         applyInspectorSplit(split);
-        if (split) setStatus('Request inspector ' + split.requestPercent + ' percent');
+        if (split) {
+          rememberInspectorSplit();
+          setStatus(inspectorPercentValue(split.requestPercent));
+        }
       });
       inspectorDivider.addEventListener('mousedown', (event) => {
         event.preventDefault();
+        if (collapsedInspectorHalf) return;
+        let dragged = false;
         const handleMove = (moveEvent) => {
           const panelsRect = inspectorPanels.getBoundingClientRect();
           const pointerPosition = moveEvent.clientY - panelsRect.top;
-          applyInspectorSplit(calculateInspectorSplit(pointerPosition, panelsRect.height));
+          const split = calculateInspectorSplit(pointerPosition, panelsRect.height);
+          applyInspectorSplit(split);
+          if (split) dragged = true;
         };
         const handleUp = () => {
           document.removeEventListener('mousemove', handleMove);
           document.removeEventListener('mouseup', handleUp);
+          if (dragged) rememberInspectorSplit();
         };
         document.addEventListener('mousemove', handleMove);
         document.addEventListener('mouseup', handleUp);
@@ -15392,6 +17780,14 @@ const _NetworkPlus = (function () {
     isClearNetworkLogShortcut,
     isPopoutShortcut,
     extractUrlParts,
+    splitUrlForTitle,
+    planTitlePathText,
+    longestFittingLength,
+    splitAtDelimiters,
+    planKvValue,
+    KV_CLAMP_CHARS,
+    isMonoValue,
+    planDetailsSummary,
     formatInitiator,
     parseQueryString,
     guessMimeType,
@@ -15550,6 +17946,15 @@ const _NetworkPlus = (function () {
     DETAILS_WIDTH_KEY,
     loadDetailsWidthPref,
     saveDetailsWidthPref,
+    INSPECTOR_SPLIT_KEY,
+    normalizeInspectorSplitPref,
+    loadInspectorSplitPref,
+    saveInspectorSplitPref,
+    planInspectorCollapse,
+    planRowStateClasses,
+    planDetailsReopenStatus,
+    planRowSelectionStatus,
+    applyDefaultColumnLayout,
     computeWaterfallBar,
     computeWaterfallRange,
     loadThemePref,
@@ -15581,6 +17986,20 @@ const _NetworkPlus = (function () {
     BODY_UNAVAILABLE_REASON,
     applyLanguage,
     uiText,
+    uiTextFormat,
+    menuColumnLabel,
+    methodClassToken,
+    DEFAULT_COLUMNS,
+    JSON_TREE_OPEN_DEPTH,
+    JSON_TREE_LONG_STRING_CHARS,
+    renderJsonTree,
+    renderJsonHighlighted,
+    renderRawHighlighted,
+    splitRawRequestLine,
+    formatJsonSafe,
+    buildRawRequestText,
+    buildRawResponseText,
+    planInspectorTabActivation,
     localizeBodyReason,
     localizeTimingLimitation,
     markUnfetchedRowsForNavigation,

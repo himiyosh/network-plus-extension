@@ -2,7 +2,96 @@
  * Unit tests for Network+ pure utility functions
  */
 
+const fs = require('fs');
+const path = require('path');
+
 const np = require('../panel.js');
+
+const PANEL_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'panel.js'), 'utf8');
+
+// Every uiTextFormat() call site in panel.js whose slot is filled from the
+// dictionary, read out of the source rather than remembered. A frame that
+// composes a translated noun into a translated sentence is exactly where an
+// English space can survive around a Japanese word, and the coverage check in
+// the composed-frames test fails the moment a new one is written.
+const DICTIONARY_LOOKUPS = [
+  'uiText',
+  'uiTextFormat',
+  'paneSearchLabel',
+  'menuHighlightColorLabel',
+  'menuColumnLabel',
+  'localizeBodyReason',
+];
+const DICTIONARY_CALL = new RegExp('\\b(?:' + DICTIONARY_LOOKUPS.join('|') + ')\\s*\\(');
+
+function splitTopLevel(source, separator) {
+  const pieces = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index <= source.length; index += 1) {
+    const char = source[index];
+    if (char && '([{'.indexOf(char) !== -1) depth += 1;
+    else if (char && ')]}'.indexOf(char) !== -1) depth -= 1;
+    if (index === source.length || (char === separator && depth === 0)) {
+      pieces.push(source.slice(start, index));
+      start = index + 1;
+    }
+  }
+  return pieces;
+}
+
+// The literal keys a call site's first argument can take: a string, a ternary
+// of strings, or a parameter of a local helper, resolved through that helper's
+// own call sites.
+function resolveFrameKeys(keyExpression, source) {
+  const literals = keyExpression.match(/'([A-Za-z0-9_]+)'/g);
+  if (literals) return literals.map((token) => token.slice(1, -1));
+  const name = keyExpression.trim();
+  if (!/^[A-Za-z0-9_]+$/.test(name)) return [];
+  const helper = new RegExp('(?:const|let|var)\\s+([A-Za-z0-9_]+)\\s*=\\s*\\(\\s*' + name + '\\s*[,)]').exec(source);
+  if (!helper) return [];
+  const calls = source.match(new RegExp('\\b' + helper[1] + "\\('([A-Za-z0-9_]+)'", 'g')) || [];
+  return Array.from(new Set(calls.map((call) => call.replace(/^[^']*'/, '').replace(/'$/, ''))));
+}
+
+function composedFrameCallSites(source = PANEL_SOURCE) {
+  const sites = [];
+  const opener = /uiTextFormat\(/g;
+  let match;
+  while ((match = opener.exec(source))) {
+    const argsStart = match.index + match[0].length;
+    let depth = 1;
+    let end = argsStart;
+    for (; end < source.length; end += 1) {
+      if (source[end] === '(') depth += 1;
+      else if (source[end] === ')') {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    const [keyExpression, ...rest] = splitTopLevel(source.slice(argsStart, end), ',');
+    const argument = rest.join(',').trim();
+    if (!argument.startsWith('{')) continue;
+    const line = source.slice(0, match.index).split(String.fromCharCode(10)).length;
+    const keys = resolveFrameKeys(keyExpression, source);
+    for (const piece of splitTopLevel(argument.replace(/^\{/, '').replace(/\}$/, ''), ',')) {
+      const entry = piece.trim();
+      if (!entry) continue;
+      const colon = entry.indexOf(':');
+      const slot = (colon < 0 ? entry : entry.slice(0, colon)).trim();
+      const value = (colon < 0 ? entry : entry.slice(colon + 1)).trim();
+      const composed =
+        DICTIONARY_CALL.test(value) ||
+        (/^[A-Za-z0-9_]+$/.test(value) &&
+          new RegExp(
+            '(?:const|let|var)\\s+' + value + '\\s*=\\s*[^;\n]*?\\b(?:' + DICTIONARY_LOOKUPS.join('|') + ')\\s*\\(',
+          ).test(source));
+      if (!composed) continue;
+      for (const key of keys) sites.push({ key, slot, line });
+    }
+  }
+  return sites;
+}
 
 describe('fmtBytes', () => {
   test('returns empty string for null/undefined/NaN', () => {
@@ -4178,9 +4267,23 @@ describe('loadThemePref', () => {
 });
 
 describe('saveThemePref', () => {
+  // Two tests below swap document.querySelector for a #statusText stub. The
+  // jest config sets neither restoreMocks nor resetMocks, and clearAllMocks
+  // keeps implementations, so without this the stub answered every later
+  // test in the file and turned one regression into several red tests.
+  let previousQuerySelector;
+
+  beforeAll(() => {
+    previousQuerySelector = document.querySelector.getMockImplementation();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     chrome.runtime.lastError = null;
+  });
+
+  afterEach(() => {
+    document.querySelector.mockImplementation(previousQuerySelector);
   });
 
   test('async write failure falls back to localStorage', (done) => {
@@ -4220,7 +4323,9 @@ describe('saveThemePref', () => {
     });
     const statusEl = { textContent: '' };
     document.querySelector.mockImplementation((sel) =>
-      sel === '#statusText' ? statusEl : { textContent: '', style: {}, setAttribute: jest.fn(), removeAttribute: jest.fn() }
+      sel === '#statusText'
+        ? statusEl
+        : { textContent: '', style: {}, appendChild: jest.fn(), setAttribute: jest.fn(), removeAttribute: jest.fn() }
     );
     np.saveThemePref('dark');
     setTimeout(() => {
@@ -4264,7 +4369,9 @@ describe('saveThemePref', () => {
     });
     const statusEl = { textContent: '' };
     document.querySelector.mockImplementation((sel) =>
-      sel === '#statusText' ? statusEl : { textContent: '', style: {}, setAttribute: jest.fn(), removeAttribute: jest.fn() }
+      sel === '#statusText'
+        ? statusEl
+        : { textContent: '', style: {}, appendChild: jest.fn(), setAttribute: jest.fn(), removeAttribute: jest.fn() }
     );
     np.saveThemePref('dark');
     setTimeout(() => {
@@ -4425,6 +4532,29 @@ describe('uiText and display-time reason localization', () => {
     expect(np.uiText('noSuchKey')).toBe('');
   });
 
+  // The details header, URL breakdown, and clamp toggle compose their labels
+  // at render time; every one of them must have a Japanese frame.
+  test('details header and kv value strings translate', () => {
+    np.applyLanguage('en');
+    expect(np.uiText('detailsEmptyTitle')).toBe('Select a request...');
+    expect(np.uiText('titleDetailsCopyUrl')).toBe('Copy sanitized URL');
+    expect(np.uiText('detailsQueryCount')).toBe('{count} query parameters');
+    expect(np.uiText('urlBreakdownOpenQuery')).toBe('?{count} params — open Query');
+    expect(np.uiText('urlBreakdownShowFull')).toBe('Show full URL');
+    expect(np.uiText('kvShowAll')).toBe('Show all ({count} chars)');
+    np.applyLanguage('ja');
+    expect(np.uiText('detailsEmptyTitle')).toBe('リクエストを選択してください...');
+    expect(np.uiText('titleDetailsCopyUrl')).toBe('サニタイズ済み URL をコピー');
+    expect(np.uiText('detailsQueryCount')).toBe('クエリパラメーター {count} 件');
+    expect(np.uiText('detailsQueryCountOne')).toBe('クエリパラメーター 1 件');
+    expect(np.uiText('urlBreakdownOpenQuery')).toBe('?{count} 件のパラメーター — Query を開く');
+    expect(np.uiText('urlBreakdownOpenQueryOne')).toBe('?1 件のパラメーター — Query を開く');
+    expect(np.uiText('urlBreakdownShowFull')).toBe('完全な URL を表示');
+    expect(np.uiText('urlBreakdownHideFull')).toBe('完全な URL を隠す');
+    expect(np.uiText('kvShowAll')).toBe('すべて表示（{count} 文字）');
+    expect(np.uiText('kvShowLess')).toBe('折りたたむ');
+  });
+
   test('fixed body reasons translate at display time; stored rows stay English', () => {
     np.applyLanguage('ja');
     const translated = np.localizeBodyReason(np.NAVIGATION_BODY_UNAVAILABLE_REASON);
@@ -4582,6 +4712,542 @@ describe('details pane width preference', () => {
       throw new Error('denied');
     });
     expect(() => np.saveDetailsWidthPref(500)).not.toThrow();
+  });
+});
+
+describe('inspector split preference', () => {
+  test('normalizes the percent and the collapsed half from an allow-list', () => {
+    expect(np.INSPECTOR_SPLIT_KEY).toBe('networkPlus.inspectorSplit.v1');
+    expect(np.normalizeInspectorSplitPref(null)).toEqual({ percent: null, collapsed: null });
+    expect(np.normalizeInspectorSplitPref({ percent: 40.4, collapsed: 'request' })).toEqual({
+      percent: 40,
+      collapsed: 'request',
+    });
+    expect(np.normalizeInspectorSplitPref({ percent: '65', collapsed: 'response' })).toEqual({
+      percent: 65,
+      collapsed: 'response',
+    });
+    // Nothing may leave one pane without room, and only the two halves exist.
+    expect(np.normalizeInspectorSplitPref({ percent: 0, collapsed: 'both' })).toEqual({ percent: null, collapsed: null });
+    expect(np.normalizeInspectorSplitPref({ percent: 100, collapsed: 1 })).toEqual({ percent: null, collapsed: null });
+    expect(np.normalizeInspectorSplitPref({ percent: 'wide' })).toEqual({ percent: null, collapsed: null });
+  });
+
+  test('round-trips through localStorage as JSON and degrades to the default', () => {
+    localStorage.getItem.mockReturnValueOnce(null);
+    expect(np.loadInspectorSplitPref()).toEqual({ percent: null, collapsed: null });
+    localStorage.getItem.mockReturnValueOnce('{"percent":35,"collapsed":"response"}');
+    expect(np.loadInspectorSplitPref()).toEqual({ percent: 35, collapsed: 'response' });
+    localStorage.getItem.mockReturnValueOnce('not json');
+    expect(np.loadInspectorSplitPref()).toEqual({ percent: null, collapsed: null });
+    np.saveInspectorSplitPref({ percent: 72.6, collapsed: 'request', extra: true });
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      'networkPlus.inspectorSplit.v1',
+      '{"percent":73,"collapsed":"request"}',
+    );
+    localStorage.getItem.mockImplementationOnce(() => {
+      throw new Error('denied');
+    });
+    expect(np.loadInspectorSplitPref()).toEqual({ percent: null, collapsed: null });
+    localStorage.setItem.mockImplementationOnce(() => {
+      throw new Error('denied');
+    });
+    expect(() => np.saveInspectorSplitPref({ percent: 50, collapsed: null })).not.toThrow();
+  });
+
+  test('collapsing a half re-expands the other and clicking it again expands it', () => {
+    expect(np.planInspectorCollapse(null, 'request')).toBe('request');
+    expect(np.planInspectorCollapse('request', 'request')).toBeNull();
+    // Both collapsed is not allowed: the second click hands the space over.
+    expect(np.planInspectorCollapse('request', 'response')).toBe('response');
+    expect(np.planInspectorCollapse('response', 'request')).toBe('request');
+    expect(np.planInspectorCollapse('response', 'sidebar')).toBe('response');
+    expect(np.planInspectorCollapse(undefined, 'sidebar')).toBeNull();
+  });
+});
+
+describe('row state classes', () => {
+  test('each state carries its own look and the current hit adds its ring class', () => {
+    expect(np.planRowStateClasses({})).toEqual([]);
+    expect(np.planRowStateClasses({ primary: true })).toEqual(['selected']);
+    expect(np.planRowStateClasses({ multi: true })).toEqual(['multi-selected']);
+    expect(np.planRowStateClasses({ highlightColor: 'hl-green' })).toEqual(['highlighted-row', 'hl-green']);
+    expect(np.planRowStateClasses({ searchColorIdx: 2 })).toEqual(['search-match-row', 'search-row-2']);
+    expect(np.planRowStateClasses({ searchColorIdx: 0, searchCurrent: true })).toEqual([
+      'search-match-row',
+      'search-row-0',
+      'search-match-current',
+    ]);
+    // The current hit is normally also the primary selection.
+    expect(
+      np.planRowStateClasses({ primary: true, multi: true, highlightColor: 'hl-red', searchColorIdx: 4, searchCurrent: true }),
+    ).toEqual(['selected', 'multi-selected', 'highlighted-row', 'hl-red', 'search-match-row', 'search-row-4', 'search-match-current']);
+    // Without a search colour there is no hit, so there is no current hit either.
+    expect(np.planRowStateClasses({ searchColorIdx: null, searchCurrent: true })).toEqual([]);
+  });
+
+  const stampedStateClasses = (row, rowState) =>
+    np
+      .createTableRow(row, jest.fn(), false, rowState)
+      .classList.add.mock.calls.flat()
+      .filter((className) => /^(selected|multi-selected|highlighted-row|hl-|search-)/.test(className));
+
+  test('createTableRow stamps the planned classes on the row', () => {
+    expect(stampedStateClasses({ id: 'plain', method: 'GET' })).toEqual([]);
+  });
+
+  test('createTableRow stamps selected, highlighted and search-hit rows with their real classes', () => {
+    // The negative case alone would still pass with planRowStateClasses
+    // unwired, so seed the row state each look depends on through
+    // createTableRow's own seam and read the row back.
+    const primary = { id: 'primary', method: 'GET' };
+    const highlighted = { id: 'highlighted', method: 'GET' };
+    const currentHit = { id: 'current-hit', method: 'GET' };
+    const plainHit = { id: 'plain-hit', method: 'GET' };
+    const seeded = {
+      selectedRow: primary,
+      selectedRows: new Set([primary, highlighted]),
+      highlightedRows: new Map([[highlighted, 'hl-green']]),
+      search: {
+        keywords: [{ query: 'a', colorIdx: 2 }],
+        rowColors: new Map([
+          [currentHit, new Set([2])],
+          [plainHit, new Set([2])],
+        ]),
+        rowKeywords: new Map([
+          [currentHit, new Set([0])],
+          [plainHit, new Set([0])],
+        ]),
+        matches: [currentHit, plainHit],
+        currentIndex: 0,
+      },
+    };
+    expect(stampedStateClasses(primary, seeded)).toEqual(['selected', 'multi-selected']);
+    expect(stampedStateClasses(highlighted, seeded)).toEqual(['multi-selected', 'highlighted-row', 'hl-green']);
+    expect(stampedStateClasses(currentHit, seeded)).toEqual([
+      'search-match-row',
+      'search-row-2',
+      'search-match-current',
+    ]);
+    // Same hit colour, but not the one the navigation is sitting on.
+    expect(stampedStateClasses(plainHit, seeded)).toEqual(['search-match-row', 'search-row-2']);
+    // Selected and the current hit at once: both looks land together.
+    const selectedHit = { ...seeded, selectedRow: currentHit, selectedRows: new Set() };
+    expect(stampedStateClasses(currentHit, selectedHit)).toEqual([
+      'selected',
+      'search-match-row',
+      'search-row-2',
+      'search-match-current',
+    ]);
+    // Omitting the seam falls back to the live module state, which stamps nothing.
+    expect(stampedStateClasses({ id: 'plain', method: 'GET' })).toEqual([]);
+  });
+});
+
+describe('method class tokens', () => {
+  test('only an allow-listed method becomes a class token', () => {
+    for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'WS', 'SSE']) {
+      expect([method, np.methodClassToken(method)]).toEqual([method, 'method-' + method]);
+      expect([method, np.methodClassToken(method.toLowerCase())]).toEqual([method, 'method-' + method]);
+    }
+    // A method carrying a space would otherwise split into two class tokens,
+    // and one carrying a quote would break out of the attribute it lands in.
+    expect(np.methodClassToken('GET selected')).toBe('');
+    expect(np.methodClassToken('GET evil-row-class')).toBe('');
+    expect(np.methodClassToken('GET"')).toBe('');
+    expect(np.methodClassToken('"GET"')).toBe('');
+    expect(np.methodClassToken('GET" onload="x')).toBe('');
+    expect(np.methodClassToken('PROPFIND')).toBe('');
+    expect(np.methodClassToken('')).toBe('');
+    expect(np.methodClassToken(null)).toBe('');
+    expect(np.methodClassToken(undefined)).toBe('');
+  });
+});
+
+describe('column layout reset', () => {
+  test('restores the default visibility and widths while keeping order and labels', () => {
+    const columns = [
+      { id: 'path', label: 'Path', width: 300, visible: false },
+      { id: 'customHeader', label: 'x-request-id', width: 90, visible: true },
+      { id: 'match', label: 'Match', width: 64, visible: true },
+      { id: 'legacy', label: 'Legacy', width: 50, visible: true },
+    ];
+    const result = np.applyDefaultColumnLayout(columns, [
+      { id: 'match', label: 'Match', width: 36, visible: true },
+      { id: 'path', label: 'Path', width: 260, visible: true },
+      { id: 'customHeader', label: 'Header', width: 160, visible: false },
+    ]);
+    expect(result).toBe(columns);
+    expect(columns).toEqual([
+      { id: 'path', label: 'Path', width: 260, visible: true },
+      { id: 'customHeader', label: 'x-request-id', width: 160, visible: false },
+      { id: 'match', label: 'Match', width: 36, visible: true },
+      { id: 'legacy', label: 'Legacy', width: 50, visible: true },
+    ]);
+  });
+});
+
+describe('details reopen status', () => {
+  const closedTexts = ['Request details closed. Select a request to reopen.', '閉じました'];
+
+  test('replaces only the closed notice, and only with what it displaced', () => {
+    expect(np.planDetailsReopenStatus(closedTexts[0], closedTexts, 'Local sample capture: 3 requests.')).toBe(
+      'Local sample capture: 3 requests.',
+    );
+    expect(np.planDetailsReopenStatus(closedTexts[1], closedTexts, '')).toBe('');
+    expect(np.planDetailsReopenStatus(closedTexts[0], closedTexts, undefined)).toBe('');
+    // Any other message (a copy result, a filter summary) stays untouched.
+    expect(np.planDetailsReopenStatus('Copied sanitized URL', closedTexts, 'older')).toBeNull();
+    expect(np.planDetailsReopenStatus(closedTexts[0], null, 'older')).toBeNull();
+  });
+
+  test('the reopened bar names the newly selected request, not the displaced message', () => {
+    expect(
+      np.planRowSelectionStatus({
+        method: 'GET',
+        url: 'https://api.example.test/v1/items/0?page=2',
+        status: 200,
+        statusText: 'OK',
+      }),
+    ).toBe('GET · api.example.test · 200 OK');
+    // A status without its reason phrase, and a pending row with no status.
+    expect(np.planRowSelectionStatus({ method: 'POST', url: 'https://api.example.test/graphql', status: 503 })).toBe(
+      'POST · api.example.test · 503',
+    );
+    expect(np.planRowSelectionStatus({ method: 'POST', url: 'https://api.example.test/graphql', status: 0 })).toBe(
+      'POST · api.example.test',
+    );
+    // An opaque scheme keeps the scheme as its host; an empty row says nothing.
+    expect(np.planRowSelectionStatus({ method: 'GET', url: 'data:text/plain,hi' })).toBe('GET · data:');
+    expect(np.planRowSelectionStatus({})).toBe('');
+    expect(np.planRowSelectionStatus(null)).toBe('');
+    np.applyLanguage('en');
+    expect(np.uiTextFormat('statusRowSelected', { request: 'GET · api.example.test · 200 OK' })).toBe(
+      'Selected GET · api.example.test · 200 OK.',
+    );
+    np.applyLanguage('ja');
+    expect(np.uiTextFormat('statusRowSelected', { request: 'GET · api.example.test · 200 OK' })).toBe(
+      'GET · api.example.test · 200 OK を選択しました。',
+    );
+    np.applyLanguage('en');
+  });
+
+  test('the notice, the collapse strings, and the menu labels translate', () => {
+    np.applyLanguage('en');
+    expect(np.uiText('statusDetailsClosed')).toBe('Request details closed. Select a request to reopen.');
+    expect(np.uiText('inspectorEmptyHint')).toBe('Select a request to inspect it — click a row, ↑↓ to move, Enter to open');
+    expect([np.uiText('inspectorHalfRequest'), np.uiText('inspectorHalfResponse')]).toEqual(['Request', 'Response']);
+    expect(np.uiTextFormat('inspectorCollapseHalfTitle', { half: np.uiText('inspectorHalfRequest') })).toBe(
+      'Collapse the Request inspector to its tabs',
+    );
+    expect(np.uiTextFormat('inspectorHalfCollapsedValue', { half: np.uiText('inspectorHalfResponse') })).toBe(
+      'Response inspector collapsed',
+    );
+    expect(np.uiText('columnsSavedView')).toBe('Saved view');
+    expect(np.uiText('menuCopySanitized')).toBe('Copy sanitized');
+    np.applyLanguage('ja');
+    expect(np.uiText('statusDetailsClosed')).toBe('リクエスト詳細を閉じました。リクエストを選択すると再び開きます。');
+    expect(np.uiText('inspectorEmptyHint')).toBe(
+      'リクエストを選択すると内容を確認できます — 行をクリック、↑↓ で移動、Enter で開く',
+    );
+    // The half name translates with the sentence it sits in: an English noun
+    // inside a Japanese tooltip was the bug.
+    expect([np.uiText('inspectorHalfRequest'), np.uiText('inspectorHalfResponse')]).toEqual([
+      'リクエスト',
+      'レスポンス',
+    ]);
+    expect(np.uiTextFormat('inspectorExpandHalfTitle', { half: np.uiText('inspectorHalfRequest') })).toBe(
+      'リクエストインスペクターを展開する',
+    );
+    expect(np.uiTextFormat('inspectorHalfCollapsedStatus', { half: np.uiText('inspectorHalfResponse') })).toBe(
+      'レスポンスインスペクターを折りたたみました。仕切りをダブルクリックすると 50/50 に戻ります。',
+    );
+    expect(np.uiText('inspectorSplitResetStatus')).toBe('リクエストとレスポンスのインスペクターを 50/50 に戻しました。');
+    expect([np.uiText('columnsSelectAll'), np.uiText('columnsDeselectAll'), np.uiText('columnsReset')]).toEqual([
+      'すべて選択',
+      'すべて解除',
+      'リセット',
+    ]);
+    expect([np.uiText('columnsGroupIdentity'), np.uiText('columnsGroupTiming'), np.uiText('columnsGroupPayload')]).toEqual([
+      '識別',
+      'タイミング',
+      'ペイロード',
+    ]);
+    expect(np.uiText('columnsSavedView')).toBe('保存したビュー');
+    expect(np.uiText('menuCopySanitized')).toBe('サニタイズ済みをコピー');
+    np.applyLanguage('en');
+  });
+
+  test('every row context menu string carries both languages', () => {
+    // The mixed-language menu was the bug: one translated toggle among a
+    // dozen English siblings. English must stay byte-identical, so the pins
+    // below double as the "English users see no change" contract.
+    const ENGLISH = {
+      menuRequestActions: 'Request actions',
+      menuFilter: 'Filter',
+      menuSelect: 'Select',
+      menuDeselect: 'Deselect',
+      menuHighlight: 'Highlight',
+      menuHighlightColor: 'Highlight color',
+      menuUnhighlight: 'Unhighlight',
+      menuClearHighlights: 'Clear All Highlights',
+      menuCompare: 'Compare',
+      menuCompareTwo: 'Compare 2 selected requests',
+      menuCopySanitizedSummary: 'Copy sanitized summary',
+      menuCopySanitizedUrl: 'Copy sanitized URL',
+      menuCopySanitizedCurl: 'Copy sanitized cURL',
+      menuCopySanitizedFetch: 'Copy sanitized fetch',
+      menuCopySanitizedPowershell: 'Copy sanitized PowerShell',
+      menuCopySanitizedMarkdown: 'Copy sanitized Markdown',
+      menuCopyFull: 'Copy full (unsanitized)',
+      menuResend: 'Resend',
+      menuResendUnchanged: 'Resend unchanged',
+      menuResendEdit: 'Edit and resend...',
+      menuColorYellow: 'Yellow',
+      menuColorRed: 'Red',
+      menuColorGreen: 'Green',
+      menuColorBlue: 'Blue',
+      menuColorPurple: 'Purple',
+      menuColorOrange: 'Orange',
+    };
+    const JAPANESE = {
+      menuRequestActions: 'リクエストの操作',
+      menuFilter: 'フィルター',
+      menuSelect: '選択',
+      menuDeselect: '選択解除',
+      menuHighlight: 'ハイライト',
+      menuHighlightColor: 'ハイライトの色',
+      menuUnhighlight: 'ハイライト解除',
+      menuClearHighlights: 'すべてのハイライトを解除',
+      menuCompare: '比較',
+      menuCompareTwo: '選択した 2 件のリクエストを比較',
+      menuCopySanitizedSummary: 'サニタイズ済みの概要をコピー',
+      menuCopySanitizedUrl: 'サニタイズ済み URL をコピー',
+      menuCopySanitizedCurl: 'サニタイズ済み cURL をコピー',
+      menuCopySanitizedFetch: 'サニタイズ済み fetch をコピー',
+      menuCopySanitizedPowershell: 'サニタイズ済み PowerShell をコピー',
+      menuCopySanitizedMarkdown: 'サニタイズ済み Markdown をコピー',
+      menuCopyFull: 'フル (未サニタイズ) でコピー',
+      menuResend: '再送',
+      menuResendUnchanged: 'そのまま再送',
+      menuResendEdit: '編集して再送...',
+      menuColorYellow: '黄',
+      menuColorRed: '赤',
+      menuColorGreen: '緑',
+      menuColorBlue: '青',
+      menuColorPurple: '紫',
+      menuColorOrange: 'オレンジ',
+    };
+    np.applyLanguage('en');
+    for (const [key, text] of Object.entries(ENGLISH)) expect([key, np.uiText(key)]).toEqual([key, text]);
+    expect(np.uiTextFormat('menuFilterOnly', { column: 'Domain', value: 'api.test' })).toBe('Only Domain api.test');
+    expect(np.uiTextFormat('menuFilterExclude', { column: 'Path', value: '/v1' })).toBe('Exclude Path /v1');
+    expect(np.uiTextFormat('menuHighlightRows', { count: 3 })).toBe('Highlight (3 rows)');
+    expect(np.uiTextFormat('menuUnhighlightRows', { count: 3 })).toBe('Unhighlight (3)');
+    expect(np.uiTextFormat('menuKeepSelected', { count: 2 })).toBe('Keep Selected (2)');
+    expect(np.uiTextFormat('menuDeleteSelected', { count: 2 })).toBe('Delete Selected (2)');
+    expect(np.uiTextFormat('menuCopySanitizedTable', { count: 4 })).toBe('Copy sanitized Markdown table (4 rows)');
+    expect(np.uiTextFormat('menuHighlightColorNamed', { color: np.uiText('menuColorGreen') })).toBe('Highlight Green');
+    // The copy-full frames wrap the name of the pane the button sits in.
+    // English spaces around the slot; these are byte-identical to what the
+    // dialog and the toast have always said.
+    const COPY_FULL_FRAMES = ['copyFullTitle', 'copyFullDetail', 'copyFullConfirm', 'statusCopiedFullConfirmed'];
+    expect(
+      COPY_FULL_FRAMES.map((key) => np.uiTextFormat(key, { label: np.uiText('paneNameResponseBody') })),
+    ).toEqual([
+      'Copy full response body?',
+      'The full response body may include captured credentials or body content.',
+      'Copy full response body',
+      'Copied full response body after confirmation',
+    ]);
+    // Capture-derived data (URL paths, domains, cell values, header names)
+    // goes through these slots verbatim. String.replace would have read $&,
+    // $`, $', $$ and $<name> in a value as replacement patterns.
+    for (const value of ['$&', '$`', "$'", '$$', '$<column>', 'a$&b$`c', '$&$&']) {
+      expect([value, np.uiTextFormat('menuFilterOnly', { column: 'Path', value })]).toEqual([
+        value,
+        'Only Path ' + value,
+      ]);
+      expect([value, np.uiTextFormat('menuFilterExclude', { column: value, value: 'v' })]).toEqual([
+        value,
+        'Exclude ' + value + ' v',
+      ]);
+    }
+    // The eight full-copy labels are byte-identical to what the menu had.
+    const fullCopyKeys = [
+      'menuCopyFullSummary',
+      'menuCopyFullUrl',
+      'menuCopyFullCurl',
+      'menuCopyFullFetch',
+      'menuCopyFullPowershell',
+      'menuCopyFullMarkdown',
+      'menuCopyFullRawRequest',
+      'menuCopyFullRequestBody',
+    ];
+    expect(fullCopyKeys.map((key) => np.uiText(key))).toEqual([
+      'Copy full request summary',
+      'Copy full URL',
+      'Copy full cURL',
+      'Copy full fetch',
+      'Copy full PowerShell',
+      'Copy full Markdown',
+      'Copy full raw request',
+      'Copy full request body',
+    ]);
+    // The column names the filter sentence interpolates must match the grid's
+    // own DEFAULT_COLUMNS labels exactly, so English reads as it always did.
+    for (const column of np.DEFAULT_COLUMNS) {
+      expect([column.id, np.menuColumnLabel(column.id, '')]).toEqual([column.id, column.label]);
+    }
+    // syncCustomHeaderColumnLabel renames the custom-header column at runtime
+    // to the header it shows, so that configured name — not the dictionary's
+    // generic "Header" — is what the sentence must quote, in every language.
+    // The binding goes through the same call the Columns menu makes, because
+    // "is it configured" is now read from that state rather than guessed from
+    // the label text.
+    np.saveCustomHeaderColumnName('x-request-id');
+    expect(np.menuColumnLabel('customHeader', 'x-request-id')).toBe('x-request-id');
+    expect(np.uiTextFormat('menuFilterOnly', { column: np.menuColumnLabel('customHeader', 'x-request-id'), value: 'r-42' })).toBe(
+      'Only x-request-id r-42',
+    );
+
+    np.applyLanguage('ja');
+    for (const [key, text] of Object.entries(JAPANESE)) expect([key, np.uiText(key)]).toEqual([key, text]);
+    expect(np.uiTextFormat('menuFilterOnly', { column: np.menuColumnLabel('domain', 'Domain'), value: 'api.test' })).toBe(
+      'ドメイン: api.test のみ',
+    );
+    expect(np.uiTextFormat('menuFilterExclude', { column: np.menuColumnLabel('path', 'Path'), value: '/v1' })).toBe(
+      'パス: /v1 を除外',
+    );
+    expect(np.menuColumnLabel('customHeader', 'x-request-id')).toBe('x-request-id');
+    expect(np.uiTextFormat('menuFilterOnly', { column: np.menuColumnLabel('customHeader', 'x-request-id'), value: 'r-42' })).toBe(
+      'x-request-id: r-42 のみ',
+    );
+    // Japanese does not space around an inserted noun. These four frames
+    // inherited the ASCII spaces that surrounded the English {label} and
+    // rendered "完全版 レスポンスボディ をコピーしますか？".
+    const japaneseLabel = np.uiText('paneNameResponseBody');
+    expect(japaneseLabel).toBe('レスポンスボディ');
+    const japaneseFrames = COPY_FULL_FRAMES.map((key) => np.uiTextFormat(key, { label: japaneseLabel }));
+    expect(japaneseFrames).toEqual([
+      '完全版レスポンスボディをコピーしますか？',
+      '完全版レスポンスボディには、キャプチャされた資格情報やボディの内容が含まれることがあります。',
+      '完全版レスポンスボディをコピー',
+      '確認のうえ完全版レスポンスボディをコピーしました',
+    ]);
+    // Stated as the rule, not just as four literals: no space survives on
+    // either side of the slot the pane name lands in.
+    for (const rendered of japaneseFrames) {
+      expect([rendered, / レスポンスボディ|レスポンスボディ /.test(rendered)]).toEqual([rendered, false]);
+    }
+    // And stated over every frame that composes, not just this one. Each row
+    // below mirrors a uiTextFormat call site in panel.js whose slot receives
+    // a uiText() result: the frame translates, the noun in it translates, and
+    // the English spaces that separated them must not come along. A new
+    // composed frame belongs in this table.
+    const PANE_NAME_KEYS = [
+      'paneNameRequestBody',
+      'paneNameRawRequest',
+      'paneNameResponseBody',
+      'paneNameRawResponse',
+      'paneNameFallback',
+    ];
+    const INSPECTOR_HALF_KEYS = ['inspectorHalfRequest', 'inspectorHalfResponse'];
+    const COLOR_NAME_KEYS = [
+      'menuColorYellow',
+      'menuColorRed',
+      'menuColorGreen',
+      'menuColorBlue',
+      'menuColorPurple',
+      'menuColorOrange',
+    ];
+    const BODY_STATE_KEYS = ['bodyStateOmitted', 'bodyStateEvicted', 'bodyStateUnavailable', 'bodyStateError'];
+    const BODY_REASON_KEYS = [
+      'reasonNavigationBodyUnavailable',
+      'reasonBodyEvicted',
+      'reasonImportNoContent',
+      'reasonBodyRetrievalFailed',
+      'reasonBodyUnavailable',
+    ];
+    const PANE_SEARCH_FRAMES = [
+      'paneSearchPlaceholder',
+      'paneSearchInputLabel',
+      'paneSearchPrevLabel',
+      'paneSearchNextLabel',
+      'paneSearchExpandLabel',
+    ];
+    const INSPECTOR_HALF_FRAMES = [
+      'inspectorCollapseHalfTitle',
+      'inspectorExpandHalfTitle',
+      'inspectorHalfCollapsedStatus',
+      'inspectorHalfExpandedStatus',
+      'inspectorHalfCollapsedValue',
+    ];
+    // Every column name the filter sentence can quote, taken from the panel's
+    // own column list through the same call the menu makes.
+    const COLUMN_LABELS = np.DEFAULT_COLUMNS.map((column) => np.menuColumnLabel(column.id, column.label));
+    const COMPOSED_JAPANESE_FRAMES = [
+      ...COPY_FULL_FRAMES.map((key) => ({ key, slot: 'label', values: PANE_NAME_KEYS })),
+      { key: 'menuFilterOnly', slot: 'column', texts: COLUMN_LABELS, others: { value: 'r-42' } },
+      { key: 'menuFilterExclude', slot: 'column', texts: COLUMN_LABELS, others: { value: 'r-42' } },
+      ...PANE_SEARCH_FRAMES.map((key) => ({ key, slot: 'pane', values: PANE_NAME_KEYS })),
+      ...INSPECTOR_HALF_FRAMES.map((key) => ({ key, slot: 'half', values: INSPECTOR_HALF_KEYS })),
+      { key: 'inspectorHalfPercentValue', slot: 'half', values: INSPECTOR_HALF_KEYS, others: { percent: 50 } },
+      { key: 'menuHighlightColorNamed', slot: 'color', values: COLOR_NAME_KEYS },
+      { key: 'bodyPaneFrame', slot: 'label', values: BODY_STATE_KEYS, others: { reason: np.uiText('reasonBodyEvicted') } },
+      { key: 'bodyPaneFrame', slot: 'reason', values: BODY_REASON_KEYS, others: { label: np.uiText('bodyStateEvicted') } },
+    ];
+    for (const frame of COMPOSED_JAPANESE_FRAMES) {
+      // A row names either the dictionary keys whose text can land in the slot
+      // or, where the value is composed by the panel itself, the texts.
+      const entries = frame.texts
+        ? frame.texts.map((text) => [text, text])
+        : frame.values.map((valueKey) => [valueKey, np.uiText(valueKey)]);
+      for (const [name, value] of entries) {
+        const at = frame.key + ' <- ' + name;
+        const rendered = np.uiTextFormat(frame.key, { ...(frame.others || {}), [frame.slot]: value });
+        // Not vacuous: the entry really does land inside the frame.
+        expect([at, value.length > 0 && rendered.includes(value)]).toEqual([at, true]);
+        expect([at, rendered.includes(' ' + value)]).toEqual([at, false]);
+        expect([at, rendered.includes(value + ' ')]).toEqual([at, false]);
+      }
+    }
+    // The table is no longer maintained by memory: every uiTextFormat call
+    // site in panel.js whose slot is filled from the dictionary has to appear
+    // above, so a new composed frame fails here until its row is written.
+    const callSites = composedFrameCallSites();
+    const covered = new Set(COMPOSED_JAPANESE_FRAMES.map((frame) => frame.key + ' <- {' + frame.slot + '}'));
+    expect(callSites.length).toBeGreaterThanOrEqual(20);
+    for (const site of callSites) {
+      const at = 'panel.js:' + site.line + ' ' + site.key + ' <- {' + site.slot + '}';
+      expect([at, covered.has(site.key + ' <- {' + site.slot + '}')]).toEqual([at, true]);
+    }
+    // A header whose name happens to be "Header" is bound like any other. The
+    // old string comparison against the default label sent exactly this
+    // column back to the dictionary and quoted a translated UI noun where the
+    // captured header name belonged.
+    np.saveCustomHeaderColumnName('Header');
+    expect(np.menuColumnLabel('customHeader', 'Header')).toBe('Header');
+    expect(np.uiTextFormat('menuFilterOnly', { column: np.menuColumnLabel('customHeader', 'Header'), value: 'r-42' })).toBe(
+      'Header: r-42 のみ',
+    );
+    // Unconfigured, the column is still called "Header" and still translates.
+    np.saveCustomHeaderColumnName('');
+    expect(np.menuColumnLabel('customHeader', 'Header')).toBe('ヘッダー');
+    expect(np.uiTextFormat('menuKeepSelected', { count: 2 })).toBe('選択した行を残す (2)');
+    expect(np.uiTextFormat('menuDeleteSelected', { count: 2 })).toBe('選択した行を削除 (2)');
+    expect(fullCopyKeys.map((key) => np.uiText(key))).toEqual([
+      'リクエスト概要をフルコピー',
+      'URL をフルコピー',
+      'cURL をフルコピー',
+      'fetch をフルコピー',
+      'PowerShell をフルコピー',
+      'Markdown をフルコピー',
+      '生リクエストをフルコピー',
+      'リクエストボディをフルコピー',
+    ]);
+    expect(np.uiTextFormat('menuHighlightColorNamed', { color: np.uiText('menuColorGreen') })).toBe('緑でハイライト');
+    np.applyLanguage('en');
   });
 });
 
@@ -6759,3 +7425,775 @@ describe('mirror session identity and bounds', () => {
   });
 });
 
+
+describe('details header identity helpers', () => {
+  test('splitUrlForTitle separates host, pathname, the query count and the fragment', () => {
+    expect(np.splitUrlForTitle('https://example.com/api/data?q=1&r=2')).toEqual({
+      host: 'example.com',
+      userinfo: '',
+      pathname: '/api/data',
+      search: '?q=1&r=2',
+      hash: '',
+      queryCount: 2,
+      scheme: 'https://',
+    });
+    // The fragment is part of the URL and part of the URL row's selectable
+    // value; the breakdown cannot show it if this does not hand it over.
+    expect(np.splitUrlForTitle('https://example.com/docs?page=2#section-4')).toEqual({
+      host: 'example.com',
+      userinfo: '',
+      pathname: '/docs',
+      search: '?page=2',
+      hash: '#section-4',
+      queryCount: 1,
+      scheme: 'https://',
+    });
+    expect(np.splitUrlForTitle('http://localhost:3000/test')).toEqual({
+      host: 'localhost:3000',
+      userinfo: '',
+      pathname: '/test',
+      search: '',
+      hash: '',
+      queryCount: 0,
+      scheme: 'http://',
+    });
+    // Credentials live between the scheme and the host, and URL.host drops
+    // them: taking the host alone rendered and copied
+    // 'https://creds.example.test/vault/item?k=1' for a request the panel
+    // actually saw as 'https://alice:s3cret@creds.example.test/vault/item?k=1'.
+    expect(np.splitUrlForTitle('https://alice:s3cret@creds.example.test/vault/item?k=1')).toEqual({
+      host: 'creds.example.test',
+      userinfo: 'alice:s3cret@',
+      pathname: '/vault/item',
+      search: '?k=1',
+      hash: '',
+      queryCount: 1,
+      scheme: 'https://',
+    });
+    // A username with no password keeps its single '@' and nothing else.
+    expect(np.splitUrlForTitle('https://svc@api.example.test:8443/health#live')).toEqual({
+      host: 'api.example.test:8443',
+      userinfo: 'svc@',
+      pathname: '/health',
+      search: '',
+      hash: '#live',
+      queryCount: 0,
+      scheme: 'https://',
+    });
+    // Opaque schemes follow extractUrlParts: the scheme stands in for the host.
+    expect(np.splitUrlForTitle('blob:https://cdn.example.test/5d76341a')).toEqual({
+      host: 'blob:',
+      userinfo: '',
+      pathname: 'https://cdn.example.test/5d76341a',
+      search: '',
+      hash: '',
+      queryCount: 0,
+      scheme: '',
+    });
+    expect(np.splitUrlForTitle('not-a-url')).toEqual({
+      host: '',
+      userinfo: '',
+      pathname: 'not-a-url',
+      search: '',
+      hash: '',
+      queryCount: 0,
+      scheme: '',
+    });
+    expect(np.splitUrlForTitle(null).pathname).toBe('');
+    // Every piece of a parsable URL is accounted for, so nothing the row
+    // renders from these parts can silently drop part of the address. This is
+    // an EQUALITY, not an endsWith: the suffix form could not see the missing
+    // 'alice:s3cret@', because what it dropped was a prefix.
+    for (const url of [
+      'https://example.com/api/data?q=1&r=2',
+      'https://example.com/docs?page=2#section-4',
+      'https://user@example.com:8443/a/b?c=d#e',
+      'https://alice:s3cret@creds.example.test/vault/item?k=1',
+      'https://svc@api.example.test:8443/health#live',
+      'http://api.example.test:8080/ported/endpoint?a=1&b=2#frag',
+      'blob:https://cdn.example.test/5d76341a',
+    ]) {
+      const parts = np.splitUrlForTitle(url);
+      const rebuilt = parts.scheme + parts.userinfo + parts.host + parts.pathname + parts.search + parts.hash;
+      expect([url, rebuilt]).toEqual([url, url]);
+    }
+  });
+
+  test('planTitlePathText keeps the endpoint whole and never drops text unmarked', () => {
+    // One character is one unit of budget, so the pixel rule can be reasoned
+    // about exactly; the panel passes a canvas measurer of the same shape.
+    const measure = (text) => text.length;
+    const pathname = '/gampad/ads/deep/nested/segments/final-segment.js';
+    expect(np.planTitlePathText(pathname, 200, measure)).toBe(pathname);
+    expect(np.planTitlePathText(pathname, pathname.length, measure)).toBe(pathname);
+    const shortened = np.planTitlePathText(pathname, 24, measure);
+    expect(shortened).toBe('/gampa…/final-segment.js');
+    expect(shortened).toHaveLength(24);
+    // Down to the ellipsis plus the last segment, the segment is intact.
+    expect(np.planTitlePathText(pathname, 18, measure)).toBe('…/final-segment.js');
+    for (let budget = 19; budget < pathname.length; budget += 1) {
+      const candidate = np.planTitlePathText(pathname, budget, measure);
+      expect(candidate).toHaveLength(budget);
+      expect(candidate.endsWith('/final-segment.js')).toBe(true);
+      expect(candidate.startsWith('/')).toBe(true);
+    }
+    // Only when the last segment alone is longer than the budget does its
+    // own head give way, and the tail (extension) still survives.
+    expect(np.planTitlePathText(pathname, 10, measure)).toBe('…egment.js');
+    expect(np.planTitlePathText(pathname, 1, measure)).toBe('…');
+    expect(np.planTitlePathText('no-slashes-at-all', 8, measure)).toBe('…-at-all');
+    expect(np.planTitlePathText('', 5, measure)).toBe('');
+    expect(np.planTitlePathText('/a/b/', 4, measure)).toBe('/a…/');
+    // The property the header's invariant rests on: every result is either
+    // the pathname itself or carries a '…'. A budget of zero or less is not
+    // an excuse to emit a bare segment that reads as a complete path.
+    for (const candidatePath of [pathname, '/a', '/', 'no-slashes-at-all', '/a/b/']) {
+      for (let budget = -3; budget <= candidatePath.length + 2; budget += 1) {
+        const rendered = np.planTitlePathText(candidatePath, budget, measure);
+        expect([budget, rendered === candidatePath || rendered.indexOf('…') !== -1]).toEqual([budget, true]);
+      }
+    }
+  });
+
+  test('longestFittingLength bisects a monotone candidate without a retry loop', () => {
+    const calls = [];
+    const measure = (text) => {
+      calls.push(text);
+      return text.length;
+    };
+    expect(np.longestFittingLength(10, (n) => 'x'.repeat(n), measure, 4)).toBe(4);
+    expect(np.longestFittingLength(10, (n) => 'x'.repeat(n), measure, 0)).toBe(0);
+    expect(np.longestFittingLength(10, (n) => 'x'.repeat(n), measure, 100)).toBe(10);
+    // A negative maximum cannot make the search run backwards.
+    expect(np.longestFittingLength(-4, (n) => 'x'.repeat(n), measure, 100)).toBe(0);
+    // Bisection, not a walk: 11 candidates are decided in at most 4 probes.
+    calls.length = 0;
+    np.longestFittingLength(10, (n) => 'x'.repeat(n), measure, 7);
+    expect(calls.length).toBeLessThanOrEqual(4);
+  });
+
+  test('isMonoValue marks opaque keys and long whitespace-free values', () => {
+    for (const key of [
+      'URL',
+      'Authorization',
+      'Cookie',
+      'Set-Cookie',
+      'set-cookie',
+      'ETag',
+      'If-None-Match',
+      'x-request-id',
+      'X-Request-ID',
+      'traceparent',
+    ]) {
+      expect(np.isMonoValue(key, 'short')).toBe(true);
+    }
+    expect(np.isMonoValue('Set-Cookie #2', 'sid=1')).toBe(true);
+    expect(np.isMonoValue('Accept', 'text/html')).toBe(false);
+    expect(np.isMonoValue('User-Agent', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36')).toBe(false);
+    expect(np.isMonoValue('X-Trace', 'a'.repeat(41))).toBe(true);
+    expect(np.isMonoValue('X-Trace', 'a'.repeat(40))).toBe(false);
+    expect(np.isMonoValue('X-Trace', 'a'.repeat(20) + ' ' + 'b'.repeat(30))).toBe(false);
+    expect(np.isMonoValue('gdpr_consent', 'CQAbcDEFghIJklMNopQRstUVwxYZ0123456789ABCDEFG')).toBe(true);
+    expect(np.isMonoValue(null, null)).toBe(false);
+  });
+});
+
+describe('kv value planning', () => {
+  test('splitAtDelimiters breaks after & ; / only for whitespace-free text', () => {
+    expect(np.splitAtDelimiters('a=1&b=2&c=3')).toEqual(['a=1&', 'b=2&', 'c=3']);
+    expect(np.splitAtDelimiters('sid=abc;path=/;secure')).toEqual(['sid=abc;', 'path=/', ';', 'secure']);
+    expect(np.splitAtDelimiters('/v1/orders/')).toEqual(['/', 'v1/', 'orders/']);
+    expect(np.splitAtDelimiters('a=1&b=2 c=3')).toEqual(['a=1&b=2 c=3']);
+    expect(np.splitAtDelimiters('plain-token')).toEqual(['plain-token']);
+    expect(np.splitAtDelimiters('')).toEqual(['']);
+    expect(np.splitAtDelimiters(null)).toEqual(['']);
+    // The segments always join back to the original text: <wbr> adds nothing
+    // to what copy actions and find-in-page read.
+    const cookie = Array.from({ length: 40 }, (_unused, index) => 'k' + index + '=v' + index).join(';');
+    expect(np.splitAtDelimiters(cookie).join('')).toBe(cookie);
+  });
+
+  test('planKvValue clamps only values past 240 characters', () => {
+    expect(np.KV_CLAMP_CHARS).toBe(240);
+    const short = np.planKvValue('x'.repeat(240));
+    expect(short.clamped).toBe(false);
+    expect(short.chars).toBe(240);
+    const long = np.planKvValue('y'.repeat(241));
+    expect(long.clamped).toBe(true);
+    expect(long.chars).toBe(241);
+    expect(long.text).toBe('y'.repeat(241));
+    expect(np.planKvValue(null)).toEqual({ text: '', chars: 0, clamped: false, segments: [''] });
+    const url = 'https://ads.example.test/gampad/ads?' + Array.from({ length: 31 }, (_u, i) => 'p' + i + '=' + 'v'.repeat(40)).join('&');
+    const plan = np.planKvValue(url);
+    expect(plan.clamped).toBe(true);
+    expect(plan.chars).toBe(url.length);
+    expect(plan.segments.length).toBeGreaterThan(31);
+    expect(plan.segments.join('')).toBe(url);
+  });
+});
+
+describe('planDetailsSummary', () => {
+  const baseRow = {
+    status: 200,
+    statusText: 'OK',
+    type: 'application/json',
+    protocol: 'HTTP/2',
+    size: 1536,
+    duration: 184,
+    operation: '',
+    responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
+  };
+
+  test('503 rows surface Retry-After beside the status', () => {
+    const plan = np.planDetailsSummary({
+      ...baseRow,
+      status: 503,
+      statusText: 'Service Unavailable',
+      duration: 2450,
+      responseHeaders: [...baseRow.responseHeaders, { name: 'Retry-After', value: '30' }],
+    });
+    expect(plan).toEqual({
+      status: { code: 503, text: '503 Service Unavailable', statusClass: '5xx' },
+      contentType: 'application/json',
+      size: '1.5 KB',
+      duration: '2.45 s',
+      protocol: 'HTTP/2',
+      operation: '',
+      chip: { name: 'Retry-After', value: '30' },
+    });
+    // 429 shares the chip; a 500 without the header gets none.
+    expect(
+      np.planDetailsSummary({ ...baseRow, status: 429, responseHeaders: [{ name: 'retry-after', value: '120' }] }).chip,
+    ).toEqual({ name: 'Retry-After', value: '120' });
+    expect(np.planDetailsSummary({ ...baseRow, status: 500 }).chip).toBeNull();
+  });
+
+  test('3xx rows surface Location and 401 rows the WWW-Authenticate scheme', () => {
+    const redirect = np.planDetailsSummary({
+      ...baseRow,
+      status: 302,
+      statusText: 'Found',
+      responseHeaders: [{ name: 'Location', value: 'https://auth.example.test/login?next=%2Fdashboard' }],
+    });
+    expect(redirect.status).toEqual({ code: 302, text: '302 Found', statusClass: '3xx' });
+    expect(redirect.chip).toEqual({ name: 'Location', value: 'https://auth.example.test/login?next=%2Fdashboard' });
+    // No content-type header: the row's HAR mime type stands in.
+    expect(redirect.contentType).toBe('application/json');
+
+    const unauthorized = np.planDetailsSummary({
+      ...baseRow,
+      status: 401,
+      statusText: 'Unauthorized',
+      responseHeaders: [
+        { name: 'content-type', value: 'application/problem+json' },
+        { name: 'www-authenticate', value: 'Bearer realm="api", error="invalid_token"' },
+      ],
+    });
+    expect(unauthorized.status).toEqual({ code: 401, text: '401 Unauthorized', statusClass: '4xx' });
+    expect(unauthorized.chip).toEqual({ name: 'WWW-Authenticate', value: 'Bearer' });
+    expect(unauthorized.contentType).toBe('application/problem+json');
+    // A 403 is not a challenge, so it carries no chip.
+    expect(np.planDetailsSummary({ ...baseRow, status: 403 }).chip).toBeNull();
+  });
+
+  test('missing facts stay out of the strip so their rows can remain', () => {
+    const pending = np.planDetailsSummary({
+      status: 0,
+      statusText: '',
+      type: 'x-unknown',
+      protocol: '',
+      size: null,
+      duration: null,
+      operation: 'GetViewer',
+      responseHeaders: [],
+    });
+    expect(pending).toEqual({
+      status: null,
+      contentType: '',
+      size: '',
+      duration: '',
+      protocol: '',
+      operation: 'GetViewer',
+      chip: null,
+    });
+    expect(np.planDetailsSummary(null).status).toBeNull();
+    // A status without reason phrase renders the bare code.
+    expect(np.planDetailsSummary({ ...baseRow, statusText: '' }).status.text).toBe('200');
+  });
+});
+
+// Tier 2 tabs-and-panes: the JSON tree's fold defaults and long-string
+// folding, the Raw view's request-line split and JSON body, the tab
+// fallback plan, and the Japanese frames of the new empty-pane strings.
+// These renderers build real DOM structure, so a small tree-keeping element
+// factory replaces the flat setup.js mock for this block.
+describe('json tree, raw view and tab signal contracts', () => {
+  let previousCreateElement;
+  let previousCreateTextNode;
+
+  const makeTextNode = (text) => ({ nodeType: 3, textContent: String(text), parentNode: null });
+
+  const makeEl = (tagName) => {
+    const el = {
+      nodeType: 1,
+      tagName: String(tagName).toUpperCase(),
+      className: '',
+      style: {},
+      dataset: {},
+      attributes: {},
+      listeners: {},
+      children: [],
+      childNodes: [],
+      parentNode: null,
+      open: false,
+      get textContent() {
+        return el.childNodes.map((child) => child.textContent).join('');
+      },
+      set textContent(value) {
+        el.childNodes = [];
+        el.children = [];
+        if (value !== '') el.childNodes.push(makeTextNode(value));
+      },
+      get nextElementSibling() {
+        if (!el.parentNode) return null;
+        const siblings = el.parentNode.children;
+        return siblings[siblings.indexOf(el) + 1] || null;
+      },
+      appendChild(child) {
+        child.parentNode = el;
+        el.childNodes.push(child);
+        if (child.nodeType === 1) el.children.push(child);
+        return child;
+      },
+      insertBefore(child, ref) {
+        child.parentNode = el;
+        const at = el.childNodes.indexOf(ref);
+        el.childNodes.splice(at < 0 ? el.childNodes.length : at, 0, child);
+        if (child.nodeType === 1) {
+          const elementAt = el.children.indexOf(ref);
+          el.children.splice(elementAt < 0 ? el.children.length : elementAt, 0, child);
+        }
+        return child;
+      },
+      remove() {
+        if (!el.parentNode) return;
+        const parent = el.parentNode;
+        parent.childNodes = parent.childNodes.filter((node) => node !== el);
+        parent.children = parent.children.filter((node) => node !== el);
+        el.parentNode = null;
+      },
+      setAttribute(name, value) {
+        el.attributes[name] = String(value);
+      },
+      getAttribute(name) {
+        return Object.prototype.hasOwnProperty.call(el.attributes, name) ? el.attributes[name] : null;
+      },
+      addEventListener(type, handler) {
+        (el.listeners[type] = el.listeners[type] || []).push(handler);
+      },
+      click() {
+        (el.listeners.click || []).forEach((handler) => handler({ preventDefault() {} }));
+      },
+      classList: {
+        add(...names) {
+          const set = new Set(el.className.split(/\s+/).filter(Boolean));
+          names.forEach((name) => set.add(name));
+          el.className = Array.from(set).join(' ');
+        },
+        remove(...names) {
+          const set = new Set(el.className.split(/\s+/).filter(Boolean));
+          names.forEach((name) => set.delete(name));
+          el.className = Array.from(set).join(' ');
+        },
+        toggle(name, force) {
+          const has = el.classList.contains(name);
+          const next = force === undefined ? !has : !!force;
+          if (next) el.classList.add(name);
+          else el.classList.remove(name);
+          return next;
+        },
+        contains(name) {
+          return el.className.split(/\s+/).includes(name);
+        },
+      },
+      querySelectorAll(selector) {
+        return collect(el, selector);
+      },
+      querySelector(selector) {
+        return collect(el, selector)[0] || null;
+      },
+    };
+    return el;
+  };
+
+  // Supports the selectors the code under test uses: "tag.class", ".class", "tag".
+  function matches(el, selector) {
+    const [tag, ...classes] = selector.split('.');
+    if (tag && el.tagName !== tag.toUpperCase()) return false;
+    return classes.every((name) => el.classList.contains(name));
+  }
+  function collect(root, selector) {
+    const found = [];
+    const walk = (node) => {
+      node.children.forEach((child) => {
+        if (matches(child, selector.trim())) found.push(child);
+        walk(child);
+      });
+    };
+    walk(root);
+    return found;
+  }
+  const byClass = (root, name) => collect(root, '.' + name);
+  const detailsIn = (root) => collect(root, 'details');
+
+  // The loadViewPreset suite's jest.resetAllMocks() also emptied the
+  // document query mocks applyLanguage walks; give them inert answers here.
+  let previousQuerySelector;
+  let previousQuerySelectorAll;
+
+  beforeAll(() => {
+    previousCreateElement = document.createElement.getMockImplementation();
+    previousCreateTextNode = document.createTextNode.getMockImplementation();
+    previousQuerySelector = document.querySelector.getMockImplementation();
+    previousQuerySelectorAll = document.querySelectorAll.getMockImplementation();
+    document.createElement.mockImplementation(makeEl);
+    document.createTextNode.mockImplementation(makeTextNode);
+    document.querySelector.mockImplementation(() => null);
+    document.querySelectorAll.mockImplementation(() => []);
+  });
+
+  // Tests in here switch the panel to Japanese to read the Japanese frames.
+  // Restoring only in afterAll left every later test in this block running in
+  // Japanese; the language goes back after each test, as the uiText suite
+  // above already does.
+  afterEach(() => {
+    np.applyLanguage('en');
+  });
+
+  afterAll(() => {
+    np.applyLanguage('en');
+    document.createElement.mockImplementation(previousCreateElement);
+    document.createTextNode.mockImplementation(previousCreateTextNode);
+    document.querySelector.mockImplementation(previousQuerySelector);
+    document.querySelectorAll.mockImplementation(previousQuerySelectorAll);
+  });
+
+  test('nodes deeper than the open depth start folded; the controls expand and collapse them', () => {
+    expect(np.JSON_TREE_OPEN_DEPTH).toBe(2);
+    const tree = np.renderJsonTree(
+      JSON.stringify({ data: { user: { profile: { name: 'ok' }, tags: [1, 2] }, count: 2 } }),
+    );
+    const nodes = detailsIn(tree);
+    expect(nodes.map((node) => [node.dataset.depth, node.open])).toEqual([
+      ['0', true], // root
+      ['1', true], // data
+      ['2', true], // user
+      ['3', false], // profile
+      ['3', false], // tags
+    ]);
+
+    const controls = byClass(tree, 'json-tree-controls');
+    expect(controls).toHaveLength(1);
+    // The controls come before the tree so they read as its toolbar, and
+    // they are not .link-btn, which the pane search would click through.
+    expect(tree.children[0]).toBe(controls[0]);
+    const [expandAll, collapseAll] = controls[0].children;
+    expect(expandAll.textContent).toBe('Expand all');
+    expect(collapseAll.textContent).toBe('Collapse all');
+    expect(expandAll.classList.contains('link-btn')).toBe(false);
+    expandAll.click();
+    expect(nodes.map((node) => node.open)).toEqual([true, true, true, true, true]);
+    collapseAll.click();
+    // Collapse keeps the root open so the outline stays visible.
+    expect(nodes.map((node) => node.open)).toEqual([true, false, false, false, false]);
+  });
+
+  test('a one-node tree and a primitive root get no controls', () => {
+    expect(byClass(np.renderJsonTree('{"ok":true}'), 'json-tree-controls')).toHaveLength(0);
+    expect(byClass(np.renderJsonTree('42'), 'json-tree-controls')).toHaveLength(0);
+    expect(np.renderJsonTree('not json')).toBeNull();
+  });
+
+  test('summary clicks that end with a live selection do not toggle the node', () => {
+    const tree = np.renderJsonTree('{"a":{"b":1}}');
+    const summary = byClass(tree, 'json-tree-summary')[0];
+    const handler = summary.listeners.click[0];
+    const event = { preventDefault: jest.fn() };
+    global.window.getSelection = () => ({ isCollapsed: true });
+    handler(event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    global.window.getSelection = () => ({ isCollapsed: false });
+    handler(event);
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    delete global.window.getSelection;
+    handler(event);
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+  });
+
+  test('long or multi-line strings fold to one line and keep the whole string in one text node', () => {
+    expect(np.JSON_TREE_LONG_STRING_CHARS).toBe(120);
+    const long = 'x'.repeat(121);
+    const multi = 'first line\nsecond line';
+    const short = 'y'.repeat(120);
+    const quoted = 'he said "hi" \\ then\nleft';
+    const tree = np.renderJsonTree(JSON.stringify({ long, multi, short }));
+    const lines = byClass(tree, 'json-tree-line');
+    expect(lines.map((line) => line.classList.contains('json-tree-line--long'))).toEqual([true, true, false]);
+
+    const [longLine, multiLine, shortLine] = lines;
+    const value = byClass(longLine, 'json-tree-str')[0];
+    expect(value.className).toBe('syn-str json-tree-str');
+    // Quotes and body in ONE node, carrying the same JSON escaping a short
+    // value gets: split across three nodes, a pane search spanning the
+    // opening quote had no single text node to match in.
+    expect(value.childNodes.map((node) => node.textContent)).toEqual([JSON.stringify(long)]);
+    // The comma closes the value and sits next to it; the fold control comes
+    // after, so the row does not read `"key": "value…" ▸,`.
+    expect(longLine.childNodes.map((node) => node.textContent)).toEqual([
+      '"long"',
+      ': ',
+      JSON.stringify(long),
+      ',',
+      '▸',
+    ]);
+    const toggle = value.nextElementSibling;
+    expect(toggle.className).toBe('json-tree-str-toggle');
+    expect(toggle.textContent).toBe('▸');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-label')).toBe('Show the full string');
+    toggle.click();
+    expect(value.classList.contains('json-tree-str--expanded')).toBe(true);
+    expect(toggle.textContent).toBe('▾');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('aria-label')).toBe('Show the first line only');
+    toggle.click();
+    expect(value.classList.contains('json-tree-str--expanded')).toBe(false);
+
+    expect(byClass(multiLine, 'json-tree-str')[0].childNodes[0].textContent).toBe(JSON.stringify(multi));
+    // A short string keeps the escaped one-line form and no toggle.
+    expect(byClass(shortLine, 'json-tree-str')).toHaveLength(0);
+    expect(byClass(shortLine, 'syn-str')[0].textContent).toBe(JSON.stringify(short));
+    expect(byClass(shortLine, 'json-tree-str-toggle')).toHaveLength(0);
+
+    // A folded value carrying a quote, a backslash and a newline is escaped
+    // the same way the short one is, so the two forms read alike and the
+    // folded one still round-trips through JSON.parse.
+    const escaped = quoted + 'z'.repeat(120);
+    const escapedTree = np.renderJsonTree(JSON.stringify({ v: escaped }));
+    const escapedValue = byClass(escapedTree, 'json-tree-str')[0];
+    const rendered = escapedValue.childNodes.map((node) => node.textContent).join('');
+    expect(rendered).toBe(JSON.stringify(escaped));
+    expect(JSON.parse(rendered)).toBe(escaped);
+    expect(rendered.indexOf('\\"hi\\"')).toBeGreaterThan(-1);
+    expect(rendered.indexOf('\\\\')).toBeGreaterThan(-1);
+    expect(rendered.indexOf('\n')).toBe(-1);
+  });
+
+  test('the raw request line splits into method, path and protocol; status lines stay whole', () => {
+    expect(np.splitRawRequestLine('POST /graphql?op=Viewer HTTP/1.1')).toEqual({
+      method: 'POST',
+      path: '/graphql?op=Viewer',
+      protocol: 'HTTP/1.1',
+    });
+    // A path with spaces still splits on the first and last space.
+    expect(np.splitRawRequestLine('GET /a b/c HTTP/2')).toEqual({ method: 'GET', path: '/a b/c', protocol: 'HTTP/2' });
+    expect(np.splitRawRequestLine('HTTP/1.1 200 OK')).toBeNull();
+    expect(np.splitRawRequestLine('GET /')).toBeNull();
+    expect(np.splitRawRequestLine('')).toBeNull();
+    expect(np.splitRawRequestLine(' leading')).toBeNull();
+  });
+
+  test('renderRawHighlighted paints the split request line, a divider, and a highlighted JSON body', () => {
+    const raw = np.buildRawRequestText({
+      method: 'POST',
+      url: 'https://api.example.test/graphql?op=Viewer',
+      protocol: 'HTTP/1.1',
+      requestHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+      requestPostData: { text: '{"a":1,"ok":true,"s":"v"}' },
+    });
+    const pre = np.renderRawHighlighted(raw);
+    expect(pre.className).toBe('code-block code-raw');
+    const first = pre.childNodes.slice(0, 6).map((node) => [node.className || null, node.textContent]);
+    expect(first).toEqual([
+      ['syn-status-line', 'POST'],
+      [null, ' '],
+      ['syn-hdr-val', '/graphql?op=Viewer'],
+      [null, ' '],
+      ['syn-status-line', 'HTTP/1.1'],
+      [null, '\r'],
+    ]);
+    const dividers = byClass(pre, 'raw-body-divider');
+    expect(dividers).toHaveLength(1);
+    // Headers before the divider, body tokens after it, and no nested <pre>.
+    const nodes = pre.childNodes;
+    const dividerAt = nodes.indexOf(dividers[0]);
+    expect(nodes.slice(0, dividerAt).some((node) => node.className === 'syn-hdr-name')).toBe(true);
+    const bodyNodes = nodes.slice(dividerAt + 1);
+    expect(bodyNodes.map((node) => [node.className || null, node.textContent])).toEqual([
+      [null, '{'],
+      ['syn-key', '"a"'],
+      [null, ':'],
+      ['syn-num', '1'],
+      [null, ','],
+      ['syn-key', '"ok"'],
+      [null, ':'],
+      ['syn-bool', 'true'],
+      [null, ','],
+      ['syn-key', '"s"'],
+      [null, ':'],
+      ['syn-str', '"v"'],
+      [null, '}'],
+    ]);
+    expect(collect(pre, 'pre')).toHaveLength(0);
+    // The body text is the original, not a pretty-printed copy.
+    expect(bodyNodes.map((node) => node.textContent).join('')).toBe('{"a":1,"ok":true,"s":"v"}');
+  });
+
+  test('renderRawHighlighted keeps a status line whole and a non-JSON body as plain text', () => {
+    const raw = np.buildRawResponseText(
+      { protocol: 'HTTP/1.1', status: 200, statusText: 'OK', responseHeaders: [{ name: 'X-A', value: '1' }] },
+      'plain text body',
+    );
+    const pre = np.renderRawHighlighted(raw);
+    expect(pre.childNodes[0].className).toBe('syn-status-line');
+    expect(pre.childNodes[0].textContent).toBe('HTTP/1.1 200 OK');
+    expect(pre.childNodes[1].textContent).toBe('\r');
+    const dividers = byClass(pre, 'raw-body-divider');
+    expect(dividers).toHaveLength(1);
+    const after = pre.childNodes.slice(pre.childNodes.indexOf(dividers[0]) + 1);
+    expect(after.map((node) => [node.className || null, node.textContent])).toEqual([[null, 'plain text body']]);
+    // No body at all: no hairline and no empty body node, so the view ends
+    // on the last header instead of a stray rule.
+    const empty = np.renderRawHighlighted('GET / HTTP/1.1\r\nHost: a\r\n\r\n');
+    expect(byClass(empty, 'raw-body-divider')).toHaveLength(0);
+    // The separator line still carries its own text and newline: the divider
+    // decorates the source, it does not consume a line of it.
+    expect(empty.childNodes.map((node) => [node.className || null, node.textContent])).toEqual([
+      ['syn-status-line', 'GET'],
+      [null, ' '],
+      ['syn-hdr-val', '/'],
+      [null, ' '],
+      ['syn-status-line', 'HTTP/1.1'],
+      [null, '\r'],
+      [null, '\n'],
+      ['syn-hdr-name', 'Host'],
+      ['syn-hdr-val', ': a\r'],
+      [null, '\n'],
+      [null, '\r'],
+      [null, '\n'],
+    ]);
+  });
+
+  test('renderRawHighlighted round-trips the source text character for character', () => {
+    const bodyless = np.buildRawRequestText({
+      method: 'GET',
+      url: 'https://api.example.test/users?page=2',
+      protocol: 'HTTP/1.1',
+      requestHeaders: [{ name: 'Accept', value: 'application/json' }],
+    });
+    const json = np.buildRawResponseText(
+      {
+        protocol: 'HTTP/1.1',
+        status: 200,
+        statusText: 'OK',
+        responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+      },
+      '{"id": 7, "name" : "a\\nb", "ok": true, "next": null}',
+    );
+    const crlf = np.buildRawResponseText(
+      { protocol: 'HTTP/1.1', status: 200, statusText: 'OK', responseHeaders: [{ name: 'X-A', value: '1' }] },
+      'line one\r\nline two\r\n\r\ntrailing\r\n',
+    );
+    for (const [label, raw] of [['body-less GET', bodyless], ['JSON body', json], ['CRLF body', crlf]]) {
+      expect([label, np.renderRawHighlighted(raw).textContent]).toEqual([label, raw]);
+    }
+    // The JSON body is still highlighted in place, and the CRLF body is not.
+    expect(byClass(np.renderRawHighlighted(json), 'syn-key').map((node) => node.textContent)).toEqual([
+      '"id"',
+      '"name"',
+      '"ok"',
+      '"next"',
+    ]);
+    expect(byClass(np.renderRawHighlighted(crlf), 'raw-body-divider')).toHaveLength(1);
+  });
+
+  test('renderRawHighlighted ends a body-less GET on its last header, with no hairline', () => {
+    // buildRawRequestText always emits the CRLF separator, so the builder's
+    // own output for a GET must not paint a divider either.
+    const raw = np.buildRawRequestText({
+      method: 'GET',
+      url: 'https://api.example.test/users?page=2',
+      protocol: 'HTTP/1.1',
+      requestHeaders: [
+        { name: 'Accept', value: 'application/json' },
+        { name: 'Host', value: 'api.example.test' },
+      ],
+    });
+    expect(raw).toBe('GET /users?page=2 HTTP/1.1\r\nAccept: application/json\r\nHost: api.example.test\r\n\r\n');
+    const pre = np.renderRawHighlighted(raw);
+    expect(byClass(pre, 'raw-body-divider')).toHaveLength(0);
+    const last = pre.childNodes[pre.childNodes.length - 1];
+    expect(last.className || null).toBeNull();
+    expect(last.textContent).toBe('\n');
+    expect(pre.textContent).toBe(raw);
+    // A response with no body is the same: headers only, no trailing rule.
+    const resRaw = np.buildRawResponseText(
+      { protocol: 'HTTP/1.1', status: 204, statusText: 'No Content', responseHeaders: [{ name: 'X-A', value: '1' }] },
+      '',
+    );
+    const res = np.renderRawHighlighted(resRaw);
+    expect(byClass(res, 'raw-body-divider')).toHaveLength(0);
+    expect(res.textContent).toBe(resRaw);
+  });
+
+  test('renderJsonHighlighted still returns its own <pre> for the Preview tab', () => {
+    const pre = np.renderJsonHighlighted(np.formatJsonSafe('{"k":null}'));
+    expect(pre.tagName).toBe('PRE');
+    expect(pre.className).toBe('code-block code-json');
+    expect(byClass(pre, 'syn-null')[0].textContent).toBe('null');
+  });
+
+  test('planInspectorTabActivation falls back to Headers only for an empty picked pane', () => {
+    expect(np.planInspectorTabActivation('req-cookies', { 'req-cookies': 0 }, 'req-headers')).toBe('req-headers');
+    expect(np.planInspectorTabActivation('req-cookies', { 'req-cookies': 3 }, 'req-headers')).toBe('req-cookies');
+    // An unknown count (async body) keeps the pick; no pick means Headers.
+    expect(np.planInspectorTabActivation('res-body', { 'res-cookies': 0 }, 'res-headers')).toBe('res-body');
+    expect(np.planInspectorTabActivation(undefined, { 'res-cookies': 0 }, 'res-headers')).toBe('res-headers');
+    expect(np.planInspectorTabActivation('req-query', { 'req-query': 0 }, undefined)).toBe('req-query');
+  });
+
+  test('the empty-pane and tree strings have Japanese frames', () => {
+    np.applyLanguage('en');
+    expect(np.uiText('emptyRequestBody')).toBe('No request body');
+    expect(np.uiText('emptyQueryParams')).toBe('No query parameters');
+    expect(np.uiTextFormat('emptyQueryParamsBodyHint', { method: 'POST' })).toBe(
+      'No query parameters — this POST carries its data in Body',
+    );
+    expect(np.uiText('emptyQueryParamsBodyHintNoMethod')).toBe(
+      'No query parameters — this request carries its data in Body',
+    );
+    expect(np.uiText('emptyRequestCookies')).toBe('No cookies were sent');
+    expect(np.uiText('emptySetCookieHeaders')).toBe('No set-cookie headers');
+    np.applyLanguage('ja');
+    expect(np.uiText('emptyRequestBody')).toBe('リクエストボディはありません');
+    expect(np.uiText('emptyQueryParams')).toBe('クエリパラメーターはありません');
+    expect(np.uiTextFormat('emptyQueryParamsBodyHint', { method: 'POST' })).toBe(
+      'クエリパラメーターはありません — この POST はデータを Body で送っています',
+    );
+    // A methodless row takes the method-free frame, never the English noun
+    // "request" dropped into the Japanese sentence.
+    expect(np.uiText('emptyQueryParamsBodyHintNoMethod')).toBe(
+      'クエリパラメーターはありません — このリクエストはデータを Body で送っています',
+    );
+    expect(np.uiText('emptyQueryParamsBodyHintNoMethod')).not.toContain('request');
+    expect(np.uiText('emptyRequestCookies')).toBe('Cookie は送信されていません');
+    expect(np.uiText('emptySetCookieHeaders')).toBe('set-cookie ヘッダーはありません');
+    expect(np.uiText('jsonTreeExpandAll')).toBe('すべて展開');
+    expect(np.uiText('jsonTreeCollapseAll')).toBe('すべて折りたたむ');
+    const tree = np.renderJsonTree('{"a":{"b":1}}');
+    const [expandAll, collapseAll] = byClass(tree, 'json-tree-controls')[0].children;
+    expect([expandAll.textContent, collapseAll.textContent]).toEqual(['すべて展開', 'すべて折りたたむ']);
+    const folded = np.renderJsonTree(JSON.stringify({ s: 'a\nb' }));
+    expect(byClass(folded, 'json-tree-str-toggle')[0].getAttribute('aria-label')).toBe('文字列全体を表示');
+  });
+});
