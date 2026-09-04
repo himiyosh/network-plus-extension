@@ -5148,8 +5148,12 @@ describe('details reopen status', () => {
     const PANE_NAME_KEYS = [
       'paneNameRequestBody',
       'paneNameRawRequest',
+      'paneNameQuery',
+      'paneNameRequestHeaders',
+      'paneNameRequestCookies',
       'paneNameResponseBody',
       'paneNameRawResponse',
+      'paneNameResponseHeaders',
       'paneNameFallback',
     ];
     const INSPECTOR_HALF_KEYS = ['inspectorHalfRequest', 'inspectorHalfResponse'];
@@ -6929,6 +6933,14 @@ describe('edit-and-resend helpers', () => {
   });
 });
 
+// The suites above reset the shared document mock, so applyLanguage's walk over
+// [data-i18n] has nothing to iterate. Hand it an empty node list before every
+// language switch these tests make.
+function switchTestLanguage(language) {
+  document.querySelectorAll.mockImplementation(() => []);
+  np.applyLanguage(language);
+}
+
 describe('jwt decoding and display', () => {
   const b64url = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
   const makeToken = (payload, header = { alg: 'HS256', typ: 'JWT' }, signature = 'sig-Az_09') =>
@@ -6989,6 +7001,7 @@ describe('jwt decoding and display', () => {
       style: {},
       appendChild: jest.fn(),
       setAttribute: jest.fn(),
+      addEventListener: jest.fn(),
       classList: { add: jest.fn(), remove: jest.fn(), contains: jest.fn(() => false) },
     });
     document.createElement.mockImplementation(makeEl);
@@ -7002,10 +7015,176 @@ describe('jwt decoding and display', () => {
     expect(summary.textContent).toContain('expired');
     expect(summary.classList.add).toHaveBeenCalledWith('jwt-expired');
     const note = created.find((el) => el.className === 'jwt-note');
-    expect(note.textContent).toContain(np.JWT_DISPLAY_NOTE);
+    expect(note.textContent).toContain('Decoded locally for display; the signature is not verified.');
     const codeBlocks = created.filter((el) => el.className === 'code-block');
     expect(codeBlocks.some((el) => String(el.textContent).includes('"sub": "user-1"'))).toBe(true);
     expect(np.createJwtDetailsSection([{ name: 'Accept', value: 'text/html' }])).toBeNull();
+  });
+
+  test('splitJwtRuns names the three segments and rejoins to the value verbatim', () => {
+    const token = makeToken({ exp: 1755750000 });
+    const value = 'Bearer ' + token;
+    const runs = np.splitJwtRuns(value);
+    // The tinting must not change what the row holds: the runs are the value.
+    expect(runs.map((run) => run.text).join('')).toBe(value);
+    expect(runs.map((run) => run.jwt)).toEqual([false, true]);
+    expect(runs[1].segments).toHaveLength(3);
+    expect(runs[1].segments.join('.')).toBe(token);
+    // Two tokens in one value, and the text between them, all survive.
+    const pair = 'a=' + token + '; b=' + token.replace('sig-Az_09', 'sig-Bz_19');
+    const pairRuns = np.splitJwtRuns(pair);
+    expect(pairRuns.map((run) => run.text).join('')).toBe(pair);
+    expect(pairRuns.filter((run) => run.jwt)).toHaveLength(2);
+    // A value with no decodable token is one plain run, so the delimiter
+    // rendering every other value uses is what paints it.
+    expect(np.splitJwtRuns('Bearer abc.def.ghi')).toEqual([{ jwt: false, text: 'Bearer abc.def.ghi' }]);
+    expect(np.splitJwtRuns('eyJ%%%%broken')).toEqual([{ jwt: false, text: 'eyJ%%%%broken' }]);
+    expect(np.splitJwtRuns('')).toEqual([{ jwt: false, text: '' }]);
+    expect(np.splitJwtRuns(null)).toEqual([{ jwt: false, text: '' }]);
+  });
+
+  test('the chip time reads in two units and writes them per language', () => {
+    expect(np.formatJwtChipDelta(2 * 3600000 + 14 * 60000)).toBe('2h 14m');
+    expect(np.formatJwtChipDelta(-(3 * 86400000 + 4 * 3600000))).toBe('3d 4h');
+    // A trailing zero unit ends the reading rather than padding it out.
+    expect(np.formatJwtChipDelta(3 * 86400000)).toBe('3d');
+    expect(np.formatJwtChipDelta(90 * 1000)).toBe('1m 30s');
+    expect(np.formatJwtChipDelta(0)).toBe('0s');
+    switchTestLanguage('ja');
+    // Japanese writes the units without a separator between them.
+    expect(np.formatJwtChipDelta(2 * 3600000 + 14 * 60000)).toBe('2時間14分');
+    expect(np.formatJwtChipDelta(-(3 * 86400000))).toBe('3日');
+    switchTestLanguage('en');
+  });
+
+  test('the expiry chip appears only for a decodable token that states an exp', () => {
+    const now = 1755750000000;
+    const future = makeToken({ exp: now / 1000 + 2 * 3600 + 14 * 60 });
+    const past = makeToken({ exp: now / 1000 - 3 * 86400 });
+    expect(np.planJwtExpiryChip('Bearer ' + future, now)).toEqual({
+      expired: false,
+      text: 'JWT · expires in 2h 14m',
+    });
+    expect(np.planJwtExpiryChip('Bearer ' + past, now)).toEqual({ expired: true, text: 'JWT · expired 3d ago' });
+    // No exp, no token, and a token-shaped string that does not decode each
+    // yield no chip: an empty chip would read as "never expires".
+    expect(np.planJwtExpiryChip('Bearer ' + makeToken({ sub: 'user-1' }), now)).toBeNull();
+    expect(np.planJwtExpiryChip('Bearer abc.def.ghi', now)).toBeNull();
+    expect(np.planJwtExpiryChip('application/json', now)).toBeNull();
+    expect(np.planJwtExpiryChip('', now)).toBeNull();
+    switchTestLanguage('ja');
+    expect(np.planJwtExpiryChip('Bearer ' + future, now).text).toBe('JWT · あと2時間14分で失効');
+    expect(np.planJwtExpiryChip('Bearer ' + past, now).text).toBe('JWT · 3日前に失効');
+    switchTestLanguage('en');
+  });
+});
+
+describe('per-row value copy and the cookie header summary', () => {
+  // The names the GRIDS really build, never idealised ones. The previous gate
+  // was a denylist over the DISPLAY key, and this suite passed while the pane
+  // leaked because it only ever asked about 'Authorization' and 'Set-Cookie':
+  // the Response > Cookies rows are keyed 'Set-Cookie #1', a Request > Cookies
+  // key is whatever parseCookieHeader read out of the header, and a header key
+  // is row.requestHeaders' own casing. Every name below reached the clipboard
+  // verbatim under that gate.
+  const ROW_COOKIE_HEADER =
+    'JSESSIONID=ABCDEF0123456789SECRET; remember_me=rm-secret-token-value; _ga=GA1.2.3.4; __proto__=poison';
+  const ROW_REQUEST_HEADERS = [
+    { name: 'Accept', value: 'application/json' },
+    { name: 'Authorization', value: 'Bearer HEADER-SECRET-TOKEN' },
+    { name: 'X-Api-Key', value: 'XAPI-SECRET-KEY' },
+    { name: 'x-internal-trace', value: 'TRACE-SECRET-42' },
+    { name: 'Referer', value: 'https://ref.example.test/page?token=REFERER-SECRET' },
+    { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+  ];
+
+  test('a header row copies exactly what sanitizeHeaders leaves, name by captured name', () => {
+    // The contract, stated as an identity rather than as a list of verdicts:
+    // the row copy is never less redacted than the pane's Copy sanitized.
+    for (const header of ROW_REQUEST_HEADERS) {
+      const sanitized = np.sanitizeHeaders([header]).value[0].value;
+      expect([header.name, np.planKvCopyValue('header', header.name, header.value)]).toEqual([
+        header.name,
+        { masked: sanitized !== header.value, text: sanitized },
+      ]);
+    }
+    // Two of those the old denylist gate handed over in full: a private header
+    // it had never heard of, and a Referer whose query carries the secret.
+    expect(np.planKvCopyValue('header', 'x-internal-trace', 'TRACE-SECRET-42')).toEqual({
+      masked: true,
+      text: np.REDACTION_MARKER,
+    });
+    expect(
+      np.planKvCopyValue('header', 'Referer', 'https://ref.example.test/page?token=REFERER-SECRET').text,
+    ).not.toContain('REFERER-SECRET');
+    // The allowlist still lets a safe header through, so the control is still
+    // worth pressing on the rows a reader actually wants.
+    expect(np.planKvCopyValue('header', 'Content-Type', 'application/json; charset=utf-8')).toEqual({
+      masked: false,
+      text: 'application/json; charset=utf-8',
+    });
+    expect(np.planKvCopyValue('header', 'Accept', 'text/html')).toEqual({ masked: false, text: 'text/html' });
+  });
+
+  test('a cookie row redacts its value whatever the cookie is called', () => {
+    const parsed = np.parseCookieHeader(ROW_COOKIE_HEADER);
+    // These are the four keys the Request > Cookies grid builds, and none of
+    // them is a name any sensitivity heuristic recognises.
+    expect(parsed.map((cookie) => cookie.name)).toEqual(['JSESSIONID', 'remember_me', '_ga', '__proto__']);
+    for (const cookie of parsed) {
+      expect([cookie.name, np.planKvCopyValue('cookie', cookie.name, cookie.value)]).toEqual([
+        cookie.name,
+        { masked: true, text: np.REDACTION_MARKER },
+      ]);
+      // The masked text is never the value that was on screen.
+      expect(np.planKvCopyValue('cookie', cookie.name, cookie.value).text).not.toContain(cookie.value);
+    }
+  });
+
+  test('a counter in the display key cannot loosen the gate', () => {
+    // Response > Cookies renders 'Set-Cookie #1'; normalizeSensitiveKey read
+    // that as 'setcookie1' and matched nothing, so the whole Set-Cookie header
+    // was copied. The gate is handed the captured header name now, and the
+    // decorated label redacts either way because the allowlist fails closed.
+    const value = 'JSESSIONID=ABCDEF0123456789SECRET; Path=/; HttpOnly';
+    for (const name of ['Set-Cookie', 'set-cookie', 'Set-Cookie #1', 'Set-Cookie #12']) {
+      expect([name, np.planKvCopyValue('header', name, value)]).toEqual([
+        name,
+        { masked: true, text: np.REDACTION_MARKER },
+      ]);
+    }
+  });
+
+  test('a query row redacts, a plain row copies its own reading, an unstated kind fails closed', () => {
+    expect(np.planKvCopyValue('query', 'access_token', 'QUERY-SECRET-TOKEN')).toEqual({
+      masked: true,
+      text: np.REDACTION_MARKER,
+    });
+    // 'plain' is the one kind that copies verbatim, and only panel-computed
+    // rows declare it: a formatted duration, a method, a decoded JWT claim.
+    expect(np.planKvCopyValue('plain', 'wait', '20 ms')).toEqual({ masked: false, text: '20 ms' });
+    expect(np.planKvCopyValue('plain', 'Method', null)).toEqual({ masked: false, text: '' });
+    // A kind nobody declared — a typo, or a grid added later that forgot to
+    // say what its rows are — is treated as a cookie and redacts.
+    for (const kind of [undefined, null, '', 'timing', 'info']) {
+      expect([kind, np.planKvCopyValue(kind, 'wait', '20 ms')]).toEqual([
+        kind,
+        { masked: true, text: np.REDACTION_MARKER },
+      ]);
+    }
+  });
+
+  test('the cookie header summary counts exactly the rows the Cookies tab lists', () => {
+    const header = Array.from({ length: 14 }, (_unused, index) => 'c' + index + '=x').join('; ');
+    const parsed = np.parseCookieHeader(header);
+    expect(parsed).toHaveLength(14);
+    expect(np.formatCookieHeaderSummary(parsed.length)).toBe('14 cookies — open Cookies');
+    expect(np.formatCookieHeaderSummary(np.parseCookieHeader('only=1').length)).toBe('1 cookie — open Cookies');
+    expect(np.formatCookieHeaderSummary(1234)).toBe('1,234 cookies — open Cookies');
+    switchTestLanguage('ja');
+    expect(np.formatCookieHeaderSummary(14)).toBe('14 件の Cookie — Cookies を開く');
+    expect(np.formatCookieHeaderSummary(1)).toBe('1 件の Cookie — Cookies を開く');
+    switchTestLanguage('en');
   });
 });
 
@@ -7611,6 +7790,164 @@ describe('kv value planning', () => {
     // to what copy actions and find-in-page read.
     const cookie = Array.from({ length: 40 }, (_unused, index) => 'k' + index + '=v' + index).join(';');
     expect(np.splitAtDelimiters(cookie).join('')).toBe(cookie);
+  });
+  test('splitCommaList breaks after each comma of a list of three or more', () => {
+    expect(np.splitCommaList('alpha,beta,gamma,delta')).toEqual(['alpha,', 'beta,', 'gamma,', 'delta']);
+    // Two items read as one datum — a locale pair, a coordinate — and stay whole.
+    expect(np.splitCommaList('alpha,beta')).toEqual(['alpha,beta']);
+    expect(np.splitCommaList('alpha')).toEqual(['alpha']);
+    // Text with whitespace already has break points of its own.
+    expect(np.splitCommaList('alpha, beta, gamma')).toEqual(['alpha, beta, gamma']);
+    expect(np.splitCommaList('')).toEqual(['']);
+    expect(np.splitCommaList(null)).toEqual(['']);
+    // A trailing comma leaves no empty tail behind, and every case joins back
+    // to the source: the breaks add nothing to what copy and find-in-page read.
+    expect(np.splitCommaList('a,b,c,')).toEqual(['a,', 'b,', 'c,']);
+    for (const value of ['alpha,beta,gamma,delta', 'a,b,c,', 'alpha,beta', 'alpha', '']) {
+      expect([value, np.splitCommaList(value).join('')]).toEqual([value, value]);
+    }
+  });
+
+  test('decodeQueryValue decodes a percent-encoded token and keeps an undecodable one', () => {
+    expect(np.decodeQueryValue('%2Fdashboard')).toBe('/dashboard');
+    expect(np.decodeQueryValue('hello+world')).toBe('hello world');
+    expect(np.decodeQueryValue('plain')).toBe('plain');
+    // A lone '%' is not an escape: decodeURIComponent throws, and the token as
+    // captured is the only honest thing left to show.
+    expect(np.decodeQueryValue('100%')).toBe('100%');
+    expect(np.decodeQueryValue('%E0%A4%A')).toBe('%E0%A4%A');
+    expect(np.decodeQueryValue('')).toBe('');
+    expect(np.decodeQueryValue(null)).toBe('');
+  });
+
+  test('planSegmentedUrl splits the address into origin, path and query tokens', () => {
+    const plan = np.planSegmentedUrl('https://api.example.test:8443/v1/orders?q=beacon&page=2#totals');
+    expect(plan.segmented).toBe(true);
+    expect(plan.scheme).toBe('https://');
+    expect(plan.host).toBe('api.example.test:8443');
+    expect(plan.pathname).toBe('/v1/orders');
+    expect(plan.hash).toBe('#totals');
+    expect(plan.tokens.map((token) => [token.name, token.value])).toEqual([
+      ['q', 'beacon'],
+      ['page', '2'],
+    ]);
+    // Nothing decodes here, so the row shows no decoded reading at all.
+    expect(plan.decodes).toBe(false);
+    // The parts are exhaustive: what the segmented row paints IS the URL, so a
+    // selection of that row is still an address a tool will accept.
+    for (const url of [
+      'https://app.example.test/dashboard',
+      'https://alice:s3cret@creds.example.test/vault/item?k=1',
+      'http://api.example.test:8080/ported/endpoint?a=1&b=2',
+      'https://auth.example.test/login?next=%2Fdashboard&lang=ja',
+      'https://api.example.test/search?flag&q=beacon',
+    ]) {
+      const parts = np.planSegmentedUrl(url);
+      expect([url, parts.scheme + parts.userinfo + parts.host + parts.pathname + parts.search + parts.hash]).toEqual([
+        url,
+        url,
+      ]);
+      // And the query tokens reassemble the search string they were split from.
+      const rebuilt = parts.tokens.length ? '?' + parts.tokens.map((token) => token.raw).join('&') : parts.search;
+      expect([url, rebuilt]).toEqual([url, parts.search]);
+    }
+  });
+
+  test('planSegmentedUrl refuses to segment an address its parts cannot spell back', () => {
+    // new URL() NORMALIZES, and the segmented rendering paints the parts. A
+    // Query parameter arrives already decoded by searchParams, so a value like
+    // 'https://CB.Example.TEST:443/return?a=1' reached the renderer and was
+    // painted 'https://cb.example.test/return?a=1' — a host string and a port
+    // the request never sent, with nothing on screen saying so. Every shape
+    // below is refused, and the caller renders `raw`, which is the token.
+    for (const [url, normalized] of [
+      ['https://CB.Example.TEST/return', 'https://cb.example.test/return'],
+      ['https://cb.example.test:443/return', 'https://cb.example.test/return'],
+      ['http://cb.example.test:80/return', 'http://cb.example.test/return'],
+      ['https://cb.example.test', 'https://cb.example.test/'],
+      ['https://cb.example.test/a/../b', 'https://cb.example.test/b'],
+      ['https://cb.example.test/a b', 'https://cb.example.test/a%20b'],
+      ['HTTPS://cb.example.test/return', 'https://cb.example.test/return'],
+    ]) {
+      const plan = np.planSegmentedUrl(url);
+      const rebuilt = plan.scheme + plan.userinfo + plan.host + plan.pathname + plan.search + plan.hash;
+      expect([url, plan.reconstructs, plan.segmented, rebuilt]).toEqual([url, false, false, normalized]);
+      // The plan still carries the source verbatim, so the fallback rendering
+      // shows the bytes the parameter held.
+      expect([url, plan.raw]).toEqual([url, url]);
+    }
+    // An address that survives the round trip keeps the segmented rendering.
+    for (const url of [
+      'https://cb.example.test/return?a=1',
+      'https://cb.example.test:8443/return?a=1#top',
+      'https://alice:s3cret@cb.example.test/vault',
+    ]) {
+      expect([url, np.planSegmentedUrl(url).reconstructs, np.planSegmentedUrl(url).segmented]).toEqual([
+        url,
+        true,
+        true,
+      ]);
+    }
+  });
+
+  test('planSegmentedUrl offers a decoded query only where decoding changes it', () => {
+    const encoded = np.planSegmentedUrl('https://auth.example.test/login?next=%2Fdashboard%3Ftab%3Dbilling&lang=ja');
+    expect(encoded.decodes).toBe(true);
+    expect(encoded.decodedSearch).toBe('?next=/dashboard?tab=billing&lang=ja');
+    // The raw string is untouched by the decode: it is what every copy path
+    // reads, and '?next=/dashboard' is a different URL from '?next=%2Fdashboard'.
+    expect(encoded.search).toBe('?next=%2Fdashboard%3Ftab%3Dbilling&lang=ja');
+    expect(encoded.raw).toBe('https://auth.example.test/login?next=%2Fdashboard%3Ftab%3Dbilling&lang=ja');
+    // A value the decoder refuses keeps its token; the row still decodes the
+    // rest rather than falling back to nothing.
+    const partial = np.planSegmentedUrl('https://cdn.example.test/asset?discount=100%&size=4%20x');
+    expect(partial.decodes).toBe(true);
+    expect(partial.decodedSearch).toBe('?discount=100%&size=4 x');
+    expect(partial.tokens.map((token) => token.decodes)).toEqual([false, true]);
+    // A parameter with no '=' keeps its name and gains no '='.
+    const flag = np.planSegmentedUrl('https://api.example.test/search?flag&q=beacon');
+    expect(flag.tokens.map((token) => token.hasValue)).toEqual([false, true]);
+    expect(flag.decodedSearch).toBe('?flag&q=beacon');
+    // A string the URL parser refuses is not segmented and carries no tokens.
+    const opaque = np.planSegmentedUrl('not a url at all');
+    expect([opaque.segmented, opaque.tokens, opaque.decodes, opaque.decodedSearch]).toEqual([false, [], false, '']);
+  });
+
+  test('isNestedQueryValue accepts a value that is itself a query string', () => {
+    expect(np.isNestedQueryValue('utm_source=news&utm_id=77&cid=abc')).toBe(true);
+    expect(np.isNestedQueryValue('a=1&b=2')).toBe(true);
+    expect(np.isNestedQueryValue('a=&b=')).toBe(true);
+    // One pair is a value that happens to hold an '=', not a query string.
+    expect(np.isNestedQueryValue('a=1')).toBe(false);
+    expect(np.isNestedQueryValue('eyJhbGciOiJIUzI1NiJ9')).toBe(false);
+    expect(np.isNestedQueryValue('https://auth.example.test/callback?code=9&state=7')).toBe(false);
+    expect(np.isNestedQueryValue('a=1&=2')).toBe(false);
+    expect(np.isNestedQueryValue('')).toBe(false);
+    expect(np.isNestedQueryValue(null)).toBe(false);
+  });
+
+  test('parseNestedQueryValue decodes the pairs inside a nested query value', () => {
+    // The Query tab's values arrive already decoded by searchParams, so what
+    // is nested inside them carries a second layer of encoding.
+    expect(np.parseNestedQueryValue('utm_source=news&path=%2Fhome&label=hello+world')).toEqual([
+      { name: 'utm_source', value: 'news' },
+      { name: 'path', value: '/home' },
+      { name: 'label', value: 'hello world' },
+    ]);
+    expect(np.parseNestedQueryValue('a=1')).toEqual([]);
+    expect(np.parseNestedQueryValue('')).toEqual([]);
+  });
+
+  test('isAbsoluteHttpUrl accepts only an http(s) address with a host', () => {
+    expect(np.isAbsoluteHttpUrl('https://auth.example.test/callback?code=9')).toBe(true);
+    expect(np.isAbsoluteHttpUrl('http://api.example.test:8080/x')).toBe(true);
+    expect(np.isAbsoluteHttpUrl('/callback?code=9')).toBe(false);
+    expect(np.isAbsoluteHttpUrl('mailto:someone@example.test')).toBe(false);
+    expect(np.isAbsoluteHttpUrl('javascript:alert(1)')).toBe(false);
+    expect(np.isAbsoluteHttpUrl('data:text/plain,hello')).toBe(false);
+    expect(np.isAbsoluteHttpUrl('news')).toBe(false);
+    expect(np.isAbsoluteHttpUrl('')).toBe(false);
+    expect(np.isAbsoluteHttpUrl(null)).toBe(false);
   });
 
   test('planKvValue clamps only values past 240 characters', () => {

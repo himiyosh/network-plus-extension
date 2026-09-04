@@ -2183,10 +2183,12 @@ describe('outbound data-safety static contracts', () => {
     expect(js).toContain("['fetch', 'menuCopySanitizedFetch', 'Copied sanitized fetch'],");
     expect(js).toContain("['powershell', 'menuCopySanitizedPowershell', 'Copied sanitized PowerShell'],");
     expect(js).toContain("['markdown', 'menuCopySanitizedMarkdown', 'Copied sanitized Markdown'],");
-    // The four pane toolbars read the same dictionary key as the row menu's
-    // disclosure, so the label cannot drift into a second English literal.
-    expect((js.match(/label: uiText\('menuCopySanitized'\)/g) || []).length).toBe(4);
-    expect((js.match(/label: uiText\('paneCopyFull'\)/g) || []).length).toBe(4);
+    // The five pane toolbars that carry copy actions — Request Body, Request
+    // Raw, Query, Response Body, Response Raw — read the same dictionary key
+    // as the row menu's disclosure, so the label cannot drift into a second
+    // English literal.
+    expect((js.match(/label: uiText\('menuCopySanitized'\)/g) || []).length).toBe(5);
+    expect((js.match(/label: uiText\('paneCopyFull'\)/g) || []).length).toBe(5);
     expect(js).not.toContain("label: 'Copy sanitized'");
     expect(js).not.toContain("label: 'Copy full...'");
   });
@@ -3446,6 +3448,63 @@ describe('detail pane search contracts', () => {
     expect(js).toContain('attachPaneSearch(resRawPane);');
   });
 
+  test('attaches it to the kv views too, without arming an Expand all that would switch tabs', () => {
+    // A header or parameter list is as long as a body and was the one place a
+    // reader could not search.
+    expect(js).toContain('attachPaneSearch(reqHeadersPane);');
+    expect(js).toContain('attachPaneSearch(reqQueryPane);');
+    expect(js).toContain('attachPaneSearch(reqCookiesPane);');
+    expect(js).toContain("if (resHeadersPane.querySelector('.kv')) attachPaneSearch(resHeadersPane);");
+    // No second argument on any of them: `fullText` arms "Expand all", which
+    // clicks every link button in the pane — including the URL row's "open
+    // Query", which would switch the tab out from under the search.
+    expect(js).not.toContain('attachPaneSearch(reqHeadersPane,');
+    expect(js).not.toContain('attachPaneSearch(reqQueryPane,');
+    expect(js).not.toContain('attachPaneSearch(reqCookiesPane,');
+    expect(js).not.toContain('attachPaneSearch(resHeadersPane,');
+  });
+
+  test('every pane that owns a toolbar names itself from the dictionary', () => {
+    // Without this the mapped key is only ever read through
+    // uiText(PANE_SEARCH_LABEL_KEYS[paneId]), which the key-coverage sweep
+    // cannot see: a typo there renders an empty pane name in every toolbar
+    // placeholder, tooltip and copy confirmation of that pane.
+    const block = js.match(/const PANE_SEARCH_LABEL_KEYS = \{([\s\S]*?)\n {2}\};/);
+    expect(block).not.toBeNull();
+    const mapped = Array.from(block[1].matchAll(/'([\w-]+)': '([A-Za-z][A-Za-z0-9]*)',/g));
+    expect(mapped.map((entry) => entry[1])).toEqual([
+      'req-body',
+      'req-raw',
+      'req-query',
+      'req-headers',
+      'req-cookies',
+      'res-body',
+      'res-raw',
+      'res-headers',
+    ]);
+    for (const [, paneId, key] of mapped) {
+      expect([paneId, js.includes('    ' + key + ': {\n')]).toEqual([paneId, true]);
+    }
+  });
+
+  test('counts one hit per datum, and never counts the panel\'s own derived text', () => {
+    // One reject list, three reasons, all the same shape of bug: a second copy
+    // of text already on screen, or text the panel wrote rather than captured.
+    expect(js).toContain(
+      "            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details',",
+    );
+    // .kv-nested is generated from the raw parameter value in the same cell, so
+    // 'utm_id' counted '1 / 2' with the second hit inside a closed disclosure.
+    // .jwt-chip is 'JWT · expires in 2h 14m' — the panel's reading of a token,
+    // searchable as if the response had sent those words; .jwt-details is the
+    // rest of that reading, and .url-breakdown-decoded is the decoded copy of
+    // a query the same row already shows verbatim.
+    for (const derived of ['.url-breakdown-decoded', '.jwt-details']) {
+      expect([derived, js.includes(derived + ',') || js.includes(derived + "'")]).toEqual([derived, true]);
+    }
+    expect(js).toContain("  const JWT_SEGMENT_CLASSES = [");
+  });
+
   test('renders hits through safe DOM APIs with theme-token styling', () => {
     // Hits are wrapped via createElement/textContent (never innerHTML).
     expect(js).toMatch(/mark\.className = 'pane-search-hit';\s*\n\s*mark\.textContent =/);
@@ -4020,13 +4079,209 @@ describe('edit-and-resend contracts', () => {
 
 describe('jwt decode display contracts', () => {
   test('JWT sections decode into both header panes and disclaim verification', () => {
-    expect(js).toContain("const JWT_DISPLAY_NOTE = 'Decoded locally for display; the signature is not verified.';");
-    expect(js).toContain('createJwtDetailsSection(row.requestHeaders)');
-    expect(js).toContain('createJwtDetailsSection(row.responseHeaders)');
+    // The disclaimer moved into the dictionary when the disclosure was filed
+    // under the Authorization row: an English paragraph directly beneath a
+    // translated chip read as another product's text.
+    expect(js).toContain(
+      "    jwtDisplayNote: {\n      en: 'Decoded locally for display; the signature is not verified.',\n" +
+        "      ja: '表示のためにローカルでデコードしています。署名は検証していません。',\n    },",
+    );
+    expect(js).toContain(
+      "        uiText('jwtDisplayNote') + (finding.decoded.signaturePresent ? '' : uiText('jwtNoSignature'));",
+    );
+    expect(js).not.toContain('JWT_DISPLAY_NOTE');
+    // The decoded section is filed under the header row that carries the
+    // token, not below the whole grid, in both header panes.
+    expect(js).toContain('const requestJwtSubRows = createHeaderJwtSubRows(row.requestHeaders);');
+    expect(js).toContain('const responseJwtSubRows = createHeaderJwtSubRows(row.responseHeaders);');
+    expect(js).toContain('subRow: requestJwtSubRows.get(h),');
+    expect(js).toContain('subRow: responseJwtSubRows.get(h),');
+    // A sub-row spans both columns and is appended after the pair, so a value
+    // cell is still the key's next element sibling.
+    expect(css).toContain('.kv > .kv-subrow{grid-column:1 / -1;padding:0 0 4px}');
     expect(css).toContain('.jwt-details summary.jwt-expired{color:var(--status-5xx-text)}');
     // Display only: the decoder never feeds the clipboard/export pipeline.
     expect(js).not.toContain('decodeJwt(sanitize');
     expect(js).toContain('const JWT_MAX_TOKEN_CHARS = 8192;');
+  });
+
+  test('a header value paints its token in three tinted segments and an expiry chip', () => {
+    expect(js).toContain(
+      "const JWT_SEGMENT_CLASSES = ['jwt-seg jwt-seg--header', 'jwt-seg jwt-seg--payload', 'jwt-seg jwt-seg--signature'];",
+    );
+    // Every theme block defines the two syntax tints and the muted text the
+    // three segments take, so the structure reads in light and dark alike.
+    expect(css).toContain('.kv .jwt-seg--header{color:var(--syn-key)}');
+    expect(css).toContain('.kv .jwt-seg--payload{color:var(--syn-str)}');
+    expect(css).toContain('.kv .jwt-seg--signature{color:var(--text-muted)}');
+    expect(css).toContain('.kv .jwt-chip--expired{border-color:var(--status-5xx-text);color:var(--status-5xx-text)}');
+    // The chip is derived text beside the value, so a drag across the row
+    // carries the value and not the chip; and it wraps rather than forcing the
+    // cell into a horizontal overflow on a wide fallback font.
+    expect(css).toMatch(/\.kv \.jwt-chip\{[^}]*max-width:100%[^}]*\}/);
+    expect(css).toMatch(/\.kv \.jwt-chip\{[^}]*user-select:none[^}]*\}/);
+    expect(css).not.toMatch(/\.kv \.jwt-chip\{[^}]*white-space:nowrap[^}]*\}/);
+    // Both header panes paint the chip and the JWT-aware break opportunities.
+    expect(js).toContain('appendText: appendJwtAwareText,');
+    expect(js).toContain('chip: createJwtExpiryChip(h.value),');
+  });
+
+  test('a row copies through the sanitizer its pane already uses, not through a name heuristic', () => {
+    // The gate is the sanitizer each pane's "Copy sanitized" already uses, so
+    // the row copy is never less redacted than it: an allowlist for a header
+    // row, an unconditional mask for a cookie or query row.
+    expect(js).toContain("  const KV_COPY_KINDS = new Set(['header', 'cookie', 'query', 'plain']);");
+    expect(js).toContain('  function planKvCopyValue(kind, name, value) {');
+    expect(js).toContain("    const gate = KV_COPY_KINDS.has(kind) ? kind : 'cookie';");
+    expect(js).toContain("    if (gate === 'plain') return { masked: false, text };");
+    expect(js).toContain("    if (gate === 'header') sanitized = sanitizeHeaders([item]).value[0].value;");
+    expect(js).toContain("    else if (gate === 'query') sanitized = sanitizeNamedValues([item]).value[0].value;");
+    expect(js).toContain('    else sanitized = sanitizeCookies([item]).value[0].value;');
+    expect(js).toContain('    return { masked: sanitized !== text, text: sanitized };');
+    // isSensitiveKey is a denylist over a display key and decides nothing here.
+    expect(js).not.toContain('if (!isSensitiveKey(name)) return { masked: false, text };');
+    expect(js).toContain(
+      "      writeClipboardPayload(plan.text, uiText(plan.masked ? 'statusCopiedValueMasked' : 'statusCopiedValue'));",
+    );
+    // The control has a grid track of its own, so no line of the value can run
+    // underneath it: absolutely positioned inside the cell, it painted over the
+    // tail of the value's first line — the characters about to be copied.
+    expect(css).toContain('.kv{display:grid;grid-template-columns:fit-content(min(220px,40%)) 1fr auto;gap:0;font-size:13px}');
+    expect(css).toContain('.kv > .val{grid-column:2}');
+    expect(css).toContain('.kv > .kv-copy-btn{grid-column:3}');
+    expect(css).not.toMatch(/\.kv > \.kv-copy-btn\{[^}]*position:absolute[^}]*\}/);
+    // And it is still revealed rather than inserted, and unselectable, so no
+    // row moves and a drag across a token never carries the word "Copy".
+    expect(css).toMatch(/\.kv > \.kv-copy-btn\{[^}]*opacity:0[^}]*\}/);
+    expect(css).toMatch(/\.kv > \.kv-copy-btn\{[^}]*user-select:none[^}]*\}/);
+    expect(css).toContain(
+      // :focus-within rather than :focus on the control itself — a button has
+      // no focusable descendants, so the two mean the same thing here, and
+      // :focus is the one Chrome stops matching while the document is not the
+      // focused one, which is every real-browser regression run.
+      '.kv > .key:hover + .val + .kv-copy-btn,.kv > .val:hover + .kv-copy-btn,.kv > .kv-copy-btn:hover,.kv > .kv-copy-btn:focus-within{opacity:1;pointer-events:auto}',
+    );
+    // The stacked layout under 520px keeps the control beside the value rather
+    // than dropping it to a line of its own, so it costs no extra height.
+    expect(css).toContain('  .kv{grid-template-columns:minmax(0,1fr) auto;gap:0}');
+    expect(css).toContain('  .kv > .kv-copy-btn{grid-column:2}');
+    // The row-end control writes one sanitized value and offers no unsanitized
+    // path of its own: "Copy full..." exists only in the five pane toolbars,
+    // each behind the confirmation flow requestFullClipboardAction owns.
+    expect(js).toContain("    button.textContent = uiText('kvCopyValue');");
+    expect((js.match(/uiText\('paneCopyFull'\)/g) || []).length).toBe(5);
+    expect((js.match(/requestFullClipboardAction\(/g) || []).length).toBe(6);
+  });
+
+  test('the row-end copies are one tab stop per grid, not one per row', () => {
+    // Fifteen cookie rows cost fifteen Tab presses before this. The grid keeps
+    // exactly one control in the tab order and the arrows move between them,
+    // so every control stays reachable and the pane's stop count is unchanged.
+    expect(js).toContain('  function armKvCopyRoving(grid, buttons) {');
+    expect(js).toContain('    armKvCopyRoving(grid, copyButtons);');
+    expect(js).toContain('      for (const button of buttons) button.tabIndex = button === target ? 0 : -1;');
+    expect(js).toContain('    rove(buttons[0]);');
+    expect(js).toContain("      if (event.key === 'ArrowDown' || event.key === 'ArrowRight') next = current + 1;");
+    expect(js).toContain("      else if (event.key === 'Home') next = 0;");
+    // Never a tabindex of -1 on every one of them: that would take the control
+    // out of the keyboard's reach entirely rather than out of the tab sequence.
+    expect(js).not.toContain('copyButton.tabIndex = -1;');
+  });
+
+  test('every kv grid declares what its rows are, and no grid infers it from a label', () => {
+    // The gate reads the grid's declaration and the captured name, never the
+    // rendered key: 'Set-Cookie #1' is a label with a counter in it.
+    expect(js).toContain('  function createKvGrid(items, kind) {');
+    expect(js).toContain('      const copyName = item.copyName != null ? String(item.copyName) : keyName;');
+    expect(js).toContain('        const copyButton = createKvCopyButton(kind, keyName, copyName, copyValue);');
+    expect(js).toContain('        grid.appendChild(copyButton);');
+    // Eleven grids, eleven declarations: three stated inline, eight as the
+    // second argument on its own line. A grid added without one falls through
+    // to the cookie gate, so a missed declaration over-redacts, never leaks.
+    expect(js.match(/createKvGrid\(/g)).toHaveLength(11);
+    expect(js.match(/^ {10}'header',$/gm)).toHaveLength(3);
+    expect(js.match(/^ {10}'query',$/gm)).toHaveLength(1);
+    expect(js.match(/^ {10}'cookie',$/gm)).toHaveLength(1);
+    expect(js.match(/^ {8}'query',$/gm)).toHaveLength(1);
+    expect(js.match(/^ {6}'plain',$/gm)).toHaveLength(1);
+    expect(js.match(/createKvGrid\([A-Za-z]+, 'plain'\)/g)).toHaveLength(3);
+    expect(js).toContain("      if (timeItems.length > 0) details.appendChild(createKvGrid(timeItems, 'plain'));");
+    expect(js).toContain("    if (resInfoItems.length > 0) resHeadersPane.appendChild(createKvGrid(resInfoItems, 'plain'));");
+    expect(js).toContain("    resTimingPane.appendChild(createKvGrid(timingItems, 'plain'));");
+    // Both header grids hand the sanitizer the captured header name.
+    expect(js.match(/^ {12}copyName: h\.name,$/gm)).toHaveLength(3);
+  });
+
+  test('a Query row carries a copy, and the sub-grid inside a value opts out of one', () => {
+    // The pane where the control matters most had none at all: the items pass
+    // a prebuilt node, and a node-valued row has to state its copy.
+    expect(js).toContain('            copyValue: p.value,');
+    // Through the query gate, which redacts every value unconditionally — the
+    // same sanitizer this pane's "Copy sanitized" passes.
+    expect(js).toContain("          'query',");
+    // The disclosure nested inside one of those values keeps its opt-out: the
+    // control belongs to the rows a pane lists, not to a sub-grid inside one.
+    expect(js).toContain("          copyValue: '',");
+    // And the sub-grid breaks after its commas like every other Query value.
+    expect(js).toContain('          appendText: appendQueryValueText,');
+    // A comma segment goes through the shared helper, so it keeps the & ; /
+    // break opportunities; appended raw it had break points only at commas.
+    // Scoped to that function's body, because appendBreakableText itself is
+    // the one place a bare text node is the right thing to append.
+    const queryValueAppender = js.match(/\n {2}function appendQueryValueText\(container, text\) \{[\s\S]*?\n {2}\}\n/);
+    expect(queryValueAppender).not.toBeNull();
+    expect(queryValueAppender[0]).toContain('appendBreakableText(container, segment);');
+    expect(queryValueAppender[0]).not.toMatch(/createTextNode\(segment\)/);
+  });
+
+  test('the header JWT finder runs once per header list, keeping its dedup', () => {
+    // Called once per header, the finder's seenTokens set was rebuilt each
+    // time, so a token echoed in two headers decoded twice and spent two of
+    // the findings budget.
+    expect(js).toContain('    for (const finding of findJwtsInHeaders(headers)) {');
+    expect(js).not.toContain('      const findings = findJwtsInHeaders([header]);');
+    expect(js).not.toContain('      const section = createJwtDetailsSection([header], nowEpochMs);');
+    // Each finding carries the header it came from, so the sections still hang
+    // under their own rows without a second pass to work out which.
+    expect(js).toContain(
+      "        findings.push({ header, headerName: String((header && header.name) || ''), decoded });",
+    );
+  });
+
+  test('the decoded disclosure speaks the dictionary, in both languages', () => {
+    // A translated chip sat directly above an English summary: the section's
+    // own strings were the last hard-coded English inside it.
+    expect(js).toContain("        uiTextFormat('jwtSectionSummary', { name: finding.headerName }) +");
+    expect(js).toContain("        heading.textContent = uiText(labelKey);");
+    expect(js).toContain('  const JWT_PART_HEADINGS = [');
+    expect(js).not.toContain("      summary.textContent = 'JWT in ' + finding.headerName");
+    expect(js).not.toContain("        ['Header', finding.decoded.header],");
+    // en is byte-identical to the literals the section shipped with.
+    expect(js).toContain("      en: 'JWT in {name}',");
+    expect(js).toContain("      en: 'Header',");
+    expect(js).toContain("      en: 'Payload',");
+    expect(js).toContain("      en: 'expires in {time}',");
+    expect(js).toContain("      en: 'expired {time} ago',");
+    expect(js).toContain("      en: '{count} h',");
+  });
+
+  test('a request Cookie header row counts its pairs and opens the Cookies tab', () => {
+    expect(js).toContain("activateInspectorTab('req-tab-bar', 'req-cookies', true);");
+    expect(js).toContain('node: createRequestCookieRowNode(h, cookieHeader, cookies.length),');
+    // One reading of one string feeds the row's count and the Cookies pane, so
+    // the number in the header row and the rows in that tab cannot disagree.
+    expect(js).toContain("    const cookieHeader = getHeaderValue(row.requestHeaders, 'cookie');");
+    expect(js).toContain('    const cookies = cookieHeader ? parseCookieHeader(cookieHeader) : [];');
+    expect(js.match(/const cookies = cookieHeader \? parseCookieHeader\(cookieHeader\) : \[\];/g)).toHaveLength(1);
+    // The raw header still renders behind the shared clamp: it is clipped, not
+    // removed, so selection and find-in-page still reach the whole value.
+    expect(js).toContain('    renderKvValue(holder, value, appendJwtAwareText);');
+    // The count line and its control are chrome like every sibling control in
+    // a value cell: they were the only new in-cell chrome a drag picked up.
+    expect(css).toMatch(/\.kv-cookie-summary\{[^}]*user-select:none[^}]*\}/);
+    expect(css).toContain(
+      ".kv .val-clamp-toggle,.url-breakdown .link-btn,.kv-nested-summary,.kv-cookie-open-btn{display:inline-block;padding:0;font:inherit;font-size:12px;line-height:18px;user-select:none;-webkit-user-select:none}",
+    );
   });
 });
 
@@ -4147,6 +4402,43 @@ describe('audit layout and contrast contracts', () => {
     expect(js).toContain('if (url !== parts.scheme + parts.userinfo + parts.host + parts.pathname) {');
     expect(js).toContain("toggle.className = 'link-btn url-breakdown-toggle-btn';");
     expect(js).toContain("toggle.textContent = uiText('urlBreakdownShowFull');");
+  });
+
+  test('the segmented address is built from the plan, and the decode never enters it', () => {
+    // One address builder, shared by the URL row and by a Query value that is
+    // itself an address — not a second renderer that can drift from the first.
+    expect(js).toContain('function createUrlElement(url) {');
+    expect((js.match(/createUrlElement\(/g) || []).length).toBe(3); // definition + the URL row + the Query value
+    expect(js).toContain("nameEl.className = 'url-breakdown-query-name';");
+    expect(css).toContain('.url-breakdown-query-name{color:var(--syn-hdr-name);font-weight:600}');
+    // The decoded reading is a line beside the address, never inside it: the
+    // address is the string the request sent, and a drag-select of the row has
+    // to stay an address that resolves to the same place.
+    // Stated over the address builder's whole body, because `address` is a
+    // local of that function and the decoded reading is built in another one:
+    // a regression puts the decode into the address through `span(...)` or
+    // `appendBreakableText(...)`, never through `address.appendChild(decoded)`.
+    const addressBuilder = js.match(/\n {2}function createUrlElement\(url\) \{[\s\S]*?\n {2}\}\n/);
+    expect(addressBuilder).not.toBeNull();
+    expect(addressBuilder[0]).toContain('appendBreakableText(valueEl, token.value);');
+    expect(addressBuilder[0]).not.toMatch(/decoded/);
+    expect(js).toContain("const decodedLine = line('url-breakdown-decoded');");
+    expect(css).toMatch(/\.url-breakdown-decoded\{[^}]*user-select:none/);
+    // And the clipboard never reads the rendered text: every copy path goes
+    // through the payload builder over the captured row.
+    expect(js).not.toMatch(/writeClipboardPayload\([^)]*(textContent|innerText)/);
+    // The segmented rendering paints the plan's parts, so it is offered only
+    // where those parts spell the source back byte for byte. new URL()
+    // normalizes, and a Query value arrives already decoded, so without this
+    // the cell rendered an address the request never sent.
+    expect(js).toContain(
+      '    const reconstruction = parts.scheme + parts.userinfo + parts.host + parts.pathname + parts.search + parts.hash;',
+    );
+    expect(js).toContain('      reconstructs: reconstruction === raw,');
+    expect(js).toContain('      segmented: !!(parts.host && parts.scheme) && reconstruction === raw,');
+    expect(js).toContain('    if (isAbsoluteHttpUrl(text) && planSegmentedUrl(text).reconstructs) {');
+    expect(js).not.toContain('      segmented: !!(parts.host && parts.scheme),');
+    expect(js).not.toContain('    if (isAbsoluteHttpUrl(text)) {');
   });
 
   test('the details tooltip truncates the tail and keeps the method and scheme', () => {

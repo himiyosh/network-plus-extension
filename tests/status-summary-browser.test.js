@@ -5340,7 +5340,7 @@ const DETAILS_HEADER_MEASURE = `(() => {
     summaryInsidePane: summary.hidden || (summaryRect.left >= details.left && summaryRect.right <= details.right + 0.5),
     summaryOverflows: summary.scrollWidth > summary.clientWidth,
     responseInfoKeys: Array.from(document.querySelectorAll('#res-headers .kv .key')).map((key) => key.textContent),
-    requestInfoKeys: Array.from(document.querySelectorAll('#req-headers .kv:first-of-type .key')).map(
+    requestInfoKeys: Array.from(document.querySelector('#req-headers .kv').querySelectorAll(':scope > .key')).map(
       (key) => key.textContent,
     ),
   };
@@ -5987,6 +5987,47 @@ browserTest(
       expect(breakdown.fullText).toBe(injected.adUrl);
       expect(breakdown.fullHasWbr).toBe(true);
 
+      // Request Headers has a toolbar of its own now, and the URL row keeps the
+      // same address twice: once on screen and once inside the hidden reveal.
+      // The search must count what the reader can see. Counting both made every
+      // hit in the row a pair and stepped the reader through an invisible copy
+      // of the text in front of them.
+      const headerSearch = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const input = document.querySelector('#req-headers .pane-search-input');
+          input.value = 'gampad';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => document.querySelectorAll('#req-headers mark.pane-search-hit').length > 0, 400);
+          const hits = Array.from(document.querySelectorAll('#req-headers mark.pane-search-hit'));
+          return {
+            hits: hits.length,
+            inFull: hits.filter((mark) => mark.closest('.url-breakdown-full')).length,
+            occurrencesInUrl: document.querySelector('#req-headers .url-breakdown-full').textContent.split('gampad')
+              .length - 1,
+            count: document.querySelector('#req-headers .pane-search-count').textContent,
+            placeholder: document.querySelector('#req-headers .pane-search-input').placeholder,
+          };
+        })()`,
+        true,
+      );
+      expect(headerSearch.placeholder).toBe('Search in request headers');
+      expect(headerSearch.occurrencesInUrl).toBe(1);
+      expect(headerSearch.hits).toBe(1);
+      expect(headerSearch.inFull).toBe(0);
+      expect(headerSearch.count).toBe('1 / 1');
+      await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const input = document.querySelector('#req-headers .pane-search-input');
+          input.value = '';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => document.querySelectorAll('#req-headers mark.pane-search-hit').length === 0, 400);
+          return true;
+        })()`,
+        true,
+      );
+
       const revealed = await evaluate(
         cdp,
         `(() => {
@@ -6291,14 +6332,40 @@ browserTest(
 // behind with nothing saying so: URL.host excludes credentials, and the row
 // rendered 'https://creds.example.test/vault/item?k=1' for a request made as
 // 'https://alice:s3cret@creds.example.test/vault/item?k=1'.
+// `names` is the query parameter names the segmented address must show apart
+// from their values; `decoded` is the decoded reading of the query, written by
+// hand rather than derived, and null where decoding changes nothing and the
+// row must therefore show no decoded line at all.
 const URL_ROW_FIXTURES = [
-  { label: 'bare', url: 'https://app.example.test/dashboard' },
-  { label: 'query', url: 'https://api.example.test/search?q=beacon&page=2' },
-  { label: 'fragment', url: 'https://docs.example.test/guide/setup#step-three' },
-  { label: 'credentialed', url: 'https://alice:s3cret@creds.example.test/vault/item?k=1' },
-  { label: 'credentialed-bare', url: 'https://svc@creds.example.test/vault' },
-  { label: 'ported', url: 'http://api.example.test:8080/ported/endpoint?a=1&b=2' },
-  { label: 'ported-fragment', url: 'https://api.example.test:8443/v2/orders?status=open#totals' },
+  { label: 'bare', url: 'https://app.example.test/dashboard', names: [], decoded: null },
+  { label: 'query', url: 'https://api.example.test/search?q=beacon&page=2', names: ['q', 'page'], decoded: null },
+  { label: 'fragment', url: 'https://docs.example.test/guide/setup#step-three', names: [], decoded: null },
+  { label: 'credentialed', url: 'https://alice:s3cret@creds.example.test/vault/item?k=1', names: ['k'], decoded: null },
+  { label: 'credentialed-bare', url: 'https://svc@creds.example.test/vault', names: [], decoded: null },
+  { label: 'ported', url: 'http://api.example.test:8080/ported/endpoint?a=1&b=2', names: ['a', 'b'], decoded: null },
+  {
+    label: 'ported-fragment',
+    url: 'https://api.example.test:8443/v2/orders?status=open#totals',
+    names: ['status'],
+    decoded: null,
+  },
+  // Percent-encoded: the address must still be the string the request sent —
+  // '?next=/dashboard' is a different URL from '?next=%2Fdashboard' and would
+  // resolve elsewhere — while the decoded reading is offered beside it.
+  {
+    label: 'encoded',
+    url: 'https://auth.example.test/login?next=%2Fdashboard%3Ftab%3Dbilling&lang=ja',
+    names: ['next', 'lang'],
+    decoded: '?next=/dashboard?tab=billing&lang=ja',
+  },
+  // A lone '%' is not an escape: decodeURIComponent throws on it, and the row
+  // must fall back to the token as captured rather than show nothing.
+  {
+    label: 'undecodable',
+    url: 'https://cdn.example.test/asset?discount=100%&size=4%20x',
+    names: ['discount', 'size'],
+    decoded: '?discount=100%&size=4 x',
+  },
 ];
 
 const URL_ROW_FIXTURE_INJECT = `(async () => {
@@ -6339,8 +6406,29 @@ const URL_ROW_SELECT_MEASURE = `(() => {
   selection.removeAllRanges();
   const colourOf = (target) => (target ? getComputedStyle(target).color : null);
   const fragmentLine = wrap.querySelector('.url-breakdown-fragment');
+  const queryText = wrap.querySelector('.url-breakdown-query-text');
+  const decoded = wrap.querySelector('.url-breakdown-decoded');
+  // Every '&' inside the query must have a <wbr> immediately before it, so a
+  // wrapped line opens on the separator; and the characters the query span
+  // holds, concatenated, must still be the search string the URL carries.
+  const queryChildren = queryText ? Array.from(queryText.childNodes) : [];
+  const ampsBrokenBefore = queryChildren.every(
+    (node, index) =>
+      node.nodeType !== 3 ||
+      node.nodeValue !== '&' ||
+      (index > 0 && queryChildren[index - 1].nodeName === 'WBR'),
+  );
   return {
     selected: text,
+    queryTextContent: queryText ? queryText.textContent : null,
+    queryNames: Array.from(wrap.querySelectorAll('.url-breakdown-query-name')).map((el) => el.textContent),
+    queryNameColour: colourOf(wrap.querySelector('.url-breakdown-query-name')),
+    queryValueColour: colourOf(wrap.querySelector('.url-breakdown-query-value')),
+    ampsBrokenBefore,
+    decodedText: decoded ? decoded.textContent : null,
+    decodedSelect: decoded ? getComputedStyle(decoded).userSelect : null,
+    decodedLabel: decoded ? decoded.querySelector('.url-breakdown-decoded-label').textContent : null,
+    decodedLineClamp: decoded ? getComputedStyle(decoded).webkitLineClamp : null,
     lines: Array.from(wrap.querySelectorAll('.url-breakdown-line')).map((line) => line.className),
     addressBlocks: wrap.querySelectorAll('.url-breakdown-address div,.url-breakdown-address p').length,
     userinfoText: (wrap.querySelector('.url-breakdown-userinfo') || {}).textContent ?? null,
@@ -6382,6 +6470,36 @@ browserTest(
         // one block of inline spans and not a stack of sibling blocks.
         expect([fixture.label, measured.selected]).toEqual([fixture.label, fixture.url]);
         expect([fixture.label, measured.addressBlocks]).toEqual([fixture.label, 0]);
+        // The query is segmented: each parameter's name is its own span, and
+        // the span holding the query still spells the search string exactly.
+        expect([fixture.label, measured.queryNames]).toEqual([fixture.label, fixture.names]);
+        expect([fixture.label, measured.queryTextContent]).toEqual([
+          fixture.label,
+          new URL(fixture.url).search || null,
+        ]);
+        expect([fixture.label, measured.ampsBrokenBefore]).toEqual([fixture.label, true]);
+        if (fixture.names.length > 0) {
+          expect([fixture.label, measured.queryNameColour === measured.queryValueColour]).toEqual([
+            fixture.label,
+            false,
+          ]);
+        }
+        // A decoded reading appears only where decoding changes the query, it
+        // says what it is, and it cannot be dragged into the selection above —
+        // which is why `selected` is still the raw URL for the encoded shapes.
+        expect([fixture.label, measured.decodedText]).toEqual([
+          fixture.label,
+          fixture.decoded === null ? null : 'Decoded:' + fixture.decoded,
+        ]);
+        if (fixture.decoded !== null) {
+          expect([fixture.label, measured.decodedLabel]).toEqual([fixture.label, 'Decoded:']);
+          expect([fixture.label, measured.decodedSelect]).toEqual([fixture.label, 'none']);
+          // Clipped to four lines like the address, so the reading cannot grow
+          // taller than the thing it explains; the '…' is the marker that says
+          // there is more, and the Query tab holds the whole of it.
+          expect([fixture.label, measured.decodedLineClamp]).toEqual([fixture.label, '4']);
+          expect([fixture.label, measured.decodedText.includes(fixture.url)]).toEqual([fixture.label, false]);
+        }
         // And where a reveal exists it holds the same string, so neither path
         // to the address disagrees with the other.
         if (measured.revealText !== null) {
@@ -6413,6 +6531,420 @@ browserTest(
       expect(URL_ROW_FIXTURES.some((fixture) => new URL(fixture.url).username)).toBe(true);
       expect(URL_ROW_FIXTURES.some((fixture) => new URL(fixture.url).hash)).toBe(true);
       expect(URL_ROW_FIXTURES.some((fixture) => new URL(fixture.url).port)).toBe(true);
+      // Including the shapes the decoded reading exists for: one that decodes
+      // cleanly, and one carrying a '%' that decodeURIComponent refuses.
+      expect(URL_ROW_FIXTURES.filter((fixture) => fixture.decoded !== null).length).toBeGreaterThanOrEqual(2);
+      expect(URL_ROW_FIXTURES.some((fixture) => /%[^0-9a-fA-F]/.test(fixture.url))).toBe(true);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS * 2,
+);
+// The Query pane, item by item: a value that is an absolute address renders as
+// one, a value that is itself a query string files its pairs under a collapsed
+// disclosure, a comma list may break after its commas, and the pane carries the
+// same toolbar Body and Raw carry. The values arrive already decoded by
+// searchParams, so what is nested inside them is decoded once more — and none
+// of that decoded text may reach the clipboard, which reads the captured URL.
+const QUERY_PANE_KEYWORDS = Array.from({ length: 12 }, (_unused, index) => 'kw' + index).join(',');
+
+const QUERY_PANE_URL =
+  'https://track.example.test/collect' +
+  '?redirect=https%3A%2F%2Fauth.example.test%2Fcallback%3Fcode%3D9' +
+  '&utm=utm_source%3Dnews%26utm_id%3D77%26cid%3Dabc' +
+  // A nested value whose own value is a comma list: the sub-grid has to offer
+  // the same break opportunities the pane's own values get, or 'kw9,kw10'
+  // wraps in the middle of a token.
+  '&deep=' +
+  encodeURIComponent('kw=' + QUERY_PANE_KEYWORDS + '&page=2') +
+  '&tags=alpha%2Cbeta%2Cgamma%2Cdelta' +
+  '&plain=hello%20world' +
+  '&token=abc123';
+
+// The text of an element's FIRST rendered line, read from the line boxes the
+// browser actually produced. Never a character count and never a <wbr> count:
+// where a line ends moves with the font, and a <wbr> count would have passed
+// on the very build whose visible break was still mid-token.
+const FIRST_LINE_IN_PAGE = `
+  const firstRenderedLine = (element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const characters = [];
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      for (let index = 0; index < node.nodeValue.length; index++) characters.push([node, index]);
+    }
+    if (characters.length === 0) return '';
+    const range = document.createRange();
+    const topOf = ([node, index]) => {
+      range.setStart(node, index);
+      range.setEnd(node, index + 1);
+      const rect = range.getClientRects()[0];
+      return rect ? Math.round(rect.top) : null;
+    };
+    const first = topOf(characters[0]);
+    if (first === null) return '';
+    let line = '';
+    for (const entry of characters) {
+      if (topOf(entry) !== first) break;
+      line += entry[0].nodeValue[entry[1]];
+    }
+    return line;
+  };
+`;
+
+const QUERY_PANE_INJECT = `(async () => {
+  const settle = () =>
+    new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 60))));
+  globalThis.__networkPlusLiveListener({
+    startedDateTime: new Date(1704067200000).toISOString(),
+    time: 40,
+    request: { method: 'GET', url: ${JSON.stringify(QUERY_PANE_URL)}, httpVersion: 'HTTP/2', headers: [] },
+    response: {
+      status: 200,
+      statusText: 'OK',
+      httpVersion: 'HTTP/2',
+      headers: [{ name: 'content-type', value: 'text/plain' }],
+      content: { size: 2, mimeType: 'text/plain' },
+    },
+    getContent(callback) {
+      callback('ok', '');
+    },
+  });
+  await settle();
+  document.querySelector('#tbody tr[data-row-id="1"]').click();
+  await settle();
+  document.querySelector('#req-tab-query').click();
+  await settle();
+  return document.querySelectorAll('#req-query .kv').length;
+})()`;
+
+const QUERY_PANE_MEASURE = `(() => {
+  const pane = document.querySelector('#req-query');
+  const grid = pane.querySelector(':scope > .kv');
+  const cellOf = (name) =>
+    Array.from(grid.querySelectorAll(':scope > .key')).find((key) => key.textContent === name).nextElementSibling;
+  const select = (target) => {
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    selection.addRange(range);
+    const text = selection.toString();
+    selection.removeAllRanges();
+    return text;
+  };
+  const redirect = cellOf('redirect');
+  const utm = cellOf('utm');
+  const tags = cellOf('tags');
+  const address = redirect.querySelector('.url-breakdown-address');
+  const details = utm.querySelector('.kv-nested-details');
+  const nestedGrid = details.querySelector('.kv-nested');
+  // Every ',' of the list ends a text node that a <wbr> follows, and the text
+  // nodes still concatenate to the value the parameter holds.
+  const tagNodes = Array.from(tags.childNodes);
+  return {
+    // The toolbar is the pane's first element child and carries the copy pair.
+    toolbarFirst: pane.firstElementChild.className,
+    copyLabels: Array.from(pane.querySelectorAll('.pane-search-bar .copy-btn')).map((btn) => btn.textContent),
+    strayCopyActions: pane.querySelectorAll(':scope > .copy-actions').length,
+    outerKeys: Array.from(grid.querySelectorAll(':scope > .key')).map((key) => key.textContent),
+    // Every row of this pane carries the row-end control, and it sits BESIDE
+    // the value cell rather than inside it, so no line of a value can run
+    // underneath it and a drag over the value cannot reach it.
+    copyControls: Array.from(grid.querySelectorAll(':scope > .kv-copy-btn')).length,
+    copyIsValuesSibling: Array.from(grid.querySelectorAll(':scope > .val')).every(
+      (val) => val.nextElementSibling && val.nextElementSibling.classList.contains('kv-copy-btn'),
+    ),
+    copyInsideValues: grid.querySelectorAll(':scope > .val .kv-copy-btn').length,
+    // One tab stop for the whole grid: the arrows move between the controls.
+    copyTabStops: Array.from(grid.querySelectorAll(':scope > .kv-copy-btn')).filter(
+      (button) => button.tabIndex === 0,
+    ).length,
+    // A value that parses as an absolute address is rendered as one.
+    addressText: address ? address.textContent : null,
+    addressNames: Array.from(redirect.querySelectorAll('.url-breakdown-query-name')).map((el) => el.textContent),
+    addressBlocks: address ? address.querySelectorAll('div,p,li').length : null,
+    redirectSelected: select(redirect),
+    // A value that is itself a query string: its own text is untouched, and
+    // the pairs inside it are behind a disclosure that starts closed.
+    utmText: utm.textContent,
+    utmSelected: select(utm),
+    summaryText: details.querySelector('.kv-nested-summary').textContent,
+    summarySelect: getComputedStyle(details.querySelector('.kv-nested-summary')).userSelect,
+    detailsOpen: details.open,
+    nestedBoxes: nestedGrid.getClientRects().length,
+    nestedKeys: Array.from(nestedGrid.querySelectorAll(':scope > .key')).map((key) => key.textContent),
+    nestedValues: Array.from(nestedGrid.querySelectorAll(':scope > .val')).map((val) => val.textContent),
+    // The sub-grid inside a value keeps its opt-out: the control belongs to the
+    // rows a pane lists, not to a disclosure nested inside one of them.
+    nestedCopyControls: nestedGrid.querySelectorAll('.kv-copy-btn').length,
+    // A plain value carrying no '=' pair nests nothing.
+    plainNested: cellOf('plain').querySelectorAll('.kv-nested-details').length,
+    tokenNested: cellOf('token').querySelectorAll('.kv-nested-details').length,
+    tagsText: tags.textContent,
+    tagsCommaBreaks: tagNodes.every(
+      (node, index) =>
+        node.nodeType !== 3 ||
+        !/,$/.test(node.nodeValue) ||
+        (tagNodes[index + 1] && tagNodes[index + 1].nodeName === 'WBR'),
+    ),
+    tagsWbr: tags.querySelectorAll('wbr').length,
+  };
+})()`;
+
+const QUERY_PANE_BAND_MEASURE = `(() => {
+  const pane = document.querySelector('#req-query');
+  const bar = pane.querySelector('.pane-search-bar');
+  const rowsOf = (elements) => {
+    const centres = [];
+    for (const element of elements) {
+      const rect = element.getBoundingClientRect();
+      if (!rect.width) continue;
+      const centre = rect.top + rect.height / 2;
+      if (!centres.some((known) => Math.abs(known - centre) < 8)) centres.push(centre);
+    }
+    return centres.length;
+  };
+  return {
+    paneWidth: Math.round(document.querySelector('#details').getBoundingClientRect().width),
+    barRows: rowsOf(Array.from(bar.children)),
+    barOverflow: Math.round(bar.scrollWidth - bar.clientWidth),
+    paneOverflow: Math.round(pane.scrollWidth - pane.clientWidth),
+    gridOverflow: Math.round(pane.querySelector(':scope > .kv').scrollWidth - pane.clientWidth),
+  };
+})()`;
+
+browserTest(
+  'the Query pane segments URL values, nests query values behind a disclosure, and carries its own toolbar',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT + CLIPBOARD_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await waitForLiveNetworkListener(cdp);
+      expect(await evaluate(cdp, QUERY_PANE_INJECT, true)).toBeGreaterThan(0);
+      await settleLayout(cdp);
+      const measured = await evaluate(cdp, QUERY_PANE_MEASURE);
+
+      expect(measured.toolbarFirst).toBe('pane-search-bar');
+      expect(measured.copyLabels).toEqual(['Copy sanitized', 'Copy full...']);
+      expect(measured.strayCopyActions).toBe(0);
+      expect(measured.outerKeys).toEqual(['redirect', 'utm', 'deep', 'tags', 'plain', 'token']);
+
+      // The pane where the row-end control matters most had none at all: the
+      // items pass a prebuilt node, and a node-valued row has to state its
+      // copy. Beside the value, never inside it, and one tab stop for the lot.
+      expect(measured.copyControls).toBe(6);
+      expect(measured.copyIsValuesSibling).toBe(true);
+      expect(measured.copyInsideValues).toBe(0);
+      expect(measured.copyTabStops).toBe(1);
+      expect(measured.nestedCopyControls).toBe(0);
+
+      // searchParams already decoded the value, so this parameter IS a URL:
+      // it reads as one, in one block, and a drag over the cell carries the
+      // address and nothing else.
+      expect(measured.addressText).toBe('https://auth.example.test/callback?code=9');
+      expect(measured.addressNames).toEqual(['code']);
+      expect(measured.addressBlocks).toBe(0);
+      expect(measured.redirectSelected).toBe('https://auth.example.test/callback?code=9');
+
+      // The nested pairs start collapsed, the value's own text is unchanged,
+      // and the summary is chrome: a drag over the cell must not pick it up.
+      expect(measured.utmText).toBe(
+        'utm_source=news&utm_id=77&cid=abc3 paramsutm_sourcenewsutm_id77cidabc',
+      );
+      expect(measured.utmSelected).toBe('utm_source=news&utm_id=77&cid=abc');
+      expect(measured.summaryText).toBe('3 params');
+      expect(measured.summarySelect).toBe('none');
+      expect(measured.detailsOpen).toBe(false);
+      expect(measured.nestedBoxes).toBe(0);
+      expect(measured.plainNested).toBe(0);
+      expect(measured.tokenNested).toBe(0);
+
+      // A comma list may break after each comma, and the breaks add nothing to
+      // the text: a <wbr> count would move with the font, the concatenation
+      // cannot.
+      expect(measured.tagsText).toBe('alpha,beta,gamma,delta');
+      expect(measured.tagsCommaBreaks).toBe(true);
+      expect(measured.tagsWbr).toBe(3);
+
+      const opened = await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#req-query .kv-nested-summary').click();
+          const nested = document.querySelector('#req-query .kv-nested');
+          return {
+            open: document.querySelector('#req-query .kv-nested-details').open,
+            boxes: nested.getClientRects().length,
+            keys: Array.from(nested.querySelectorAll(':scope > .key')).map((key) => key.textContent),
+            values: Array.from(nested.querySelectorAll(':scope > .val')).map((val) => val.textContent),
+          };
+        })()`,
+      );
+      // Decoded once more than the pane's own values: the pairs inside the
+      // value carry their own layer of encoding.
+      expect(opened.open).toBe(true);
+      expect(opened.boxes).toBeGreaterThan(0);
+      expect(opened.keys).toEqual(['utm_source', 'utm_id', 'cid']);
+      expect(opened.values).toEqual(['news', '77', 'abc']);
+
+      // The pane's search reads the visible rows, including the nested pairs
+      // the reader just opened, and counts each hit once — the URL row's
+      // hidden copy of the address is the one place a hit is not doubled.
+      const searched = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const input = document.querySelector('#req-query .pane-search-input');
+          input.value = 'utm_id';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => document.querySelectorAll('#req-query mark.pane-search-hit').length > 0, 400);
+          return {
+            hits: document.querySelectorAll('#req-query mark.pane-search-hit').length,
+            count: document.querySelector('#req-query .pane-search-count').textContent,
+          };
+        })()`,
+        true,
+      );
+      // Once, in the parameter's own text. The sub-grid is generated from that
+      // same text, so counting it too made every hit a pair and stepped the
+      // reader through a second copy of what is already in front of them.
+      expect(searched.hits).toBe(1);
+      expect(searched.count).toBe('1 / 1');
+
+      // The copy reads the captured URL through the sanitizer. Not the decoded
+      // text on screen: the sanitized payload redacts every query value, so
+      // neither the decoded redirect nor the decoded space may appear in it.
+      const copied = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const before = globalThis.__networkPlusCopied.length;
+          document.querySelector('#req-query .pane-search-bar .copy-btn').click();
+          await waitFor(() => globalThis.__networkPlusCopied.length > before, 100);
+          return { text: globalThis.__networkPlusCopied.slice(-1)[0], toast: document.querySelector('#copyToast').textContent };
+        })()`,
+        true,
+      );
+      expect(copied.toast).toBe('Copied sanitized URL');
+      expect(copied.text).toBe(
+        'https://track.example.test/collect?redirect=%5BREDACTED%5D&utm=%5BREDACTED%5D&deep=%5BREDACTED%5D&tags=%5BREDACTED%5D&plain=%5BREDACTED%5D&token=%5BREDACTED%5D',
+      );
+      expect(copied.text).not.toContain('auth.example.test');
+      expect(copied.text).not.toContain('hello');
+      expect(copied.text).not.toContain('utm_source');
+
+      // And the row-end control on this pane passes the very same gate: every
+      // Query value leaves as the redaction marker, whatever the cell renders.
+      const rowCopies = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const grid = document.querySelector('#req-query > .kv');
+          const rows = [];
+          for (const key of Array.from(grid.querySelectorAll(':scope > .key'))) {
+            const button = key.nextElementSibling.nextElementSibling;
+            const before = globalThis.__networkPlusCopied.length;
+            button.click();
+            await waitFor(() => globalThis.__networkPlusCopied.length > before, 300);
+            rows.push([key.textContent, globalThis.__networkPlusCopied.slice(-1)[0]]);
+          }
+          return { rows, toast: document.querySelector('#copyToast').textContent };
+        })()`,
+        true,
+      );
+      expect(rowCopies.rows).toEqual([
+        ['redirect', '[REDACTED]'],
+        ['utm', '[REDACTED]'],
+        ['deep', '[REDACTED]'],
+        ['tags', '[REDACTED]'],
+        ['plain', '[REDACTED]'],
+        ['token', '[REDACTED]'],
+      ]);
+      expect(rowCopies.toast).toBe('Copied masked value');
+
+      // The nested comma list breaks after its commas, like every other Query
+      // value. Stated as a property of the rendered line — where a line ends
+      // moves with the font, so a wrap point may never be a pinned number, and
+      // a <wbr> count would have passed while the visible break was still
+      // 'kw' / '9,kw10'. Swept across widths and under a face two sizes larger
+      // than any local one; the sweep also has to prove it wrapped at all.
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelectorAll('#req-query .kv-nested-details').forEach((details) => {
+            details.open = true;
+          });
+          return true;
+        })()`,
+      );
+      let wrappedSomewhere = false;
+      for (const oversized of [false, true]) {
+        if (oversized) {
+          await evaluate(
+            cdp,
+            `(() => {
+              const style = document.createElement('style');
+              style.id = 'oversizedNestedProbe';
+              style.textContent = '.kv,.kv .key,.kv .val{font-size:22px !important;line-height:28px !important}';
+              document.head.appendChild(style);
+            })()`,
+          );
+        }
+        for (const width of [400, 460, 520, 640, 760]) {
+          await evaluate(cdp, `document.querySelector('#details').style.flexBasis = '${width}px'`);
+          await settleLayout(cdp);
+          const wrap = await evaluate(
+            cdp,
+            `(() => {${FIRST_LINE_IN_PAGE}
+              const nested = Array.from(document.querySelectorAll('#req-query .kv-nested'))
+                .map((grid) => Array.from(grid.querySelectorAll(':scope > .key')).find((key) => key.textContent === 'kw'))
+                .find(Boolean);
+              const value = nested.nextElementSibling;
+              return { whole: value.textContent, firstLine: firstRenderedLine(value) };
+            })()`,
+          );
+          const at = (oversized ? 'oversized ' : '') + width + 'px';
+          expect([at, wrap.whole]).toEqual([at, QUERY_PANE_KEYWORDS]);
+          if (wrap.firstLine !== wrap.whole) {
+            wrappedSomewhere = true;
+            expect([at, wrap.firstLine.slice(-1)]).toEqual([at, ',']);
+          }
+        }
+        if (oversized) await evaluate(cdp, "document.querySelector('#oversizedNestedProbe').remove()");
+      }
+      expect(wrappedSomewhere).toBe(true);
+      await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
+      await settleLayout(cdp);
+
+      // The new toolbar obeys the band every pane toolbar obeys, in both
+      // languages: it never overflows its pane, and it never grows more rows
+      // as the pane gets wider. Stated over a sweep, because the Japanese pane
+      // noun is longer than the English one and CI's fallback fonts are wider
+      // than any local face.
+      for (const language of ['en', 'ja']) {
+        if (language !== 'en') {
+          await reloadInLanguage(page, language);
+          await waitForLiveNetworkListener(cdp);
+          expect(await evaluate(cdp, QUERY_PANE_INJECT, true)).toBeGreaterThan(0);
+          await settleLayout(cdp);
+        }
+        let previousRows = Infinity;
+        for (const width of [400, 460, 520, 600, 700, 820, 900]) {
+          await evaluate(cdp, `document.querySelector('#details').style.flexBasis = '${width}px'`);
+          await settleLayout(cdp);
+          const band = await evaluate(cdp, QUERY_PANE_BAND_MEASURE);
+          const at = language + '@' + width;
+          expect([at, band.barOverflow <= 0]).toEqual([at, true]);
+          expect([at, band.paneOverflow <= 0]).toEqual([at, true]);
+          expect([at, band.gridOverflow <= 0]).toEqual([at, true]);
+          expect([at, band.barRows <= previousRows]).toEqual([at, true]);
+          previousRows = band.barRows;
+        }
+        await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
+      }
     } finally {
       await page.close();
     }
@@ -6546,6 +7078,864 @@ const DETAILS_TITLE_FIXTURE_INJECT = `(async () => {
   await settle();
   return document.querySelectorAll('#tbody tr[data-row-id]').length;
 })()`;
+
+// Two requests whose header values are the shapes this pane has to structure:
+// a live token, an expired one, a Cookie header of fourteen pairs, and a CSP
+// list. The expiry offsets carry a 30-second margin so the two-unit reading is
+// the same at the start of the test and at the end of it.
+const HEADER_STRUCTURE_INJECT = `(async () => {
+  const settle = () =>
+    new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 60))));
+  const b64url = (value) => btoa(JSON.stringify(value)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+  const makeToken = (payload) => b64url({ alg: 'HS256', typ: 'JWT' }) + '.' + b64url(payload) + '.sig-Az_09';
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const liveToken = makeToken({ sub: 'user-1', exp: nowSeconds + 2 * 3600 + 14 * 60 + 30 });
+  const expiredToken = makeToken({ sub: 'user-1', exp: nowSeconds - 3 * 86400 - 30 });
+  const cookie = Array.from({ length: 14 }, (_unused, index) => 'c' + index + '=' + 'x'.repeat(30) + index).join('; ');
+  const csp =
+    "default-src 'self'; script-src 'self' https://cdn.example.test; img-src 'self' data:; frame-ancestors 'none'";
+  const entries = [
+    {
+      request: {
+        method: 'GET',
+        url: 'https://api.example.test/v1/profile',
+        headers: [
+          { name: 'Accept', value: 'application/json' },
+          { name: 'Authorization', value: 'Bearer ' + liveToken },
+          // The SAME token, echoed in a second header. The finder dedupes
+          // across a header list; running it once per header threw that away
+          // and decoded the token twice, under two rows.
+          { name: 'X-Amz-Security-Token', value: liveToken },
+          { name: 'Cookie', value: cookie },
+          { name: 'Content-Type', value: 'application/json' },
+        ],
+      },
+      response: {
+        status: 200,
+        statusText: 'OK',
+        headers: [
+          { name: 'content-type', value: 'application/json' },
+          { name: 'content-security-policy', value: csp },
+        ],
+      },
+    },
+    {
+      request: {
+        method: 'GET',
+        url: 'https://api.example.test/v1/stale',
+        headers: [{ name: 'Authorization', value: 'Bearer ' + expiredToken }],
+      },
+      response: { status: 401, statusText: 'Unauthorized', headers: [{ name: 'content-type', value: 'application/json' }] },
+    },
+  ];
+  entries.forEach((entry, index) => {
+    globalThis.__networkPlusLiveListener({
+      startedDateTime: new Date(1704067200000 + index * 1000).toISOString(),
+      time: 40 + index,
+      request: { ...entry.request, httpVersion: 'HTTP/2' },
+      response: { ...entry.response, httpVersion: 'HTTP/2', content: { size: 9, mimeType: 'application/json' } },
+      getContent(callback) {
+        callback('', '');
+      },
+    });
+  });
+  await settle();
+  return {
+    rows: document.querySelectorAll('#tbody tr[data-row-id]').length,
+    liveToken,
+    expiredToken,
+    cookie,
+    cookieCount: 14,
+    csp,
+  };
+})()`;
+
+const HEADER_STRUCTURE_MEASURE = `(() => {
+  const keyed = (paneId) =>
+    Object.fromEntries(Array.from(document.querySelectorAll(paneId + ' .kv .key')).map((key) => [key.textContent, key]));
+  const req = keyed('#req-headers');
+  const authKey = req.Authorization;
+  const authVal = authKey.nextElementSibling;
+  const segments = Array.from(authVal.querySelectorAll('.jwt-seg'));
+  const chip = authVal.querySelector('.jwt-chip');
+  const cookieVal = req.Cookie.nextElementSibling;
+  const cookieButton = cookieVal.querySelector('.kv-cookie-open-btn');
+  const cookieText = cookieVal.querySelector('.val-text');
+  const cookieToggle = cookieVal.querySelector('.val-clamp-toggle');
+  // The control is a grid item of its own now, so it is the value's next
+  // sibling and the sub-row follows it.
+  const copyButton = authVal.nextElementSibling;
+  const subRow = copyButton.nextElementSibling;
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  const range = document.createRange();
+  range.selectNodeContents(authVal);
+  selection.addRange(range);
+  const selected = selection.toString();
+  selection.removeAllRanges();
+  return {
+    segmentClasses: segments.map((el) => el.className),
+    segmentText: segments.map((el) => el.textContent).join('.'),
+    segmentColors: segments.map((el) => getComputedStyle(el).color),
+    distinctSegmentColors: new Set(segments.map((el) => getComputedStyle(el).color)).size,
+    // .kv .key is painted with --text-muted, so it is the muted tint itself.
+    mutedColor: getComputedStyle(authKey).color,
+    dotBreaks: authVal.querySelectorAll('wbr').length,
+    chipText: chip ? chip.textContent : null,
+    chipExpired: chip ? chip.classList.contains('jwt-chip--expired') : null,
+    chipUserSelect: chip ? getComputedStyle(chip).userSelect : null,
+    contentTypeHasChip: req['Content-Type'].nextElementSibling.querySelector('.jwt-chip') !== null,
+    acceptHasChip: req.Accept.nextElementSibling.querySelector('.jwt-chip') !== null,
+    selected,
+    valueIsKeysSibling: authKey.nextElementSibling.classList.contains('val'),
+    subRowClass: subRow ? subRow.className : null,
+    subRowStart: subRow ? getComputedStyle(subRow).gridColumnStart : null,
+    subRowEnd: subRow ? getComputedStyle(subRow).gridColumnEnd : null,
+    subRowOpen: subRow ? subRow.querySelector('details.jwt-details').open : null,
+    subRowSummary: subRow ? subRow.querySelector('details.jwt-details summary').textContent : null,
+    jwtSectionsOutsideSubRows: Array.from(document.querySelectorAll('#req-headers .jwt-section')).filter(
+      (section) => !section.parentElement.classList.contains('kv-subrow'),
+    ).length,
+    cookieButtonText: cookieButton ? cookieButton.textContent : null,
+    // A drag across the Cookie cell: the header value, and none of the count
+    // line's words. It was the only new in-cell chrome that was selectable.
+    cookieSelected: (() => {
+      const range = document.createRange();
+      range.selectNodeContents(cookieVal);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const text = selection.toString();
+      selection.removeAllRanges();
+      return text;
+    })(),
+    cookieSummarySelect: getComputedStyle(cookieVal.querySelector('.kv-cookie-summary')).userSelect,
+    cookieOpenSelect: getComputedStyle(cookieButton).userSelect,
+    // One decoded section for a token echoed in two headers, filed under the
+    // first header that carried it.
+    jwtSections: document.querySelectorAll('#req-headers .jwt-section').length,
+    jwtSummaries: Array.from(document.querySelectorAll('#req-headers details.jwt-details summary')).map(
+      (el) => el.textContent,
+    ),
+    echoHasSubRow: (() => {
+      const echo = req['X-Amz-Security-Token'];
+      const after = echo.nextElementSibling.nextElementSibling;
+      return !!(after && after.classList.contains('kv-subrow'));
+    })(),
+    echoHasChip: req['X-Amz-Security-Token'].nextElementSibling.querySelector('.jwt-chip') !== null,
+    cookieRawLength: cookieText ? cookieText.textContent.length : null,
+    cookieRawClamped: cookieText ? cookieText.classList.contains('val--clamped') : null,
+    cookieToggleLabel: cookieToggle ? cookieToggle.textContent : null,
+    cookieTogglePrevious: cookieToggle ? cookieToggle.previousElementSibling.className : null,
+    copyClass: copyButton ? copyButton.className : null,
+    copyLabel: copyButton ? copyButton.textContent : null,
+    copyAria: copyButton ? copyButton.getAttribute('aria-label') : null,
+    copyOpacity: copyButton ? getComputedStyle(copyButton).opacity : null,
+    copyUserSelect: copyButton ? getComputedStyle(copyButton).userSelect : null,
+    // No control lives inside a value cell any more: the row reserves a track
+    // for it, so it can occlude no character of the value it copies.
+    copyInsideValues: document.querySelectorAll('#req-headers .kv > .val .kv-copy-btn').length,
+    // One tab stop per grid, not one per row: eleven rows used to cost eleven
+    // Tab presses to walk past. The arrows move between the controls instead.
+    headerGridCopyCount: authVal.parentElement.querySelectorAll(':scope > .kv-copy-btn').length,
+    headerGridTabStops: Array.from(authVal.parentElement.querySelectorAll(':scope > .kv-copy-btn')).filter(
+      (button) => button.tabIndex === 0,
+    ).length,
+    headerGridReachable: Array.from(authVal.parentElement.querySelectorAll(':scope > .kv-copy-btn')).every(
+      (button) => button.tabIndex === 0 || button.tabIndex === -1,
+    ),
+    // The URL row's cell is a prebuilt breakdown, so it keeps no Copy control:
+    // the pane title owns Copy URL and a drag over the row stays the address.
+    urlValueCopyButtons: (() => {
+      const urlVal = document.querySelector('#req-headers .url-breakdown').closest('.val');
+      const next = urlVal.nextElementSibling;
+      return next && next.classList.contains('kv-copy-btn') ? 1 : 0;
+    })(),
+  };
+})()`;
+
+// Fit, stated as properties rather than as pixel counts: nothing overflows its
+// cell or its pane, and the two controls that sit at the value's end stay
+// inside it. Both survive a font two sizes larger than any local face.
+const HEADER_STRUCTURE_FIT_MEASURE = `(() => {
+  const overflow = (el) => Math.round(el.scrollWidth - el.clientWidth);
+  const within = (child, parent) =>
+    Math.round(child.getBoundingClientRect().right) <= Math.round(parent.getBoundingClientRect().right) + 1;
+  const find = (paneId, name) =>
+    Array.from(document.querySelectorAll(paneId + ' .kv .key')).find((key) => key.textContent === name);
+  const authVal = find('#req-headers', 'Authorization').nextElementSibling;
+  const cookieVal = find('#req-headers', 'Cookie').nextElementSibling;
+  const cspVal = find('#res-headers', 'content-security-policy').nextElementSibling;
+  const chip = authVal.querySelector('.jwt-chip');
+  const copyButton = authVal.nextElementSibling;
+  // The control's box against every line box of the value it copies. This is
+  // the property the third grid track exists for: absolutely positioned inside
+  // the cell, the control painted over the tail of the first line — the very
+  // characters the reader was about to copy.
+  const overlapsValueText = (() => {
+    const control = copyButton.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(authVal);
+    return Array.from(range.getClientRects()).some(
+      (rect) =>
+        rect.width > 0 &&
+        rect.right > control.left + 0.5 &&
+        rect.left < control.right - 0.5 &&
+        rect.bottom > control.top + 0.5 &&
+        rect.top < control.bottom - 0.5,
+    );
+  })();
+  return {
+    requestPaneOverflow: overflow(document.querySelector('#req-headers')),
+    responsePaneOverflow: overflow(document.querySelector('#res-headers')),
+    authValueOverflow: overflow(authVal),
+    cookieValueOverflow: overflow(cookieVal),
+    cspValueOverflow: overflow(cspVal),
+    chipInsideValue: within(chip, authVal),
+    copyOverlapsValueText: overlapsValueText,
+    copyInsidePane: within(copyButton, document.querySelector('#req-headers')),
+    cookieButtonInsideValue: within(cookieVal.querySelector('.kv-cookie-open-btn'), cookieVal),
+    // A CSP wraps at the spaces that follow every '; ' rather than clipping:
+    // taller than a single line, and never wider than the cell it sits in.
+    cspWrapped: Math.round(cspVal.getBoundingClientRect().height) > 24,
+    cspCarriesLastDirective: cspVal.textContent.indexOf("frame-ancestors 'none'") !== -1,
+  };
+})()`;
+
+browserTest(
+  'header values carry a token in three tinted segments, a Cookie count, and a per-row copy that masks',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT + CLIPBOARD_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await waitForLiveNetworkListener(cdp);
+      const injected = await evaluate(cdp, HEADER_STRUCTURE_INJECT, true);
+      expect(injected.rows).toBe(2);
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#tbody tr[data-row-id="1"]').click();
+          document.querySelector('#req-tab-headers').click();
+        })()`,
+      );
+      await settleLayout(cdp);
+      const measured = await evaluate(cdp, HEADER_STRUCTURE_MEASURE);
+
+      // (a) Three segments, tinted apart, with a break opportunity after each
+      // '.'. The concatenation is the assertion that matters: spans and <wbr>
+      // add nothing, so the value on screen is still the value the row holds.
+      expect(measured.segmentClasses).toEqual([
+        'jwt-seg jwt-seg--header',
+        'jwt-seg jwt-seg--payload',
+        'jwt-seg jwt-seg--signature',
+      ]);
+      expect(measured.segmentText).toBe(injected.liveToken);
+      expect(measured.distinctSegmentColors).toBe(3);
+      expect(measured.segmentColors[2]).toBe(measured.mutedColor);
+      expect(measured.dotBreaks).toBe(2);
+      // A drag across the cell carries the header value and nothing else: not
+      // the chip beside it, not the word "Copy", and with no newline in it.
+      expect(measured.selected).toBe('Bearer ' + injected.liveToken);
+      expect(measured.selected).not.toContain('\n');
+      expect(measured.chipUserSelect).toBe('none');
+      expect(measured.copyUserSelect).toBe('none');
+
+      // (b) The chip states the one fact the reader wants, and appears only
+      // where a token with an exp claim really is.
+      expect(measured.chipText).toBe('JWT · expires in 2h 14m');
+      expect(measured.chipExpired).toBe(false);
+      expect(measured.contentTypeHasChip).toBe(false);
+      expect(measured.acceptHasChip).toBe(false);
+
+      // (c) The decoded section is filed under the row that carries the token,
+      // across both columns, collapsed — and the value cell is still the key's
+      // next element sibling, which every pane probe depends on.
+      expect(measured.valueIsKeysSibling).toBe(true);
+      expect(measured.subRowClass).toBe('kv-subrow');
+      expect(measured.subRowStart).toBe('1');
+      expect(measured.subRowEnd).toBe('-1');
+      expect(measured.subRowOpen).toBe(false);
+      expect(measured.subRowSummary.startsWith('JWT in Authorization')).toBe(true);
+      expect(measured.jwtSectionsOutsideSubRows).toBe(0);
+      // The same token echoed in a second header decodes ONCE. The finder
+      // dedupes across a header list, and calling it once per header rebuilt
+      // that set each time: the token was decoded twice and spent two of the
+      // findings budget. The echoing row keeps its chip — that is a reading of
+      // its own value, not a second copy of the decoded section.
+      expect(measured.jwtSections).toBe(1);
+      expect(measured.jwtSummaries).toEqual([measured.subRowSummary]);
+      expect(measured.echoHasSubRow).toBe(false);
+      expect(measured.echoHasChip).toBe(true);
+
+      // (d) The Cookie header leads with its count; the raw header is still
+      // there in full, clamped rather than removed, with the Tier 2 toggle
+      // adjacent to the text it clamps.
+      expect(measured.cookieButtonText).toBe('14 cookies — open Cookies');
+      expect(measured.cookieRawLength).toBe(injected.cookie.length);
+      expect(measured.cookieRawClamped).toBe(true);
+      expect(measured.cookieToggleLabel).toBe(
+        'Show all (' + injected.cookie.length.toLocaleString('en-US') + ' chars)',
+      );
+      expect(measured.cookieTogglePrevious).toBe('val-text val--clamped');
+      // And a drag across that cell carries the header value alone: the count
+      // line was the only new in-cell chrome that a selection picked up.
+      expect(measured.cookieSelected).toBe(injected.cookie);
+      expect(measured.cookieSummarySelect).toBe('none');
+      expect(measured.cookieOpenSelect).toBe('none');
+
+      // The row-end copy control: present, labelled, named for its row, out of
+      // sight until it is wanted, and beside the value rather than inside it.
+      expect(measured.copyClass).toBe('link-btn kv-copy-btn');
+      expect(measured.copyLabel).toBe('Copy');
+      expect(measured.copyAria).toBe('Copy the Authorization value');
+      expect(measured.copyOpacity).toBe('0');
+      expect(measured.copyInsideValues).toBe(0);
+      expect(measured.urlValueCopyButtons).toBe(0);
+      // Five header rows, five controls, and ONE tab stop between them: the
+      // rest are reachable through the arrows, not through Tab.
+      expect(measured.headerGridCopyCount).toBe(5);
+      expect(measured.headerGridTabStops).toBe(1);
+      expect(measured.headerGridReachable).toBe(true);
+
+      // Revealing it moves nothing: the row keeps its height and its position,
+      // because the track it sits in is reserved whether it is visible or not.
+      // And the arrows walk the rest of the controls from the one tab stop.
+      const focused = await evaluate(
+        cdp,
+        `(() => {
+          const key = Array.from(document.querySelectorAll('#req-headers .kv .key')).find(
+            (candidate) => candidate.textContent === 'Authorization',
+          );
+          const val = key.nextElementSibling;
+          const button = val.nextElementSibling;
+          const grid = key.parentElement;
+          const controls = Array.from(grid.querySelectorAll(':scope > .kv-copy-btn'));
+          const box = () => ({
+            grid: Math.round(grid.getBoundingClientRect().height),
+            keyTop: Math.round(key.getBoundingClientRect().top),
+            valWidth: Math.round(val.getBoundingClientRect().width),
+          });
+          const before = box();
+          button.focus();
+          const after = box();
+          const revealedOpacity = getComputedStyle(button).opacity;
+          const focusedIsButton = document.activeElement === button;
+          // Focusing it makes it the grid's tab stop, and ArrowDown hands the
+          // stop to the next one instead of adding a second.
+          const tabStopsWhileFocused = controls.filter((control) => control.tabIndex === 0).length;
+          button.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+          const movedTo = controls.indexOf(document.activeElement);
+          const tabStopsAfterArrow = controls.filter((control) => control.tabIndex === 0).length;
+          return {
+            before,
+            after,
+            focusedIsButton,
+            revealedOpacity,
+            focusedIndex: controls.indexOf(button),
+            tabStopsWhileFocused,
+            movedTo,
+            tabStopsAfterArrow,
+            activeIsTabStop: document.activeElement.tabIndex === 0,
+          };
+        })()`,
+      );
+      expect(focused.focusedIsButton).toBe(true);
+      expect(focused.revealedOpacity).toBe('1');
+      expect(focused.after).toEqual(focused.before);
+      expect(focused.tabStopsWhileFocused).toBe(1);
+      expect(focused.movedTo).toBe(focused.focusedIndex + 1);
+      expect(focused.tabStopsAfterArrow).toBe(1);
+      expect(focused.activeIsTabStop).toBe(true);
+
+      // The copy goes through the sensitivity gate, not through the text on
+      // screen: an Authorization value leaves as the redaction marker.
+      const maskedCopy = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const before = globalThis.__networkPlusCopied.length;
+          Array.from(document.querySelectorAll('#req-headers .kv .key'))
+            .find((key) => key.textContent === 'Authorization')
+            .nextElementSibling.nextElementSibling.click();
+          await waitFor(() => globalThis.__networkPlusCopied.length > before, 200);
+          return {
+            text: globalThis.__networkPlusCopied.slice(-1)[0],
+            toast: document.querySelector('#copyToast').textContent,
+          };
+        })()`,
+        true,
+      );
+      expect(maskedCopy.text).toBe('[REDACTED]');
+      expect(maskedCopy.text).not.toContain(injected.liveToken);
+      expect(maskedCopy.toast).toBe('Copied masked value');
+
+      const plainCopy = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const before = globalThis.__networkPlusCopied.length;
+          Array.from(document.querySelectorAll('#req-headers .kv .key'))
+            .find((key) => key.textContent === 'Content-Type')
+            .nextElementSibling.nextElementSibling.click();
+          await waitFor(() => globalThis.__networkPlusCopied.length > before, 200);
+          return {
+            text: globalThis.__networkPlusCopied.slice(-1)[0],
+            toast: document.querySelector('#copyToast').textContent,
+          };
+        })()`,
+        true,
+      );
+      expect(plainCopy.text).toBe('application/json');
+      expect(plainCopy.toast).toBe('Copied value');
+
+      // The count in the header row and the rows in the tab it opens are the
+      // same number, because they are the same reading of the same string.
+      const opened = await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#req-headers .kv-cookie-open-btn').click();
+          const pane = document.querySelector('#req-cookies');
+          return {
+            active: pane.classList.contains('active'),
+            hidden: pane.hidden,
+            tabSelected: document.querySelector('#req-tab-cookies').getAttribute('aria-selected'),
+            focusedTab: document.activeElement ? document.activeElement.id : '',
+            rows: pane.querySelectorAll('.kv .key').length,
+          };
+        })()`,
+      );
+      // The pane's search reads response data, not the panel's reading of it.
+      // '14m' is the chip's own two-unit wording — the decoded claim row says
+      // '2 h' — so it exists nowhere but in text the panel wrote itself.
+      const chipSearch = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const input = document.querySelector('#req-headers .pane-search-input');
+          input.value = '14m';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => document.querySelector('#req-headers .pane-search-count').textContent !== '', 400);
+          const result = {
+            chipShowsIt: document.querySelector('#req-headers .jwt-chip').textContent.indexOf('14m') !== -1,
+            hits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
+            count: document.querySelector('#req-headers .pane-search-count').textContent,
+          };
+          input.value = '';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return result;
+        })()`,
+        true,
+      );
+      expect(chipSearch.chipShowsIt).toBe(true);
+      expect(chipSearch.hits).toBe(0);
+      expect(chipSearch.count).toBe('No matches');
+
+      expect(opened).toEqual({
+        active: true,
+        hidden: false,
+        tabSelected: 'true',
+        focusedTab: 'req-tab-cookies',
+        rows: injected.cookieCount,
+      });
+      await evaluate(cdp, "document.querySelector('#req-tab-headers').click()");
+      await settleLayout(cdp);
+
+      // An expired token says so, in the danger tint the decoded summary uses.
+      await evaluate(cdp, "document.querySelector('#tbody tr[data-row-id=\"2\"]').click()");
+      await settleLayout(cdp);
+      const expired = await evaluate(
+        cdp,
+        `(() => {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--status-5xx-text)';
+          document.body.appendChild(probe);
+          const danger = getComputedStyle(probe).color;
+          probe.remove();
+          const chip = document.querySelector('#req-headers .jwt-chip');
+          return {
+            text: chip.textContent,
+            expired: chip.classList.contains('jwt-chip--expired'),
+            matchesDangerTint: getComputedStyle(chip).color === danger,
+          };
+        })()`,
+      );
+      expect(expired).toEqual({ text: 'JWT · expired 3d ago', expired: true, matchesDangerTint: true });
+
+      await evaluate(cdp, "document.querySelector('#tbody tr[data-row-id=\"1\"]').click()");
+      await settleLayout(cdp);
+
+      // Nothing here may depend on a measured text width. Over a sweep of pane
+      // widths, and again with a face two sizes larger than any local one, the
+      // chip and the copy control stay inside their cell, no value and no pane
+      // overflows, and the CSP list wraps at its spaces instead of clipping.
+      for (const oversized of [false, true]) {
+        if (oversized) {
+          await evaluate(
+            cdp,
+            `(() => {
+              const style = document.createElement('style');
+              style.id = 'oversizedFontProbe';
+              style.textContent =
+                '.kv,.kv .key,.kv .val,.kv .jwt-chip,.kv .kv-copy-btn,.kv .val-clamp-toggle,.kv-cookie-open-btn{font-size:24px !important;line-height:30px !important}';
+              document.head.appendChild(style);
+            })()`,
+          );
+        }
+        for (const width of [440, 520, 640, 760]) {
+          await evaluate(cdp, `document.querySelector('#details').style.flexBasis = '${width}px'`);
+          await settleLayout(cdp);
+          const fit = await evaluate(cdp, HEADER_STRUCTURE_FIT_MEASURE);
+          const at = (oversized ? 'oversized ' : '') + width + 'px';
+          expect([at, fit.requestPaneOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.responsePaneOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.authValueOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.cookieValueOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.cspValueOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.chipInsideValue]).toEqual([at, true]);
+          // The property the third track exists for: no line box of the value
+          // may intersect the control that copies it.
+          expect([at, fit.copyOverlapsValueText]).toEqual([at, false]);
+          expect([at, fit.copyInsidePane]).toEqual([at, true]);
+          expect([at, fit.cookieButtonInsideValue]).toEqual([at, true]);
+          expect([at, fit.cspWrapped]).toEqual([at, true]);
+          expect([at, fit.cspCarriesLastDirective]).toEqual([at, true]);
+        }
+        if (oversized) {
+          await evaluate(cdp, "document.querySelector('#oversizedFontProbe').remove()");
+        }
+      }
+      await evaluate(cdp, `document.querySelector('#details').style.flexBasis = ''`);
+
+      // Japanese repaints the chip, the count line and the copy control from
+      // the same dictionary, with no English left behind in any of the three.
+      await reloadInLanguage(page, 'ja');
+      await waitForLiveNetworkListener(cdp);
+      const jaInjected = await evaluate(cdp, HEADER_STRUCTURE_INJECT, true);
+      expect(jaInjected.rows).toBe(2);
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#tbody tr[data-row-id="1"]').click();
+          document.querySelector('#req-tab-headers').click();
+        })()`,
+      );
+      await settleLayout(cdp);
+      const japanese = await evaluate(
+        cdp,
+        `(() => {
+          const req = Object.fromEntries(
+            Array.from(document.querySelectorAll('#req-headers .kv .key')).map((key) => [key.textContent, key]),
+          );
+          const authVal = req.Authorization.nextElementSibling;
+          const copyButton = authVal.nextElementSibling;
+          const subRow = copyButton.nextElementSibling;
+          return {
+            chip: authVal.querySelector('.jwt-chip').textContent,
+            copy: copyButton.textContent,
+            copyAria: copyButton.getAttribute('aria-label'),
+            cookieButton: req.Cookie.nextElementSibling.querySelector('.kv-cookie-open-btn').textContent,
+            // The sub-row under the same chip: its summary, the key of the one
+            // claim row it renders, and its two part headings. Before this the
+            // chip was translated and everything below it was English.
+            subRowSummary: subRow.querySelector('details.jwt-details summary').textContent,
+            subRowHeadings: Array.from(subRow.querySelectorAll('.jwt-part-heading')).map((el) => el.textContent),
+          };
+        })()`,
+      );
+      expect(japanese.chip).toBe('JWT · あと2時間14分で失効');
+      expect(japanese.copy).toBe('コピー');
+      expect(japanese.copyAria).toBe('Authorization の値をコピー');
+      expect(japanese.cookieButton).toBe('14 件の Cookie — Cookies を開く');
+      expect(japanese.subRowSummary).toBe('Authorization の JWT · あと2時間で失効');
+      expect(japanese.subRowHeadings).toEqual(['ヘッダー', 'ペイロード']);
+      // The standing guard, now covering the sub-row: nothing this row paints
+      // may be ASCII-only English once the proper nouns are struck out.
+      const allowedLatin = ['Authorization', 'Cookies', 'Cookie', 'JWT'].sort((a, b) => b.length - a.length);
+      const painted = [
+        japanese.chip,
+        japanese.copy,
+        japanese.copyAria,
+        japanese.cookieButton,
+        japanese.subRowSummary,
+        ...japanese.subRowHeadings,
+      ];
+      expect(painted.length).toBe(7);
+      for (const value of painted) {
+        const rest = allowedLatin.reduce((text, token) => text.split(token).join(''), value);
+        expect([value, /[A-Za-z]/.test(rest)]).toEqual([value, false]);
+        expect([value, /[\u3040-\u30ff\u3400-\u9fff]/.test(value)]).toEqual([value, true]);
+      }
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS * 2,
+);
+
+// The data-safety table for the row-end Copy control, pressed for real in a
+// real browser. Unit coverage over planKvCopyValue passed while the shipped
+// pane leaked, because it asked about names no grid builds; this presses the
+// control on every kv row there is and reads the clipboard back.
+//
+// Every value below is a secret the fixture plants, so a leak is a substring
+// match rather than a judgement call.
+const KV_COPY_SECRETS = [
+  'ABCDEF0123456789SECRET',
+  'rm-secret-token-value',
+  'GA1.2.3.4',
+  'HEADER-SECRET-TOKEN',
+  'XAPI-SECRET-KEY',
+  'REFERER-SECRET',
+  'TRACE-SECRET-42',
+  'QUERY-SECRET-TOKEN',
+];
+
+// 'next' decodes to an address new URL() would normalize (an upper-case host,
+// an explicit default port); 'callback' decodes to one it would not touch.
+// Both cells must read as the token the parameter carries.
+const KV_COPY_QUERY_TOKENS = {
+  next: 'https://CB.Example.TEST:443/return?a=1',
+  callback: 'https://cb.example.test/return?a=1',
+};
+
+const KV_COPY_URL =
+  'https://api.example.test/v1/profile' +
+  '?access_token=QUERY-SECRET-TOKEN' +
+  '&next=https%3A%2F%2FCB.Example.TEST%3A443%2Freturn%3Fa%3D1' +
+  '&callback=https%3A%2F%2Fcb.example.test%2Freturn%3Fa%3D1' +
+  '&plain=ok';
+
+const KV_COPY_INJECT = `(async () => {
+  const settle = () =>
+    new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 60))));
+  globalThis.__networkPlusLiveListener({
+    startedDateTime: new Date(1704067200000).toISOString(),
+    time: 40,
+    request: {
+      method: 'GET',
+      url: ${JSON.stringify(KV_COPY_URL)},
+      httpVersion: 'HTTP/2',
+      headers: [
+        { name: 'Accept', value: 'application/json' },
+        { name: 'Authorization', value: 'Bearer HEADER-SECRET-TOKEN' },
+        {
+          name: 'Cookie',
+          value: 'JSESSIONID=ABCDEF0123456789SECRET; remember_me=rm-secret-token-value; _ga=GA1.2.3.4',
+        },
+        { name: 'X-Api-Key', value: 'XAPI-SECRET-KEY' },
+        { name: 'Referer', value: 'https://ref.example.test/page?token=REFERER-SECRET' },
+        { name: 'Content-Type', value: 'application/json' },
+      ],
+    },
+    response: {
+      status: 200,
+      statusText: 'OK',
+      httpVersion: 'HTTP/2',
+      headers: [
+        { name: 'content-type', value: 'application/json' },
+        { name: 'Set-Cookie', value: 'JSESSIONID=ABCDEF0123456789SECRET; Path=/; HttpOnly' },
+        { name: 'Set-Cookie', value: 'remember_me=rm-secret-token-value; Path=/; Secure' },
+        { name: 'x-internal-trace', value: 'TRACE-SECRET-42' },
+      ],
+      content: { size: 11, mimeType: 'application/json' },
+    },
+    timings: { blocked: 1, dns: 2, connect: 3, send: 4, wait: 20, receive: 5 },
+    getContent(callback) {
+      callback('{"ok":true}', '');
+    },
+  });
+  await settle();
+  document.querySelector('#tbody tr[data-row-id="1"]').click();
+  await settle();
+  return document.querySelectorAll('#tbody tr[data-row-id]').length;
+})()`;
+
+// Presses Copy on every row of one pane and reports what reached the
+// clipboard. A row with no control is reported too, so the sweep can tell
+// "redacted" apart from "there was nothing to press".
+const kvCopySweep = (paneId) => `(async () => {${WAIT_FOR_IN_PAGE}
+  const pane = document.querySelector('${paneId}');
+  const rows = [];
+  for (const key of Array.from(pane.querySelectorAll('.kv > .key'))) {
+    const val = key.nextElementSibling;
+    const sibling = val.nextElementSibling;
+    const button = sibling && sibling.classList.contains('kv-copy-btn') ? sibling : null;
+    if (!button) {
+      rows.push({ pane: '${paneId}', key: key.textContent, hasCopy: false, clipboard: '', toast: '' });
+      continue;
+    }
+    const before = globalThis.__networkPlusCopied.length;
+    button.click();
+    await waitFor(() => globalThis.__networkPlusCopied.length > before, 300);
+    rows.push({
+      pane: '${paneId}',
+      key: key.textContent,
+      hasCopy: true,
+      clipboard: globalThis.__networkPlusCopied.slice(-1)[0],
+      toast: document.querySelector('#copyToast').textContent,
+    });
+  }
+  return rows;
+})()`;
+
+const KV_COPY_PANES = [
+  ['#req-headers', '#req-tab-headers'],
+  ['#req-query', '#req-tab-query'],
+  ['#req-cookies', '#req-tab-cookies'],
+  ['#res-headers', '#res-tab-headers'],
+  ['#res-cookies', '#res-tab-cookies'],
+  ['#res-timing', '#res-tab-timing'],
+];
+
+// What each Query value cell reads as. textContent, not a measurement: the
+// question is whether the rendering says what the parameter carries, and that
+// answer may not move with the font or the pane width.
+const KV_QUERY_RENDER_MEASURE = `(() => {
+  const cells = Array.from(document.querySelectorAll('#req-query .kv > .key'));
+  return Object.fromEntries(
+    cells.map((key) => [key.textContent, key.nextElementSibling.textContent]),
+  );
+})()`;
+
+browserTest(
+  'every kv row copy leaves the sanitized form, and a Query URL value reads as the token it carries',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT + CLIPBOARD_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await waitForLiveNetworkListener(cdp);
+      expect(await evaluate(cdp, KV_COPY_INJECT, true)).toBe(1);
+      await settleLayout(cdp);
+
+      const swept = [];
+      for (const [paneId, tabId] of KV_COPY_PANES) {
+        await evaluate(cdp, `document.querySelector('${tabId}').click()`);
+        await settleLayout(cdp);
+        swept.push(...(await evaluate(cdp, kvCopySweep(paneId), true)));
+      }
+
+      // (a) The property the whole table exists for: nothing a row copy writes
+      // carries a planted secret. Stated over every row of every pane at once,
+      // so a grid added later is covered without a new assertion.
+      const leaked = swept.filter((row) =>
+        KV_COPY_SECRETS.some((secret) => row.clipboard.indexOf(secret) !== -1),
+      );
+      expect(leaked).toEqual([]);
+
+      // (b) And the sweep really pressed something: a pane that stopped
+      // rendering its rows would otherwise pass (a) by copying nothing.
+      const pressedIn = (paneId) => swept.filter((row) => row.pane === paneId && row.hasCopy).length;
+      expect(pressedIn('#req-headers')).toBeGreaterThan(0);
+      expect(pressedIn('#req-cookies')).toBe(3);
+      expect(pressedIn('#res-headers')).toBe(4);
+      expect(pressedIn('#res-cookies')).toBe(2);
+      expect(pressedIn('#res-timing')).toBe(7);
+      // The Query grid carries one per parameter now. It shipped with none at
+      // all — the values are prebuilt nodes, and a node-valued row has to
+      // state its copy — which left the pane where the control matters most
+      // as the only one without it.
+      expect(pressedIn('#req-query')).toBe(4);
+
+      // (c) The five rows three reviewers copied verbatim before the fix, each
+      // now leaving exactly what its pane's own Copy sanitized would leave.
+      const copied = (paneId, key) => {
+        const row = swept.find((entry) => entry.pane === paneId && entry.key === key);
+        return row ? [row.clipboard, row.toast] : null;
+      };
+      expect(copied('#req-cookies', 'JSESSIONID')).toEqual(['[REDACTED]', 'Copied masked value']);
+      expect(copied('#req-cookies', 'remember_me')).toEqual(['[REDACTED]', 'Copied masked value']);
+      expect(copied('#req-cookies', '_ga')).toEqual(['[REDACTED]', 'Copied masked value']);
+      // The counter in this label read as 'setcookie1' and matched no
+      // heuristic, so the whole Set-Cookie header went to the clipboard.
+      expect(copied('#res-cookies', 'Set-Cookie #1')).toEqual(['[REDACTED]', 'Copied masked value']);
+      expect(copied('#res-cookies', 'Set-Cookie #2')).toEqual(['[REDACTED]', 'Copied masked value']);
+      // A private header no denylist has heard of, and a Referer whose secret
+      // is in its query rather than in its name.
+      expect(copied('#res-headers', 'x-internal-trace')).toEqual(['[REDACTED]', 'Copied masked value']);
+      expect(copied('#req-headers', 'Referer')).toEqual([
+        'https://ref.example.test/page?token=%5BREDACTED%5D',
+        'Copied masked value',
+      ]);
+      // A Query row copies the parameter as CAPTURED, through the gate that
+      // redacts every query value — never the decoded reading its cell shows.
+      expect(copied('#req-query', 'access_token')).toEqual(['[REDACTED]', 'Copied masked value']);
+      expect(copied('#req-query', 'next')).toEqual(['[REDACTED]', 'Copied masked value']);
+      expect(copied('#req-query', 'callback')).toEqual(['[REDACTED]', 'Copied masked value']);
+      expect(copied('#req-query', 'plain')).toEqual(['[REDACTED]', 'Copied masked value']);
+
+      // (d) The control is still worth pressing: an allowlisted header and a
+      // panel-computed row copy their own value, unmasked.
+      expect(copied('#req-headers', 'Accept')).toEqual(['application/json', 'Copied value']);
+      expect(copied('#req-headers', 'Content-Type')).toEqual(['application/json', 'Copied value']);
+      expect(copied('#res-headers', 'content-type')).toEqual(['application/json', 'Copied value']);
+      expect(copied('#res-timing', 'wait')).toEqual(['20 ms', 'Copied value']);
+      expect(copied('#res-timing', 'Total')).toEqual(['40 ms', 'Copied value']);
+      expect(copied('#req-headers', 'Method')).toEqual(['GET', 'Copied value']);
+
+      // (e) A Query value that is an address reads as the token the parameter
+      // carries, not as what new URL() would normalize it to. Held over a
+      // sweep of pane widths and again under a face two sizes larger than any
+      // local one: a rendering that says the wrong thing may not become right
+      // at some width, and nothing here may be derived from a measurement.
+      await evaluate(cdp, "document.querySelector('#req-tab-query').click()");
+      await settleLayout(cdp);
+      for (const oversized of [false, true]) {
+        if (oversized) {
+          await evaluate(
+            cdp,
+            `(() => {
+              const style = document.createElement('style');
+              style.id = 'oversizedQueryProbe';
+              style.textContent =
+                '.kv,.kv .key,.kv .val,.kv .kv-copy-btn,.kv .val-clamp-toggle{font-size:24px !important;line-height:30px !important}';
+              document.head.appendChild(style);
+            })()`,
+          );
+        }
+        for (const width of [440, 520, 640, 760]) {
+          await evaluate(cdp, `document.querySelector('#details').style.flexBasis = '${width}px'`);
+          await settleLayout(cdp);
+          const rendered = await evaluate(cdp, KV_QUERY_RENDER_MEASURE);
+          const at = (oversized ? 'oversized ' : '') + width + 'px';
+          for (const [name, token] of Object.entries(KV_COPY_QUERY_TOKENS)) {
+            expect([at, name, rendered[name]]).toEqual([at, name, token]);
+          }
+          expect([at, rendered.access_token]).toEqual([at, 'QUERY-SECRET-TOKEN']);
+          expect([at, rendered.plain]).toEqual([at, 'ok']);
+        }
+        if (oversized) await evaluate(cdp, "document.querySelector('#oversizedQueryProbe').remove()");
+      }
+      await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
+
+      // The one that survives the round trip keeps the segmented rendering;
+      // the one that does not falls back to the plain value cell. Both say the
+      // same thing, which is the point: the fallback costs colour, not truth.
+      const shapes = await evaluate(
+        cdp,
+        `(() => {
+          const cellOf = (name) =>
+            Array.from(document.querySelectorAll('#req-query .kv > .key')).find(
+              (key) => key.textContent === name,
+            ).nextElementSibling;
+          return {
+            callbackSegments: cellOf('callback').querySelectorAll('.url-breakdown-host').length,
+            nextSegments: cellOf('next').querySelectorAll('.url-breakdown-host').length,
+          };
+        })()`,
+      );
+      expect(shapes).toEqual({ callbackSegments: 1, nextSegments: 0 });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS * 2,
+);
 
 // One row of the invariant table. 'exact' means the header renders the whole
 // truth; 'marked' means it renders less and says so. Anything else is a lie
@@ -7325,27 +8715,48 @@ browserTest(
       expect(wrapped.navRows).toBe(1);
       expect(wrapped.clusterRows).toBe(1);
       expect(wrapped.navGroupWraps).toBe('nowrap');
-      await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
-      await settleLayout(cdp);
 
-      // One scrollport carries all five panes of the half. Headers has no
-      // toolbar, so the wrapped Body bar must not leave it scrolling under a
-      // 58px gap that is not there.
+      // One scrollport carries all five panes of the half, so the inset has to
+      // follow the pane the reader is on rather than the last bar attached.
+      // Headers now owns a toolbar of its own, and at 400px the two bars are
+      // measurably different heights: the Body bar wrapped its copy actions
+      // onto a second row above, and Headers carries no copy actions at all,
+      // so its bar cannot wrap where the same search cluster fit on one row.
+      // That difference is what makes this test discriminate — with one shared
+      // number both panes would agree by accident.
       const insetAcrossTabs = await evaluate(
         cdp,
         `(() => {
           const area = document.querySelector('#res-headers').parentElement;
           const read = () => getComputedStyle(area).scrollPaddingTop;
+          const barHeight = (paneId) => {
+            const bar = document.querySelector('#' + paneId + ' .pane-search-bar');
+            return bar ? Math.round(bar.getBoundingClientRect().height) : 0;
+          };
           document.querySelector('#res-tab-headers').click();
           const headers = read();
+          const headersBar = barHeight('res-headers');
           document.querySelector('#res-tab-body').click();
           const backOnBody = read();
-          return { headers, backOnBody, sameScrollport: area === document.querySelector('#res-body').parentElement };
+          const bodyBar = barHeight('res-body');
+          return {
+            headers,
+            headersBar,
+            backOnBody,
+            bodyBar,
+            headersCopyButtons: document.querySelectorAll('#res-headers .pane-search-bar .copy-btn').length,
+            sameScrollport: area === document.querySelector('#res-body').parentElement,
+          };
         })()`,
       );
       expect(insetAcrossTabs.sameScrollport).toBe(true);
-      expect(insetAcrossTabs.headers).toBe('0px');
-      expect(insetAcrossTabs.backOnBody).toBe(narrow.barHeight + 'px');
+      expect(insetAcrossTabs.headersCopyButtons).toBe(0);
+      expect(insetAcrossTabs.headers).toBe(insetAcrossTabs.headersBar + 'px');
+      expect(insetAcrossTabs.backOnBody).toBe(insetAcrossTabs.bodyBar + 'px');
+      expect(insetAcrossTabs.headersBar).toBeGreaterThan(0);
+      expect(insetAcrossTabs.headersBar).toBeLessThan(insetAcrossTabs.bodyBar);
+      await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
+      await settleLayout(cdp);
 
       // Rebuilding the toolbars on every selection must not accumulate
       // observers: attachPaneSearch runs two to four times per row.
@@ -7371,7 +8782,12 @@ browserTest(
       // One per pane that owns a toolbar, plus the details-title observer —
       // never one per render.
       expect(observersAfterMany).toBeLessThanOrEqual(observersAfterFirst);
-      expect(observersAfterMany).toBeLessThanOrEqual(8);
+      // The ceiling is derived, not remembered: eight panes can own a toolbar
+      // (Request Headers/Query/Cookies/Body/Raw, Response Headers/Body/Raw),
+      // each keeping one observer for the life of the session, plus the
+      // details-title observer. Nine is the whole census; the line above is
+      // what actually says "never one per render".
+      expect(observersAfterMany).toBeLessThanOrEqual(9);
 
       await cdp.send('Emulation.clearDeviceMetricsOverride');
     } finally {
@@ -9289,7 +10705,7 @@ const LOCALIZED_SURFACES_BUILD = `(async () => {${WAIT_FOR_IN_PAGE}
   await settle();
   const details = {
     bodyLoading,
-    requestInfoKeys: Array.from(document.querySelectorAll('#req-headers .kv:first-of-type .key')).map(text),
+    requestInfoKeys: Array.from(document.querySelector('#req-headers .kv').querySelectorAll(':scope > .key')).map(text),
     requestHeadersHeading: text(document.querySelector('#req-headers .kv-group-heading')),
     responseHeadersHeading: text(document.querySelector('#res-headers .kv-group-heading')),
     timingHeading,
@@ -9593,7 +11009,7 @@ browserTest(
             copyLabels: Array.from(bar.querySelectorAll('.copy-btn')).map((el) => el.textContent),
             requestHeadersHeading: document.querySelector('#req-headers .kv-group-heading').textContent,
             requestInfoKeys: Array.from(
-              document.querySelectorAll('#req-headers .kv:first-of-type .key'),
+              document.querySelector('#req-headers .kv').querySelectorAll(':scope > .key'),
             ).map((el) => el.textContent),
           };
         })()`,
