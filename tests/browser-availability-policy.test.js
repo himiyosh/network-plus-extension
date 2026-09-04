@@ -1168,6 +1168,21 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title:
+        'the Query pane segments URL values, nests query values behind a disclosure, and carries its own toolbar',
+    },
+    {
+      skipped: true,
+      title:
+        'header values carry a token in three tinted segments, a Cookie count, and a per-row copy that masks',
+    },
+    {
+      skipped: true,
+      title:
+        'every kv row copy leaves the sanitized form, and a Query URL value reads as the token it carries',
+    },
+    {
+      skipped: true,
+      title:
         'the details header is either the whole URL or visibly truncated, at every pane width in both languages',
     },
     {

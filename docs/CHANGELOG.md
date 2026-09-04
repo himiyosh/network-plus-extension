@@ -35,6 +35,14 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 - ✨ **Japanese UI** — the row menu, pane toolbars, Columns menu, inspector labels and screen-reader names all speak Japanese.
 - 🐛 **Empty-tab contrast** — the empty-tab signal is a muted label and a marker at full opacity, so it keeps 4.5:1 in both themes.
 - 🐛 **Observer leak** — the pane search keeps one resize observer per pane instead of leaving one behind on every row selection.
+- ✨ **Segmented URL** — the URL row reads as host, path and decoded `name=value` tokens, so a 31-parameter address is legible instead of one encoded run.
+  - Why: the rendering falls back to the raw token whenever the parts would not rebuild the address byte for byte, so it can never show a URL the request did not make.
+- ✨ **Nested query values** — a parameter that carries its own `k=v&k=v` string expands one level behind a toggle, and comma lists break after the comma.
+- ✨ **Pane search everywhere** — Query, Request Headers, Request Cookies and Response Headers get the same search field Body and Raw have.
+- ✨ **JWT structure** — the three segments are tinted, the row carries an expiry chip, and the decoded claims file directly under the header that holds the token.
+- ✨ **Cookie header summary** — a request Cookie header reads as a count that opens the Cookies tab, with the raw string behind Show all.
+- ✨ **Row copy** — hovering a header, cookie or query row reveals a Copy control for that one value.
+  - Why: it routes through the same sanitizer as the pane’s Copy sanitized, so a row copy is never the looser of the two; the grid states what its rows are rather than guessing from the label.
 
 ## v1.13.0 - 2026-08-29
 

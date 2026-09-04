@@ -1111,6 +1111,119 @@ const _NetworkPlus = (function () {
     return segments;
   }
 
+  // A list may break after its commas, so a long one wraps as a list instead
+  // of running past the pane. Two items read as one datum and stay whole, and
+  // text that already has whitespace has break points of its own.
+  function splitCommaList(text) {
+    const value = String(text == null ? '' : text);
+    if (!value || /\s/.test(value)) return [value];
+    const items = value.split(',');
+    if (items.length < 3) return [value];
+    const segments = [];
+    items.forEach((item, index) => {
+      if (index < items.length - 1) segments.push(item + ',');
+      else if (item !== '') segments.push(item);
+    });
+    return segments;
+  }
+
+  // Percent-encoding is how a URL carries a value, not how a reader reads one.
+  // The decode is guarded: an isolated '%' makes decodeURIComponent throw, and
+  // the token as captured is then the only honest thing to show.
+  function decodeQueryValue(value) {
+    const raw = String(value == null ? '' : value);
+    if (raw.indexOf('%') === -1 && raw.indexOf('+') === -1) return raw;
+    try {
+      return decodeURIComponent(raw.replace(/\+/g, ' '));
+    } catch (_e) {
+      return raw;
+    }
+  }
+
+  // The address, split into the pieces a renderer paints separately: the
+  // origin, the path, and the query as name/value tokens. `raw` is what the
+  // pieces spell out — scheme + userinfo + host + pathname + search + hash
+  // reconstructs it exactly — so a row built from this plan shows the string
+  // the request used and a selection of that row is still a URL.
+  //
+  // `decodedSearch` is the reader's version of the query and is deliberately
+  // NOT part of that reconstruction: a display that quietly swapped
+  // '?next=%2Fdashboard' for '?next=/dashboard' would hand a drag-select a
+  // plausible URL the request never made. It is rendered beside the address,
+  // labelled, and only when `decodes` says the two really differ.
+  //
+  // `segmented` therefore requires the reconstruction to be BYTE-IDENTICAL to
+  // the source. new URL() normalizes — it lowercases a host, drops a default
+  // port, resolves a '..' segment — and a Query parameter arrives already
+  // decoded by searchParams, so 'https://CB.Example.TEST:443/return' painted
+  // itself as 'https://cb.example.test/return': an address the request never
+  // used, with nothing on screen saying so. When the parts cannot spell the
+  // source back, the caller renders `raw` and the reader sees the token.
+  function planSegmentedUrl(url) {
+    const parts = splitUrlForTitle(url);
+    const raw = String(url == null ? '' : url);
+    const reconstruction = parts.scheme + parts.userinfo + parts.host + parts.pathname + parts.search + parts.hash;
+    const tokens = [];
+    if (parts.host && parts.scheme && parts.search.length > 1) {
+      for (const piece of parts.search.slice(1).split('&')) {
+        const eq = piece.indexOf('=');
+        const name = eq === -1 ? piece : piece.slice(0, eq);
+        const value = eq === -1 ? '' : piece.slice(eq + 1);
+        const decoded = decodeQueryValue(value);
+        tokens.push({ raw: piece, name, value, decoded, hasValue: eq !== -1, decodes: decoded !== value });
+      }
+    }
+    return {
+      raw,
+      reconstructs: reconstruction === raw,
+      segmented: !!(parts.host && parts.scheme) && reconstruction === raw,
+      scheme: parts.scheme,
+      userinfo: parts.userinfo,
+      host: parts.host,
+      pathname: parts.pathname,
+      search: parts.search,
+      hash: parts.hash,
+      queryCount: parts.queryCount,
+      tokens,
+      decodes: tokens.some((token) => token.decodes),
+      decodedSearch: tokens.length
+        ? '?' + tokens.map((token) => (token.hasValue ? token.name + '=' + token.decoded : token.name)).join('&')
+        : '',
+    };
+  }
+
+  // A parameter whose value is itself a query string ('utm_source=x&utm_id=7').
+  // Two named pairs at minimum, so a lone 'a=b' is just a value with an '='.
+  const NESTED_QUERY_VALUE_RE = /^[\w.-]+=[^&]*(&[\w.-]+=[^&]*)+$/;
+
+  function isNestedQueryValue(value) {
+    return NESTED_QUERY_VALUE_RE.test(String(value == null ? '' : value));
+  }
+
+  // The pairs inside such a value, decoded once more: the Query tab's values
+  // arrive already decoded by searchParams, so what is nested inside them
+  // carries a second layer of encoding.
+  function parseNestedQueryValue(value) {
+    if (!isNestedQueryValue(value)) return [];
+    return String(value)
+      .split('&')
+      .map((piece) => {
+        const eq = piece.indexOf('=');
+        return { name: piece.slice(0, eq), value: decodeQueryValue(piece.slice(eq + 1)) };
+      });
+  }
+
+  // A value that is an absolute http(s) address — a redirect target, a
+  // callback, a beacon — earns the segmented rendering the URL row uses.
+  function isAbsoluteHttpUrl(value) {
+    try {
+      const parsed = new URL(String(value == null ? '' : value));
+      return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && !!parsed.host;
+    } catch (_e) {
+      return false;
+    }
+  }
+
   const KV_CLAMP_CHARS = 240;
 
   function planKvValue(value) {
@@ -6349,6 +6462,18 @@ const _NetworkPlus = (function () {
       en: 'Hide full URL',
       ja: '完全な URL を隠す',
     },
+    // Labels the decoded reading of a percent-encoded query. The address above
+    // it stays exactly as the request sent it, so the reader is told which of
+    // the two strings they are looking at.
+    urlBreakdownDecoded: {
+      en: 'Decoded:',
+      ja: 'デコード後:',
+    },
+    // The summary of a Query value that is itself a query string.
+    queryNestedParams: {
+      en: '{count} params',
+      ja: '{count} 件のパラメーター',
+    },
     kvShowAll: {
       en: 'Show all ({count} chars)',
       ja: 'すべて表示（{count} 文字）',
@@ -6356,6 +6481,121 @@ const _NetworkPlus = (function () {
     kvShowLess: {
       en: 'Show less',
       ja: '折りたたむ',
+    },
+    // The row-end copy control. "Copy full..." stays in Body and Raw, where the
+    // confirmation flow lives; this one writes the single value its row names,
+    // through the very sanitizer that row's pane uses for "Copy sanitized", so
+    // it can never be the looser of the two.
+    kvCopyValue: {
+      en: 'Copy',
+      ja: 'コピー',
+    },
+    kvCopyValueAria: {
+      en: 'Copy the {name} value',
+      ja: '{name} の値をコピー',
+    },
+    // A request Cookie header is one blob of pairs the Cookies tab already
+    // lists one per row, so the header row leads with the count and a way in.
+    cookieHeaderOpenCookies: {
+      en: '{count} cookies — open Cookies',
+      ja: '{count} 件の Cookie — Cookies を開く',
+    },
+    cookieHeaderOpenCookiesOne: {
+      en: '1 cookie — open Cookies',
+      ja: '1 件の Cookie — Cookies を開く',
+    },
+    // The chip beside a header value that carries a token: the one fact a
+    // reader wants from it without opening the decoded section. Two units, so
+    // "2h 14m" reads at a glance. humanizeJwtDelta stays the decoded section's
+    // own single-unit English wording; this is a separate formatter.
+    jwtChipExpiresIn: {
+      en: 'JWT · expires in {time}',
+      ja: 'JWT · あと{time}で失効',
+    },
+    jwtChipExpired: {
+      en: 'JWT · expired {time} ago',
+      ja: 'JWT · {time}前に失効',
+    },
+    jwtChipUnitDay: {
+      en: '{count}d',
+      ja: '{count}日',
+    },
+    jwtChipUnitHour: {
+      en: '{count}h',
+      ja: '{count}時間',
+    },
+    jwtChipUnitMinute: {
+      en: '{count}m',
+      ja: '{count}分',
+    },
+    jwtChipUnitSecond: {
+      en: '{count}s',
+      ja: '{count}秒',
+    },
+    // Japanese writes "2時間14分" with nothing between the units; English
+    // writes "2h 14m". The separator is part of the language, so it is here.
+    jwtChipUnitJoin: {
+      en: ' ',
+      ja: '',
+    },
+    // The decoded disclosure under the row that carries the token. Its summary
+    // and its two part headings were the last hard-coded English inside a
+    // section whose chip is already translated, so in Japanese a translated
+    // chip sat directly above an English summary. en is byte-identical to the
+    // literals the section shipped with.
+    jwtSectionSummary: {
+      en: 'JWT in {name}',
+      ja: '{name} の JWT',
+    },
+    // The span inside that summary and inside each decoded claim row. One
+    // unit, unlike the chip's two: the chip is a glance, this is a reading.
+    jwtDeltaSeconds: {
+      en: '{count} s',
+      ja: '{count}秒',
+    },
+    jwtDeltaMinutes: {
+      en: '{count} min',
+      ja: '{count}分',
+    },
+    jwtDeltaHours: {
+      en: '{count} h',
+      ja: '{count}時間',
+    },
+    jwtDeltaDays: {
+      en: '{count} d',
+      ja: '{count}日',
+    },
+    jwtExpiryExpiresIn: {
+      en: 'expires in {time}',
+      ja: 'あと{time}で失効',
+    },
+    jwtExpiryExpired: {
+      en: 'expired {time} ago',
+      ja: '{time}前に失効',
+    },
+    jwtClaimIn: {
+      en: 'in {time}',
+      ja: '{time}後',
+    },
+    jwtClaimAgo: {
+      en: '{time} ago',
+      ja: '{time}前',
+    },
+    jwtPartHeader: {
+      en: 'Header',
+      ja: 'ヘッダー',
+    },
+    jwtPartPayload: {
+      en: 'Payload',
+      ja: 'ペイロード',
+    },
+    jwtDisplayNote: {
+      en: 'Decoded locally for display; the signature is not verified.',
+      ja: '表示のためにローカルでデコードしています。署名は検証していません。',
+    },
+    jwtNoSignature: {
+      en: ' This token carries no signature segment.',
+      ja: 'このトークンには署名セグメントがありません。',
     },
     emptyRequestBody: {
       en: 'No request body',
@@ -6597,6 +6837,22 @@ const _NetworkPlus = (function () {
       en: 'raw response',
       ja: '生レスポンス',
     },
+    paneNameQuery: {
+      en: 'query parameters',
+      ja: 'クエリパラメーター',
+    },
+    paneNameRequestHeaders: {
+      en: 'request headers',
+      ja: 'リクエストヘッダー',
+    },
+    paneNameRequestCookies: {
+      en: 'request cookies',
+      ja: 'リクエストクッキー',
+    },
+    paneNameResponseHeaders: {
+      en: 'response headers',
+      ja: 'レスポンスヘッダー',
+    },
     paneNameFallback: {
       en: 'this view',
       ja: 'このビュー',
@@ -6654,6 +6910,14 @@ const _NetworkPlus = (function () {
     statusCopiedSanitizedUrl: {
       en: 'Copied sanitized URL',
       ja: 'サニタイズ済み URL をコピーしました',
+    },
+    statusCopiedValue: {
+      en: 'Copied value',
+      ja: '値をコピーしました',
+    },
+    statusCopiedValueMasked: {
+      en: 'Copied masked value',
+      ja: 'マスク済みの値をコピーしました',
     },
     statusCopiedSanitizedRequestBody: {
       en: 'Copied sanitized request body',
@@ -9132,8 +9396,6 @@ const _NetworkPlus = (function () {
   const JWT_TOKEN_PATTERN = /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*/g;
   const JWT_MAX_TOKEN_CHARS = 8192;
   const JWT_MAX_FINDINGS = 4;
-  const JWT_DISPLAY_NOTE = 'Decoded locally for display; the signature is not verified.';
-
   function decodeBase64UrlJson(segment) {
     if (typeof segment !== 'string' || segment.length === 0) return null;
     try {
@@ -9160,12 +9422,16 @@ const _NetworkPlus = (function () {
     return { header, payload, signaturePresent: segments[2].length > 0 };
   }
 
+  // The decoded section's single-unit reading of a span. Each unit is a
+  // dictionary entry whose en renders exactly the literal this function
+  // shipped with ('2 h', '45 s'), so English is unchanged and the Japanese
+  // disclosure stops mixing a translated heading with an English span.
   function humanizeJwtDelta(deltaMs) {
     const abs = Math.abs(deltaMs);
-    if (abs < 60000) return Math.round(abs / 1000) + ' s';
-    if (abs < 3600000) return Math.round(abs / 60000) + ' min';
-    if (abs < 86400000) return Math.round(abs / 3600000) + ' h';
-    return Math.round(abs / 86400000) + ' d';
+    if (abs < 60000) return uiTextFormat('jwtDeltaSeconds', { count: String(Math.round(abs / 1000)) });
+    if (abs < 3600000) return uiTextFormat('jwtDeltaMinutes', { count: String(Math.round(abs / 60000)) });
+    if (abs < 86400000) return uiTextFormat('jwtDeltaHours', { count: String(Math.round(abs / 3600000)) });
+    return uiTextFormat('jwtDeltaDays', { count: String(Math.round(abs / 86400000)) });
   }
 
   function describeJwtEpochClaim(key, seconds, nowEpochMs) {
@@ -9173,24 +9439,114 @@ const _NetworkPlus = (function () {
     const atMs = seconds * 1000;
     const iso = new Date(atMs).toISOString();
     const delta = atMs - nowEpochMs;
+    const time = humanizeJwtDelta(delta);
     if (key === 'exp') {
-      return delta < 0
-        ? iso + ' (expired ' + humanizeJwtDelta(delta) + ' ago)'
-        : iso + ' (expires in ' + humanizeJwtDelta(delta) + ')';
+      return iso + ' (' + uiTextFormat(delta < 0 ? 'jwtExpiryExpired' : 'jwtExpiryExpiresIn', { time }) + ')';
     }
-    return delta < 0 ? iso + ' (' + humanizeJwtDelta(delta) + ' ago)' : iso + ' (in ' + humanizeJwtDelta(delta) + ')';
+    return iso + ' (' + uiTextFormat(delta < 0 ? 'jwtClaimAgo' : 'jwtClaimIn', { time }) + ')';
   }
 
   function getJwtExpiryState(payload, nowEpochMs) {
     const exp = payload ? payload.exp : undefined;
     if (!Number.isFinite(exp)) return { expired: false, label: '' };
     const delta = exp * 1000 - nowEpochMs;
+    const time = humanizeJwtDelta(delta);
     return {
       expired: delta < 0,
-      label: delta < 0 ? 'expired ' + humanizeJwtDelta(delta) + ' ago' : 'expires in ' + humanizeJwtDelta(delta),
+      label: uiTextFormat(delta < 0 ? 'jwtExpiryExpired' : 'jwtExpiryExpiresIn', { time }),
     };
   }
 
+  // The chip's time, in the two largest units that still say something —
+  // "2h 14m", "3d" — with each unit written the way the active language writes
+  // it. Deliberately NOT humanizeJwtDelta: that one is the decoded section's
+  // single-unit English wording ("2 h", "5 min") and other text is built on it.
+  const JWT_CHIP_UNITS = [
+    { key: 'jwtChipUnitDay', ms: 86400000 },
+    { key: 'jwtChipUnitHour', ms: 3600000 },
+    { key: 'jwtChipUnitMinute', ms: 60000 },
+    { key: 'jwtChipUnitSecond', ms: 1000 },
+  ];
+
+  function formatJwtChipDelta(deltaMs) {
+    let remaining = Math.abs(Math.trunc(Number(deltaMs) || 0));
+    const parts = [];
+    for (const unit of JWT_CHIP_UNITS) {
+      const amount = Math.floor(remaining / unit.ms);
+      remaining -= amount * unit.ms;
+      // A leading zero unit is not worth saying; a trailing one ends the
+      // reading, so "3d 0h" is written "3d" rather than padded out.
+      if (amount === 0) {
+        if (parts.length === 0) continue;
+        break;
+      }
+      parts.push(uiTextFormat(unit.key, { count: String(amount) }));
+      if (parts.length === 2) break;
+    }
+    if (parts.length === 0) parts.push(uiTextFormat('jwtChipUnitSecond', { count: '0' }));
+    return parts.join(uiText('jwtChipUnitJoin'));
+  }
+
+  // The chip a header value earns when it carries a decodable token with an
+  // exp claim. Null otherwise: a chip on a value that is not a token, or on a
+  // token with no expiry, would read as "never expires" when it means
+  // "nothing was decoded".
+  function planJwtExpiryChip(headerValue, nowEpochMs) {
+    const value = String(headerValue == null ? '' : headerValue);
+    if (value.indexOf('eyJ') === -1) return null;
+    const now = Number.isFinite(nowEpochMs) ? nowEpochMs : Date.now();
+    for (const token of value.match(JWT_TOKEN_PATTERN) || []) {
+      const decoded = decodeJwt(token);
+      if (!decoded) continue;
+      const exp = decoded.payload.exp;
+      if (!Number.isFinite(exp)) continue;
+      const delta = exp * 1000 - now;
+      const expired = delta < 0;
+      return {
+        expired,
+        text: expired
+          ? uiTextFormat('jwtChipExpired', { time: formatJwtChipDelta(delta) })
+          : uiTextFormat('jwtChipExpiresIn', { time: formatJwtChipDelta(delta) }),
+      };
+    }
+    return null;
+  }
+
+  function createJwtExpiryChip(headerValue, nowEpochMs) {
+    const plan = planJwtExpiryChip(headerValue, nowEpochMs);
+    if (!plan) return null;
+    const chip = document.createElement('span');
+    chip.className = 'jwt-chip' + (plan.expired ? ' jwt-chip--expired' : '');
+    chip.textContent = plan.text;
+    return chip;
+  }
+
+  // Splits a value into plain runs and the decodable tokens inside it, so the
+  // three segments of a JWT can be tinted apart. The runs rejoin to the input
+  // character for character — the tinting must not change what the row holds —
+  // and a value carrying no decodable token yields one plain run.
+  function splitJwtRuns(text) {
+    const value = String(text == null ? '' : text);
+    if (!value || value.indexOf('eyJ') === -1) return [{ jwt: false, text: value }];
+    const runs = [];
+    let cursor = 0;
+    for (const token of value.match(JWT_TOKEN_PATTERN) || []) {
+      const at = value.indexOf(token, cursor);
+      if (at === -1) continue;
+      if (!decodeJwt(token)) continue;
+      if (at > cursor) runs.push({ jwt: false, text: value.slice(cursor, at) });
+      runs.push({ jwt: true, text: token, segments: token.split('.') });
+      cursor = at + token.length;
+    }
+    if (runs.length === 0) return [{ jwt: false, text: value }];
+    if (cursor < value.length) runs.push({ jwt: false, text: value.slice(cursor) });
+    return runs;
+  }
+
+  // `header` is the object the finding came from, so a caller that files the
+  // decoded section under its own row does not have to run the finder again
+  // per header — which is what threw the cross-header dedup away and decoded
+  // a token echoed in two headers twice.
   function findJwtsInHeaders(headers) {
     const findings = [];
     const seenTokens = new Set();
@@ -9202,15 +9558,23 @@ const _NetworkPlus = (function () {
         seenTokens.add(token);
         const decoded = decodeJwt(token);
         if (!decoded) continue;
-        findings.push({ headerName: String((header && header.name) || ''), decoded });
+        findings.push({ header, headerName: String((header && header.name) || ''), decoded });
         if (findings.length >= JWT_MAX_FINDINGS) return findings;
       }
     }
     return findings;
   }
 
-  function createJwtDetailsSection(headers, nowEpochMs) {
-    const findings = findJwtsInHeaders(headers);
+  // The two parts a decoded token is shown in, as dictionary keys. Each en
+  // entry is byte-identical to the literal the section shipped with, so the
+  // English disclosure is unchanged and the Japanese one stops being half
+  // translated — a translated chip sat directly above an English summary.
+  const JWT_PART_HEADINGS = [
+    ['jwtPartHeader', 'header'],
+    ['jwtPartPayload', 'payload'],
+  ];
+
+  function createJwtDetailsSectionFromFindings(findings, nowEpochMs) {
     if (findings.length === 0) return null;
     const now = Number.isFinite(nowEpochMs) ? nowEpochMs : Date.now();
     const container = document.createElement('div');
@@ -9220,7 +9584,9 @@ const _NetworkPlus = (function () {
       details.className = 'jwt-details';
       const summary = document.createElement('summary');
       const expiry = getJwtExpiryState(finding.decoded.payload, now);
-      summary.textContent = 'JWT in ' + finding.headerName + (expiry.label ? ' · ' + expiry.label : '');
+      summary.textContent =
+        uiTextFormat('jwtSectionSummary', { name: finding.headerName }) +
+        (expiry.label ? ' · ' + expiry.label : '');
       if (expiry.expired) summary.classList.add('jwt-expired');
       details.appendChild(summary);
       const timeItems = [];
@@ -9228,28 +9594,61 @@ const _NetworkPlus = (function () {
         const described = describeJwtEpochClaim(key, finding.decoded.payload[key], now);
         if (described) timeItems.push({ key, value: described });
       }
-      if (timeItems.length > 0) details.appendChild(createKvGrid(timeItems));
-      for (const [label, part] of [
-        ['Header', finding.decoded.header],
-        ['Payload', finding.decoded.payload],
-      ]) {
+      // 'plain': these three rows are the panel's own reading of the exp / nbf /
+      // iat time claims — a formatted timestamp, not the token. Every other
+      // claim renders inside the code-block below, which carries no row copy,
+      // so nothing here can hand out a captured secret.
+      if (timeItems.length > 0) details.appendChild(createKvGrid(timeItems, 'plain'));
+      for (const [labelKey, partKey] of JWT_PART_HEADINGS) {
         const heading = document.createElement('strong');
         heading.className = 'jwt-part-heading';
-        heading.textContent = label;
+        heading.textContent = uiText(labelKey);
         details.appendChild(heading);
         const pre = document.createElement('pre');
         pre.className = 'code-block';
-        pre.textContent = JSON.stringify(part, null, 2);
+        pre.textContent = JSON.stringify(finding.decoded[partKey], null, 2);
         details.appendChild(pre);
       }
       const note = document.createElement('p');
       note.className = 'jwt-note';
+      // The disclosure moved under the Authorization row, so its own prose sits
+      // directly beneath a translated chip; an English paragraph there reads as
+      // a different product's text.
       note.textContent =
-        JWT_DISPLAY_NOTE + (finding.decoded.signaturePresent ? '' : ' This token carries no signature segment.');
+        uiText('jwtDisplayNote') + (finding.decoded.signaturePresent ? '' : uiText('jwtNoSignature'));
       details.appendChild(note);
       container.appendChild(details);
     }
     return container;
+  }
+
+  function createJwtDetailsSection(headers, nowEpochMs) {
+    return createJwtDetailsSectionFromFindings(findJwtsInHeaders(headers), nowEpochMs);
+  }
+
+  // A decoded token belongs to the header that carries it. Keyed by the header
+  // object so the grid can hang each section under its own row instead of
+  // filing every one of them below the whole grid, where the summary had to
+  // name a header the reader would have to scroll back to find. The budget
+  // stays what it was: at most JWT_MAX_FINDINGS decoded tokens per header list.
+  function createHeaderJwtSubRows(headers, nowEpochMs) {
+    // ONE pass over the whole list. Calling the finder once per header threw
+    // its cross-header dedup away, so a token echoed in Authorization and in
+    // X-Amz-Security-Token was decoded twice and spent two of the findings
+    // budget. The findings arrive in header order and carry the header they
+    // came from, so grouping them keeps each section under its own row.
+    const grouped = new Map();
+    for (const finding of findJwtsInHeaders(headers)) {
+      const bucket = grouped.get(finding.header);
+      if (bucket) bucket.push(finding);
+      else grouped.set(finding.header, [finding]);
+    }
+    const subRows = new Map();
+    for (const [header, findings] of grouped) {
+      const section = createJwtDetailsSectionFromFindings(findings, nowEpochMs);
+      if (section) subRows.set(header, section);
+    }
+    return subRows;
   }
 
   // ============================================================
@@ -9273,22 +9672,54 @@ const _NetworkPlus = (function () {
     });
   }
 
+  // Header values, where the delimiter rule alone gives nothing: a token has no
+  // & ; or / in it, and "Bearer eyJ..." has whitespace, which turns the
+  // delimiter splitter off entirely. Each '.' of a decodable token gets a break
+  // opportunity and each of the three segments its own tint, so the structure
+  // reads even while the value is clamped. <wbr> and <span> contribute nothing
+  // to textContent, so the string the row shows is the string the row holds.
+  const JWT_SEGMENT_CLASSES = ['jwt-seg jwt-seg--header', 'jwt-seg jwt-seg--payload', 'jwt-seg jwt-seg--signature'];
+
+  function appendJwtAwareText(container, text) {
+    const runs = splitJwtRuns(text);
+    if (runs.length === 1 && !runs[0].jwt) {
+      appendBreakableText(container, runs[0].text);
+      return;
+    }
+    for (const run of runs) {
+      if (!run.jwt) {
+        appendBreakableText(container, run.text);
+        continue;
+      }
+      run.segments.forEach((segment, index) => {
+        if (index > 0) {
+          container.appendChild(document.createTextNode('.'));
+          container.appendChild(document.createElement('wbr'));
+        }
+        const el = document.createElement('span');
+        el.className = JWT_SEGMENT_CLASSES[Math.min(index, JWT_SEGMENT_CLASSES.length - 1)];
+        el.textContent = segment;
+        container.appendChild(el);
+      });
+    }
+  }
+
   // A value past KV_CLAMP_CHARS shows four lines and a per-row toggle; the
   // full text stays in the DOM (clamped by CSS, not truncated) so selection,
   // find-in-page, and copy still see all of it.
-  function renderKvValue(valEl, value) {
+  // `appendText` overrides where the breaks go for one caller (a Query value
+  // may break after its commas as well); it appends the same characters, so
+  // the clamp, the toggle and every copy path are unchanged by it.
+  function renderKvValue(valEl, value, appendText) {
+    const append = appendText || appendBreakableText;
     const plan = planKvValue(value);
     if (!plan.clamped) {
-      if (plan.segments.length === 1) {
-        valEl.textContent = plan.text;
-      } else {
-        appendBreakableText(valEl, plan.text);
-      }
+      append(valEl, plan.text);
       return;
     }
     const textEl = document.createElement('div');
     textEl.className = 'val-text val--clamped';
-    appendBreakableText(textEl, plan.text);
+    append(textEl, plan.text);
     const countLabel = plan.chars.toLocaleString('en-US');
     const toggle = document.createElement('button');
     toggle.type = 'button';
@@ -9305,31 +9736,261 @@ const _NetworkPlus = (function () {
     valEl.appendChild(toggle);
   }
 
+  // The one gate a row-end copy passes, and it is the pane's OWN sanitizer
+  // rather than a name heuristic: sanitizeHeaders for a header row (an
+  // allowlist — a name it cannot prove safe is redacted), sanitizeCookies for
+  // a cookie row and sanitizeNamedValues for a query row (every value
+  // redacted, unconditionally). So the row copy is never less redacted than
+  // the pane's Copy sanitized, and a reader who wants the raw bytes still
+  // goes through the confirmation flow "Copy full..." owns.
+  //
+  // `kind` is declared by the grid that BUILDS the row and is never inferred
+  // from the key the row renders: 'Set-Cookie #1' is a decorated label, and no
+  // counter or decoration in a label may decide what leaves the panel. A row
+  // may also name itself for the sanitizer through `copyName` when its label
+  // is not the captured name. 'plain' — the only kind that copies verbatim —
+  // is for rows the panel itself computes (a method, a formatted duration, a
+  // decoded JWT claim) and carries no captured header, cookie or parameter.
+  // Any other kind, an unstated one included, falls through to the cookie
+  // sanitizer, so a grid added later fails closed.
+  const KV_COPY_KINDS = new Set(['header', 'cookie', 'query', 'plain']);
+
+  function planKvCopyValue(kind, name, value) {
+    const text = value == null ? '' : String(value);
+    const item = { name: String(name == null ? '' : name), value: text };
+    const gate = KV_COPY_KINDS.has(kind) ? kind : 'cookie';
+    if (gate === 'plain') return { masked: false, text };
+    let sanitized;
+    if (gate === 'header') sanitized = sanitizeHeaders([item]).value[0].value;
+    else if (gate === 'query') sanitized = sanitizeNamedValues([item]).value[0].value;
+    else sanitized = sanitizeCookies([item]).value[0].value;
+    return { masked: sanitized !== text, text: sanitized };
+  }
+
+  // The row-end Copy control: one value, revealed on hover or on focus. It is
+  // a grid item of its own — a third track the row reserves — because while it
+  // was absolutely positioned inside the value cell it painted over the tail of
+  // the value's first line: the very characters the reader was about to copy.
+  // Reserving the track also means revealing it moves no row.
+  // "Copy full..." stays in Body and Raw, where the confirmation flow lives.
+  // `label` names the row for assistive tech; `copyName` is the name the
+  // sanitizer judges, and only that one.
+  function createKvCopyButton(kind, label, copyName, value) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'link-btn kv-copy-btn';
+    button.textContent = uiText('kvCopyValue');
+    button.setAttribute('aria-label', uiTextFormat('kvCopyValueAria', { name: String(label == null ? '' : label) }));
+    button.addEventListener('click', () => {
+      const plan = planKvCopyValue(kind, copyName, value);
+      writeClipboardPayload(plan.text, uiText(plan.masked ? 'statusCopiedValueMasked' : 'statusCopiedValue'));
+    });
+    return button;
+  }
+
   // Items carry {key|name, value} plus optional `node` (a prebuilt value
-  // node that replaces the text), `mono` (monospace value), and `className`.
-  function createKvGrid(items) {
+  // node that replaces the text), `mono` (monospace value), `className`,
+  // `appendText` (where the break opportunities inside the value go), `chip`
+  // (a node painted after the value), `subRow` (a full-width node filed under
+  // the pair), `copyValue` (what the row-end Copy control writes, stated
+  // separately only for a row whose value cell is a prebuilt node) and
+  // `copyName` (the captured name the sanitizer judges, for a row whose label
+  // is decorated — 'Set-Cookie #1' names the header 'Set-Cookie').
+  //
+  // `kind` is the grid's structural declaration of what its rows ARE —
+  // 'header', 'cookie', 'query' or 'plain' — and it, not the rendered key,
+  // decides which sanitizer a row-end copy passes. See planKvCopyValue: an
+  // unstated kind is treated as a cookie, so a new grid fails closed.
+  function createKvGrid(items, kind) {
     const grid = document.createElement('div');
     grid.className = 'kv';
+    const copyButtons = [];
     for (const item of items) {
       const keyEl = document.createElement('div');
       keyEl.className = 'key';
-      keyEl.textContent = item.name || item.key || '';
+      const keyName = item.name || item.key || '';
+      keyEl.textContent = keyName;
       const valEl = document.createElement('div');
       valEl.className = 'val' + (item.mono ? ' val--mono' : '') + (item.className ? ' ' + item.className : '');
       if (item.node) {
         valEl.appendChild(item.node);
       } else {
-        renderKvValue(valEl, item.value == null ? '' : String(item.value));
+        renderKvValue(valEl, item.value == null ? '' : String(item.value), item.appendText);
       }
+      if (item.chip) valEl.appendChild(item.chip);
+      let copyValue = '';
+      if (item.copyValue != null) copyValue = String(item.copyValue);
+      else if (!item.node && item.value != null) copyValue = String(item.value);
+      const copyName = item.copyName != null ? String(item.copyName) : keyName;
       grid.appendChild(keyEl);
       grid.appendChild(valEl);
+      // Beside the value cell, never inside it: the control has a track of its
+      // own, so no line of the value can run underneath it and a drag over the
+      // value cannot reach it at all.
+      if (copyValue) {
+        const copyButton = createKvCopyButton(kind, keyName, copyName, copyValue);
+        copyButtons.push(copyButton);
+        grid.appendChild(copyButton);
+      }
+      // The sub-row is appended AFTER the pair, never between it: every pane
+      // probe and every stylesheet rule reads a value cell as the key's next
+      // element sibling.
+      if (item.subRow) {
+        const subRowEl = document.createElement('div');
+        subRowEl.className = 'kv-subrow';
+        subRowEl.appendChild(item.subRow);
+        grid.appendChild(subRowEl);
+      }
     }
+    armKvCopyRoving(grid, copyButtons);
     return grid;
   }
 
-  // The URL row of Request > Headers: origin, pathname, a link into the Query
-  // tab, and the raw string behind a toggle — instead of one 1,200-character
-  // value that pushed every request header below the fold.
+  // One tab stop per grid, not one per row. A cookies pane of fifteen rows
+  // otherwise cost fifteen Tab presses to walk past, and a headers pane
+  // eleven, for controls a reader reaches occasionally. The grid keeps exactly
+  // one control in the tab order and the arrow keys move between them — the
+  // roving pattern the request table already uses — so the controls stay
+  // reachable by keyboard and the pane's tab-stop count is what it was.
+  function armKvCopyRoving(grid, buttons) {
+    if (buttons.length === 0) return;
+    const rove = (target) => {
+      for (const button of buttons) button.tabIndex = button === target ? 0 : -1;
+    };
+    rove(buttons[0]);
+    grid.addEventListener('keydown', (event) => {
+      const current = buttons.indexOf(event.target);
+      if (current === -1) return;
+      let next;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowRight') next = current + 1;
+      else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') next = current - 1;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = buttons.length - 1;
+      else return;
+      event.preventDefault();
+      const target = buttons[Math.max(0, Math.min(buttons.length - 1, next))];
+      rove(target);
+      target.focus();
+    });
+    // Clicking or shift-tabbing back into a control makes it the tab stop, so
+    // leaving the grid and returning lands where the reader left off.
+    grid.addEventListener('focusin', (event) => {
+      if (buttons.indexOf(event.target) === -1) return;
+      rove(event.target);
+    });
+  }
+
+  function formatCookieHeaderSummary(count) {
+    return count === 1
+      ? uiText('cookieHeaderOpenCookiesOne')
+      : uiTextFormat('cookieHeaderOpenCookies', { count: count.toLocaleString('en-US') });
+  }
+
+  // A request Cookie header is one blob whose pairs the Cookies tab already
+  // lists one per row. The row leads with the count and a way into that tab;
+  // the raw header follows under the shared clamp, so the value itself is
+  // still present, selectable and searchable in the row that names it —
+  // hiding it outright would take it out of find-in-page as well as out of
+  // sight, which is the reachability Tier 2 spent three rounds protecting.
+  function createRequestCookieValueNode(value, count) {
+    const holder = document.createDocumentFragment();
+    const summaryLine = document.createElement('div');
+    summaryLine.className = 'kv-cookie-summary';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'link-btn kv-cookie-open-btn';
+    button.textContent = formatCookieHeaderSummary(count);
+    button.addEventListener('click', () => {
+      activateInspectorTab('req-tab-bar', 'req-cookies', true);
+    });
+    summaryLine.appendChild(button);
+    holder.appendChild(summaryLine);
+    renderKvValue(holder, value, appendJwtAwareText);
+    return holder;
+  }
+
+  // Only the Cookie header the Cookies tab itself reads gets the count line,
+  // so the number in the row and the number of rows in that tab cannot
+  // disagree — a second Cookie header keeps the plain value rendering.
+  function createRequestCookieRowNode(header, cookieHeaderValue, cookieCount) {
+    if (cookieCount <= 0) return null;
+    if (String((header && header.name) || '').toLowerCase() !== 'cookie') return null;
+    if (String((header && header.value) || '') !== cookieHeaderValue) return null;
+    return createRequestCookieValueNode(cookieHeaderValue, cookieCount);
+  }
+
+  // The address as ONE block of inline spans, so the parts are told apart by
+  // eye — muted scheme, weighted host, path breaking at its slashes, and the
+  // query as name/value tokens with the name in the header-name colour — while
+  // a drag across it still carries the URL with no newline inside it.
+  //
+  // textContent is the URL verbatim. Nothing here is ever read back for a copy
+  // action: every copy path reads the captured row.url and runs it through the
+  // sanitizer, so what is on screen and what leaves the panel stay separate.
+  function createUrlElement(url) {
+    const plan = planSegmentedUrl(url);
+    const address = document.createElement('div');
+    address.className = 'url-breakdown-address';
+    if (!plan.segmented) {
+      appendBreakableText(address, plan.raw);
+      return address;
+    }
+    const span = (className, text) => {
+      const el = document.createElement('span');
+      el.className = className;
+      if (text != null) el.textContent = text;
+      address.appendChild(el);
+      return el;
+    };
+    span('url-breakdown-scheme', plan.scheme);
+    // Credentials sit between the scheme and the host and are part of the
+    // address the request used. Without this span the row read, and copied,
+    // an origin the request never contacted under that identity.
+    if (plan.userinfo) span('url-breakdown-userinfo', plan.userinfo);
+    span('url-breakdown-host', plan.host);
+    address.appendChild(document.createElement('wbr'));
+    appendBreakableText(span('url-breakdown-path'), plan.pathname);
+    // The query and the fragment are part of the URL, so they belong in the
+    // selectable value. While the query lived only inside a button label and
+    // the hidden full text, selecting the row and copying yielded
+    // scheme+host+path with the query silently dropped — a plausible URL that
+    // was not the one the request made.
+    if (plan.search) {
+      address.appendChild(document.createElement('wbr'));
+      const queryText = span('url-breakdown-query-text');
+      if (plan.tokens.length === 0) {
+        appendBreakableText(queryText, plan.search);
+      } else {
+        queryText.appendChild(document.createTextNode('?'));
+        plan.tokens.forEach((token, index) => {
+          if (index > 0) {
+            // The break opportunity goes BEFORE the '&', so a wrapped line
+            // opens on the separator and each parameter reads as one run.
+            queryText.appendChild(document.createElement('wbr'));
+            queryText.appendChild(document.createTextNode('&'));
+          }
+          const nameEl = document.createElement('span');
+          nameEl.className = 'url-breakdown-query-name';
+          nameEl.textContent = token.name;
+          queryText.appendChild(nameEl);
+          if (token.hasValue) {
+            queryText.appendChild(document.createTextNode('='));
+            const valueEl = document.createElement('span');
+            valueEl.className = 'url-breakdown-query-value';
+            appendBreakableText(valueEl, token.value);
+            queryText.appendChild(valueEl);
+          }
+        });
+      }
+    }
+    if (plan.hash) appendBreakableText(span('url-breakdown-fragment'), plan.hash);
+    return address;
+  }
+
+  // The URL row of Request > Headers: the segmented address, the decoded
+  // reading of an encoded query, a link into the Query tab, and the raw string
+  // behind a toggle — instead of one 1,200-character value that pushed every
+  // request header below the fold.
   function createUrlBreakdown(row) {
     const url = String((row && row.url) || '');
     const parts = splitUrlForTitle(url);
@@ -9349,50 +10010,25 @@ const _NetworkPlus = (function () {
     // origin, path, query and fragment were sibling blocks, a drag across the
     // row put a newline inside the URL itself, so the copied text was not an
     // address any tool would accept. Only the chrome that is not part of the
-    // URL — the Query control and the reveal toggle — keeps its own line.
-    const address = document.createElement('div');
-    address.className = 'url-breakdown-address';
-    wrap.appendChild(address);
-    const scheme = document.createElement('span');
-    scheme.className = 'url-breakdown-scheme';
-    scheme.textContent = parts.scheme;
-    address.appendChild(scheme);
-    // Credentials sit between the scheme and the host and are part of the
-    // address the request used. Without this span the row read, and copied,
-    // an origin the request never contacted under that identity.
-    if (parts.userinfo) {
-      const userinfo = document.createElement('span');
-      userinfo.className = 'url-breakdown-userinfo';
-      userinfo.textContent = parts.userinfo;
-      address.appendChild(userinfo);
-    }
-    const host = document.createElement('span');
-    host.className = 'url-breakdown-host';
-    host.textContent = parts.host;
-    address.appendChild(host);
-    address.appendChild(document.createElement('wbr'));
-    const pathSpan = document.createElement('span');
-    pathSpan.className = 'url-breakdown-path';
-    appendBreakableText(pathSpan, parts.pathname);
-    address.appendChild(pathSpan);
-    // The query and the fragment are part of the URL, so they belong in the
-    // selectable value. While the query lived only inside a button label and
-    // the hidden full text, selecting the row and copying yielded
-    // scheme+host+path with the query silently dropped — a plausible URL that
-    // was not the one the request made. The Query tab is reached by a control
-    // BESIDE the text now, not by the only place the query appeared.
-    if (parts.search) {
-      address.appendChild(document.createElement('wbr'));
-      const queryText = document.createElement('span');
-      queryText.className = 'url-breakdown-query-text';
-      appendBreakableText(queryText, parts.search);
-      address.appendChild(queryText);
-    }
-    if (parts.hash) {
-      const fragment = document.createElement('span');
-      fragment.className = 'url-breakdown-fragment';
-      appendBreakableText(fragment, parts.hash);
-      address.appendChild(fragment);
+    // URL — the decoded reading, the Query control and the reveal toggle —
+    // keeps its own line.
+    wrap.appendChild(createUrlElement(url));
+    // Percent-encoding hides what a parameter says, and decoding it in place
+    // would make the row assert a URL the request did not send. The decoded
+    // query therefore gets a line of its own, labelled, present only when it
+    // really differs from the address above — and unselectable, so what a drag
+    // across the row carries is still the address verbatim.
+    const segments = planSegmentedUrl(url);
+    if (segments.decodes) {
+      const decodedLine = line('url-breakdown-decoded');
+      const decodedLabel = document.createElement('span');
+      decodedLabel.className = 'url-breakdown-decoded-label';
+      decodedLabel.textContent = uiText('urlBreakdownDecoded');
+      decodedLine.appendChild(decodedLabel);
+      const decodedText = document.createElement('span');
+      decodedText.className = 'url-breakdown-decoded-text';
+      appendBreakableText(decodedText, segments.decodedSearch);
+      decodedLine.appendChild(decodedText);
     }
     if (parts.search && parts.queryCount > 0) {
       const queryLine = line('url-breakdown-query-action');
@@ -9438,6 +10074,78 @@ const _NetworkPlus = (function () {
       });
     }
     return wrap;
+  }
+
+  // Appends a Query value's text with a break opportunity after each comma of
+  // a list, on top of the breaks every value already gets. <wbr> adds nothing
+  // to textContent, so the value the pane shows is the value it holds.
+  function appendQueryValueText(container, text) {
+    const segments = splitCommaList(text);
+    if (segments.length === 1) {
+      appendBreakableText(container, segments[0]);
+      return;
+    }
+    segments.forEach((segment, index) => {
+      // Through the shared helper, not as a bare text node: a comma segment
+      // is still a value, and appending it raw dropped the & ; / breaks every
+      // other value gets — 'a=1,b=2/c/d' had break points only at its commas.
+      appendBreakableText(container, segment);
+      if (index < segments.length - 1) container.appendChild(document.createElement('wbr'));
+    });
+  }
+
+  // The value cell of one Query parameter. A value that is an absolute address
+  // renders as the segmented URL the row above shows; a value that is itself a
+  // query string keeps its own text and gains a collapsed sub-grid of the
+  // parameters inside it, so a redirect's payload is readable without leaving
+  // the pane. Everything else is the shared value rendering, clamp included.
+  //
+  // A fragment rather than a wrapper element: the children land directly in
+  // the `.val` cell, so the clamped text and its toggle stay adjacent siblings
+  // and the pane search's reveal still finds the toggle beside the clamp.
+  //
+  // The segmented rendering is offered only when it spells the parameter back
+  // byte for byte. searchParams hands this function a DECODED token, so
+  // 'next=https%3A%2F%2FCB.Example.TEST%3A443%2Freturn' arrived here as an
+  // address whose parts rebuild to 'https://cb.example.test/return' — a
+  // different host string and a dropped port. A value that does not survive
+  // the round trip keeps the shared rendering, which shows the token itself.
+  function createQueryValueNode(value) {
+    const text = value == null ? '' : String(value);
+    const holder = document.createDocumentFragment();
+    if (isAbsoluteHttpUrl(text) && planSegmentedUrl(text).reconstructs) {
+      holder.appendChild(createUrlElement(text));
+      return holder;
+    }
+    renderKvValue(holder, text, appendQueryValueText);
+    const nested = parseNestedQueryValue(text);
+    if (nested.length > 0) {
+      const details = document.createElement('details');
+      details.className = 'kv-nested-details';
+      const summary = document.createElement('summary');
+      summary.className = 'kv-nested-summary';
+      summary.textContent = uiTextFormat('queryNestedParams', { count: nested.length.toLocaleString('en-US') });
+      details.appendChild(summary);
+      const grid = createKvGrid(
+        // No row-end Copy inside a value cell: this sub-grid is one parameter's
+        // contents, and the control belongs to the rows a pane lists, not to a
+        // disclosure nested inside one of them.
+        nested.map((param) => ({
+          name: param.name,
+          value: param.value,
+          mono: isMonoValue(param.name, param.value),
+          // The same break opportunities the pane's own Query values get: a
+          // nested 'kw=kw0,kw1,...,kw11' wrapped mid-token without this.
+          appendText: appendQueryValueText,
+          copyValue: '',
+        })),
+        'query',
+      );
+      grid.classList.add('kv-nested');
+      details.appendChild(grid);
+      holder.appendChild(details);
+    }
+    return holder;
   }
 
   function createStatsSummaryStructure(statsElement) {
@@ -12061,8 +12769,12 @@ const _NetworkPlus = (function () {
   const PANE_SEARCH_LABEL_KEYS = {
     'req-body': 'paneNameRequestBody',
     'req-raw': 'paneNameRawRequest',
+    'req-query': 'paneNameQuery',
+    'req-headers': 'paneNameRequestHeaders',
+    'req-cookies': 'paneNameRequestCookies',
     'res-body': 'paneNameResponseBody',
     'res-raw': 'paneNameRawResponse',
+    'res-headers': 'paneNameResponseHeaders',
   };
 
   function paneSearchLabel(paneId) {
@@ -12086,7 +12798,28 @@ const _NetworkPlus = (function () {
       acceptNode(node) {
         if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
         const parent = node.parentElement;
-        if (parent && parent.closest('.pane-search-bar,button,.json-tree-preview')) {
+        // Three kinds of node the pane must not search, all for one reason:
+        // they are the panel's own text, or a second copy of text already on
+        // screen, so counting them makes a hit a pair and steps the reader
+        // through something they cannot see.
+        //   .url-breakdown-full — the same URL the address above it shows,
+        //     character for character.
+        //   .kv-nested — a sub-grid generated from the raw parameter value in
+        //     the same cell, which the pane always shows; 'utm_id' counted
+        //     '1 / 2' with the second hit inside a collapsed disclosure.
+        //   .jwt-chip — derived text ('JWT · expires in 2h 14m'), not response
+        //     data, and searchable as if it were.
+        //   .jwt-details — the decoded claims, the part headings and the
+        //     display note: the panel's own prose about a token, not the
+        //     bytes the request carried.
+        //   .url-breakdown-decoded — the decoded reading of the query the row
+        //     already shows verbatim, so a term counted twice in one cell.
+        if (
+          parent &&
+          parent.closest(
+            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details',
+          )
+        ) {
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -13298,28 +14031,54 @@ const _NetworkPlus = (function () {
     // Request > Headers
     const reqHeadersPane = $('#req-headers');
     reqHeadersPane.textContent = '';
+    // Parsed here, above the headers grid, so the Cookie header row's count
+    // and the Cookies tab's own row count come from one reading of one string.
+    const cookieHeader = getHeaderValue(row.requestHeaders, 'cookie');
+    const cookies = cookieHeader ? parseCookieHeader(cookieHeader) : [];
     // Protocol follows the Response rows' rule: the summary strip above
     // already states it, so the row stays only when the strip could not.
-    const reqInfo = createKvGrid([
-      { key: uiText('detailsInfoMethod'), value: row.method || '' },
-      ...(row.operation ? [{ key: uiText('detailsInfoOperation'), value: row.operation }] : []),
-      { key: uiText('detailsInfoUrl'), node: createUrlBreakdown(row), mono: true },
-      ...(summaryPlan.protocol ? [] : [{ key: uiText('detailsInfoProtocol'), value: row.protocol || '' }]),
-    ]);
+    // 'plain': every value here is panel-derived request metadata — a method,
+    // a protocol, a GraphQL operation name — and the URL row is a prebuilt
+    // node, so it carries no row-end Copy at all.
+    const reqInfo = createKvGrid(
+      [
+        { key: uiText('detailsInfoMethod'), value: row.method || '' },
+        ...(row.operation ? [{ key: uiText('detailsInfoOperation'), value: row.operation }] : []),
+        { key: uiText('detailsInfoUrl'), node: createUrlBreakdown(row), mono: true },
+        ...(summaryPlan.protocol ? [] : [{ key: uiText('detailsInfoProtocol'), value: row.protocol || '' }]),
+      ],
+      'plain',
+    );
     reqHeadersPane.appendChild(reqInfo);
     if (row.requestHeaders && row.requestHeaders.length > 0) {
       const title = document.createElement('strong');
       title.textContent = uiText('detailsRequestHeadersHeading');
       title.className = 'kv-group-heading';
       reqHeadersPane.appendChild(title);
+      const requestJwtSubRows = createHeaderJwtSubRows(row.requestHeaders);
       reqHeadersPane.appendChild(
         createKvGrid(
-          row.requestHeaders.map((h) => ({ key: h.name, value: h.value, mono: isMonoValue(h.name, h.value) })),
+          row.requestHeaders.map((h) => ({
+            key: h.name,
+            value: h.value,
+            mono: isMonoValue(h.name, h.value),
+            appendText: appendJwtAwareText,
+            node: createRequestCookieRowNode(h, cookieHeader, cookies.length),
+            copyValue: h.value,
+            copyName: h.name,
+            chip: createJwtExpiryChip(h.value),
+            subRow: requestJwtSubRows.get(h),
+          })),
+          'header',
         ),
       );
-      const requestJwtSection = createJwtDetailsSection(row.requestHeaders);
-      if (requestJwtSection) reqHeadersPane.appendChild(requestJwtSection);
     }
+    // The kv panes get the toolbar the Body and Raw panes have had: a header
+    // list is as long as a body and was the one place a reader could not
+    // search. No `fullText` second argument — nothing here is truncated away,
+    // and arming "Expand all" would press every link button in the pane,
+    // including "open Query", which switches the tab out from under the search.
+    attachPaneSearch(reqHeadersPane);
 
     // Request > Body
     const reqBodyPane = $('#req-body');
@@ -13358,8 +14117,36 @@ const _NetworkPlus = (function () {
     const queryParams = parseQueryString(row.url || '');
     if (queryParams.length > 0) {
       reqQueryPane.appendChild(
-        createKvGrid(queryParams.map((p) => ({ name: p.name, value: p.value, mono: isMonoValue(p.name, p.value) }))),
+        createKvGrid(
+          queryParams.map((p) => ({
+            name: p.name,
+            node: createQueryValueNode(p.value),
+            mono: isMonoValue(p.name, p.value),
+            // The value cell is a prebuilt node, so the copy has to be stated:
+            // the raw parameter as captured, not the decoded reading on screen.
+            // 'query' sends it through sanitizeNamedValues, which redacts every
+            // value unconditionally — the same gate this pane's Copy sanitized
+            // passes, so the row copy is never the looser of the two.
+            copyValue: p.value,
+          })),
+          'query',
+        ),
       );
+      // The copy pair Body and Raw carry, over the one payload this pane
+      // describes: the URL. Both go through the shared clipboard builder, so
+      // the sanitized copy redacts every query value and the full copy still
+      // needs its confirmation — neither reads the decoded text on screen.
+      addCopyActions(reqQueryPane, [
+        {
+          label: uiText('menuCopySanitized'),
+          onClick: () => copySanitizedAction('url', row, '', uiText('statusCopiedSanitizedUrl')),
+        },
+        {
+          label: uiText('paneCopyFull'),
+          onClick: (button) => requestFullClipboardAction('url', row, '', button, 'paneNameQuery'),
+        },
+      ]);
+      attachPaneSearch(reqQueryPane);
     } else if (hasRequestBody) {
       // A POST with no query string is not missing anything: point at Body.
       const hintMethod = String(row.method || '').trim();
@@ -13376,13 +14163,19 @@ const _NetworkPlus = (function () {
     // Request > Cookies
     const reqCookiesPane = $('#req-cookies');
     reqCookiesPane.textContent = '';
-    const cookieHeader = getHeaderValue(row.requestHeaders, 'cookie');
-    const cookies = cookieHeader ? parseCookieHeader(cookieHeader) : [];
     if (cookies.length > 0) {
       reqCookiesPane.appendChild(
-        createKvGrid(cookies.map((c) => ({ key: c.name, value: c.value, mono: isMonoValue(c.name, c.value) }))),
+        createKvGrid(
+          cookies.map((c) => ({ key: c.name, value: c.value, mono: isMonoValue(c.name, c.value) })),
+          'cookie',
+        ),
       );
+      attachPaneSearch(reqCookiesPane);
     } else {
+      // The rule for all four new toolbars: a pane rendered as a one-line
+      // empty message keeps none. A search box over "No cookies were sent" has
+      // nothing to search, and it would still cost a resize observer and a
+      // scrollport inset the pane does not need.
       renderPaneEmptyMessage(reqCookiesPane, uiText('emptyRequestCookies'));
     }
 
@@ -13424,20 +14217,31 @@ const _NetworkPlus = (function () {
     if (!summaryPlan.protocol) resInfoItems.push({ key: uiText('detailsInfoProtocol'), value: row.protocol || '' });
     if (!summaryPlan.size) resInfoItems.push({ key: uiText('detailsInfoSize'), value: fmtBytes(row.size) });
     if (!summaryPlan.duration) resInfoItems.push({ key: uiText('detailsInfoDuration'), value: fmtTime(row.duration) });
-    if (resInfoItems.length > 0) resHeadersPane.appendChild(createKvGrid(resInfoItems));
+    // 'plain': status, protocol, a formatted byte count and a formatted
+    // duration are the panel's own readings, not captured header values.
+    if (resInfoItems.length > 0) resHeadersPane.appendChild(createKvGrid(resInfoItems, 'plain'));
     if (row.responseHeaders && row.responseHeaders.length > 0) {
       const title = document.createElement('strong');
       title.textContent = uiText('detailsResponseHeadersHeading');
       title.className = 'kv-group-heading';
       resHeadersPane.appendChild(title);
+      const responseJwtSubRows = createHeaderJwtSubRows(row.responseHeaders);
       resHeadersPane.appendChild(
         createKvGrid(
-          row.responseHeaders.map((h) => ({ key: h.name, value: h.value, mono: isMonoValue(h.name, h.value) })),
+          row.responseHeaders.map((h) => ({
+            key: h.name,
+            value: h.value,
+            mono: isMonoValue(h.name, h.value),
+            appendText: appendJwtAwareText,
+            copyName: h.name,
+            chip: createJwtExpiryChip(h.value),
+            subRow: responseJwtSubRows.get(h),
+          })),
+          'header',
         ),
       );
-      const responseJwtSection = createJwtDetailsSection(row.responseHeaders);
-      if (responseJwtSection) resHeadersPane.appendChild(responseJwtSection);
     }
+    if (resHeadersPane.querySelector('.kv')) attachPaneSearch(resHeadersPane);
 
     // Response > Body, Preview, Raw — populated from the shared response cache
     setResponsePaneMessage(uiText('bodyPaneLoading'));
@@ -13469,12 +14273,19 @@ const _NetworkPlus = (function () {
     );
     if (setCookieHeaders.length > 0) {
       resCookiesPane.appendChild(
+        // These rows ARE Set-Cookie response headers, so the grid says
+        // 'header' and every row hands the sanitizer the captured header name.
+        // The '#1' in the label is a counter for the reader; it never reaches
+        // the gate, so it cannot make a row copy less redacted than this same
+        // header's row in Response > Headers.
         createKvGrid(
           setCookieHeaders.map((h, i) => ({
             key: 'Set-Cookie #' + (i + 1),
             value: h.value,
+            copyName: h.name,
             mono: isMonoValue('Set-Cookie', h.value),
           })),
+          'header',
         ),
       );
     } else {
@@ -13505,7 +14316,9 @@ const _NetworkPlus = (function () {
     timingTitle.textContent = uiText('detailsTimingBreakdownHeading');
     timingTitle.className = 'kv-group-heading';
     resTimingPane.appendChild(timingTitle);
-    resTimingPane.appendChild(createKvGrid(timingItems));
+    // 'plain': every value is a duration this panel formatted from the
+    // browser's own timing record, so none of it is captured payload.
+    resTimingPane.appendChild(createKvGrid(timingItems, 'plain'));
 
     // Timing bar visualization
     if (row.timings) {
@@ -17784,6 +18597,12 @@ const _NetworkPlus = (function () {
     planTitlePathText,
     longestFittingLength,
     splitAtDelimiters,
+    splitCommaList,
+    decodeQueryValue,
+    planSegmentedUrl,
+    isNestedQueryValue,
+    parseNestedQueryValue,
+    isAbsoluteHttpUrl,
     planKvValue,
     KV_CLAMP_CHARS,
     isMonoValue,
@@ -18047,7 +18866,6 @@ const _NetworkPlus = (function () {
     parseCurlCommand,
     buildResendEvalSource,
     JWT_MAX_TOKEN_CHARS,
-    JWT_DISPLAY_NOTE,
     decodeBase64UrlJson,
     decodeJwt,
     humanizeJwtDelta,
@@ -18055,6 +18873,12 @@ const _NetworkPlus = (function () {
     getJwtExpiryState,
     findJwtsInHeaders,
     createJwtDetailsSection,
+    formatJwtChipDelta,
+    planJwtExpiryChip,
+    splitJwtRuns,
+    planKvCopyValue,
+    formatCookieHeaderSummary,
+    parseCookieHeader,
   };
 })();
 
