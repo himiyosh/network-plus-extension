@@ -3102,6 +3102,400 @@ describe('keyboard trust helpers', () => {
     expect(np.getAdjacentVisibleColumnId(columns, 'id', -1)).toBeNull();
   });
 
+  test('reorder hops over a column the wrap dropped, not to a header that is not there', () => {
+    const columns = [
+      { id: 'id', visible: true },
+      { id: 'match', visible: true },
+      { id: 'method', visible: true },
+    ];
+    // Without the auto-hidden set the middle column is still a neighbour.
+    expect(np.getAdjacentVisibleColumnId(columns, 'method', -1)).toBe('match');
+    expect(np.getAdjacentVisibleColumnId(columns, 'id', 1)).toBe('match');
+    // With it, the reorder lands on the column the reader can actually see.
+    const dropped = new Set(['match']);
+    expect(np.getAdjacentVisibleColumnId(columns, 'method', -1, dropped)).toBe('id');
+    expect(np.getAdjacentVisibleColumnId(columns, 'id', 1, dropped)).toBe('method');
+    expect(np.getAdjacentVisibleColumnId(columns, 'id', -1, dropped)).toBeNull();
+  });
+
+  // Elastic auto-hide. Every assertion below is a property of the plan over a
+  // matrix of wrap widths, not a spot check on one arithmetic constant: the
+  // stored widths this reads are free to change, the policy is not.
+  describe('auto-hide plans a set that fits the wrap', () => {
+    const WRAP_WIDTHS = [320, 375, 456, 500, 622, 738, 800, 900, 992, 1156, 1280, 1920];
+    const P1_IDS = ['status', 'method', 'domain', 'path'];
+    const defaults = () => np.DEFAULT_COLUMNS.map((column) => ({ ...column }));
+    const surviving = (columns, hiddenIds) =>
+      columns.filter((column) => column.visible && !hiddenIds.includes(column.id));
+    const floorSum = (columns) =>
+      columns.reduce((sum, column) => sum + np.minRenderedColumnWidth(column), 0);
+
+    // The shipped default widths, written out. Every fit decision in this
+    // file and in the browser suite is arithmetic over these numbers, so this
+    // is the one place they are stated rather than read back: a silent change
+    // to a default width has to fail a test, not quietly move a boundary.
+    // None of them is a font measurement — they are the stored px the panel
+    // ships with, identical on every platform.
+    test('ships the default column widths it plans against', () => {
+      expect(
+        np.DEFAULT_COLUMNS.map((column) => [column.id, column.width, column.visible]),
+      ).toEqual([
+        ['match', 36, true],
+        ['id', 60, true],
+        ['method', 80, true],
+        ['status', 70, true],
+        ['domain', 140, true],
+        ['path', 260, true],
+        ['type', 90, true],
+        ['operation', 150, false],
+        ['customHeader', 160, false],
+        ['duration', 80, true],
+        ['size', 72, true],
+        ['clientStart', 104, true],
+        ['serverDone', 104, false],
+        ['initiator', 220, false],
+        ['url', 420, false],
+        ['waterfall', 200, false],
+      ]);
+    });
+
+    test('never drops a P1 column, and drops P3 before P2', () => {
+      for (const wrapWidth of WRAP_WIDTHS) {
+        const columns = defaults();
+        const hiddenIds = np.planAutoHiddenColumns(columns, wrapWidth, {});
+        const at = 'wrap ' + wrapWidth + ' -> ' + hiddenIds.join(',');
+        for (const id of P1_IDS) {
+          expect([at, hiddenIds.includes(id)]).toEqual([at, false]);
+        }
+        // A tier is only entered once the one below it is exhausted.
+        const droppedTier2 = hiddenIds.filter((id) => np.columnAutoHidePriority(id) === 2);
+        if (droppedTier2.length > 0) {
+          const remainingTier3 = surviving(columns, hiddenIds).filter(
+            (column) => np.columnAutoHidePriority(column.id) === 3,
+          );
+          expect([at, remainingTier3.map((column) => column.id)]).toEqual([at, []]);
+        }
+      }
+    });
+
+    // The order BETWEEN the tiers is asserted above; this is the order INSIDE
+    // each one. The returned list is the drop order — the plan pushes ids as
+    // it gives them up — so a wrap too narrow to hold even the undroppable set
+    // reads out the whole queue at once, in the order the spec fixes it:
+    // P3 Match, Client start, Server done, Type, then P2 ID, Duration, Size.
+    test('drops in the specified order inside each tier, not merely tier by tier', () => {
+      // Server done is off by default and is the only P3 entry that would go
+      // unwitnessed, taking a swap of the two middle entries with it.
+      const columns = np.DEFAULT_COLUMNS.map((column) =>
+        column.id === 'serverDone' ? { ...column, visible: true } : { ...column },
+      );
+      const kept = surviving(columns, np.planAutoHiddenColumns(columns, 150, {}));
+      expect(kept.map((column) => column.id)).toEqual(['method', 'status', 'domain', 'path']);
+      expect(np.planAutoHiddenColumns(columns, 150, {})).toEqual([
+        'match',
+        'clientStart',
+        'serverDone',
+        'type',
+        'id',
+        'duration',
+        'size',
+      ]);
+      // Not an artefact of the extreme width: the same queue is walked from
+      // the front at a wrap that stops part of the way through it.
+      const partial = np.planAutoHiddenColumns(columns, 700, {});
+      expect(partial).toEqual(['match', 'clientStart', 'serverDone', 'type']);
+    });
+
+    // The spec's last clause: an optional column the reader turned on is on no
+    // drop list, and the planner ranks it last within P3 — after every listed
+    // P3 column — and among those, right to left in the reader's own order.
+    test('an optional column the reader enabled drops last in P3, right to left', () => {
+      const columns = np.DEFAULT_COLUMNS.map((column) =>
+        column.id === 'url' || column.id === 'initiator'
+          ? { ...column, visible: true }
+          : { ...column },
+      );
+      // Initiator sits left of URL in the reader's column order.
+      expect(columns.filter((column) => column.visible).map((column) => column.id)).toEqual([
+        'match',
+        'id',
+        'method',
+        'status',
+        'domain',
+        'path',
+        'type',
+        'duration',
+        'size',
+        'clientStart',
+        'initiator',
+        'url',
+      ]);
+      // Every listed P3 column goes while both reader-enabled ones stay: what
+      // they asked for outlasts what the defaults chose for them.
+      expect(np.planAutoHiddenColumns(columns, 1300, {})).toEqual(['match', 'clientStart', 'type']);
+      // Then the rightmost of the two, then the other.
+      expect(np.planAutoHiddenColumns(columns, 1100, {})).toEqual([
+        'match',
+        'clientStart',
+        'type',
+        'url',
+      ]);
+      expect(np.planAutoHiddenColumns(columns, 700, {})).toEqual([
+        'match',
+        'clientStart',
+        'type',
+        'url',
+        'initiator',
+      ]);
+      // And only once P3 is exhausted does P2 start, in its own order.
+      expect(np.planAutoHiddenColumns(columns, 150, {})).toEqual([
+        'match',
+        'clientStart',
+        'type',
+        'url',
+        'initiator',
+        'id',
+        'duration',
+        'size',
+      ]);
+    });
+
+    test('the surviving set fits the wrap unless only P1 is left', () => {
+      for (const wrapWidth of WRAP_WIDTHS) {
+        const columns = defaults();
+        const hiddenIds = np.planAutoHiddenColumns(columns, wrapWidth, {});
+        const kept = surviving(columns, hiddenIds);
+        const at = 'wrap ' + wrapWidth + ' -> ' + kept.map((column) => column.id).join(',');
+        // Horizontal scroll is left over for exactly one case: the columns
+        // that may not be dropped do not fit, even with Path at its floor.
+        const onlyUndroppable = kept.every((column) => np.columnAutoHidePriority(column.id) === 1);
+        expect([at, floorSum(kept) <= wrapWidth || onlyUndroppable]).toEqual([at, true]);
+      }
+    });
+
+    test('a wider wrap never hides more than a narrower one', () => {
+      const columns = defaults();
+      let previous = null;
+      for (const wrapWidth of WRAP_WIDTHS) {
+        const hiddenIds = np.planAutoHiddenColumns(columns, wrapWidth, {});
+        const at = 'wrap ' + wrapWidth + ' -> ' + hiddenIds.join(',');
+        if (previous) {
+          expect([at, hiddenIds.every((id) => previous.includes(id))]).toEqual([at, true]);
+        }
+        previous = hiddenIds;
+      }
+      // And the widest wrap in the matrix hides nothing at all.
+      expect(np.planAutoHiddenColumns(columns, 1920, {})).toEqual([]);
+    });
+
+    test('re-planning against the same wrap is stable, and restoring is stickier than hiding', () => {
+      for (const wrapWidth of WRAP_WIDTHS) {
+        const columns = defaults();
+        const first = np.planAutoHiddenColumns(columns, wrapWidth, {});
+        const second = np.planAutoHiddenColumns(columns, wrapWidth, { previousHiddenIds: first });
+        const at = 'wrap ' + wrapWidth;
+        expect([at, second]).toEqual([at, first]);
+      }
+      // Stability is not hysteresis. At every width in the matrix above a
+      // small nudge sits inside a dead zone, so the plan is unchanged with the
+      // constant at its shipped value AND with it set to zero — an assertion
+      // over those widths says nothing about the constant at all. It only
+      // decides where a restore is pending, so the pin goes there: at this
+      // wrap Size is dropped, and 20px more is enough to take it back with no
+      // hysteresis, which is exactly what the shipped constant refuses.
+      const columns = defaults();
+      const HYSTERESIS_WRAP = 462;
+      const HYSTERESIS_NUDGE = 20;
+      const pending = np.planAutoHiddenColumns(columns, HYSTERESIS_WRAP, {});
+      expect(pending).toContain('size');
+      expect(
+        np.planAutoHiddenColumns(columns, HYSTERESIS_WRAP + HYSTERESIS_NUDGE, {
+          previousHiddenIds: pending,
+        }),
+      ).toEqual(pending);
+      expect(
+        np.planAutoHiddenColumns(columns, HYSTERESIS_WRAP + HYSTERESIS_NUDGE, {
+          previousHiddenIds: pending,
+          hysteresis: 0,
+        }),
+      ).not.toContain('size');
+      // And the whole of the constant is spent on that refusal: the wrap has
+      // to grow by 16px more than a memoryless plan would need before the
+      // column comes back, which is the shipped hysteresis, stated here as a
+      // number rather than read back out of the module it guards.
+      const smallestNudgeRestoringSize = (options) => {
+        for (let nudge = 0; nudge <= 64; nudge += 1) {
+          const plan = np.planAutoHiddenColumns(columns, HYSTERESIS_WRAP + nudge, {
+            previousHiddenIds: pending,
+            ...options,
+          });
+          if (!plan.includes('size')) return nudge;
+        }
+        return null;
+      };
+      expect(smallestNudgeRestoringSize({ hysteresis: 0 })).toBe(HYSTERESIS_NUDGE);
+      expect(smallestNudgeRestoringSize({}) - smallestNudgeRestoringSize({ hysteresis: 0 })).toBe(16);
+    });
+
+    test('the column that explains the row order is undroppable for as long as it is the sort key', () => {
+      const columns = defaults();
+      // Duration is a P2 column: at a wrap this narrow the unprotected plan
+      // drops it, taking the sort indicator and the aria-sort off the screen
+      // with it and leaving the order with no explanation anywhere.
+      const unsorted = np.planAutoHiddenColumns(columns, 536, {
+        keepIds: np.planForcedVisibleColumnIds({ colId: null, direction: null }, []),
+      });
+      expect(unsorted).toContain('duration');
+      const sorted = { colId: 'duration', direction: 'asc' };
+      expect(np.planForcedVisibleColumnIds(sorted, [])).toEqual(['duration']);
+      const protectedPlan = np.planAutoHiddenColumns(columns, 536, {
+        keepIds: np.planForcedVisibleColumnIds(sorted, []),
+      });
+      expect(protectedPlan).not.toContain('duration');
+      // Everything else the wrap could not hold still goes: the exemption is
+      // one column wide, not a licence to overflow.
+      expect(protectedPlan.length).toBeGreaterThan(0);
+      // Sorting by another column releases the previous key in the same
+      // breath, and clearing the sort releases it altogether.
+      expect(np.planForcedVisibleColumnIds({ colId: 'size', direction: 'desc' }, [])).toEqual(['size']);
+      expect(np.planForcedVisibleColumnIds({ colId: 'duration', direction: null }, [])).toEqual([]);
+      expect(np.planForcedVisibleColumnIds(null, [])).toEqual([]);
+      // Match is the search read-out and the sort key is the order's
+      // explanation; both can be owed at once, and neither displaces the other.
+      expect(np.planForcedVisibleColumnIds(sorted, [{ query: 'demo' }])).toEqual([
+        'match',
+        'duration',
+      ]);
+      // Sorting BY Match asks for one exemption, not two.
+      expect(
+        np.planForcedVisibleColumnIds({ colId: 'match', direction: 'asc' }, [{ query: 'demo' }]),
+      ).toEqual(['match']);
+    });
+
+    test('the panel ships sorted by ID, so ID is the column the fit may never drop', () => {
+      // The default order is ascending by ID, written out here rather than
+      // read back from the constant: changing the shipped default changes
+      // which column the auto-hide is forbidden to drop at every width, and
+      // this line is what makes that change say so out loud.
+      expect(np.DEFAULT_SORT).toEqual({ colId: 'id', direction: 'asc' });
+      expect(np.planForcedVisibleColumnIds(np.DEFAULT_SORT, [])).toEqual(['id']);
+      const columns = defaults();
+      // ID is a P2 column: unprotected, this wrap drops it.
+      expect(np.planAutoHiddenColumns(columns, 536, {})).toContain('id');
+      // Out of the box it survives the same wrap, and the column that
+      // explains the order is on screen with the rows it explains.
+      expect(
+        np.planAutoHiddenColumns(columns, 536, {
+          keepIds: np.planForcedVisibleColumnIds(np.DEFAULT_SORT, []),
+        }),
+      ).not.toContain('id');
+    });
+
+    test('the column under a keyboard resize is undroppable until the gesture ends', () => {
+      const columns = defaults();
+      // Type is a P3 column and the widest thing the reader can grow with
+      // Arrow: at this wrap, widened, the unprotected plan drops the very
+      // column the gesture is resizing and the separator goes with it.
+      const stretched = columns.map((column) =>
+        column.id === 'type' ? { ...column, width: 570 } : column,
+      );
+      expect(np.planAutoHiddenColumns(stretched, 1000, {})).toContain('type');
+      expect(np.planForcedVisibleColumnIds(null, [], 'type')).toEqual(['type']);
+      const held = np.planAutoHiddenColumns(stretched, 1000, {
+        keepIds: np.planForcedVisibleColumnIds(null, [], 'type'),
+      });
+      expect(held).not.toContain('type');
+      // One column wide, like every other exemption: the wrap still drops
+      // whatever else it cannot hold.
+      expect(held.length).toBeGreaterThan(0);
+      // The sort key and the resized column are owed at once and neither
+      // displaces the other; asking twice for the same column asks once.
+      expect(np.planForcedVisibleColumnIds({ colId: 'size', direction: 'asc' }, [], 'type')).toEqual([
+        'size',
+        'type',
+      ]);
+      expect(np.planForcedVisibleColumnIds({ colId: 'type', direction: 'asc' }, [], 'type')).toEqual([
+        'type',
+      ]);
+      // No gesture in hand, no exemption: the protection is scoped to the
+      // separator that holds the focus, not left latched on the column.
+      expect(np.planForcedVisibleColumnIds(null, [], null)).toEqual([]);
+      expect(np.planForcedVisibleColumnIds(null, [])).toEqual([]);
+    });
+
+    test('a header whose column is gone hands its focus to a neighbour, never to nothing', () => {
+      const columns = defaults();
+      const painted = ['id', 'method', 'status', 'domain', 'path'];
+      // Client start sits last in the default order, so the only neighbour
+      // still painted is to its left.
+      expect(np.planHeaderFocusFallbackId(columns, 'clientStart', painted)).toBe('path');
+      // Type sits between Path and Duration. With nothing to its right
+      // painted the fallback goes left, and the moment Duration is back the
+      // column that took Type's place on screen is the one that takes it.
+      expect(np.planHeaderFocusFallbackId(columns, 'type', painted)).toBe('path');
+      expect(np.planHeaderFocusFallbackId(columns, 'type', [...painted, 'duration'])).toBe('duration');
+      // Match is first in the default order, so its fallback is to the right.
+      expect(np.planHeaderFocusFallbackId(columns, 'match', painted)).toBe('id');
+      // A Set reads the same as an array, and an unknown column has no place
+      // in the row to fall back to.
+      expect(np.planHeaderFocusFallbackId(columns, 'match', new Set(painted))).toBe('id');
+      expect(np.planHeaderFocusFallbackId(columns, 'nosuch', painted)).toBeNull();
+      expect(np.planHeaderFocusFallbackId(columns, 'match', [])).toBeNull();
+      expect(np.planHeaderFocusFallbackId(null, 'match', painted)).toBeNull();
+    });
+
+    test('P1 plus the sort key overflows into a scrollbar rather than dropping the key', () => {
+      const columns = defaults();
+      const sorted = { colId: 'duration', direction: 'asc' };
+      const keepIds = np.planForcedVisibleColumnIds(sorted, []);
+      // A wrap narrower than the undroppable set itself: the plan has nothing
+      // left to give and must leave the sort key painted, which is what puts
+      // the grid into horizontal scroll instead of hiding the explanation.
+      const hiddenIds = np.planAutoHiddenColumns(columns, 200, { keepIds });
+      const kept = surviving(columns, hiddenIds);
+      expect(kept.map((column) => column.id).sort()).toEqual([...P1_IDS, 'duration'].sort());
+      expect(floorSum(kept)).toBeGreaterThan(200);
+    });
+
+    test('pinned and search-forced columns are never dropped, and the plan is not mutated into the columns', () => {
+      const columns = defaults();
+      const wrapWidth = 738;
+      const plain = np.planAutoHiddenColumns(columns, wrapWidth, {});
+      expect(plain.length).toBeGreaterThan(0);
+      // Match comes back while a keyword exists, even from the dropped set.
+      const withSearch = np.planAutoHiddenColumns(columns, wrapWidth, { keepIds: ['match'] });
+      expect(withSearch).not.toContain('match');
+      // "Show anyway" is the same exemption, asked for by hand.
+      const pinnedId = plain[0];
+      expect(np.planAutoHiddenColumns(columns, wrapWidth, { pinnedIds: [pinnedId] })).not.toContain(pinnedId);
+      // Planning is pure: the reader's own visibility is untouched by it.
+      expect(columns.map((column) => [column.id, column.visible])).toEqual(
+        np.DEFAULT_COLUMNS.map((column) => [column.id, column.visible]),
+      );
+    });
+
+    test('an unmeasured wrap hides nothing, and Path gives width before a column goes', () => {
+      const columns = defaults();
+      expect(np.planAutoHiddenColumns(columns, 0, {})).toEqual([]);
+      expect(np.planAutoHiddenColumns(columns, NaN, {})).toEqual([]);
+      // Path counts at its floor in the fit test, every other column at its
+      // stored width — that is what buys the squeeze before the drop.
+      const path = columns.find((column) => column.id === 'path');
+      const domain = columns.find((column) => column.id === 'domain');
+      expect(np.minRenderedColumnWidth(path)).toBe(120);
+      expect(np.minRenderedColumnWidth(path)).toBeLessThan(np.clampColumnWidth(path.width));
+      expect(np.minRenderedColumnWidth(domain)).toBe(np.clampColumnWidth(domain.width));
+      // A Path already narrower than the floor keeps its own width.
+      expect(np.minRenderedColumnWidth({ id: 'path', width: 80 })).toBe(80);
+      // The squeeze is real: at a wrap between the floor sum and the stored
+      // sum of the full default set, nothing has to be dropped at all.
+      const visibleDefaults = columns.filter((column) => column.visible);
+      const storedSum = visibleDefaults.reduce((sum, column) => sum + column.width, 0);
+      const betweenWidth = Math.floor((floorSum(visibleDefaults) + storedSum) / 2);
+      expect(np.planAutoHiddenColumns(columns, betweenWidth, {})).toEqual([]);
+    });
+  });
+
   test('cycles menu focus and supports Home and End', () => {
     expect(np.getNextMenuItemIndex(0, 3, 'ArrowDown')).toBe(1);
     expect(np.getNextMenuItemIndex(0, 3, 'ArrowUp')).toBe(2);
@@ -4764,6 +5158,26 @@ describe('inspector split preference', () => {
     expect(np.planInspectorCollapse('response', 'sidebar')).toBe('response');
     expect(np.planInspectorCollapse(undefined, 'sidebar')).toBeNull();
   });
+
+  test('the short-pane column clears the inline heights and the tall pane gets them back', () => {
+    const plan = (state) => np.planInspectorSplitApplication(state);
+    // In the column the stylesheet owns both heights, so an inline px height
+    // must go — it out-ranks the container block's height:auto and paints the
+    // request half straight through the response section.
+    expect(plan({ columnMode: true, wasColumnMode: false, collapsedHalf: null, hasInlineHeight: true })).toBe('clear');
+    expect(plan({ columnMode: true, wasColumnMode: true, collapsedHalf: null, hasInlineHeight: false })).toBe('clear');
+    // The column wins over both of the split's own cases.
+    expect(plan({ columnMode: true, wasColumnMode: false, collapsedHalf: 'request', hasInlineHeight: true })).toBe('clear');
+    // Tall again: the percent the column had to drop goes back on, collapsed
+    // half included — restoring is what knows the collapsed case.
+    expect(plan({ columnMode: false, wasColumnMode: true, collapsedHalf: null, hasInlineHeight: false })).toBe('restore');
+    expect(plan({ columnMode: false, wasColumnMode: true, collapsedHalf: 'response', hasInlineHeight: false })).toBe('restore');
+    // Unchanged split behaviour: a collapsed half hands its height to flex, a
+    // dragged one is re-fitted, and an untouched 50/50 is left alone.
+    expect(plan({ columnMode: false, wasColumnMode: false, collapsedHalf: 'request', hasInlineHeight: true })).toBe('clear');
+    expect(plan({ columnMode: false, wasColumnMode: false, collapsedHalf: null, hasInlineHeight: true })).toBe('rescale');
+    expect(plan({ columnMode: false, wasColumnMode: false, collapsedHalf: null, hasInlineHeight: false })).toBe('none');
+  });
 });
 
 describe('row state classes', () => {
@@ -5184,6 +5598,7 @@ describe('details reopen status', () => {
       'inspectorCollapseHalfTitle',
       'inspectorExpandHalfTitle',
       'inspectorHalfCollapsedStatus',
+      'inspectorHalfCollapsedColumnStatus',
       'inspectorHalfExpandedStatus',
       'inspectorHalfCollapsedValue',
     ];
@@ -5194,6 +5609,12 @@ describe('details reopen status', () => {
       ...COPY_FULL_FRAMES.map((key) => ({ key, slot: 'label', values: PANE_NAME_KEYS })),
       { key: 'menuFilterOnly', slot: 'column', texts: COLUMN_LABELS, others: { value: 'r-42' } },
       { key: 'menuFilterExclude', slot: 'column', texts: COLUMN_LABELS, others: { value: 'r-42' } },
+      // The auto-hide opt-out names the column it pins back, in both places.
+      { key: 'columnsShowAnywayLabel', slot: 'column', texts: COLUMN_LABELS },
+      { key: 'columnsShowAnywayStatus', slot: 'column', texts: COLUMN_LABELS },
+      // And the undo it becomes once the column is pinned.
+      { key: 'columnsShowAnywayUndoLabel', slot: 'column', texts: COLUMN_LABELS },
+      { key: 'columnsShowAnywayUndoStatus', slot: 'column', texts: COLUMN_LABELS },
       ...PANE_SEARCH_FRAMES.map((key) => ({ key, slot: 'pane', values: PANE_NAME_KEYS })),
       ...INSPECTOR_HALF_FRAMES.map((key) => ({ key, slot: 'half', values: INSPECTOR_HALF_KEYS })),
       { key: 'inspectorHalfPercentValue', slot: 'half', values: INSPECTOR_HALF_KEYS, others: { percent: 50 } },

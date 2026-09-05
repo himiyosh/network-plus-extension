@@ -1150,6 +1150,23 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title:
+        'the wrap drops columns by priority, says how many in the Columns menu, and pins one back on request',
+    },
+    {
+      skipped: true,
+      title: 'the header row hands focus to a neighbour when the wrap drops the focused column',
+    },
+    {
+      skipped: true,
+      title: 'a keyboard column resize keeps its column until the focus leaves the separator',
+    },
+    {
+      skipped: true,
+      title: 'column pins drop ids that no longer exist, and hiding every column clears them',
+    },
+    {
+      skipped: true,
+      title:
         'the Match gutter takes the v4 width on upgrade, clips its label only at gutter width, and fits two chips',
     },
     {
@@ -1210,6 +1227,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title: 'the inspector halves collapse from their labels, persist, and restore with a double-click',
+    },
+    {
+      skipped: true,
+      title: 'a short details pane becomes one scrolling column and the tall pane keeps its split',
     },
     {
       skipped: true,

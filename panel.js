@@ -120,6 +120,10 @@ const _NetworkPlus = (function () {
   const THEMES = ['system', 'dark', 'light'];
   const LANGS = ['system', 'en', 'ja'];
   const COL_PREF_KEY = 'networkPlus.cols';
+  // Columns the reader pinned back through "Show anyway". Auto-hide itself is
+  // never persisted; only this opt-out is, and it lives beside the column
+  // preferences rather than inside them so a stored entry keeps its shape.
+  const COL_PIN_KEY = 'networkPlus.colPins.v1';
   const CUSTOM_HEADER_COLUMN_KEY = 'networkPlus.customHeaderColumn.v1';
   // What the custom-header column is called before a header is configured.
   // Matches its DEFAULT_COLUMNS label, and is the one value the row menu
@@ -334,6 +338,30 @@ const _NetworkPlus = (function () {
     { id: 'url', label: 'URL', width: 420, visible: false },
     { id: 'waterfall', label: 'Waterfall', width: 200, visible: false },
   ];
+
+  // Elastic auto-hide. When the visible stored widths no longer fit the wrap,
+  // columns drop out by priority until the rest fits instead of the grid
+  // growing a horizontal scrollbar. P1 is the sentence a row makes — status,
+  // method, domain, path — and is never auto-hidden. P2 is the reading aid.
+  // P3 goes first. Inside a tier the listed order is the drop order; an
+  // optional column the reader enabled themselves is on no list and drops
+  // last (they asked for it), right to left in their own column order.
+  const COLUMN_PRIORITY_1_IDS = ['status', 'method', 'domain', 'path'];
+  const COLUMN_PRIORITY_2_DROP_ORDER = ['id', 'duration', 'size'];
+  const COLUMN_PRIORITY_3_DROP_ORDER = ['match', 'clientStart', 'serverDone', 'type'];
+  // Path is elastic in both directions: it lends its surplus to a wide wrap
+  // and absorbs the deficit of a narrow one down to this floor before any
+  // column is auto-hidden, so a squeeze costs width before it costs columns.
+  const ELASTIC_PATH_MIN_WIDTH = 120;
+  // The order the grid starts in. Named rather than inlined into the state
+  // because planForcedVisibleColumnIds protects whatever column it points at:
+  // out of the box that is ID, undroppable at every width, and changing this
+  // changes which column the auto-hide may never drop.
+  const DEFAULT_SORT = { colId: 'id', direction: 'asc' };
+  // Hiding a column removes the horizontal scrollbar, which can grow a
+  // vertical one and take the width back. Restoring a column therefore asks
+  // for more room than hiding it gave up, so the two cannot alternate.
+  const AUTO_HIDE_HYSTERESIS_PX = 16;
 
   const DEFAULT_METHOD_FILTERS = () => ({
     GET: true,
@@ -857,6 +885,21 @@ const _NetworkPlus = (function () {
     return collapsedHalf === clickedHalf ? null : clickedHalf;
   }
 
+  // Pure: what a layout change should do with the halves' inline heights.
+  // 'clear' hands both halves back to the stylesheet, 'rescale' re-applies the
+  // dragged percent against the new height, 'restore' puts the remembered
+  // percent back, 'none' leaves an untouched 50/50 alone.
+  // The short-pane column (the @container (max-height:480px) block in
+  // panel.css) is checked first and wins over everything: there the stylesheet
+  // owns both heights, and an inline px height would out-rank its height:auto
+  // and paint the request half straight through the response section.
+  function planInspectorSplitApplication(state) {
+    if (state.columnMode) return 'clear';
+    if (state.wasColumnMode) return 'restore';
+    if (state.collapsedHalf) return 'clear';
+    return state.hasInlineHeight ? 'rescale' : 'none';
+  }
+
   // Pure: the persisted split shape. Anything outside the allow-list (a
   // percent that leaves no room for either pane, an unknown half) degrades
   // to the default so a hand-edited or stale entry cannot wedge the pane.
@@ -919,9 +962,126 @@ const _NetworkPlus = (function () {
     return clampColumnWidth(currentWidth + (key === 'ArrowLeft' ? -step : step));
   }
 
-  function getAdjacentVisibleColumnId(columns, colId, direction) {
+  // 1 = never auto-hidden, 2 = dropped after 3, 3 = dropped first.
+  function columnAutoHidePriority(colId) {
+    if (COLUMN_PRIORITY_1_IDS.includes(colId)) return 1;
+    if (COLUMN_PRIORITY_2_DROP_ORDER.includes(colId)) return 2;
+    return 3;
+  }
+
+  // The width a column still needs once Path has given up everything it may.
+  // The fit test runs on these, not on the stored widths, so a narrow wrap
+  // squeezes Path first and only then starts dropping columns.
+  function minRenderedColumnWidth(column) {
+    const width = clampColumnWidth(column ? column.width : DEFAULT_COL_WIDTH);
+    return column && column.id === 'path' ? Math.min(width, ELASTIC_PATH_MIN_WIDTH) : width;
+  }
+
+  // Pure: which of the reader's visible columns have to step aside for the
+  // wrap to fit. Never mutates a column and never looks at the DOM, so the
+  // whole policy is testable against a width matrix without a browser.
+  // options: { pinnedIds, keepIds, previousHiddenIds, hysteresis }.
+  function planAutoHiddenColumns(columns, wrapWidth, options) {
+    const opts = options || {};
+    const toSet = (value) => (value instanceof Set ? value : new Set(Array.isArray(value) ? value : []));
+    const pinnedIds = toSet(opts.pinnedIds);
+    const keepIds = toSet(opts.keepIds);
+    const previousHiddenIds = toSet(opts.previousHiddenIds);
+    const hysteresis = Number.isFinite(opts.hysteresis) ? opts.hysteresis : AUTO_HIDE_HYSTERESIS_PX;
+    const visibleColumns = (Array.isArray(columns) ? columns : []).filter((column) => column && column.visible);
+    if (!Number.isFinite(wrapWidth) || wrapWidth <= 0) return [];
+    // The reader's own pick and the two forced-visible sets are off limits;
+    // everything else queues up in drop order.
+    const dropRank = (column, index) => {
+      const tier = columnAutoHidePriority(column.id);
+      const listed = tier === 2
+        ? COLUMN_PRIORITY_2_DROP_ORDER.indexOf(column.id)
+        : COLUMN_PRIORITY_3_DROP_ORDER.indexOf(column.id);
+      return (4 - tier) * 10000 + (listed >= 0 ? listed : 1000 - index);
+    };
+    const candidates = visibleColumns
+      .map((column, index) => ({ column, rank: dropRank(column, index) }))
+      .filter(
+        (entry) =>
+          columnAutoHidePriority(entry.column.id) > 1 &&
+          !pinnedIds.has(entry.column.id) &&
+          !keepIds.has(entry.column.id),
+      )
+      .sort((a, b) => a.rank - b.rank)
+      .map((entry) => entry.column);
+    let remaining = visibleColumns.reduce((sum, column) => sum + minRenderedColumnWidth(column), 0);
+    const hiddenIds = [];
+    for (const column of candidates) {
+      const budget = previousHiddenIds.has(column.id) ? wrapWidth - hysteresis : wrapWidth;
+      if (remaining <= budget) continue;
+      hiddenIds.push(column.id);
+      remaining -= minRenderedColumnWidth(column);
+    }
+    return hiddenIds;
+  }
+
+  // Pure: the columns the grid must go on painting whatever the wrap says,
+  // over and above the P1 sentence. Match is the search read-out — the chips
+  // have to be somewhere. The sort key is, by definition, the column that
+  // explains the row order: drop it and the order has no explanation on
+  // screen and none in the accessibility tree either, because the indicator
+  // and aria-sort live on the header that went. The set is derived fresh on
+  // every re-plan, so sorting by another column releases the previous key in
+  // the same breath, and clearing the sort releases it altogether.
+  // Out of the box the panel sorts by ID ascending, so ID is the column this
+  // rule protects at every width until the reader sorts by something else —
+  // intended, and the reason DEFAULT_SORT is pinned by a unit case: the
+  // column that explains the order is the one that stays.
+  // resizingColId is the column under an active keyboard resize. Dropping it
+  // ends the gesture and strands the focus that was stepping its width, which
+  // is the opposite of what the re-plan after a keyed step is for.
+  function planForcedVisibleColumnIds(sort, searchKeywords, resizingColId) {
+    const forcedIds = [];
+    if (hasActiveSearchKeywords(searchKeywords)) forcedIds.push('match');
+    const sortColId = sort && sort.direction ? sort.colId : null;
+    if (sortColId && !forcedIds.includes(sortColId)) forcedIds.push(sortColId);
+    if (resizingColId && !forcedIds.includes(resizingColId)) forcedIds.push(resizingColId);
+    return forcedIds;
+  }
+
+  // The column whose separator has the focus, i.e. the one a keyboard resize
+  // is stepping. Read from the focus itself rather than remembered across the
+  // re-render that follows a step: that render destroys the separator and
+  // builds a new one, and a flag cleared by the old element's own blur would
+  // depend on whether that blur arrives before or after the new separator
+  // takes the focus. Nothing orders those two.
+  function findKeyboardResizeColumnId(activeElement) {
+    if (!activeElement || !activeElement.classList || !activeElement.classList.contains('col-resizer')) return null;
+    const header = activeElement.closest ? activeElement.closest('th[data-col-id]') : null;
+    return header && header.dataset ? header.dataset.colId || null : null;
+  }
+
+  // Pure: where a header's focus goes when its own column is no longer
+  // painted — the wrap dropped it, or the reader unticked it. Something in
+  // the header row has to take it: left alone the browser drops it to <body>
+  // and the reader loses their place in the grid entirely. The neighbour to
+  // the right is the column that took the missing one's place on screen;
+  // with nothing painted to the right, the nearest one to the left does.
+  function planHeaderFocusFallbackId(columns, colId, paintedIds) {
+    if (!Array.isArray(columns)) return null;
+    const painted = paintedIds instanceof Set ? paintedIds : new Set(Array.isArray(paintedIds) ? paintedIds : []);
+    const index = columns.findIndex((column) => column && column.id === colId);
+    if (index < 0) return null;
+    for (let after = index + 1; after < columns.length; after += 1) {
+      if (painted.has(columns[after].id)) return columns[after].id;
+    }
+    for (let before = index - 1; before >= 0; before -= 1) {
+      if (painted.has(columns[before].id)) return columns[before].id;
+    }
+    return null;
+  }
+
+  function getAdjacentVisibleColumnId(columns, colId, direction, hiddenIds) {
     if (!Array.isArray(columns) || (direction !== -1 && direction !== 1)) return null;
-    const visibleColumns = columns.filter((column) => column.visible);
+    const skipped = hiddenIds instanceof Set ? hiddenIds : new Set(Array.isArray(hiddenIds) ? hiddenIds : []);
+    // Reorder hops to the neighbour the reader can see, not to one the wrap
+    // dropped: an auto-hidden column between the two is simply not there.
+    const visibleColumns = columns.filter((column) => column.visible && !skipped.has(column.id));
     const currentIndex = visibleColumns.findIndex((column) => column.id === colId);
     const nextIndex = currentIndex + direction;
     return currentIndex >= 0 && nextIndex >= 0 && nextIndex < visibleColumns.length
@@ -4601,6 +4761,11 @@ const _NetworkPlus = (function () {
   // ============================================================
   const state = {
     columns: DEFAULT_COLUMNS.map((c) => ({ ...c })),
+    // Auto-hide is a fit decision, not a preference: it stays here and never
+    // reaches COL_PREF_KEY, so column.visible keeps meaning the reader's own
+    // choice everywhere it is saved, presented or restored.
+    autoHiddenColumnIds: new Set(),
+    pinnedColumnIds: new Set(),
     rows: [],
     retainedRows: new Set(),
     activeRows: new Set(),
@@ -4624,6 +4789,7 @@ const _NetworkPlus = (function () {
     focusedRow: null,
     pendingRowFocusId: null,
     pendingHeaderFocusId: null,
+    pendingHeaderFocusResizer: false,
     selectedRows: new Set(), // [U7] multi-row selection
     comparedRows: null,     // [U8] two-request diff comparison: [rowA, rowB] or null
     comparisonInvokingRowId: null, // [U8] row id that opened the comparison (for focus restoration)
@@ -4634,10 +4800,7 @@ const _NetworkPlus = (function () {
     domainSummaryVisible: false,
     automaticResponsePrefetchScheduler: null,
     columnFilterRules: DEFAULT_COLUMN_FILTER_RULES(),
-    sort: {
-      colId: 'id',
-      direction: 'asc',
-    },
+    sort: { ...DEFAULT_SORT },
     nextId: 1,
     paused: false,
     autoScroll: true,
@@ -6675,6 +6838,13 @@ const _NetworkPlus = (function () {
       en: '{half} inspector collapsed. Double-click the divider to restore 50/50.',
       ja: '{half}インスペクターを折りたたみました。仕切りをダブルクリックすると 50/50 に戻ります。',
     },
+    // The short-pane column has no divider to double-click, so the sentence
+    // names the caption the reader just clicked — the control that is still
+    // there and still restores the half.
+    inspectorHalfCollapsedColumnStatus: {
+      en: '{half} inspector collapsed. Click {half} again to restore it.',
+      ja: '{half}インスペクターを折りたたみました。{half}をもう一度クリックすると戻ります。',
+    },
     inspectorHalfExpandedStatus: {
       en: '{half} inspector expanded.',
       ja: '{half}インスペクターを展開しました。',
@@ -6713,6 +6883,37 @@ const _NetworkPlus = (function () {
     columnsResetTitle: {
       en: 'Restore the default column visibility and widths',
       ja: '列の表示と幅を既定に戻す',
+    },
+    columnsAutoHiddenNote: {
+      en: '{count} hidden to fit',
+      ja: '{count} 件を幅に合わせて非表示',
+    },
+    columnsShowAnyway: {
+      en: 'Show anyway',
+      ja: 'それでも表示',
+    },
+    columnsShowAnywayLabel: {
+      en: 'Show {column} anyway',
+      ja: '{column}をそれでも表示',
+    },
+    columnsShowAnywayStatus: {
+      en: '{column} stays visible; it is no longer hidden to fit.',
+      ja: '{column}を常に表示に固定しました。幅に合わせた非表示の対象から外れます。',
+    },
+    // The same row once the opt-out is in force: it names the state it is in
+    // and offers the way out, so a pin the reader set is a pin they can see
+    // and undo rather than a one-way door with nothing left on screen.
+    columnsShowAnywayPinned: {
+      en: 'Always shown — undo',
+      ja: '常に表示中 — 解除',
+    },
+    columnsShowAnywayUndoLabel: {
+      en: 'Stop always showing {column}',
+      ja: '{column}を常に表示するのをやめる',
+    },
+    columnsShowAnywayUndoStatus: {
+      en: '{column} can be hidden to fit again.',
+      ja: '{column}を幅に合わせた非表示の対象に戻しました。',
     },
     columnsResetStatus: {
       en: 'Columns reset to the default visibility and widths.',
@@ -7311,6 +7512,36 @@ const _NetworkPlus = (function () {
     }
   }
 
+  // "Show anyway" is a user choice, so it persists; the auto-hidden set it
+  // opts out of never does. Kept in its own key so a stored column entry
+  // keeps the exact { id, visible, width } shape everything else reads.
+  function saveColumnPins() {
+    try {
+      localStorage.setItem(COL_PIN_KEY, JSON.stringify(Array.from(state.pinnedColumnIds)));
+    } catch (_e) {
+      console.warn('Failed to save pinned columns');
+    }
+  }
+
+  function loadColumnPins() {
+    try {
+      const saved = localStorage.getItem(COL_PIN_KEY);
+      if (!saved) return;
+      const savedIds = JSON.parse(saved);
+      if (!Array.isArray(savedIds)) return;
+      // Only ids that still name a column. A pin for something that no longer
+      // exists — a renamed id, a hand-edited store — can never be seen or
+      // undone in the menu, because the menu only ever lists real columns.
+      const knownIds = new Set(DEFAULT_COLUMNS.map((column) => column.id));
+      state.pinnedColumnIds = new Set(savedIds.filter((id) => typeof id === 'string' && knownIds.has(id)));
+      // Written back only when something was actually dropped, so the stored
+      // set converges instead of carrying the junk to the next session.
+      if (state.pinnedColumnIds.size !== savedIds.length) saveColumnPins();
+    } catch (_e) {
+      console.warn('Failed to load pinned columns');
+    }
+  }
+
   function loadColumnPrefs() {
     try {
       const saved = localStorage.getItem(COL_PREF_KEY);
@@ -7473,7 +7704,12 @@ const _NetworkPlus = (function () {
   }
 
   function moveColumnByKeyboard(colId, direction) {
-    const adjacentId = getAdjacentVisibleColumnId(state.columns, colId, direction);
+    const adjacentId = getAdjacentVisibleColumnId(
+      state.columns,
+      colId,
+      direction,
+      state.autoHiddenColumnIds,
+    );
     if (!adjacentId) return false;
     const currentIndex = state.columns.findIndex((column) => column.id === colId);
     const adjacentIndex = state.columns.findIndex((column) => column.id === adjacentId);
@@ -10377,7 +10613,7 @@ const _NetworkPlus = (function () {
     const statusClass = classifyStatusClass(row.status);
     if (statusClass !== 'other') tr.classList.add('status-' + statusClass);
 
-    const visibleCols = state.columns.filter((c) => c.visible);
+    const visibleCols = getEffectiveVisibleColumns();
     for (const c of visibleCols) {
       const td = document.createElement('td');
       td.setAttribute('role', 'gridcell');
@@ -11528,6 +11764,56 @@ const _NetworkPlus = (function () {
   // ============================================================
   // Section 12: Rendering
   // ============================================================
+  // What the grid actually paints: the reader's own visible set minus the
+  // columns the wrap could not hold. The header row, every row's cells and
+  // the elastic width all read this one derivation, so they cannot disagree.
+  function isColumnEffectivelyVisible(column) {
+    return !!column && column.visible === true && !state.autoHiddenColumnIds.has(column.id);
+  }
+
+  function getEffectiveVisibleColumns() {
+    return state.columns.filter(isColumnEffectivelyVisible);
+  }
+
+  // True while a column drag is in flight: a re-render mid-gesture would
+  // destroy the <th> and the .col-resizer the mousedown closed over and the
+  // drag would die under the reader's cursor. The mouseup recomputes once.
+  let columnResizeInFlight = false;
+  // Ends whatever gesture is in hand, from outside that gesture's own mouseup.
+  // A pointer released outside the frame never delivers that mouseup, and the
+  // flag above would then suppress auto-hide for the rest of the session — so
+  // the window losing focus, the tab being hidden and the next mousedown all
+  // reach the same release. Reset to a no-op by the release it runs.
+  let releaseColumnResizeGesture = () => {};
+
+  // Re-plans the auto-hidden set against the current wrap. Returns true when
+  // the painted set changed, i.e. when the caller owes the grid a header and
+  // a body rendered together.
+  function recomputeAutoHiddenColumns() {
+    if (columnResizeInFlight) return false;
+    const tableWrap = $('#tableWrap');
+    if (!tableWrap) return false;
+    const wrapWidth = Number.isFinite(tableWrap.clientWidth) ? tableWrap.clientWidth : 0;
+    const previousHiddenIds = state.autoHiddenColumnIds;
+    const hiddenIds = planAutoHiddenColumns(state.columns, wrapWidth, {
+      pinnedIds: state.pinnedColumnIds,
+      // The search read-out, the column the rows are ordered by and the one
+      // whose width is being stepped: none may be dropped while it is doing
+      // that job. See planForcedVisibleColumnIds.
+      keepIds: planForcedVisibleColumnIds(
+        state.sort,
+        state.search.keywords,
+        findKeyboardResizeColumnId(typeof document === 'undefined' ? null : document.activeElement),
+      ),
+      previousHiddenIds,
+    });
+    const unchanged =
+      hiddenIds.length === previousHiddenIds.size && hiddenIds.every((id) => previousHiddenIds.has(id));
+    if (unchanged) return false;
+    state.autoHiddenColumnIds = new Set(hiddenIds);
+    return true;
+  }
+
   function syncGridControlTabStops(totalRowCount, visibleRowCount) {
     const tabIndex = getGridControlTabIndex(totalRowCount, visibleRowCount);
     const thead = $('#thead');
@@ -11539,18 +11825,26 @@ const _NetworkPlus = (function () {
 
   function renderHeader() {
     const thead = $('#thead');
-    const activeHeader = document.activeElement && document.activeElement.closest
-      ? document.activeElement.closest('th[data-col-id]')
+    const activeElement = document.activeElement;
+    const activeHeader = activeElement && activeElement.closest
+      ? activeElement.closest('th[data-col-id]')
       : null;
     const focusColId = state.pendingHeaderFocusId || (activeHeader ? activeHeader.dataset.colId : null);
+    // A width change can auto-hide a column and rebuild the row while the
+    // reader is still holding Arrow on a separator: focus belongs back on
+    // that separator, not on the header around it.
+    const focusResizer =
+      state.pendingHeaderFocusResizer === true ||
+      !!(activeElement && activeElement.classList && activeElement.classList.contains('col-resizer'));
     state.pendingHeaderFocusId = null;
+    state.pendingHeaderFocusResizer = false;
     thead.textContent = '';
     const gridControlTabIndex = getGridControlTabIndex(
       state.rows.length,
       state.filteredRows.length,
     );
 
-    const visibleCols = state.columns.filter((c) => c.visible);
+    const visibleCols = getEffectiveVisibleColumns();
 
     const tr = document.createElement('tr');
     tr.className = 'title-row';
@@ -11598,6 +11892,12 @@ const _NetworkPlus = (function () {
           indicator.setAttribute('aria-hidden', 'true');
           indicator.textContent = sortState === 'ascending' ? ' ▲' : ' ▼';
           th.appendChild(indicator);
+          // The stylesheet parks the arrow at the right edge and gives the
+          // label a gutter to shrink into. Inline, the arrow was simply the
+          // last thing in the line box and the ellipsis ate it: a column no
+          // wider than its own label announced its sort to a screen reader
+          // and showed nothing at all on screen.
+          th.classList.add('is-sorted');
         }
       }
 
@@ -11701,6 +12001,14 @@ const _NetworkPlus = (function () {
         applyColumnWidth(newWidth);
         saveColumnPrefs();
         setStatus(c.label + ' column width ' + c.width + ' pixels');
+        // A keyboard step can push the stored sum past the wrap: re-plan and,
+        // when the painted set changed, rebuild both rows and hand focus back
+        // to this separator so the next Arrow keeps resizing the same column.
+        if (recomputeAutoHiddenColumns()) {
+          state.pendingHeaderFocusId = c.id;
+          state.pendingHeaderFocusResizer = true;
+          render();
+        }
       });
       columnResizer.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -11714,17 +12022,32 @@ const _NetworkPlus = (function () {
         // narrowing inside that surplus must not inflate the stored width.
         const startStored = clampColumnWidth(c.width);
         const startRendered = th.offsetWidth;
+        // A previous gesture whose mouseup landed outside the frame is still
+        // holding the flag; it ends here rather than latching past this one.
+        releaseColumnResizeGesture();
+        columnResizeInFlight = true;
         const handleMouseMove = (moveEvent) => {
           const delta = moveEvent.clientX - startX;
           applyColumnWidth(delta >= 0 ? startRendered + delta : Math.min(startStored, startRendered + delta));
         };
         const handleMouseUp = () => {
+          releaseColumnResizeGesture = () => {};
           document.removeEventListener('mousemove', handleMouseMove);
           document.removeEventListener('mouseup', handleMouseUp);
+          window.removeEventListener('blur', handleMouseUp);
+          document.removeEventListener('visibilitychange', handleMouseUp);
+          columnResizeInFlight = false;
           saveColumnPrefs();
+          // Suppressed for the whole gesture, the fit is re-planned once here.
+          if (recomputeAutoHiddenColumns()) render();
         };
+        releaseColumnResizeGesture = handleMouseUp;
         document.addEventListener('mousemove', handleMouseMove);
         document.addEventListener('mouseup', handleMouseUp);
+        // The releases the gesture cannot deliver itself: the pointer went up
+        // somewhere this document never hears about.
+        window.addEventListener('blur', handleMouseUp);
+        document.addEventListener('visibilitychange', handleMouseUp);
       });
       th.appendChild(columnResizer);
       tr.appendChild(th);
@@ -11734,7 +12057,19 @@ const _NetworkPlus = (function () {
 
     if (focusColId) {
       const headerToFocus = thead.querySelector('th[data-col-id="' + focusColId + '"]');
-      if (headerToFocus) headerToFocus.focus({ preventScroll: true });
+      const resizerToFocus = headerToFocus && focusResizer ? headerToFocus.querySelector('.col-resizer') : null;
+      // The column that held the focus is gone — the auto-hide dropped it, or
+      // the reader unticked it. A neighbouring header takes the focus so the
+      // reader keeps their place in the row; the neighbour's separator does
+      // not, because it would resize a column they never asked about.
+      const fallbackId = headerToFocus
+        ? null
+        : planHeaderFocusFallbackId(state.columns, focusColId, visibleCols.map((column) => column.id));
+      const fallbackHeader = fallbackId
+        ? thead.querySelector('th[data-col-id="' + fallbackId + '"]')
+        : null;
+      const controlToFocus = resizerToFocus || headerToFocus || fallbackHeader;
+      if (controlToFocus) controlToFocus.focus({ preventScroll: true });
     }
   }
 
@@ -11743,24 +12078,36 @@ const _NetworkPlus = (function () {
   // .tableWrap is wider than that sum the surplus is lent to Path's rendered
   // width (or the last visible column's when Path is hidden) so the header
   // band, zebra and row rules reach the right edge instead of stopping at
-  // the column sum. Only style widths change and only when the value differs,
-  // so the ResizeObserver that re-runs this never triggers itself.
+  // the column sum. Narrower than the sum, Path gives width back down to
+  // ELASTIC_PATH_MIN_WIDTH before the grid scrolls — the same elasticity in
+  // the other direction, and the reason auto-hide drops so few columns.
+  // Only style widths change and only when the value differs, so the
+  // ResizeObserver that re-runs this never triggers itself.
   function applyElasticColumnWidth() {
     const grid = $('#grid');
     const thead = $('#thead');
     const tableWrap = $('#tableWrap');
     if (!grid || !thead || !tableWrap) return;
-    const visibleCols = state.columns.filter((c) => c.visible);
+    const visibleCols = getEffectiveVisibleColumns();
     const totalWidth = visibleCols.reduce((sum, c) => sum + clampColumnWidth(c.width), 0);
     const wrapWidth = Number.isFinite(tableWrap.clientWidth) ? tableWrap.clientWidth : 0;
     const surplus = Math.max(0, wrapWidth - totalWidth);
     const elasticCol = visibleCols.find((c) => c.id === 'path') || visibleCols[visibleCols.length - 1];
-    const gridWidth = (totalWidth + surplus) + 'px';
+    // Only Path has a floor to give from; when it is hidden the grid scrolls
+    // exactly as it did before, rather than squeezing whatever sits last.
+    const pathCol = visibleCols.find((c) => c.id === 'path');
+    const deficit = pathCol && wrapWidth > 0 ? Math.max(0, totalWidth - wrapWidth) : 0;
+    const shrink = pathCol
+      ? Math.min(deficit, clampColumnWidth(pathCol.width) - minRenderedColumnWidth(pathCol))
+      : 0;
+    const gridWidth = (totalWidth + surplus - shrink) + 'px';
     if (grid.style.width !== gridWidth) grid.style.width = gridWidth;
     for (const c of visibleCols) {
       const th = thead.querySelector('th[data-col-id="' + c.id + '"]');
       if (!th) continue;
-      const renderedWidth = (c === elasticCol ? clampColumnWidth(c.width) + surplus : clampColumnWidth(c.width)) + 'px';
+      const elasticDelta = c === elasticCol ? surplus : 0;
+      const shrinkDelta = c === pathCol ? shrink : 0;
+      const renderedWidth = (clampColumnWidth(c.width) + elasticDelta - shrinkDelta) + 'px';
       if (th.style.width !== renderedWidth) th.style.width = renderedWidth;
     }
   }
@@ -12170,10 +12517,13 @@ const _NetworkPlus = (function () {
     const tbody = $('#tbody');
     if (!tbody) return false;
     const restoreEmptyStateFocus = isFocusInsideEmptyState();
-    // When Waterfall is visible every new row changes the shared time range, so
+    // When Waterfall is painted every new row changes the shared time range, so
     // pre-existing bars would show stale geometry. Fall through to a full renderBody().
+    // Effective visibility, not the stored flag: a Waterfall the reader enabled
+    // and the wrap then dropped paints no bars at all, and must not cost the
+    // incremental path.
     const waterfallCol = state.columns.find((c) => c.id === 'waterfall');
-    if (waterfallCol && waterfallCol.visible) return false;
+    if (isColumnEffectivelyVisible(waterfallCol)) return false;
     const activeFilterCount = countActiveColumnFilters(state.columnFilterRules);
     if (
       !isIncrementalAppendEligible(
@@ -12297,7 +12647,7 @@ const _NetworkPlus = (function () {
     // Cache waterfall range once per render — createTableRow reads state.waterfallRange
     // in O(1) instead of scanning all rows on every call (prevents O(n²) render).
     const waterfallCol = state.columns.find((c) => c.id === 'waterfall');
-    state.waterfallRange = (waterfallCol && waterfallCol.visible) ? computeWaterfallRange(rows) : null;
+    state.waterfallRange = isColumnEffectivelyVisible(waterfallCol) ? computeWaterfallRange(rows) : null;
     const tbody = $('#tbody');
     const activeRow =
       document.activeElement && document.activeElement.closest
@@ -12349,7 +12699,17 @@ const _NetworkPlus = (function () {
   }
 
   function render() {
+    recomputeAutoHiddenColumns();
     renderHeader();
+    renderBody();
+  }
+
+  // Match auto-shows while a keyword exists and steps aside again when the
+  // last one is cleared, so a search that moves the painted set has to
+  // rebuild the header with the body. A body-only render would paint cells
+  // against a header that no longer names the same columns.
+  function renderGridAfterSearchChange() {
+    if (recomputeAutoHiddenColumns()) renderHeader();
     renderBody();
   }
 
@@ -14917,6 +15277,7 @@ const _NetworkPlus = (function () {
   // ============================================================
   function init() {
     loadColumnPrefs();
+    loadColumnPins();
     loadCustomHeaderColumnName();
     state.domainSummaryVisible = loadDomainSummaryPref();
     loadRetentionSetting();
@@ -15380,23 +15741,57 @@ const _NetworkPlus = (function () {
       btnRow.appendChild(
         createColumnsHeaderButton(uiText('columnsDeselectAll'), () => {
           state.columns.forEach((column) => { column.visible = false; });
+          // Same reasoning as the per-column untick and Reset: hiding a
+          // column drops its opt-out rather than leaving a pin the reader can
+          // neither see nor undo. Doing it in bulk is still doing it.
+          if (state.pinnedColumnIds.size > 0) {
+            state.pinnedColumnIds.clear();
+            saveColumnPins();
+          }
         }),
       );
       // Reset restores the factory visibility and widths only: the column
       // order, the filters, and the bound header name are the person's.
       const resetBtn = createColumnsHeaderButton(uiText('columnsReset'), () => {
         applyDefaultColumnLayout(state.columns, DEFAULT_COLUMNS);
+        // Pinning a column back is a choice like visibility, so the factory
+        // restore clears it too rather than leaving an invisible opt-out.
+        state.pinnedColumnIds.clear();
+        saveColumnPins();
         setStatus(uiText('columnsResetStatus'));
       });
       resetBtn.title = uiText('columnsResetTitle');
       btnRow.appendChild(resetBtn);
       columnsContextMenu.appendChild(btnRow);
 
+      // The grid differs from the configuration this menu names whenever the
+      // wrap dropped a column, so the difference is stated here rather than
+      // left for the reader to notice a column missing.
+      const autoHiddenColumns = state.columns.filter(
+        (column) => column.visible && state.autoHiddenColumnIds.has(column.id),
+      );
+      if (autoHiddenColumns.length > 0) {
+        const autoHiddenNote = document.createElement('div');
+        autoHiddenNote.className = 'columns-autohide-note';
+        autoHiddenNote.textContent = uiTextFormat('columnsAutoHiddenNote', {
+          // Every other counted frame in the panel formats through the same
+          // locale, so this one does too rather than being the odd number out.
+          count: autoHiddenColumns.length.toLocaleString('en-US'),
+        });
+        columnsContextMenu.appendChild(autoHiddenNote);
+      }
+
       const appendColumnItem = (current) => {
         const item = document.createElement('button');
         item.className = 'context-menu-item';
+        item.dataset.columnId = current.id;
         item.setAttribute('role', 'menuitemcheckbox');
         item.setAttribute('aria-checked', String(current.visible));
+        // Auto-hidden is not unchecked: the box keeps saying what the reader
+        // chose and only dims, so the state stays legible as "you asked for
+        // this, the wrap could not hold it".
+        const autoHidden = current.visible && state.autoHiddenColumnIds.has(current.id);
+        item.classList.toggle('column-auto-hidden', autoHidden);
         const updateItem = () => {
           // The grid header keeps current.label; the menu reads the same
           // menu-only lookup the row menu's sentences use, so the runtime
@@ -15407,11 +15802,61 @@ const _NetworkPlus = (function () {
         updateItem();
         item.addEventListener('click', () => {
           current.visible = !current.visible;
-          updateItem();
+          // Hiding a column by hand also drops its opt-out. Left behind, the
+          // pin would come back invisibly with the column and make it exempt
+          // from the fit for good, with nothing on screen saying why.
+          if (!current.visible && state.pinnedColumnIds.delete(current.id)) saveColumnPins();
           saveColumnPrefs();
           render();
+          // Freeing a column's width can bring others back, so the dimming
+          // and the count are rebuilt rather than left describing the old
+          // fit; focus stays on the same column's checkbox.
+          renderColumnsContextMenu();
+          const restored = columnsContextMenu.querySelector('[data-column-id="' + current.id + '"]');
+          if (restored) restored.focus();
         });
         columnsContextMenu.appendChild(item);
+        // The opt-out row is offered while the wrap is dropping the column and
+        // stays afterwards as the state it produced: a pin with nothing left
+        // on screen is a pin the reader can neither see nor undo.
+        const pinned = state.pinnedColumnIds.has(current.id);
+        if (!current.visible || (!autoHidden && !pinned)) return;
+        const columnName = menuColumnLabel(current.id, current.label);
+        const pinAction = pinned
+          ? uiTextFormat('columnsShowAnywayUndoLabel', { column: columnName })
+          : uiTextFormat('columnsShowAnywayLabel', { column: columnName });
+        const showAnyway = document.createElement('button');
+        showAnyway.className = 'context-menu-item columns-show-anyway';
+        showAnyway.classList.toggle('column-pinned', pinned);
+        showAnyway.dataset.pinColumnId = current.id;
+        // Still a plain menuitem, so the menu's checkbox count keeps counting
+        // the visibility boxes; the state it is in is in the label and in the
+        // aria-label that names the column, not in a second checked role.
+        showAnyway.setAttribute('role', 'menuitem');
+        showAnyway.textContent = uiText(pinned ? 'columnsShowAnywayPinned' : 'columnsShowAnyway');
+        showAnyway.setAttribute('aria-label', pinAction);
+        showAnyway.title = pinAction;
+        showAnyway.addEventListener('click', () => {
+          if (pinned) state.pinnedColumnIds.delete(current.id);
+          else state.pinnedColumnIds.add(current.id);
+          saveColumnPins();
+          setStatus(
+            pinned
+              ? uiTextFormat('columnsShowAnywayUndoStatus', { column: columnName })
+              : uiTextFormat('columnsShowAnywayStatus', { column: columnName }),
+          );
+          render();
+          renderColumnsContextMenu();
+          // Back to the row that was clicked when it is still there — undoing
+          // a pin can auto-hide the column again and keep it — otherwise to
+          // the checkbox it belongs to.
+          const restored =
+            columnsContextMenu.querySelector('[data-pin-column-id="' + current.id + '"]') ||
+            columnsContextMenu.querySelector('[data-column-id="' + current.id + '"]');
+          if (restored) restored.focus();
+          else refocusColumnsMenu();
+        });
+        columnsContextMenu.appendChild(showAnyway);
       };
       const groupedIds = new Set();
       for (const group of COLUMN_MENU_GROUPS) {
@@ -16526,7 +16971,11 @@ const _NetworkPlus = (function () {
         if (elasticFrame) return;
         elasticFrame = requestAnimationFrame(() => {
           elasticFrame = 0;
-          applyElasticColumnWidth();
+          // The re-plan reads the same wrap width the write below would, and
+          // is idempotent for it, so the observer cannot ping-pong between a
+          // hidden and a restored column across frames.
+          if (recomputeAutoHiddenColumns()) render();
+          else applyElasticColumnWidth();
         });
       }).observe(tableWrap);
       // The header pathname is ellipsised by measurement, so it follows the
@@ -16606,6 +17055,55 @@ const _NetworkPlus = (function () {
       const inspectorPref = loadInspectorSplitPref();
       let inspectorSplitPercent = inspectorPref.percent === 50 ? null : inspectorPref.percent;
       let collapsedInspectorHalf = null;
+      // Short pane: the stylesheet turns the panels into one scrolling column
+      // (@container (max-height:480px) in panel.css) and the divider is gone.
+      // The mode is read back from the computed display instead of repeating
+      // the threshold here, so there is one source of truth and it cannot
+      // drift: 'block' is the column, 'flex' the split, 'none' a hidden pane.
+      const isInspectorColumn = () => getComputedStyle(inspectorPanels).display === 'block';
+      let wasInspectorColumn = false;
+      // Who held the focus, recorded as focus moves rather than reconstructed
+      // at the crossing. The column mode takes the divider's box away and the
+      // browser drops its focus to <body>; nothing orders that drop against
+      // the resize that runs rescaleInspectorSplit, so activeElement inside
+      // the crossing reads as the divider in one frame and as <body> in the
+      // next. This variable reads the same either way, because <body> is
+      // never written into it — the crossing consults it, not the order.
+      let lastFocusedControl = null;
+      // True only while the response caption holds the focus the crossing put
+      // there. A reader who moved on keeps the focus they chose, so any other
+      // control taking focus cancels the debt.
+      let inspectorDividerFocusHandedOver = false;
+      document.addEventListener('focusin', (event) => {
+        const target = event.target;
+        if (!target || target === document.body) return;
+        lastFocusedControl = target;
+        if (target !== inspectorHalves.response.toggle) inspectorDividerFocusHandedOver = false;
+      });
+      // The response caption is where the divider's focus goes: in the column
+      // it is the control that still does the divider's job, opening and
+      // closing the half the divider used to size. Handed back on the way out
+      // only while that caption still holds it.
+      const handInspectorDividerFocusOver = (columnMode) => {
+        const responseToggle = inspectorHalves.response.toggle;
+        if (!responseToggle) return;
+        // <body> is not an answer here: it is the hole the mode change left.
+        const held =
+          document.activeElement && document.activeElement !== document.body
+            ? document.activeElement
+            : lastFocusedControl;
+        if (columnMode) {
+          if (held !== inspectorDivider) return;
+          responseToggle.focus({ preventScroll: true });
+          // After the focus call, not before: the focusin it fires runs first
+          // and is the one listener that would otherwise clear this.
+          inspectorDividerFocusHandedOver = true;
+          return;
+        }
+        if (!inspectorDividerFocusHandedOver || held !== responseToggle) return;
+        inspectorDividerFocusHandedOver = false;
+        inspectorDivider.focus({ preventScroll: true });
+      };
       const rememberInspectorSplit = () => {
         saveInspectorSplitPref({
           percent: inspectorSplitPercent == null ? 50 : inspectorSplitPercent,
@@ -16681,13 +17179,34 @@ const _NetworkPlus = (function () {
       const rescaleInspectorSplit = () => {
         // A hidden pane has no height to share out; leave the split alone.
         if (inspectorPanels.getBoundingClientRect().height <= 0) return;
-        if (collapsedInspectorHalf) {
+        const columnMode = isInspectorColumn();
+        const action = planInspectorSplitApplication({
+          columnMode,
+          wasColumnMode: wasInspectorColumn,
+          collapsedHalf: collapsedInspectorHalf,
+          hasInlineHeight: Boolean(requestPane.style.height),
+        });
+        const crossedThreshold = columnMode !== wasInspectorColumn;
+        wasInspectorColumn = columnMode;
+        // Focus first: the mode has already changed in the stylesheet, so a
+        // divider that held it has already lost it, and the restore below is
+        // free to rebuild heights around wherever the focus now lives.
+        if (crossedThreshold) handInspectorDividerFocusOver(columnMode);
+        // Tall again: the percent the column mode had to drop goes back on.
+        if (action === 'restore') {
+          restoreInspectorSplit();
+          return;
+        }
+        if (action === 'clear') {
           clearInspectorSplitStyles();
-        } else if (requestPane.style.height) {
+        } else if (action === 'rescale') {
           const split = splitForPercent(parseFloat(inspectorDivider.getAttribute('aria-valuenow')));
           if (split) applyInspectorSplit(split);
           else clearInspectorSplitStyles();
         }
+        // The column has no divider to describe, and measuring the halves
+        // against the pane's own box there would announce a share of nothing.
+        if (columnMode) return;
         syncInspectorDividerValue();
       };
       window.addEventListener('resize', rescaleInspectorSplit);
@@ -16709,6 +17228,13 @@ const _NetworkPlus = (function () {
       // hidden until the first selection) and only while nothing has been
       // dragged since: a live drag already owns the inline heights.
       const restoreInspectorSplit = () => {
+        // In the short-pane column the remembered percent stays remembered and
+        // unapplied: see planInspectorSplitApplication.
+        if (isInspectorColumn()) {
+          wasInspectorColumn = true;
+          clearInspectorSplitStyles();
+          return;
+        }
         if (collapsedInspectorHalf) {
           clearInspectorSplitStyles();
         } else if (!requestPane.style.height && inspectorSplitPercent != null) {
@@ -16729,10 +17255,17 @@ const _NetworkPlus = (function () {
         restoreInspectorSplit();
         const changedHalf = next || previous;
         if (announce && changedHalf) {
+          const half = uiText(inspectorHalves[changedHalf].labelKey);
+          // The split's sentence sends the reader to the divider. In the
+          // short-pane column that divider is display:none, so announcing it
+          // there would name a control the reader cannot reach; the caption
+          // they just clicked is what puts the half back.
           setStatus(
-            uiTextFormat(next ? 'inspectorHalfCollapsedStatus' : 'inspectorHalfExpandedStatus', {
-              half: uiText(inspectorHalves[changedHalf].labelKey),
-            }),
+            next
+              ? isInspectorColumn()
+                ? uiTextFormat('inspectorHalfCollapsedColumnStatus', { half })
+                : uiTextFormat('inspectorHalfCollapsedStatus', { half })
+              : uiTextFormat('inspectorHalfExpandedStatus', { half }),
           );
         }
       };
@@ -16762,8 +17295,13 @@ const _NetworkPlus = (function () {
         rememberInspectorSplit();
         setStatus(uiText('inspectorSplitResetStatus'));
       };
+      // The divider has no box in the short-pane column, so these three are
+      // unreachable by pointer or focus there — but a stale focus and a
+      // dispatched event still arrive, and either would write inline heights
+      // the column cannot survive. Separate statements, not folded conditions.
       inspectorDivider.addEventListener('dblclick', (event) => {
         event.preventDefault();
+        if (isInspectorColumn()) return;
         resetInspectorSplit();
       });
       // The collapsed half is restored at once (a class, no measurement); the
@@ -16775,6 +17313,7 @@ const _NetworkPlus = (function () {
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
         event.preventDefault();
         event.stopPropagation();
+        if (isInspectorColumn()) return;
         if (collapsedInspectorHalf) return;
         const totalSize = inspectorPanels.getBoundingClientRect().height;
         const split = adjustInspectorSplitByKeyboard(
@@ -16791,6 +17330,7 @@ const _NetworkPlus = (function () {
       });
       inspectorDivider.addEventListener('mousedown', (event) => {
         event.preventDefault();
+        if (isInspectorColumn()) return;
         if (collapsedInspectorHalf) return;
         let dragged = false;
         const handleMove = (moveEvent) => {
@@ -17130,12 +17670,12 @@ const _NetworkPlus = (function () {
       if (activeKws.length === 0) {
         srch.currentIndex = -1;
         searchCount.textContent = '';
-        renderBody();
+        renderGridAfterSearchChange();
         return;
       }
       // refreshSearchMatches() is called inside renderBody()
       srch.currentIndex = -1; // reset navigation to recalculate after render
-      renderBody();
+      renderGridAfterSearchChange();
       srch.currentIndex = srch.matches.length > 0 ? 0 : -1;
       updateSearchUI();
     }
@@ -17409,7 +17949,7 @@ const _NetworkPlus = (function () {
       window.requestAnimationFrame(() => {
         pendingResponseSearchFrame = false;
         if (!hasActiveSearchKeywords(state.search.keywords)) return;
-        renderBody();
+        renderGridAfterSearchChange();
         updateSearchUI();
       });
     };
@@ -18587,6 +19127,11 @@ const _NetworkPlus = (function () {
     adjustInspectorSplitByKeyboard,
     clampColumnWidth,
     adjustColumnWidth,
+    columnAutoHidePriority,
+    minRenderedColumnWidth,
+    planAutoHiddenColumns,
+    planForcedVisibleColumnIds,
+    planHeaderFocusFallbackId,
     getAdjacentVisibleColumnId,
     getNextMenuItemIndex,
     getAriaSortValue,
@@ -18770,6 +19315,7 @@ const _NetworkPlus = (function () {
     loadInspectorSplitPref,
     saveInspectorSplitPref,
     planInspectorCollapse,
+    planInspectorSplitApplication,
     planRowStateClasses,
     planDetailsReopenStatus,
     planRowSelectionStatus,
@@ -18809,6 +19355,7 @@ const _NetworkPlus = (function () {
     menuColumnLabel,
     methodClassToken,
     DEFAULT_COLUMNS,
+    DEFAULT_SORT,
     JSON_TREE_OPEN_DEPTH,
     JSON_TREE_LONG_STRING_CHARS,
     renderJsonTree,

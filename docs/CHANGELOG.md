@@ -43,6 +43,14 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 - ✨ **Cookie header summary** — a request Cookie header reads as a count that opens the Cookies tab, with the raw string behind Show all.
 - ✨ **Row copy** — hovering a header, cookie or query row reveals a Copy control for that one value.
   - Why: it routes through the same sanitizer as the pane’s Copy sanitized, so a row copy is never the looser of the two; the grid states what its rows are rather than guessing from the label.
+- ✨ **Short pane column** — docked at the bottom, the two inspectors become one scrolling column with sticky Request and Response captions instead of two peepholes.
+  - Why: at 1440x420 each half showed four rows, so a 503’s response headers were unreachable without resizing the whole window.
+- ✨ **Columns that fit** — when the grid is narrower than its columns, the least important ones step aside and the Columns menu says how many.
+  - Why: auto-hiding is never written to your saved columns, and "Show anyway" pins one back; Reset and hiding a column clear the pin.
+- 🔧 **Sort stays explicable** — the column the grid is sorted by is never auto-hidden, so the order always has its arrow on screen.
+- 🐛 **Sort arrow** — the arrow no longer falls outside its header cell, at any column width or font.
+- 🐛 **Keyboard focus** — focus is never dropped to the page when a column, the divider, or a pane control disappears under it.
+- 🐛 **Resize gestures** — a keyboard resize keeps its column while you hold it, and a drag released outside the window no longer freezes the fit.
 
 ## v1.13.0 - 2026-08-29
 

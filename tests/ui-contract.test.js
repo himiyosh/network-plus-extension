@@ -1785,7 +1785,9 @@ describe('release trust static contracts', () => {
     expect(scheduleBlock).toContain('pendingResponseSearchFrame');
     expect(scheduleBlock).toContain('window.requestAnimationFrame');
     expect(scheduleBlock).toContain('hasActiveSearchKeywords(state.search.keywords)');
-    expect(scheduleBlock).toContain('renderBody();');
+    // Renders the header with the body: a late body that turns a keyword's
+    // Match column on must not leave the header naming the old column set.
+    expect(scheduleBlock).toContain('renderGridAfterSearchChange();');
     expect(scheduleBlock).toContain('updateSearchUI();');
     expect(scheduleBlock).toContain('onSettled: (row, error, source, result) => {');
     expect(scheduleBlock).toContain('scheduleResponseSearchRefresh(row);');
@@ -4351,11 +4353,242 @@ describe('audit layout and contrast contracts', () => {
     expect(js).toContain("labelKey: 'inspectorHalfResponse' }");
     expect(js).not.toMatch(/inspectorHalves = \{[\s\S]{0,400}label: 'Request'/);
     expect(js).toContain('half: uiText(labelKey),');
-    expect(js).toContain('half: uiText(inspectorHalves[changedHalf].labelKey),');
+    // Composed once and reused across the three branches the collapse
+    // announcement now has, still through uiText and still by key.
+    expect(js).toContain('          const half = uiText(inspectorHalves[changedHalf].labelKey);');
     expect(js).toContain(
       "uiTextFormat('inspectorHalfCollapsedValue', { half: uiText(inspectorHalves[collapsedInspectorHalf].labelKey) }),",
     );
     expect(js).toContain("if (inspectorPref.collapsed) setCollapsedInspectorHalf(inspectorPref.collapsed, false);");
+  });
+
+  test('a short details pane collapses the split into one scrolling column', () => {
+    // The pane is the size container in BOTH axes: its height comes from the
+    // viewport, never from its content, so containing it costs nothing and is
+    // what makes a max-height query possible at all.
+    expect(css).toContain('overflow:hidden;border-left:1px solid var(--separator);container-type:size}');
+    expect(css).not.toContain('container-type:inline-size');
+    const columnBlockStart = css.indexOf('@container (max-height:480px){');
+    expect(columnBlockStart).toBeGreaterThan(-1);
+    const columnBlock = css.slice(columnBlockStart, css.indexOf('\n}\n', columnBlockStart));
+    // One scrollport for both halves, sticky captions, no divider, and no half
+    // that is still a peephole inside the column.
+    expect(columnBlock).toContain('  .inspector-panels{display:block;overflow:auto;scroll-padding-top:2.5em}');
+    expect(columnBlock).toContain('  .inspector-half{display:block;flex:none;height:auto;min-height:0;overflow:visible}');
+    expect(columnBlock).toContain('  .inspector-label{position:sticky;top:0;z-index:4}');
+    expect(columnBlock).toContain('  .inspector-divider{display:none}');
+    // A container query adds no specificity, so every single-class override in
+    // the block only wins by coming after the base rule it replaces. That
+    // ordering IS the contract; pinning the declarations alone would pass over
+    // a block moved above them.
+    for (const baseRule of [
+      '.inspector-panels{display:flex',
+      '.inspector-half{display:flex',
+      '.inspector-divider{flex:0 0 3px',
+    ]) {
+      expect(css.indexOf(baseRule)).toBeGreaterThan(-1);
+      expect(css.indexOf(baseRule)).toBeLessThan(columnBlockStart);
+    }
+    // The pane and its toolbar are left alone on purpose. Freeing the pane with
+    // overflow:visible is what lets its sticky toolbar re-stick to the column
+    // and pin itself under the caption; the fix is not to create the problem.
+    const columnRules = columnBlock.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(columnRules).not.toContain('.tab-content-area');
+    expect(columnRules).not.toContain('.pane-search-bar');
+    // The threshold lives in the stylesheet alone: the script reads the mode
+    // back from the computed display, so the two cannot drift apart.
+    expect(js).toContain(
+      "const isInspectorColumn = () => getComputedStyle(inspectorPanels).display === 'block';",
+    );
+    expect(js).not.toContain('const INSPECTOR_COLUMN_MAX_HEIGHT');
+    // The bail-outs are separate statements beside the collapse guards, never
+    // folded into them: an inline px height out-ranks the block's height:auto
+    // and would paint the request half through the response section.
+    expect(js.split('if (isInspectorColumn()) return;').length - 1).toBe(3);
+    expect(js).toContain('if (state.columnMode) return \'clear\';');
+    expect(js).toContain('if (state.wasColumnMode) return \'restore\';');
+    expect(js).toContain('const action = planInspectorSplitApplication({');
+    expect(js).toContain('wasColumnMode: wasInspectorColumn,');
+    expect(js).toContain('hasInlineHeight: Boolean(requestPane.style.height),');
+    // B1. The collapse sentence branches on the mode: the split's names the
+    // divider, and the column has no divider to name. Three literal keys at
+    // three call sites, so the composed-frame scanner sees all of them.
+    expect(js).toContain("                ? uiTextFormat('inspectorHalfCollapsedColumnStatus', { half })");
+    expect(js).toContain("                : uiTextFormat('inspectorHalfCollapsedStatus', { half })");
+    // B2. The divider's focus is handed to the caption that still does its
+    // job, and handed back only while that caption still holds it. Who held
+    // it is recorded at focusin, never reconstructed from the order in which
+    // the divider's blur and the resize happen to arrive: nothing orders
+    // those two, and reading activeElement inside the crossing loses the
+    // focus outright whenever the resize wins.
+    expect(js).toContain('      let lastFocusedControl = null;');
+    expect(js).toContain('      let inspectorDividerFocusHandedOver = false;');
+    expect(js).toContain("      document.addEventListener('focusin', (event) => {");
+    expect(js).toContain('        lastFocusedControl = target;');
+    expect(js).toContain(
+      '        if (target !== inspectorHalves.response.toggle) inspectorDividerFocusHandedOver = false;',
+    );
+    expect(js).toContain('      const handInspectorDividerFocusOver = (columnMode) => {');
+    expect(js).toContain('            : lastFocusedControl;');
+    expect(js).toContain('          if (held !== inspectorDivider) return;');
+    expect(js).toContain('        if (!inspectorDividerFocusHandedOver || held !== responseToggle) return;');
+    expect(js).toContain('        const crossedThreshold = columnMode !== wasInspectorColumn;');
+    expect(js).toContain('        if (crossedThreshold) handInspectorDividerFocusOver(columnMode);');
+    // The blur-driven flag the hand-over used to race on is gone, not merely
+    // supplemented: leaving it in place would leave a second answer to the
+    // same question, decided by event order again.
+    expect(js).not.toContain('inspectorDividerFocusOwed');
+    expect(js).not.toContain("inspectorDivider.addEventListener('blur'");
+  });
+
+  test('the wrap drops columns by priority without ever writing that into the preferences', () => {
+    // The painted set is derived in exactly one place, and the three consumers
+    // that turn columns into DOM all read that derivation. A fourth site
+    // filtering on c.visible by hand is how the header and the cells come to
+    // disagree, so no such filter may remain.
+    expect(js).toContain('function isColumnEffectivelyVisible(column) {');
+    expect(js).toContain(
+      '    return !!column && column.visible === true && !state.autoHiddenColumnIds.has(column.id);',
+    );
+    expect(js).toContain('function getEffectiveVisibleColumns() {');
+    expect(js).toContain('    return state.columns.filter(isColumnEffectivelyVisible);');
+    expect(js.split('const visibleCols = getEffectiveVisibleColumns();').length - 1).toBe(3);
+    expect(js).not.toContain("state.columns.filter((c) => c.visible)");
+    // c.visible keeps meaning the reader's own choice everywhere it is saved,
+    // presented or restored: the fit lives in its own set and is not persisted.
+    expect(js).toContain(
+      '    const prefs = state.columns.map((c) => ({ id: c.id, visible: c.visible, width: c.width }));',
+    );
+    expect(js).toContain('    autoHiddenColumnIds: new Set(),');
+    const saveBlock = js.slice(js.indexOf('function saveColumnPrefs'), js.indexOf('function loadColumnPrefs'));
+    expect(saveBlock).not.toContain('autoHidden');
+    expect(saveBlock).not.toContain('isColumnEffectivelyVisible');
+    // "Show anyway" is the one part of this the reader chose, so it alone is
+    // stored — beside the column preferences, never inside a stored entry.
+    expect(js).toContain("const COL_PIN_KEY = 'networkPlus.colPins.v1';");
+    expect(js).toContain('    loadColumnPins();');
+    // Search moves the painted set, so it renders the header with the body.
+    // A body-only render there leaves the header naming the old columns and
+    // the grid skews without throwing — the defect no assertion can see.
+    expect(js).toContain(
+      '  function renderGridAfterSearchChange() {\n' +
+        '    if (recomputeAutoHiddenColumns()) renderHeader();\n' +
+        '    renderBody();\n' +
+        '  }',
+    );
+    const searchBlock = js.slice(js.indexOf('function executeSearch()'), js.indexOf('const debouncedSearch'));
+    expect(searchBlock).not.toContain('renderBody();');
+    expect(searchBlock.split('renderGridAfterSearchChange();').length - 1).toBe(2);
+    // A re-render mid-gesture destroys the <th> and the .col-resizer the
+    // mousedown closed over, so the fit is re-planned once, on mouseup.
+    expect(js).toContain('    if (columnResizeInFlight) return false;');
+    expect(js).toContain('        columnResizeInFlight = false;');
+    expect(js).toContain('          if (recomputeAutoHiddenColumns()) render();');
+    // The note and the opt-out are new chrome inside the menu: the note must
+    // not join the pinned .columns-preset-hint list, and the opt-out must be a
+    // plain menuitem so the checkbox count keeps counting checkboxes.
+    expect(js).toContain("        autoHiddenNote.className = 'columns-autohide-note';");
+    expect(js).toContain("        showAnyway.setAttribute('role', 'menuitem');");
+    expect(js).toContain(
+      "        showAnyway.textContent = uiText(pinned ? 'columnsShowAnywayPinned' : 'columnsShowAnyway');",
+    );
+    expect(css).toContain('.columns-autohide-note{');
+    expect(css).toContain('.context-menu-item.column-auto-hidden{color:var(--text-muted)}');
+    // The count is formatted through the same locale as every other counted
+    // frame in the panel, not interpolated raw.
+    expect(js).toContain("          count: autoHiddenColumns.length.toLocaleString('en-US'),");
+    expect(js).not.toContain('count: String(autoHiddenColumns.length),');
+  });
+
+  test('the sort key and the pin survive everything that could quietly retire them', () => {
+    // B3. The column the rows are ordered by is the column that explains the
+    // order: the fit may not drop it, and the exemption is derived on every
+    // re-plan so it moves with the sort instead of accumulating.
+    expect(js).toContain('  function planForcedVisibleColumnIds(sort, searchKeywords, resizingColId) {');
+    expect(js).toContain("    if (hasActiveSearchKeywords(searchKeywords)) forcedIds.push('match');");
+    expect(js).toContain('    const sortColId = sort && sort.direction ? sort.colId : null;');
+    expect(js).toContain('      keepIds: planForcedVisibleColumnIds(\n        state.sort,\n        state.search.keywords,\n');
+    expect(js).not.toContain("keepIds: hasActiveSearchKeywords(state.search.keywords) ? ['match'] : [],");
+    // The column under an active keyboard resize is protected the same way:
+    // dropping it ends the gesture and strands the focus that was stepping
+    // its width. Read from the focus itself, so the re-render that follows a
+    // step cannot leave a stale flag behind either way round.
+    expect(js).toContain(
+      '    if (resizingColId && !forcedIds.includes(resizingColId)) forcedIds.push(resizingColId);',
+    );
+    expect(js).toContain('  function findKeyboardResizeColumnId(activeElement) {');
+    expect(js).toContain(
+      "        findKeyboardResizeColumnId(typeof document === 'undefined' ? null : document.activeElement),",
+    );
+    // Painted is not the same as legible, and legible is not the same as
+    // attached: inline, the arrow was the last thing in the line box and the
+    // header's own ellipsis ate it; parked at the right edge it survived but
+    // sat a whole cell away from the label it annotates on a wide column.
+    // A sorted header is a flex row instead — one shrinking label, one rigid
+    // arrow beside it.
+    expect(js).toContain("          th.classList.add('is-sorted');");
+    expect(css).toContain('.title-row th.is-sorted{display:flex;align-items:center;gap:0.25em}');
+    expect(css).toContain(
+      '.title-row th.is-sorted .column-header-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    );
+    expect(css).toContain('.title-row th.is-sorted .sort-indicator{flex:none}');
+    expect(css).not.toContain('.sort-indicator{position:absolute');
+
+    // B4. Waterfall's two remaining raw reads: a column the reader enabled and
+    // the wrap then dropped paints no bars, and must not cost the incremental
+    // append path or a per-render range scan either.
+    expect(js).toContain('    if (isColumnEffectivelyVisible(waterfallCol)) return false;');
+    expect(js).toContain(
+      '    state.waterfallRange = isColumnEffectivelyVisible(waterfallCol) ? computeWaterfallRange(rows) : null;',
+    );
+    expect(js).not.toContain('waterfallCol && waterfallCol.visible');
+
+    // B5. The drag suppression is a property of the gesture in hand, never a
+    // latch: a pointer released outside the frame delivers no mouseup here.
+    expect(js).toContain('  let releaseColumnResizeGesture = () => {};');
+    expect(js).toContain('        releaseColumnResizeGesture();\n        columnResizeInFlight = true;');
+    expect(js).toContain('          releaseColumnResizeGesture = () => {};');
+    expect(js).toContain("          window.removeEventListener('blur', handleMouseUp);");
+    expect(js).toContain("          document.removeEventListener('visibilitychange', handleMouseUp);");
+    expect(js).toContain("        window.addEventListener('blur', handleMouseUp);");
+    expect(js).toContain("        document.addEventListener('visibilitychange', handleMouseUp);");
+
+    // B6. A pin the reader cannot see is a pin they cannot undo, and a pin
+    // left on a column they hid by hand comes back invisibly with it.
+    expect(js).toContain('        const pinned = state.pinnedColumnIds.has(current.id);');
+    expect(js).toContain('        if (!current.visible || (!autoHidden && !pinned)) return;');
+    expect(js).toContain('          if (pinned) state.pinnedColumnIds.delete(current.id);');
+    expect(js).toContain(
+      '          if (!current.visible && state.pinnedColumnIds.delete(current.id)) saveColumnPins();',
+    );
+    // The bulk control behaves like its two siblings: hiding every column in
+    // one click drops the opt-outs the same way hiding them one at a time did.
+    expect(js).toContain(
+      '          if (state.pinnedColumnIds.size > 0) {\n' +
+        '            state.pinnedColumnIds.clear();\n' +
+        '            saveColumnPins();\n' +
+        '          }',
+    );
+    // And the set only ever holds ids that still name a column: a pin for
+    // something that no longer exists can never be seen or undone, because
+    // the menu only ever lists real columns.
+    expect(js).toContain('      const knownIds = new Set(DEFAULT_COLUMNS.map((column) => column.id));');
+    expect(js).toContain(
+      '      if (state.pinnedColumnIds.size !== savedIds.length) saveColumnPins();',
+    );
+
+    // B6b. The header row keeps the focus when the column holding it goes:
+    // a neighbouring header takes it, never <body>, and never the
+    // neighbour's separator — that would resize a column nobody asked about.
+    expect(js).toContain('  function planHeaderFocusFallbackId(columns, colId, paintedIds) {');
+    expect(js).toContain('      const controlToFocus = resizerToFocus || headerToFocus || fallbackHeader;');
+
+    // B7. The indent clears a glyph rendered in the menu's own font, so a
+    // browser minimum font size that lifts the glyph lifts the indent too.
+    expect(css).toContain(
+      '.context-menu-item.columns-show-anyway{margin-left:1.7em;width:calc(100% - 1.7em);font-size:11px;padding:4px 9px;color:var(--text-accent)}',
+    );
+    expect(css).not.toContain('margin-left:18px;width:calc(100% - 18px)');
   });
 
   test('the details pane shows one guidance line before a selection', () => {

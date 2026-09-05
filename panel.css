@@ -268,8 +268,11 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 
 /* === Details Panel === */
 /* Side by side the pane holds a clamped default (or the dragged px basis the script persists) and the grid absorbs the rest.
-   container-type makes the pane the size container for the .kv key/value stacking query. */
-.details{display:flex;flex-direction:column;flex:0 0 clamp(440px,42%,760px);min-width:400px;min-height:0;overflow:hidden;border-left:1px solid var(--separator);container-type:inline-size}
+   container-type makes the pane the size container for the .kv key/value stacking query and for the
+   short-pane column below. It is size, not inline-size: the pane's height comes from the viewport
+   (html,body{height:100%}), never from its own content, so containing it in both axes changes nothing
+   about the flex sizing or the persisted width and buys the max-height query. */
+.details{display:flex;flex-direction:column;flex:0 0 clamp(440px,42%,760px);min-width:400px;min-height:0;overflow:hidden;border-left:1px solid var(--separator);container-type:size}
 .details-header{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border-bottom:1px solid var(--border);background:var(--topbar-bg);font-weight:600;font-size:13px}
 /* The title is a flex row of [METHOD] host/path [?N] [· Operation]: the host never shrinks (up to 60%), the
    pathname takes what is left and is middle-ellipsised by script so its last segment stays visible. */
@@ -347,6 +350,39 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .tab-content-area{flex:1;overflow:auto;position:relative;scroll-padding-top:var(--pane-bar-height,36px)}
 /* A collapsed half keeps only its label and tab bar. */
 .inspector-half.is-collapsed>.tab-content-area{display:none}
+/* Short pane (bottom-docked DevTools, or the stacked layout below 800px): the two
+   inspectors are peepholes four rows tall each, so the split stops being a split and
+   the pane becomes ONE scrolling column with both halves laid out in full — a 503's
+   response headers are reached by scrolling past the request, not by resizing a second
+   peephole. The query is on .details, the pane's own size container, so a tall
+   side-by-side layout never sees it. panel.js reads the mode back from the computed
+   display of .inspector-panels rather than repeating 480 as a constant.
+   Ordering matters more than usual here: a container query adds no specificity, so
+   every single-class rule below only wins by coming after the base rule it replaces. */
+@container (max-height:480px){
+  /* One scrollport for both halves. The (0,2,0) .inspector-panels[hidden] rule above
+     still out-ranks this (0,1,0) display, so the comparison view still hides the column.
+     The inset is font-relative: it clears the sticky label, whatever height it renders at. */
+  .inspector-panels{display:block;overflow:auto;scroll-padding-top:2.5em}
+  /* flex:none and height:auto are what the halves fall back to; the inline px heights a
+     drag leaves behind out-rank them, which is why panel.js clears those in this mode.
+     overflow:visible matters as much: the base overflow:hidden would make the half its
+     own scroll container and the caption below would stick to a box that never scrolls. */
+  .inspector-half{display:block;flex:none;height:auto;min-height:0;overflow:visible}
+  /* Still the collapse toggle from the split layout; now it also captions the section it
+     leads while that section scrolls past under it. */
+  .inspector-label{position:sticky;top:0;z-index:4}
+  /* Nothing to drag: the halves no longer share a fixed height. The element keeps its
+     markup, tabindex and focus ring — only its box is gone. */
+  .inspector-divider{display:none}
+  /* .tab-content-area and .pane-search-bar are deliberately left alone. The pane keeps
+     its overflow:auto and, laid out inside a block half, simply takes its content's
+     height and never scrolls — so each pane's sticky toolbar sticks to a box that stays
+     put and rides up with the content, one pixel per pixel scrolled. Forcing the pane to
+     overflow:visible instead frees that toolbar to stick to the COLUMN, where it pins
+     itself under this caption (measured: 20px of overlap at three of five scroll
+     positions) and then needs a second rule to undo. Two rules to stand still. */
+}
 /* Values wrap at word boundaries; break-all split UUIDs and tokens mid-word. Raw dumps keep break-all in .code-block. */
 .tab-pane{display:none;padding:10px;white-space:pre-wrap;word-break:normal;overflow-wrap:anywhere;font-size:13px}
 .tab-pane.active{display:block}
@@ -441,6 +477,17 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .title-row th.waterfall-header{cursor:default;-webkit-user-select:none;user-select:none}
 .title-row th.sortable-header:hover{background:var(--th-bg);color:var(--text-accent);box-shadow:inset 0 -2px 0 var(--accent)}
 .title-row th.sortable-header:focus-visible,.title-row th.waterfall-header:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;color:var(--text-accent);box-shadow:inset 0 -2px 0 var(--accent)}
+/* The sort arrow is the whole on-screen explanation of the row order, so it is never
+   the part the ellipsis eats — and it annotates the label, so it stays beside it at
+   every column width rather than parked at the far edge of a 1200px Path. A sorted
+   header is therefore a flex row: the label is the only item allowed to shrink and
+   carries the ellipsis itself (the th's own no longer reaches it), and the arrow is a
+   rigid sibling immediately after it. Unsorted headers stay plain blocks with the
+   block ellipsis they always had. The gap is em because the label it separates is
+   text and a wide fallback font makes it wider. */
+.title-row th.is-sorted{display:flex;align-items:center;gap:0.25em}
+.title-row th.is-sorted .column-header-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.title-row th.is-sorted .sort-indicator{flex:none}
 .title-row th.drag-over-left{box-shadow:inset 3px 0 0 var(--accent)}
 .title-row th.drag-over-right{box-shadow:inset -3px 0 0 var(--accent)}
 .title-row th.dragging{opacity:0.4}
@@ -766,6 +813,16 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 /* Three labels share the row: content-sized bases (outranking .context-menu-item's width:100%) so the menu widens to fit them instead of ellipsising "Deselect all". */
 .columns-header-actions>.columns-header-action{flex:1 1 auto;width:auto;min-width:0;text-align:center;font-size:11px;padding:4px 6px}
 .columns-group-hint{padding:0 4px;margin-top:6px}
+/* The grid differs from the boxes below it whenever the wrap dropped a column: this line says how many, and the dimmed boxes say which. */
+.columns-autohide-note{padding:2px 4px 6px;font-size:11px;line-height:1.4;color:var(--text-muted);white-space:normal}
+/* Dimmed, never unchecked — the box still carries the reader's own choice. */
+.context-menu-item.column-auto-hidden{color:var(--text-muted)}
+/* The opt-out sits under its own checkbox, indented past the ☑ glyph so the pair reads as one row of the list.
+   The indent is em, not px: a browser minimum font size lifts every computed size in this menu, glyph included,
+   and a fixed 18px would then leave the label sitting on top of the glyph it is supposed to clear. */
+.context-menu-item.columns-show-anyway{margin-left:1.7em;width:calc(100% - 1.7em);font-size:11px;padding:4px 9px;color:var(--text-accent)}
+/* Pinned: no longer an offer, a state — so it drops the accent it used as a call to action. */
+.context-menu-item.columns-show-anyway.column-pinned{color:var(--text-muted)}
 .columns-header-section{border-top:1px solid var(--border);margin-top:6px;padding:8px 4px 2px}
 .columns-header-row{display:flex;gap:4px}
 /* The name field keeps enough room for its placeholder: .context-menu-item's width:100%
