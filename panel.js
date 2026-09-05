@@ -2933,6 +2933,79 @@ const _NetworkPlus = (function () {
     return { total, segments };
   }
 
+  // The Timing pane's table: one row per phase, offset like a waterfall so
+  // each row's bar starts where the previous phase ended.
+  //
+  // Shares are of the SPAN — the greater of the phase sum and the reported
+  // duration — never of either alone. calculateTimingSegments can return a
+  // total that disagrees with its own segments, because `total` is the row's
+  // reported duration and the phases are what the capture recorded: against
+  // `total` the shares would not sum to 100, and against the segment sum they
+  // would hide the difference. Against the span they always sum to 100, and
+  // the part of the reported duration no phase accounts for becomes a row of
+  // its own rather than an unexplained gap in the track.
+  function planTimingTable(timings, totalDuration) {
+    const breakdown = calculateTimingSegments(timings, totalDuration);
+    const segmentTotal = breakdown.segments.reduce((sum, segment) => sum + segment.duration, 0);
+    const span = Math.max(segmentTotal, breakdown.total, 0);
+    const rows = [];
+    let offsetPct = 0;
+    for (const segment of breakdown.segments) {
+      const sharePct = span > 0 ? (segment.duration / span) * 100 : 0;
+      rows.push({
+        phase: segment.label,
+        duration: segment.duration,
+        // `available` is the only thing that tells a phase the capture never
+        // reported from one it reported as zero, so the row carries it: the
+        // two are dimmed alike but they are not the same claim.
+        available: segment.available,
+        // Muted on the RAW duration, never on the formatted string: fmtTime
+        // rounds, so a 0.4 ms phase reads '0 ms' and muting off that text
+        // would report a phase that took time as one that took none.
+        muted: !segment.available || segment.duration <= 0,
+        offsetPct,
+        widthPct: sharePct,
+        sharePct,
+      });
+      offsetPct += sharePct;
+    }
+    const unaccounted = Math.max(0, span - segmentTotal);
+    return {
+      rows,
+      // False when the capture reported no phase at all. Seven rows that each
+      // say "not reported" and a bar that is 100% unaccounted state one fact
+      // seven times; the table collapses to one line that states it once.
+      phasesReported: rows.some((row) => row.available),
+      total: breakdown.total,
+      segmentTotal,
+      span,
+      unaccounted,
+      // Float residue, not a gap: a remainder under a microsecond is what the
+      // subtraction left behind, not time the capture failed to attribute.
+      hasUnaccounted: unaccounted > 0.001,
+      unaccountedOffsetPct: offsetPct,
+      unaccountedSharePct: span > 0 ? (unaccounted / span) * 100 : 0,
+      // 100 whenever the phases fit inside the reported duration. Below 100 it
+      // is the marker for the other direction — phases that sum past the
+      // duration the row reports — which would otherwise be invisible.
+      totalSharePct: span > 0 ? (breakdown.total / span) * 100 : 0,
+    };
+  }
+
+  // Two formatters, one defect class between them: a rendered string that says
+  // something its datum does not. fmtTime rounds, so a 0.4 ms phase reads
+  // '0 ms'; a 0.04% share reads '0.0%'. Under the resolution each formatter
+  // has, the rendering says "below this" rather than a false zero.
+  function formatTimingDuration(ms) {
+    if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '';
+    return ms > 0 && Math.round(ms) === 0 ? uiText('timingDurationSubMs') : fmtTime(ms);
+  }
+
+  function formatTimingShare(pct) {
+    if (typeof pct !== 'number' || !Number.isFinite(pct) || pct < 0) return '';
+    return pct > 0 && pct < 0.05 ? uiText('timingShareBelowTenth') : pct.toFixed(1) + '%';
+  }
+
   function getTimingPhaseGuidance(phase) {
    return typeof phase === 'string' ? TIMING_PHASE_GUIDANCE[phase] || null : null;
   }
@@ -6481,6 +6554,70 @@ const _NetworkPlus = (function () {
       en: TIMING_EVIDENCE_LIMITATION,
       ja: 'ブラウザが観測したタイミングフェーズは、報告された遅延の所在を絞り込む助けになります。ただしパケットロス、配線や無線の障害、サーバー側の確定的な根本原因までは証明できません。',
     },
+    // The Timing table's own vocabulary. A phase the capture never reported
+    // is not a phase that took no time, and a value the formatter rounded to
+    // zero is not zero: each gets a word of its own rather than a false '0'.
+    timingNotReported: {
+      en: 'not reported',
+      ja: '未報告',
+    },
+    timingDurationSubMs: {
+      en: '< 1 ms',
+      ja: '1 ms 未満',
+    },
+    // The same shape in both languages on purpose: the share column is a
+    // right-aligned run of digits, and '0.1% 未満' put prose where the reader
+    // scans for a number and broke the alignment of the column.
+    timingShareBelowTenth: {
+      en: '< 0.1%',
+      ja: '< 0.1%',
+    },
+    // The seven phase names as the table's key column shows them. They were
+    // hardcoded English while a collapsed guide was the only place they
+    // appeared; the acronyms stay as they are, the words translate.
+    timingPhaseLabelBlocked: {
+      en: TIMING_PHASE_GUIDANCE.blocked.label,
+      ja: 'ブロック',
+    },
+    timingPhaseLabelDns: {
+      en: TIMING_PHASE_GUIDANCE.dns.label,
+      ja: 'DNS',
+    },
+    timingPhaseLabelConnect: {
+      en: TIMING_PHASE_GUIDANCE.connect.label,
+      ja: '接続',
+    },
+    timingPhaseLabelSsl: {
+      en: TIMING_PHASE_GUIDANCE.ssl.label,
+      ja: 'TLS (SSL)',
+    },
+    timingPhaseLabelSend: {
+      en: TIMING_PHASE_GUIDANCE.send.label,
+      ja: '送信',
+    },
+    timingPhaseLabelWait: {
+      en: TIMING_PHASE_GUIDANCE.wait.label,
+      ja: '待機 (TTFB)',
+    },
+    timingPhaseLabelReceive: {
+      en: TIMING_PHASE_GUIDANCE.receive.label,
+      ja: '受信',
+    },
+    // The part of the reported duration no phase accounts for. It is a row,
+    // not a silent gap in the track: the shares have to sum to the whole.
+    timingUnaccounted: {
+      en: 'Unaccounted',
+      ja: '未計上',
+    },
+    timingUnaccountedDescription: {
+      en: 'Part of the reported duration that the browser did not attribute to any timing phase.',
+      ja: '報告された所要時間のうち、ブラウザがどのタイミングフェーズにも割り当てなかった分。',
+    },
+    // The one line the pane shows when the capture reported no phase at all.
+    timingNoPhasesReported: {
+      en: 'No timing phases were reported for this request.',
+      ja: 'このリクエストではタイミングフェーズが報告されていません。',
+    },
     reasonNavigationBodyUnavailable: {
       en: NAVIGATION_BODY_UNAVAILABLE_REASON,
       ja: '検査中のページが移動したため、このレスポンスボディは取得できませんでした。',
@@ -6509,9 +6646,44 @@ const _NetworkPlus = (function () {
       en: 'Hex dump shown',
       ja: '16 進ダンプの表示範囲',
     },
-    binaryPreviewUnavailable: {
-      en: 'No preview for binary content. The Body tab shows a hex dump.',
-      ja: 'バイナリ内容にプレビューはありません。Body タブに 16 進ダンプを表示しています。',
+    // The Body pane's renderer picker, and the search's way of saying that the
+    // matches it counted are in the HTML source rather than in the frame the
+    // pane is rendering. All of them are panel controls, not captured data.
+    bodyViewLabel: {
+      en: 'Body view',
+      ja: 'ボディの表示',
+    },
+    bodyViewTree: {
+      en: 'Tree',
+      ja: 'ツリー',
+    },
+    bodyViewText: {
+      en: 'Text',
+      ja: 'テキスト',
+    },
+    bodyViewRendered: {
+      en: 'Rendered',
+      ja: 'レンダリング',
+    },
+    bodyViewSource: {
+      en: 'Source',
+      ja: 'ソース',
+    },
+    bodyViewButtonTitle: {
+      en: 'Show the response body as {view}',
+      ja: 'レスポンスボディを{view}で表示',
+    },
+    paneSearchShowInSource: {
+      en: 'Show in Source',
+      ja: 'ソースで表示',
+    },
+    paneSearchSourceTitle: {
+      en: 'These matches are in the HTML source, which the rendered frame does not show. Open the source to step through them.',
+      ja: 'この一致はレンダリング表示では見えない HTML ソース内にあります。ソースを開くと順に移動できます。',
+    },
+    paneSearchSourceLabel: {
+      en: 'Show the {pane} source',
+      ja: '{pane}のソースを表示',
     },
     imagePreviewZoom: {
       en: 'enlarged',
@@ -6521,17 +6693,13 @@ const _NetworkPlus = (function () {
       en: 'This image could not be decoded.',
       ja: 'この画像はデコードできませんでした。',
     },
-    // The two body/preview panes' own "there is nothing here" lines, and the
-    // control that opens a truncated body. Their siblings in these same panes
-    // already translate, so an English line here read as a rendering fault
-    // rather than as a state.
+    // The Body pane's own "there is nothing here" line, and the control that
+    // opens a truncated body. Their siblings in this same pane already
+    // translate, so an English line here read as a rendering fault rather
+    // than as a state.
     bodyPaneNoResponseBody: {
       en: '(no response body)',
       ja: '（レスポンスボディはありません）',
-    },
-    previewPaneNoPreview: {
-      en: '(no preview available)',
-      ja: '（プレビューは利用できません）',
     },
     bodyPaneShowFullCached: {
       en: 'Show full cached body ({size})',
@@ -6590,18 +6758,25 @@ const _NetworkPlus = (function () {
       en: 'Response Headers',
       ja: 'レスポンスヘッダー',
     },
-    // The Timing pane's own heading. The phase names under it are the HAR's
-    // own keys and stay as captured, the way header names do.
+    // The Timing pane's own heading. The phase names under it are the fixed
+    // set the panel documents in its own guide — not the HAR's raw keys — and
+    // they translate through the timingPhaseLabel* entries above.
     detailsTimingBreakdownHeading: {
       en: 'Timing Breakdown',
       ja: 'タイミング内訳',
     },
-    // The one row in that grid the panel writes itself rather than reading
-    // from the HAR, so it is the one row that has to translate with the
-    // heading above it.
+    // The last row of that table, written by the panel rather than read from
+    // the HAR, so it is the row that has to translate with the heading above
+    // it.
     detailsTimingTotal: {
       en: 'Total',
       ja: '合計',
+    },
+    // The sandboxed frame's accessible name — the one string the Body pane
+    // composes for assistive tech, so it translates with the picker beside it.
+    bodyHtmlFrameTitle: {
+      en: 'Response HTML preview',
+      ja: 'レスポンス HTML プレビュー',
     },
     // The three response panes say this while the body is still being
     // fetched; the states after it already go through bodyPaneFrame.
@@ -6666,6 +6841,53 @@ const _NetworkPlus = (function () {
     cookieHeaderOpenCookiesOne: {
       en: '1 cookie — open Cookies',
       ja: '1 件の Cookie — Cookies を開く',
+    },
+    // The Cookies panes are tables, so the columns need names a screen reader
+    // can announce and a Japanese reader can read. The flags themselves stay
+    // as the wire spells them — Secure, HttpOnly, SameSite=Lax, Partitioned
+    // are protocol tokens, and translating one would name something no
+    // response ever sent.
+    cookieColumnName: {
+      en: 'Name',
+      ja: '名前',
+    },
+    cookieColumnValue: {
+      en: 'Value',
+      ja: '値',
+    },
+    cookieColumnDomain: {
+      en: 'Domain',
+      ja: 'ドメイン',
+    },
+    cookieColumnPath: {
+      en: 'Path',
+      ja: 'パス',
+    },
+    cookieColumnExpires: {
+      en: 'Expires',
+      ja: '有効期限',
+    },
+    cookieColumnFlags: {
+      en: 'Flags',
+      ja: 'フラグ',
+    },
+    // Max-Age is a duration, and the literal the response sent stays the cell's
+    // own words; the attribute name is a wire token in both languages.
+    cookieMaxAgeLiteral: {
+      en: 'Max-Age: {seconds}',
+      ja: 'Max-Age: {seconds}',
+    },
+    // The Expires a response sent BESIDE a Max-Age. Named, because under a
+    // Max-Age literal a bare date would read as the instant it works out to.
+    cookieExpiresLiteral: {
+      en: 'Expires: {value}',
+      ja: 'Expires: {value}',
+    },
+    // The label on the instant a Max-Age works out to against the response
+    // date. It marks the line as the panel's arithmetic, not the header's.
+    cookieExpiryComputed: {
+      en: 'Computed',
+      ja: '計算値',
     },
     // The chip beside a header value that carries a token: the one fact a
     // reader wants from it without opening the decoded section. Two units, so
@@ -7431,6 +7653,24 @@ const _NetworkPlus = (function () {
     wait: 'timingPhaseWait',
     receive: 'timingPhaseReceive',
   });
+
+  const TIMING_PHASE_LABEL_KEYS = Object.freeze({
+    blocked: 'timingPhaseLabelBlocked',
+    dns: 'timingPhaseLabelDns',
+    connect: 'timingPhaseLabelConnect',
+    ssl: 'timingPhaseLabelSsl',
+    send: 'timingPhaseLabelSend',
+    wait: 'timingPhaseLabelWait',
+    receive: 'timingPhaseLabelReceive',
+  });
+
+  // The phase name the table and the guide show, in the reader's language.
+  // A key the guide does not document is rendered as itself, as before.
+  function timingPhaseLabel(phase) {
+    const guidance = getTimingPhaseGuidance(phase);
+    if (!guidance) return typeof phase === 'string' ? phase : '';
+    return uiText(TIMING_PHASE_LABEL_KEYS[phase]) || guidance.label;
+  }
 
   function applyLanguage(pref) {
     const normalized = LANGS.includes(pref) ? pref : 'system';
@@ -10116,6 +10356,219 @@ const _NetworkPlus = (function () {
     });
   }
 
+  // === Cookies as tables ===
+  // Both Cookies panes are real <table>s with <th scope="col"> headers: one
+  // row per cookie, and the attributes in columns of their own instead of
+  // buried inside one blob per Set-Cookie header. A kv grid could only ever
+  // label a row "Set-Cookie #1"; a table lets a screen reader say which
+  // column a cell belongs to, and lets an eye read down one attribute.
+  //
+  // Layout is auto and every cell wraps at any character: no track is a fixed
+  // px width, so a wide fallback font wraps inside its own cell instead of
+  // clipping the label or pushing the pane into a horizontal scroll, and the
+  // wrapper takes any residual overflow in a box of its own.
+
+  // An attribute the response did not send is stated as absent rather than
+  // left as an empty cell, so "no Domain" reads differently from a cell that
+  // failed to render. The dash is the panel's word, not the response's, so it
+  // is unselectable: a drag down a column carries the values and not the gaps.
+  function appendCookieAbsent(cell) {
+    const absent = document.createElement('span');
+    absent.className = 'cookie-absent';
+    absent.textContent = '—';
+    cell.appendChild(absent);
+  }
+
+  function renderCookieNameCell(cell, row) {
+    // One text node, so a drag across the cell carries the name alone with no
+    // newline inside it.
+    cell.textContent = row.cookie.name;
+  }
+
+  function renderCookieValueCell(cell, row) {
+    // A name-only cookie ('consent' with no '=') has no value to show, and the
+    // cell says so the way every other absent attribute does: an empty cell
+    // would read the same as a value the renderer dropped.
+    if (!row.cookie.value) {
+      appendCookieAbsent(cell);
+      return;
+    }
+    if (row.mono) cell.classList.add('val--mono');
+    // The captured value, verbatim, behind the same 240-character clamp every
+    // kv value uses — clipped, not truncated, so selection and find-in-page
+    // still reach all of it and the "Show all" toggle marks that it is
+    // clipped.
+    renderKvValue(cell, row.cookie.value, appendBreakableText);
+  }
+
+  // A domain is dot-separated labels, not one word. Without a break
+  // opportunity after each '.' the column had only two ways to render
+  // '.shop.example.test': claim its whole width and push the table past the
+  // pane, or break in the middle of a label. <wbr> adds nothing to
+  // textContent, so the cell still reads, selects and copies as the domain
+  // the response sent.
+  function appendCookieDomainText(container, text) {
+    const labels = String(text).split('.');
+    labels.forEach((label, index) => {
+      if (index > 0) {
+        container.appendChild(document.createTextNode('.'));
+        container.appendChild(document.createElement('wbr'));
+      }
+      appendBreakableText(container, label);
+    });
+  }
+
+  function renderCookieAttributeCell(cell, text, appendText) {
+    if (!text) {
+      appendCookieAbsent(cell);
+      return;
+    }
+    (appendText || appendBreakableText)(cell, text);
+  }
+
+  function renderCookieExpiresCell(cell, row) {
+    const plan = row.expiry;
+    if (plan.source === 'none') {
+      appendCookieAbsent(cell);
+      return;
+    }
+    const literal = document.createElement('span');
+    literal.className = 'cookie-expiry-literal';
+    if (plan.source === 'max-age') {
+      literal.textContent = uiTextFormat('cookieMaxAgeLiteral', { seconds: plan.maxAge });
+    } else {
+      literal.textContent = plan.expires;
+    }
+    cell.appendChild(literal);
+    // An Expires sent beside the Max-Age. Browsers ignore it, so the computed
+    // line below reads from the Max-Age alone — but it is what the response
+    // sent, and dropping it would render less than the header carries.
+    if (plan.source === 'max-age' && plan.expires) {
+      const sent = document.createElement('div');
+      sent.className = 'cookie-expiry-literal cookie-expiry-literal--sent';
+      sent.textContent = uiTextFormat('cookieExpiresLiteral', { value: plan.expires });
+      cell.appendChild(sent);
+    }
+    if (!plan.computed) return;
+    // The panel's arithmetic, marked as such and filed under the words it was
+    // derived from. Unselectable and never copied: the row's Copy control
+    // carries the captured header, and this line is a reading of it.
+    const computed = document.createElement('div');
+    computed.className = 'cookie-expiry-computed';
+    const label = document.createElement('span');
+    label.className = 'cookie-expiry-computed-label';
+    label.textContent = uiText('cookieExpiryComputed');
+    computed.appendChild(label);
+    // A break opportunity between the label and the date. Without it the two
+    // were one unbreakable word to the table's layout, and "ComputedWed," set
+    // the Expires column's floor 40px wider than any word in it.
+    computed.appendChild(document.createElement('wbr'));
+    computed.appendChild(document.createTextNode(plan.computed));
+    cell.appendChild(computed);
+  }
+
+  function renderCookieFlagsCell(cell, row) {
+    if (row.flags.length === 0) {
+      appendCookieAbsent(cell);
+      return;
+    }
+    row.flags.forEach((flag, index) => {
+      // A space between the chips, so a drag across the cell yields the flags
+      // spaced the way they read rather than run into one word.
+      if (index > 0) cell.appendChild(document.createTextNode(' '));
+      const chip = document.createElement('span');
+      chip.className = 'cookie-flag';
+      chip.textContent = flag;
+      cell.appendChild(chip);
+    });
+  }
+
+  const REQUEST_COOKIE_COLUMNS = [
+    { id: 'name', labelKey: 'cookieColumnName', render: renderCookieNameCell },
+    { id: 'value', labelKey: 'cookieColumnValue', render: renderCookieValueCell },
+  ];
+
+  const RESPONSE_COOKIE_COLUMNS = [
+    { id: 'name', labelKey: 'cookieColumnName', render: renderCookieNameCell },
+    { id: 'value', labelKey: 'cookieColumnValue', render: renderCookieValueCell },
+    {
+      id: 'domain',
+      labelKey: 'cookieColumnDomain',
+      render: (cell, row) => renderCookieAttributeCell(cell, row.cookie.domain, appendCookieDomainText),
+    },
+    {
+      id: 'path',
+      labelKey: 'cookieColumnPath',
+      render: (cell, row) => renderCookieAttributeCell(cell, row.cookie.path),
+    },
+    { id: 'expires', labelKey: 'cookieColumnExpires', render: renderCookieExpiresCell },
+    { id: 'flags', labelKey: 'cookieColumnFlags', render: renderCookieFlagsCell },
+  ];
+
+  // `kind` is the same structural declaration a kv grid makes — 'cookie' for
+  // the request table, 'header' for the response table whose rows ARE
+  // Set-Cookie headers — and it, not the name the row renders, decides which
+  // sanitizer the row-end copy passes. A row also states the captured name the
+  // sanitizer judges and the captured bytes it copies, so no piece this table
+  // parsed out of a header can ever become what leaves the panel.
+  function createCookieTable(columns, rows, kind) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'cookie-table-scroll';
+    const table = document.createElement('table');
+    table.className = 'cookie-table';
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    for (const column of columns) {
+      const th = document.createElement('th');
+      th.scope = 'col';
+      th.className = 'cookie-col cookie-col--' + column.id;
+      th.textContent = uiText(column.labelKey);
+      headRow.appendChild(th);
+    }
+    // The control column carries no visible heading — the controls name
+    // themselves — but it still needs one a screen reader can announce.
+    const copyHead = document.createElement('th');
+    copyHead.scope = 'col';
+    copyHead.className = 'cookie-col cookie-col--copy';
+    const copyHeadLabel = document.createElement('span');
+    copyHeadLabel.className = 'sr-only';
+    copyHeadLabel.textContent = uiText('kvCopyValue');
+    copyHead.appendChild(copyHeadLabel);
+    headRow.appendChild(copyHead);
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    const copyButtons = [];
+    for (const row of rows) {
+      const tr = document.createElement('tr');
+      columns.forEach((column, index) => {
+        // The name is the row's own header, so a screen reader can announce
+        // which cookie a cell belongs to without the reader counting columns.
+        const cell = document.createElement(index === 0 ? 'th' : 'td');
+        if (index === 0) cell.scope = 'row';
+        cell.className = 'cookie-cell cookie-cell--' + column.id;
+        column.render(cell, row);
+        tr.appendChild(cell);
+      });
+      const copyCell = document.createElement('td');
+      copyCell.className = 'cookie-cell cookie-cell--copy';
+      if (row.copyValue) {
+        const copyButton = createKvCopyButton(kind, row.copyLabel, row.copyName, row.copyValue);
+        copyButtons.push(copyButton);
+        copyCell.appendChild(copyButton);
+      }
+      tr.appendChild(copyCell);
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    // One tab stop for the table, not one per row — the same roving every kv
+    // grid and the timing table use.
+    armKvCopyRoving(table, copyButtons);
+    wrapper.appendChild(table);
+    return wrapper;
+  }
+
   function formatCookieHeaderSummary(count) {
     return count === 1
       ? uiText('cookieHeaderOpenCookiesOne')
@@ -10510,13 +10963,22 @@ const _NetworkPlus = (function () {
    summary.textContent = uiText('timingGuideSummary');
    guide.appendChild(summary);
 
+   // The caveat leads the guide instead of standing between the table and it:
+   // what the phases measured is the pane's answer, and what browser timing
+   // cannot prove belongs with the explanation of the phases, not in front of
+   // the numbers.
+   const evidenceNote = document.createElement('p');
+   evidenceNote.className = 'timing-evidence-note';
+   evidenceNote.textContent = uiText('timingEvidenceLimitation');
+   guide.appendChild(evidenceNote);
+
    const list = document.createElement('dl');
    list.className = 'timing-guidance-list';
    for (const phase of TIMING_PHASES) {
      const guidance = getTimingPhaseGuidance(phase);
      if (!guidance) continue;
      const term = document.createElement('dt');
-     term.textContent = guidance.label;
+     term.textContent = timingPhaseLabel(phase);
      const description = document.createElement('dd');
      description.textContent = uiText(TIMING_PHASE_TEXT_KEYS[phase]) || guidance.description;
      list.appendChild(term);
@@ -10524,6 +10986,151 @@ const _NetworkPlus = (function () {
    }
    guide.appendChild(list);
    return guide;
+  }
+
+  // One row of the Timing table: swatch, name, the phase's bar in the shared
+  // track, duration, share, and the row-end copy the other panes carry.
+  //
+  // Every cell is a grid item of its own that states its column, the way a kv
+  // row does — a row with nothing to copy has five items, and auto-placement
+  // would otherwise slide the next row's swatch into the track it left empty.
+  // Each datum stays inside one cell and the decoration carries no text, so a
+  // drag across a row yields the phase, its duration and its share and not the
+  // word "Copy" or a stray newline inside one of them.
+  function appendTimingRow(table, copyButtons, spec) {
+    const rowClass = (spec.total ? ' timing-row--total' : '') + (spec.muted ? ' timing-row--muted' : '');
+    const swatch = document.createElement('div');
+    swatch.className = 'timing-swatch' + rowClass;
+    swatch.setAttribute('aria-hidden', 'true');
+    // Every row that draws a bar keys it with a swatch, the Unaccounted row
+    // included: it has no phase, so its dot takes the bar's own "rest" paint.
+    if (!spec.total && !spec.muted) {
+      const dot = document.createElement('span');
+      dot.className = 'timing-dot ' + (spec.phase ? 'timing-phase-' + spec.phase : 'timing-dot--rest');
+      swatch.appendChild(dot);
+    }
+    const name = document.createElement('div');
+    name.className = 'timing-name' + rowClass;
+    name.textContent = spec.name;
+    const track = document.createElement('div');
+    track.className = 'timing-track' + rowClass;
+    track.setAttribute('aria-hidden', 'true');
+    if (!spec.total) {
+      const rail = document.createElement('div');
+      rail.className = 'timing-rail';
+      if (spec.widthPct > 0) {
+        const bar = document.createElement('div');
+        bar.className = 'timing-bar-seg' + (spec.phase ? ' timing-phase-' + spec.phase : ' timing-bar-seg--rest');
+        bar.style.marginLeft = Math.min(100, Math.max(0, spec.offsetPct)).toFixed(2) + '%';
+        bar.style.width = Math.min(100, Math.max(0, spec.widthPct)).toFixed(2) + '%';
+        rail.appendChild(bar);
+      }
+      track.appendChild(rail);
+    }
+    const duration = document.createElement('div');
+    duration.className = 'timing-duration' + rowClass;
+    const durationText = spec.duration == null ? '' : formatTimingDuration(spec.duration);
+    duration.textContent = durationText || uiText('timingNotReported');
+    const share = document.createElement('div');
+    share.className = 'timing-share' + rowClass;
+    share.textContent = spec.sharePct == null ? '' : formatTimingShare(spec.sharePct);
+    // Hovering anywhere on the row states what the phase measures, in the same
+    // words the guide below the table uses and through the same key, so the
+    // tooltip is never the one English string left in a Japanese pane.
+    if (spec.title) {
+      swatch.title = spec.title;
+      name.title = spec.title;
+      track.title = spec.title;
+      duration.title = spec.title;
+      share.title = spec.title;
+    }
+    table.appendChild(swatch);
+    table.appendChild(name);
+    table.appendChild(track);
+    table.appendChild(duration);
+    table.appendChild(share);
+    if (durationText) {
+      // 'plain': every value here is a duration this panel formatted from the
+      // browser's own timing record, so none of it is captured payload.
+      const copyButton = createKvCopyButton('plain', spec.name, spec.name, durationText);
+      // The Total row's rule runs across all six cells, this one included.
+      if (spec.total) copyButton.classList.add('timing-row--total');
+      copyButtons.push(copyButton);
+      table.appendChild(copyButton);
+    }
+  }
+
+  // Response > Timing. One row per phase in a single table, with the bars
+  // offset down a shared track so the phases read as a waterfall — instead of
+  // a key/value grid, a separate bar, and a 10px legend the reader had to
+  // match to the bar by colour before either meant anything.
+  //
+  // Two behaviour changes come with it, and both are deliberate. The rows are
+  // TIMING_PHASES, not the keys the capture happens to carry: a phase the HAR
+  // reported as -1 now has a row that says so, and a non-standard key such as
+  // _blocked_queueing no longer appears as a phase Network+ does not document.
+  function renderTimingTable(resTimingPane, row) {
+    resTimingPane.textContent = '';
+    const timingTitle = document.createElement('strong');
+    timingTitle.textContent = uiText('detailsTimingBreakdownHeading');
+    timingTitle.className = 'kv-group-heading';
+    resTimingPane.appendChild(timingTitle);
+
+    const plan = planTimingTable(row.timings, row.duration);
+    // Nothing reported: one line says so, instead of seven rows that each say
+    // "not reported" under a bar that is 100% unaccounted. The guide stays,
+    // since it is what explains the phases the capture would have listed.
+    if (!plan.phasesReported) {
+      renderPaneEmptyMessage(resTimingPane, uiText('timingNoPhasesReported'));
+      resTimingPane.appendChild(createTimingPhaseGuide());
+      return;
+    }
+    const table = document.createElement('div');
+    table.className = 'timing-table';
+    const copyButtons = [];
+    for (const entry of plan.rows) {
+      const guidance = getTimingPhaseGuidance(entry.phase);
+      appendTimingRow(table, copyButtons, {
+        phase: entry.phase,
+        name: timingPhaseLabel(entry.phase),
+        title: guidance ? uiText(TIMING_PHASE_TEXT_KEYS[entry.phase]) || guidance.description : '',
+        // A phase the capture never reported has no duration and no share to
+        // state; its cells say so rather than reading as a measured zero.
+        duration: entry.available ? entry.duration : null,
+        sharePct: entry.available ? entry.sharePct : null,
+        offsetPct: entry.offsetPct,
+        widthPct: entry.widthPct,
+        muted: entry.muted,
+      });
+    }
+    if (plan.hasUnaccounted) {
+      appendTimingRow(table, copyButtons, {
+        phase: '',
+        name: uiText('timingUnaccounted'),
+        title: uiText('timingUnaccountedDescription'),
+        duration: plan.unaccounted,
+        sharePct: plan.unaccountedSharePct,
+        offsetPct: plan.unaccountedOffsetPct,
+        widthPct: plan.unaccountedSharePct,
+        muted: false,
+      });
+    }
+    appendTimingRow(table, copyButtons, {
+      phase: '',
+      name: uiText('detailsTimingTotal'),
+      title: '',
+      duration: plan.total,
+      sharePct: plan.totalSharePct,
+      offsetPct: 0,
+      widthPct: 0,
+      muted: false,
+      total: true,
+    });
+    // One tab stop for the table, not one per row — the same roving the kv
+    // grids use, so the pane costs what it did before the redesign.
+    armKvCopyRoving(table, copyButtons);
+    resTimingPane.appendChild(table);
+    resTimingPane.appendChild(createTimingPhaseGuide());
   }
 
   // createHeaderSection removed — replaced by tabbed inspector layout
@@ -11246,23 +11853,46 @@ const _NetworkPlus = (function () {
     'req-tab-bar': 'req-headers',
     'res-tab-bar': 'res-headers',
   });
-  // Tabs whose label carries a count. Body, Preview and Raw are either never
-  // empty or only known after the async body fetch, so they stay uncounted.
+  // Tabs whose label carries a count. Body and Raw are either never empty or
+  // only known after the async body fetch, so they stay uncounted.
   const INSPECTOR_COUNTED_TABS = new Set(['req-query', 'req-cookies', 'res-cookies']);
 
+  // A retired tab, mapped to the tab that took its work over. Response >
+  // Preview was folded into Body, so a pick made before that merge — the
+  // sticky choice a session already holds, or one restored from a saved
+  // value — opens Body. Without this the button lookup below simply fails and
+  // the pane silently stays wherever it was. Both spellings are accepted: the
+  // choice is stored as a pane id, while a saved value may name the button.
+  const INSPECTOR_RETIRED_TABS = Object.freeze({
+    'res-preview': 'res-body',
+    'res-tab-preview': 'res-body',
+  });
+
+  // An own-property check, never a bare lookup: the map is an object literal
+  // with Object.prototype behind it, so a saved value of 'toString' would
+  // otherwise resolve to a function instead of passing through as a tab id.
+  function resolveInspectorTabId(tabId) {
+    return typeof tabId === 'string' && Object.prototype.hasOwnProperty.call(INSPECTOR_RETIRED_TABS, tabId)
+      ? INSPECTOR_RETIRED_TABS[tabId]
+      : tabId;
+  }
+
   // Pure: which tab a bar shows for a row, given the person's choice and the
-  // known item counts (0 = empty). An empty choice falls back to Headers.
+  // known item counts (0 = empty). An empty choice falls back to Headers, and
+  // a choice naming a retired tab reads as the tab that replaced it.
   function planInspectorTabActivation(choice, counts, fallbackTab) {
-    if (!choice) return fallbackTab || null;
-    if (counts && counts[choice] === 0) return fallbackTab || choice;
-    return choice;
+    const picked = resolveInspectorTabId(choice);
+    if (!picked) return fallbackTab || null;
+    if (counts && counts[picked] === 0) return fallbackTab || picked;
+    return picked;
   }
 
   function activateInspectorTab(barId, tabId, moveFocus, options) {
     const bar = $('#' + barId);
-    const activeButton = getInspectorTabButton(barId, tabId);
+    const targetTab = resolveInspectorTabId(tabId);
+    const activeButton = getInspectorTabButton(barId, targetTab);
     if (!bar || !activeButton) return null;
-    if (!(options && options.transient)) inspectorTabChoice[barId] = tabId;
+    if (!(options && options.transient)) inspectorTabChoice[barId] = targetTab;
     const buttons = $all('.tab-btn', bar);
     const contentArea = bar.nextElementSibling;
     buttons.forEach((candidate) => {
@@ -11273,7 +11903,7 @@ const _NetworkPlus = (function () {
     });
     if (contentArea) {
       contentArea.querySelectorAll('.tab-pane').forEach((pane) => {
-        const isActive = pane.id === tabId;
+        const isActive = pane.id === targetTab;
         pane.classList.toggle('active', isActive);
         pane.hidden = !isActive;
       });
@@ -13051,6 +13681,103 @@ const _NetworkPlus = (function () {
     });
   }
 
+  // One Set-Cookie header is a 'name=value' pair followed by ';'-separated
+  // attributes. RFC 6265 forbids a bare ';' inside a cookie value, so the ';'
+  // split is safe, and only the FIRST '=' separates the name from the value,
+  // so a value carrying '=' of its own (a base64 pad, a JWT) survives whole.
+  // Attribute names are case-insensitive and last-wins — the rule a browser
+  // applies when one header repeats an attribute.
+  //
+  // A pair with no '=' at all is a name with an empty value, exactly the
+  // reading parseCookieHeader gives the request side, so the two tables agree
+  // about what a malformed cookie is rather than one dropping the row and
+  // disagreeing with its own tab count.
+  //
+  // `value` keeps the captured bytes, quotes included, and `unquoted` is the
+  // reading beside it: nothing renders or copies the reading, so the cell and
+  // the clipboard both hold what the response actually sent.
+  function parseSetCookieHeader(headerValue) {
+    const parts = String(headerValue == null ? '' : headerValue).split(';');
+    const pair = parts[0];
+    const eq = pair.indexOf('=');
+    const value = eq === -1 ? '' : pair.substring(eq + 1).trim();
+    const quoted = value.length >= 2 && value.charAt(0) === '"' && value.charAt(value.length - 1) === '"';
+    const cookie = {
+      name: (eq === -1 ? pair : pair.substring(0, eq)).trim(),
+      value,
+      quoted,
+      unquoted: quoted ? value.substring(1, value.length - 1) : value,
+      domain: '',
+      path: '',
+      expires: '',
+      maxAge: '',
+      sameSite: '',
+      secure: false,
+      httpOnly: false,
+      partitioned: false,
+    };
+    for (let i = 1; i < parts.length; i += 1) {
+      const attribute = parts[i].trim();
+      if (!attribute) continue;
+      const split = attribute.indexOf('=');
+      const attributeName = (split === -1 ? attribute : attribute.substring(0, split)).trim().toLowerCase();
+      const attributeValue = split === -1 ? '' : attribute.substring(split + 1).trim();
+      if (attributeName === 'domain') cookie.domain = attributeValue;
+      else if (attributeName === 'path') cookie.path = attributeValue;
+      else if (attributeName === 'expires') cookie.expires = attributeValue;
+      else if (attributeName === 'max-age') cookie.maxAge = attributeValue;
+      else if (attributeName === 'samesite') cookie.sameSite = attributeValue;
+      else if (attributeName === 'secure') cookie.secure = true;
+      else if (attributeName === 'httponly') cookie.httpOnly = true;
+      else if (attributeName === 'partitioned') cookie.partitioned = true;
+    }
+    return cookie;
+  }
+
+  // The flags as the wire spells them, in the order a Set-Cookie header
+  // conventionally carries them. Protocol tokens, so they read the same in
+  // both languages: translating "HttpOnly" would name an attribute no
+  // response ever sent.
+  function planSetCookieFlags(cookie) {
+    const flags = [];
+    if (cookie.secure) flags.push('Secure');
+    if (cookie.httpOnly) flags.push('HttpOnly');
+    if (cookie.sameSite) flags.push('SameSite=' + cookie.sameSite);
+    if (cookie.partitioned) flags.push('Partitioned');
+    return flags;
+  }
+
+  // What the Expires column states, and how much of it is the panel's
+  // arithmetic rather than the response's own words.
+  //
+  // Max-Age wins over Expires, the rule a browser applies — for the COMPUTED
+  // expiry. It is a duration, so an absolute instant needs the response `date`
+  // header to anchor it. With that anchor the cell files the computed instant
+  // UNDER the literal attribute, marked and unselectable, the way the URL row
+  // files its decoded reading under the address it decoded — so the panel's
+  // reading can never be mistaken for the header's words. Without an anchor,
+  // or with a Max-Age that is not an integer, the literal stands alone: a
+  // guess is worse than the number the response sent. An Expires sent beside
+  // the Max-Age is kept, not dropped: it is part of what the header carried.
+  const COOKIE_MAX_TIME_VALUE = 8.64e15;
+
+  function planCookieExpiry(cookie, responseDate) {
+    const maxAge = String((cookie && cookie.maxAge) || '').trim();
+    // A date Date.parse rejects is still what the response sent, so the raw
+    // string is what the cell states — never an 'Invalid Date' no header
+    // carried.
+    const expires = String((cookie && cookie.expires) || '').trim();
+    if (maxAge) {
+      const seconds = /^[+-]?\d+$/.test(maxAge) ? Number(maxAge) : NaN;
+      const anchor = Date.parse(String(responseDate == null ? '' : responseDate));
+      const instant = anchor + seconds * 1000;
+      const computable = Number.isFinite(instant) && Math.abs(instant) <= COOKIE_MAX_TIME_VALUE;
+      return { source: 'max-age', maxAge, expires, computed: computable ? new Date(instant).toUTCString() : '' };
+    }
+    if (expires) return { source: 'expires', maxAge: '', expires, computed: '' };
+    return { source: 'none', maxAge: '', expires: '', computed: '' };
+  }
+
   function getHeaderValue(headers, name) {
     if (!headers) return '';
     const lower = name.toLowerCase();
@@ -13174,10 +13901,13 @@ const _NetworkPlus = (function () {
         //     bytes the request carried.
         //   .url-breakdown-decoded — the decoded reading of the query the row
         //     already shows verbatim, so a term counted twice in one cell.
+        //   .image-preview-caption — the panel's reading of an image body
+        //     ('image/gif · 1 × 1 px · 42 B'), not a byte the server sent;
+        //     a search for 'gif' counted it beside the hex dump's own bytes.
         if (
           parent &&
           parent.closest(
-            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details',
+            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details,.image-preview-caption',
           )
         ) {
           return NodeFilter.FILTER_REJECT;
@@ -13361,10 +14091,15 @@ const _NetworkPlus = (function () {
   // every row selection, so this runs after each content render. fullText is
   // the pane's complete source text; when provided, hits inside collapsed or
   // truncated content are counted and an "Expand all" action surfaces them.
-  function attachPaneSearch(pane, fullText) {
+  // options.viewToggle is a renderer picker the pane hands to its one toolbar;
+  // options.hiddenSource says the pane is showing its body in a form the
+  // search cannot walk (the sandboxed HTML frame), so every hit in fullText is
+  // a hidden one and options.onExpandHidden is what reveals them.
+  function attachPaneSearch(pane, fullText, options) {
     if (!pane) return;
     const paneId = pane.id;
     const paneLabel = paneSearchLabel(paneId);
+    const hiddenSource = !!(options && options.hiddenSource);
     // One "expand everything" affordance per pane. Where the JSON tree renders
     // its own Expand / Collapse controls they own the job — the tree's Expand
     // all clicks through the truncation buttons too, so hits inside collapsed
@@ -13395,9 +14130,17 @@ const _NetworkPlus = (function () {
     nextBtn.setAttribute('aria-label', uiTextFormat('paneSearchNextLabel', { pane: paneLabel }));
     const expandBtn = document.createElement('button');
     expandBtn.className = 'pane-search-nav pane-search-expand';
-    expandBtn.textContent = uiText('jsonTreeExpandAll');
-    expandBtn.title = uiText('paneSearchExpandTitle');
-    expandBtn.setAttribute('aria-label', uiTextFormat('paneSearchExpandLabel', { pane: paneLabel }));
+    // Named for what pressing it does to the matches, not just for where they
+    // are: beside the pane's own Rendered / Source picker, a second button
+    // reading "Source" was two identical labels in one bar.
+    expandBtn.textContent = hiddenSource ? uiText('paneSearchShowInSource') : uiText('jsonTreeExpandAll');
+    expandBtn.title = hiddenSource ? uiText('paneSearchSourceTitle') : uiText('paneSearchExpandTitle');
+    expandBtn.setAttribute(
+      'aria-label',
+      hiddenSource
+        ? uiTextFormat('paneSearchSourceLabel', { pane: paneLabel })
+        : uiTextFormat('paneSearchExpandLabel', { pane: paneLabel }),
+    );
     expandBtn.hidden = true;
     // The count and the buttons that act on it are one cluster, so a wrap
     // moves all of them: as flat children of a wrapping bar the ↑ and the ↓
@@ -13410,6 +14153,15 @@ const _NetworkPlus = (function () {
     navGroup.appendChild(nextBtn);
     bar.appendChild(input);
     bar.appendChild(navGroup);
+    // The renderer picker belongs to the same band as the search and the copy
+    // actions: one toolbar, and nothing between the bar and the content. The
+    // class is what the stylesheet keys the picker-bearing bar's own copy-label
+    // threshold on: with a fourth child the bar wraps far wider than the
+    // three-child bar the shared threshold was measured for.
+    if (options && options.viewToggle) {
+      bar.appendChild(options.viewToggle);
+      bar.classList.add('pane-search-bar--with-view');
+    }
 
     let marks = [];
     let currentIndex = -1;
@@ -13481,7 +14233,7 @@ const _NetworkPlus = (function () {
           typeof fullText === 'string' &&
           fullText &&
           !truncated &&
-          hasCollapsedPaneContent(pane, bar)
+          (hiddenSource || hasCollapsedPaneContent(pane, bar))
         ) {
           const totalHits = planKeywordHighlights(fullText, [{ query, colorIdx: 0 }], searchOptions).length;
           collapsedHits = Math.max(0, totalHits - marks.length);
@@ -13518,6 +14270,10 @@ const _NetworkPlus = (function () {
     prevBtn.addEventListener('click', () => navigate('prev'));
     nextBtn.addEventListener('click', () => navigate('next'));
     expandBtn.addEventListener('click', () => {
+      if (hiddenSource) {
+        if (options && typeof options.onExpandHidden === 'function') options.onExpandHidden();
+        return;
+      }
       expandPaneTruncations(pane, bar);
       runHighlight();
     });
@@ -14103,7 +14859,6 @@ const _NetworkPlus = (function () {
 
   function setResponsePaneMessage(message) {
     $('#res-body').textContent = message;
-    $('#res-preview').textContent = message;
     $('#res-raw').textContent = message;
   }
 
@@ -14198,6 +14953,97 @@ const _NetworkPlus = (function () {
     return frame;
   }
 
+  // Which renderer the Body pane is showing for the bodies that offer a
+  // choice. Kept across rows: a person who switched JSON to the flat text once
+  // is not switched back by the next selection.
+  const responseBodyViews = { json: 'tree', html: 'rendered' };
+
+  // Body's renderer picker: a segmented pair that lives in the pane's one
+  // toolbar, beside the search. Deliberately not a .link-btn — the pane search
+  // treats every link button outside the bar as a truncation control it may
+  // click through, so a link-shaped toggle would be pressed by "Expand all".
+  function buildBodyViewToggle(kind, views, onPick) {
+    const group = document.createElement('div');
+    group.className = 'body-view-toggle';
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', uiText('bodyViewLabel'));
+    for (const view of views) {
+      const label = uiText(view.labelKey);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'body-view-btn';
+      button.dataset.view = view.id;
+      button.textContent = label;
+      button.setAttribute('aria-pressed', String(responseBodyViews[kind] === view.id));
+      button.title = uiTextFormat('bodyViewButtonTitle', { view: label });
+      button.addEventListener('click', () => {
+        if (responseBodyViews[kind] === view.id) return;
+        responseBodyViews[kind] = view.id;
+        onPick();
+      });
+      group.appendChild(button);
+    }
+    return group;
+  }
+
+  // A view switch re-renders the whole response body through the one path that
+  // built it, so the toolbar, the copy actions and the stored query are rebuilt
+  // together instead of patched. The rebuilt toggle takes the focus back.
+  function pickResponseBodyView(row) {
+    renderCachedResponseContent(row);
+    const pressed = $('#res-body .body-view-btn[aria-pressed="true"]');
+    if (pressed) pressed.focus();
+  }
+
+  // The Body pane's plain text block: a hex dump when the bytes are not text,
+  // otherwise the decoded body, cut at TRUNCATE_LIMIT behind a control that
+  // opens the rest. Shared by the text renderer and by HTML's Source view.
+  function appendBodyTextBlock(pane, row, displayText, binaryDump) {
+    const bodyPre = document.createElement('pre');
+    bodyPre.className = binaryDump ? 'code-block hex-dump' : 'code-block';
+    if (binaryDump) {
+      bodyPre.textContent = displayText;
+      pane.appendChild(bodyPre);
+    } else if (displayText.length > TRUNCATE_LIMIT) {
+      bodyPre.textContent = displayText.substring(0, TRUNCATE_LIMIT);
+      const showMore = document.createElement('button');
+      showMore.textContent = uiTextFormat('bodyPaneShowFullCached', { size: fmtBytes(row.responseContentBytes) });
+      if (!row._previewTruncationCounted) {
+        row._previewTruncationCounted = true;
+        state.retention.truncatedBodies += 1;
+        updateRetentionStatus();
+        queueRetentionSummary('Response preview truncated until explicitly expanded');
+      }
+      showMore.className = 'link-btn';
+      showMore.addEventListener('click', () => {
+        bodyPre.textContent = displayText;
+      });
+      pane.appendChild(bodyPre);
+      pane.appendChild(showMore);
+    } else {
+      bodyPre.textContent = displayText || uiText('bodyPaneNoResponseBody');
+      pane.appendChild(bodyPre);
+    }
+    return bodyPre;
+  }
+
+  // Captured HTML is untrusted content, so it renders in a frame with an empty
+  // sandbox: no scripts, no same-origin access, no navigation.
+  function buildHtmlBodyFrame(text) {
+    const iframe = document.createElement('iframe');
+    iframe.sandbox = '';
+    iframe.title = uiText('bodyHtmlFrameTitle');
+    // The class carries the frame's own light ground: the captured document
+    // paints its default black text on a transparent canvas, and on the dark
+    // theme that landed on --content-bg at about 1.2:1.
+    iframe.className = 'body-html-frame';
+    iframe.style.width = '100%';
+    iframe.style.height = '300px';
+    iframe.style.border = '1px solid var(--border)';
+    iframe.srcdoc = text;
+    return iframe;
+  }
+
   function renderCachedResponseContent(row) {
     if (row.responseContentState !== 'cached') {
       const display = describeResponseContentState(row);
@@ -14208,7 +15054,6 @@ const _NetworkPlus = (function () {
       return;
     }
     const resBodyPane = $('#res-body');
-    const resPreviewPane = $('#res-preview');
     const resRawPane = $('#res-raw');
     const rawContent = typeof row.responseContent === 'string' ? row.responseContent : '';
     const encoding = row.responseContentEncoding === 'base64' ? 'base64' : '';
@@ -14225,38 +15070,52 @@ const _NetworkPlus = (function () {
         : null;
     const displayText = binaryDump ? binaryDump.text : text;
 
-    // Body tab — formatted text, or a hex dump when the bytes are not text
+    // Body tab — one pane, and the renderer follows the content: the image on
+    // its checkerboard stage, HTML in a sandboxed frame, JSON as a collapsible
+    // tree, bytes that are not text as a hex dump, everything else as text.
+    // Preview held the first three until they moved here; two tabs showing the
+    // same body two ways made the reader pick a tab before reading anything.
     resBodyPane.textContent = '';
     if (binaryDump) resBodyPane.appendChild(buildBinaryBodyNotice(row, binaryDump));
-    const treeEl = binaryDump ? null : renderJsonTree(displayText);
-    if (treeEl) {
-      resBodyPane.appendChild(treeEl);
-    } else {
-      const bodyPre = document.createElement('pre');
-      bodyPre.className = binaryDump ? 'code-block hex-dump' : 'code-block';
-      if (binaryDump) {
-        bodyPre.textContent = displayText;
-        resBodyPane.appendChild(bodyPre);
-      } else if (displayText.length > TRUNCATE_LIMIT) {
-        bodyPre.textContent = displayText.substring(0, TRUNCATE_LIMIT);
-        const showMore = document.createElement('button');
-        showMore.textContent = uiTextFormat('bodyPaneShowFullCached', { size: fmtBytes(row.responseContentBytes) });
-        if (!row._previewTruncationCounted) {
-          row._previewTruncationCounted = true;
-          state.retention.truncatedBodies += 1;
-          updateRetentionStatus();
-          queueRetentionSummary('Response preview truncated until explicitly expanded');
-        }
-        showMore.className = 'link-btn';
-        showMore.addEventListener('click', () => {
-          bodyPre.textContent = displayText;
-        });
-        resBodyPane.appendChild(bodyPre);
-        resBodyPane.appendChild(showMore);
+    // The Content-Type header outranks the HAR mime for the renderer decision:
+    // it is what the server actually declared, and it is present on rows whose
+    // recorded type came back as `x-unknown`.
+    const bodyMime = guessMimeType(row);
+    if (encoding === 'base64' && rawContent && /^image\//i.test(bodyMime)) {
+      resBodyPane.appendChild(renderImagePreview(bodyMime, rawContent));
+    }
+    const isHtmlBody = !binaryDump && isHtmlLikeMime(bodyMime);
+    const jsonFormatted = binaryDump || isHtmlBody ? null : formatJsonSafe(displayText);
+    let bodyViewToggle = null;
+    let htmlFrameShowing = false;
+    if (isHtmlBody) {
+      bodyViewToggle = buildBodyViewToggle(
+        'html',
+        [
+          { id: 'rendered', labelKey: 'bodyViewRendered' },
+          { id: 'source', labelKey: 'bodyViewSource' },
+        ],
+        () => pickResponseBodyView(row),
+      );
+      if (responseBodyViews.html === 'source') {
+        appendBodyTextBlock(resBodyPane, row, displayText, binaryDump);
       } else {
-        bodyPre.textContent = displayText || uiText('bodyPaneNoResponseBody');
-        resBodyPane.appendChild(bodyPre);
+        htmlFrameShowing = true;
+        resBodyPane.appendChild(buildHtmlBodyFrame(text));
       }
+    } else if (jsonFormatted != null) {
+      bodyViewToggle = buildBodyViewToggle(
+        'json',
+        [
+          { id: 'tree', labelKey: 'bodyViewTree' },
+          { id: 'text', labelKey: 'bodyViewText' },
+        ],
+        () => pickResponseBodyView(row),
+      );
+      const treeEl = responseBodyViews.json === 'tree' ? renderJsonTree(displayText) : null;
+      resBodyPane.appendChild(treeEl || renderJsonHighlighted(jsonFormatted));
+    } else {
+      appendBodyTextBlock(resBodyPane, row, displayText, binaryDump);
     }
     addCopyActions(resBodyPane, [
       {
@@ -14268,34 +15127,6 @@ const _NetworkPlus = (function () {
         onClick: (button) => requestFullClipboardAction('responseBody', row, rawContent, button, 'paneNameResponseBody'),
       },
     ]);
-
-    // Preview tab — image, sandboxed HTML, or formatted JSON
-    resPreviewPane.textContent = '';
-    // The Content-Type header outranks the HAR mime for the preview decision:
-    // it is what the server actually declared, and it is present on rows whose
-    // recorded type came back as `x-unknown`.
-    const previewMime = guessMimeType(row);
-    if (encoding === 'base64' && rawContent && /^image\//i.test(previewMime)) {
-      resPreviewPane.appendChild(renderImagePreview(previewMime, rawContent));
-    } else if (row.type && row.type.indexOf('html') > -1) {
-      const iframe = document.createElement('iframe');
-      iframe.sandbox = '';
-      iframe.title = 'Response HTML preview';
-      iframe.style.width = '100%';
-      iframe.style.height = '300px';
-      iframe.style.border = '1px solid var(--border)';
-      iframe.srcdoc = text;
-      resPreviewPane.appendChild(iframe);
-    } else if (binaryDump) {
-      resPreviewPane.textContent = uiText('binaryPreviewUnavailable');
-    } else {
-      const previewFormatted = formatJsonSafe(text);
-      if (previewFormatted) {
-        resPreviewPane.appendChild(renderJsonHighlighted(previewFormatted));
-      } else {
-        resPreviewPane.textContent = uiText('previewPaneNoPreview');
-      }
-    }
 
     // Raw tab
     resRawPane.textContent = '';
@@ -14311,7 +15142,18 @@ const _NetworkPlus = (function () {
       },
     ]);
     resRawPane.appendChild(rawResPre);
-    attachPaneSearch(resBodyPane, text);
+    // The rendered HTML frame is a separate document the pane search cannot
+    // walk, so a term plainly visible in it would count as "No matches". Say
+    // so instead: the hits are counted from the source text and the toolbar
+    // offers the Source view that can step through them.
+    attachPaneSearch(resBodyPane, text, {
+      viewToggle: bodyViewToggle,
+      hiddenSource: htmlFrameShowing,
+      onExpandHidden: () => {
+        responseBodyViews.html = 'source';
+        pickResponseBodyView(row);
+      },
+    });
     attachPaneSearch(resRawPane);
     // Body holds one document, so an empty one takes the en-dash marker, not
     // a "0" that would read as a count of zero items. Raw carries the status
@@ -14524,12 +15366,16 @@ const _NetworkPlus = (function () {
     const reqCookiesPane = $('#req-cookies');
     reqCookiesPane.textContent = '';
     if (cookies.length > 0) {
-      reqCookiesPane.appendChild(
-        createKvGrid(
-          cookies.map((c) => ({ key: c.name, value: c.value, mono: isMonoValue(c.name, c.value) })),
-          'cookie',
-        ),
-      );
+      // The same parsed array the Cookie header row counted, so the tab's
+      // count and the rows this table lists stay one reading of one string.
+      const requestCookieRows = cookies.map((c) => ({
+        cookie: c,
+        mono: isMonoValue(c.name, c.value),
+        copyLabel: c.name,
+        copyName: c.name,
+        copyValue: c.value,
+      }));
+      reqCookiesPane.appendChild(createCookieTable(REQUEST_COOKIE_COLUMNS, requestCookieRows, 'cookie'));
       attachPaneSearch(reqCookiesPane);
     } else {
       // The rule for all four new toolbars: a pane rendered as a one-line
@@ -14603,7 +15449,7 @@ const _NetworkPlus = (function () {
     }
     if (resHeadersPane.querySelector('.kv')) attachPaneSearch(resHeadersPane);
 
-    // Response > Body, Preview, Raw — populated from the shared response cache
+    // Response > Body and Raw — populated from the shared response cache
     setResponsePaneMessage(uiText('bodyPaneLoading'));
     cacheResponseContent(row)
       .then((cachedRow) => {
@@ -14632,22 +15478,27 @@ const _NetworkPlus = (function () {
       (h) => (h.name || '').toLowerCase() === 'set-cookie',
     );
     if (setCookieHeaders.length > 0) {
-      resCookiesPane.appendChild(
-        // These rows ARE Set-Cookie response headers, so the grid says
-        // 'header' and every row hands the sanitizer the captured header name.
-        // The '#1' in the label is a counter for the reader; it never reaches
-        // the gate, so it cannot make a row copy less redacted than this same
-        // header's row in Response > Headers.
-        createKvGrid(
-          setCookieHeaders.map((h, i) => ({
-            key: 'Set-Cookie #' + (i + 1),
-            value: h.value,
-            copyName: h.name,
-            mono: isMonoValue('Set-Cookie', h.value),
-          })),
-          'header',
-        ),
-      );
+      // The response date is the only anchor a Max-Age has: a duration cannot
+      // name an instant on its own, and this table refuses to guess one.
+      const responseDate = getHeaderValue(row.responseHeaders, 'date');
+      // These rows ARE Set-Cookie response headers, so the table says 'header'
+      // and every row hands the sanitizer the captured header name. The
+      // cookie name the row renders is a piece this table parsed out; it never
+      // reaches the gate, so it cannot make a row copy less redacted than this
+      // same header's row in Response > Headers.
+      const setCookieRows = setCookieHeaders.map((h) => {
+        const cookie = parseSetCookieHeader(h.value);
+        return {
+          cookie,
+          mono: isMonoValue('Set-Cookie', cookie.value),
+          expiry: planCookieExpiry(cookie, responseDate),
+          flags: planSetCookieFlags(cookie),
+          copyLabel: cookie.name,
+          copyName: h.name,
+          copyValue: h.value,
+        };
+      });
+      resCookiesPane.appendChild(createCookieTable(RESPONSE_COOKIE_COLUMNS, setCookieRows, 'header'));
     } else {
       renderPaneEmptyMessage(resCookiesPane, uiText('emptySetCookieHeaders'));
     }
@@ -14656,67 +15507,7 @@ const _NetworkPlus = (function () {
     applyResponseTabSignals({ 'res-cookies': setCookieHeaders.length }, { reset: true });
 
     // Response > Timing
-    const resTimingPane = $('#res-timing');
-    resTimingPane.textContent = '';
-    const timingItems = [];
-    const timingBreakdown = calculateTimingSegments(row.timings, row.duration);
-    const timingSegmentMap = new Map(
-      timingBreakdown.segments.map((segment) => [segment.label, segment]),
-    );
-    if (row.timings) {
-      for (const key in row.timings) {
-        if (typeof row.timings[key] === 'number' && row.timings[key] >= 0) {
-          const segment = timingSegmentMap.get(key);
-          timingItems.push({ name: key, value: fmtTime(segment ? segment.duration : row.timings[key]) });
-        }
-      }
-    }
-    timingItems.push({ name: uiText('detailsTimingTotal'), value: fmtTime(row.duration) });
-    const timingTitle = document.createElement('strong');
-    timingTitle.textContent = uiText('detailsTimingBreakdownHeading');
-    timingTitle.className = 'kv-group-heading';
-    resTimingPane.appendChild(timingTitle);
-    // 'plain': every value is a duration this panel formatted from the
-    // browser's own timing record, so none of it is captured payload.
-    resTimingPane.appendChild(createKvGrid(timingItems, 'plain'));
-
-    // Timing bar visualization
-    if (row.timings) {
-      const barWrap = document.createElement('div');
-      barWrap.className = 'timing-bar-wrap';
-      const segmentTotal = timingBreakdown.segments.reduce((sum, segment) => sum + segment.duration, 0);
-      const visualTotal = Math.max(timingBreakdown.total, segmentTotal, 1);
-      for (let i = 0; i < timingBreakdown.segments.length; i++) {
-        const segment = timingBreakdown.segments[i];
-        if (segment.duration > 0) {
-          const seg = document.createElement('div');
-          seg.className = 'timing-bar-seg timing-phase-' + segment.label;
-          seg.style.width = (segment.duration / visualTotal) * 100 + '%';
-          seg.title = segment.label + ': ' + fmtTime(segment.duration);
-          barWrap.appendChild(seg);
-        }
-      }
-      resTimingPane.appendChild(barWrap);
-
-      // Legend
-      const legend = document.createElement('div');
-      legend.className = 'timing-legend';
-      for (let i = 0; i < timingBreakdown.segments.length; i++) {
-        const item = document.createElement('span');
-        item.className = 'timing-legend-item';
-        const dot = document.createElement('span');
-        dot.className = 'timing-legend-dot timing-phase-' + timingBreakdown.segments[i].label;
-        item.appendChild(dot);
-        item.appendChild(document.createTextNode(timingBreakdown.segments[i].label));
-        legend.appendChild(item);
-      }
-      resTimingPane.appendChild(legend);
-    }
-   const evidenceNote = document.createElement('p');
-   evidenceNote.className = 'timing-evidence-note';
-   evidenceNote.textContent = uiText('timingEvidenceLimitation');
-   resTimingPane.appendChild(evidenceNote);
-   resTimingPane.appendChild(createTimingPhaseGuide());
+    renderTimingTable($('#res-timing'), row);
   }
 
   // ============================================================
@@ -19175,7 +19966,11 @@ const _NetworkPlus = (function () {
     getRequestEpoch,
     compareRequestTimes,
     calculateTimingSegments,
+    planTimingTable,
+    formatTimingDuration,
+    formatTimingShare,
     getTimingPhaseGuidance,
+    timingPhaseLabel,
     TIMING_EVIDENCE_LIMITATION,
     decodeResponseContent,
     isUndecodableBodyText,
@@ -19426,6 +20221,9 @@ const _NetworkPlus = (function () {
     planKvCopyValue,
     formatCookieHeaderSummary,
     parseCookieHeader,
+    parseSetCookieHeader,
+    planSetCookieFlags,
+    planCookieExpiry,
   };
 })();
 

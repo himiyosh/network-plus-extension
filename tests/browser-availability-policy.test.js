@@ -1200,6 +1200,16 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title:
+        'both Cookies panes are tables whose cells wrap, mark a computed expiry, and copy the captured header',
+    },
+    {
+      skipped: true,
+      title:
+        'the Timing pane is one waterfall table whose bars, shares and muted phases hold at every width',
+    },
+    {
+      skipped: true,
+      title:
         'the details header is either the whole URL or visibly truncated, at every pane width in both languages',
     },
     {
@@ -1210,6 +1220,15 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title: 'Body and Raw carry one sticky top toolbar that holds search and the copy actions',
+    },
+    {
+      skipped: true,
+      title:
+        'the Body pane renders JSON, HTML and images itself, and says when a match is only in the source',
+    },
+    {
+      skipped: true,
+      title: 'the rendered HTML frame keeps a light ground of its own in the dark theme',
     },
     {
       skipped: true,

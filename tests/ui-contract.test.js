@@ -1725,16 +1725,34 @@ describe('release trust static contracts', () => {
     expect(selectBlock).toContain('renderCachedResponseContent(cachedRow)');
     expect(selectBlock).not.toContain('row._reqObj.getContent');
     expect(js).toContain("iframe.sandbox = '';");
-    expect(js).toContain("iframe.title = 'Response HTML preview';");
+    // The frame's accessible name goes through the dictionary like every
+    // other Body-pane string, so it is not the one English name in a
+    // Japanese pane.
+    expect(js).toContain("iframe.title = uiText('bodyHtmlFrameTitle');");
+    expect(js).toContain(
+      "    bodyHtmlFrameTitle: {\n      en: 'Response HTML preview',\n      ja: 'レスポンス HTML プレビュー',\n    },",
+    );
+    // The frame paints its own light ground in both themes: the captured
+    // document's default black text sat on the dark theme's --content-bg at
+    // about 1.2:1 while the frame was transparent. The colour is a token
+    // declared white in every theme block, never a literal in the script.
+    expect(js).toContain("    iframe.className = 'body-html-frame';");
+    expect(css).toContain('.body-html-frame{background:var(--html-frame-bg);color-scheme:light}');
+    expect(css.match(/--html-frame-bg:#ffffff;/g)).toHaveLength(4);
+    // The renderer decision reads the same resolved type the image stage
+    // does — Content-Type header first, HAR mime second — not the HAR mime
+    // alone three lines under the comment saying the header outranks it.
+    expect(js).toContain('    const isHtmlBody = !binaryDump && isHtmlLikeMime(bodyMime);');
+    expect(js).not.toContain("row.type.indexOf('html')");
     expect(js).toContain("if (row.responseContentState !== 'cached')");
     expect(js).toContain("img.alt = 'Response image preview';");
-    // The preview is still gated on holding real image bytes, but the MIME now
-    // comes from the Content-Type header (guessMimeType) rather than the HAR
-    // record: rows whose recorded type arrives as `x-unknown` still carry the
-    // declared type in their headers, and those are exactly the rows that
+    // The image stage is still gated on holding real image bytes, but the MIME
+    // now comes from the Content-Type header (guessMimeType) rather than the
+    // HAR record: rows whose recorded type arrives as `x-unknown` still carry
+    // the declared type in their headers, and those are exactly the rows that
     // previously fell through to "(no preview available)".
-    expect(js).toContain("const previewMime = guessMimeType(row);");
-    expect(js).toContain("if (encoding === 'base64' && rawContent && /^image\\//i.test(previewMime))");
+    expect(js).toContain("const bodyMime = guessMimeType(row);");
+    expect(js).toContain("if (encoding === 'base64' && rawContent && /^image\\//i.test(bodyMime))");
   });
 
   test('shows bytes that are not text as a hex dump instead of decoder mojibake', () => {
@@ -2504,6 +2522,78 @@ describe('timing guidance static contracts', () => {
     expect(js).toContain('document.createElement(\'dl\')');
     expect(css).toContain('.timing-evidence-note');
     expect(css).toContain('.timing-guidance-summary:focus-visible');
+    // The caveat is the guide's first paragraph, ahead of the definition list
+    // and behind the same summary — the table is what the pane shows first.
+    expect(js).toContain("   evidenceNote.className = 'timing-evidence-note';");
+    expect(js).toContain("   evidenceNote.textContent = uiText('timingEvidenceLimitation');");
+    expect(js).toContain('   guide.appendChild(evidenceNote);');
+    expect(js.indexOf('guide.appendChild(evidenceNote);')).toBeLessThan(
+      js.indexOf("   const list = document.createElement('dl');"),
+    );
+  });
+
+  test('the pane is one table of phases, with no separate bar or legend to match up', () => {
+    expect(js).toContain('  function renderTimingTable(resTimingPane, row) {');
+    expect(js).toContain('    renderTimingTable($(\'#res-timing\'), row);');
+    // The kv grid, the standalone bar and the legend the reader had to decode
+    // by colour are all gone, source and stylesheet alike.
+    expect(js).not.toContain('timing-bar-wrap');
+    expect(js).not.toContain('timing-legend');
+    expect(css).not.toContain('.timing-bar-wrap');
+    expect(css).not.toContain('.timing-legend');
+    // Every cell of a row states its own column, so a row with nothing to copy
+    // cannot slide the next row's swatch into the track it left empty.
+    expect(css).toContain('.timing-table > .timing-swatch{grid-column:1}');
+    expect(css).toContain('.timing-table > .timing-name{grid-column:2}');
+    expect(css).toContain('.timing-table > .timing-track{grid-column:3}');
+    expect(css).toContain('.timing-table > .timing-duration{grid-column:4}');
+    expect(css).toContain('.timing-table > .timing-share{grid-column:5}');
+    expect(css).toContain('.timing-table > .kv-copy-btn{grid-column:6}');
+    // Right-aligned tabular figures in both numeric columns.
+    expect(css).toMatch(/\.timing-duration\{[^}]*text-align:right[^}]*font-variant-numeric:tabular-nums/);
+    expect(css).toMatch(/\.timing-share\{[^}]*text-align:right[^}]*font-variant-numeric:tabular-nums/);
+    // No fixed px track and no cell that refuses to wrap: a wide fallback font
+    // has to wrap the row, never clip it or overflow the pane.
+    // The name column's floor is its longest word, and the name wraps between
+    // words: at minmax(0,1fr) with overflow-wrap:anywhere the fr split handed
+    // the track the room and 'Connect' broke mid-word under a large face.
+    expect(css).toMatch(
+      /\.timing-table\{[^}]*grid-template-columns:auto minmax\(min-content,1fr\) minmax\(28px,1\.4fr\) auto auto auto/,
+    );
+    expect(css).toMatch(/\.timing-name\{[^}]*overflow-wrap:normal[^}]*\}/);
+    expect(css).not.toMatch(/\.timing-name\{[^}]*overflow-wrap:anywhere/);
+    expect(css).not.toMatch(/\.timing-(name|duration|share)\{[^}]*white-space:nowrap/);
+    // The bar is offset inside a rail, so the rows stack into one waterfall,
+    // and the rail clips: the 2px minimum a tiny phase is held at overshot
+    // the rail's end at a high offset.
+    expect(css).toContain('.timing-bar-seg{position:absolute;top:0;bottom:0;min-width:2px;border-radius:3px}');
+    expect(css).toMatch(/\.timing-rail\{[^}]*overflow:hidden[^}]*\}/);
+    // The Unaccounted row keys its bar with a swatch like every other row that
+    // draws one; the dot and the bar share the one "rest" paint.
+    expect(css).toContain('.timing-bar-seg--rest,.timing-dot--rest{background:color-mix(in srgb,var(--text-muted) 45%,transparent)}');
+    expect(js).toContain("      dot.className = 'timing-dot ' + (spec.phase ? 'timing-phase-' + spec.phase : 'timing-dot--rest');");
+    expect(js).toContain('    if (!spec.total && !spec.muted) {');
+    // Six named cells rather than `> *`, so the later .link-btn rule cannot
+    // take the copy cell's padding and hairline at equal specificity; and a
+    // font-relative line-height, so a 22px face does not overflow an 18px row.
+    expect(css).toContain(
+      '.timing-table > .timing-swatch,.timing-table > .timing-name,.timing-table > .timing-track,.timing-table > .timing-duration,.timing-table > .timing-share,.timing-table > .kv-copy-btn{padding:3px 0;line-height:1.4;border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent)}',
+    );
+    expect(css).not.toContain('.timing-table > *{');
+    expect(css).toMatch(/\.timing-table > \.kv-copy-btn\{[^}]*padding:3px 0 3px 10px[^}]*line-height:1\.4[^}]*\}/);
+    expect(css).not.toMatch(/\.timing-table > [^{]*\{[^}]*line-height:18px/);
+    expect(js).toContain("      if (spec.total) copyButton.classList.add('timing-row--total');");
+    // Nothing reported collapses to one line rather than seven dead rows.
+    expect(js).toContain('      phasesReported: rows.some((row) => row.available),');
+    expect(js).toContain('    if (!plan.phasesReported) {');
+    expect(js).toContain("      renderPaneEmptyMessage(resTimingPane, uiText('timingNoPhasesReported'));");
+    expect(js).toContain("        bar.style.marginLeft = Math.min(100, Math.max(0, spec.offsetPct)).toFixed(2) + '%';");
+    // The swatch and the rail are decoration: they carry no text into a drag
+    // across the row, and no name into the accessibility tree.
+    expect(js).toContain("    swatch.setAttribute('aria-hidden', 'true');");
+    expect(js).toContain("    track.setAttribute('aria-hidden', 'true');");
+    // The row keeps the pane's single tab stop rather than one per row.
+    expect(js).toContain('    armKvCopyRoving(table, copyButtons);');
   });
 
   test('stacks the phase definitions at narrow widths without adding new color tokens', () => {
@@ -3446,8 +3536,19 @@ describe('detail pane search contracts', () => {
   test('attaches the in-pane search bar to the Body and Raw views of both inspectors', () => {
     expect(js).toContain('attachPaneSearch(reqBodyPane, text);');
     expect(js).toContain('attachPaneSearch(reqRawPane);');
-    expect(js).toContain('attachPaneSearch(resBodyPane, text);');
+    // The response Body pane hands its one toolbar the renderer picker too.
+    expect(js).toContain('    attachPaneSearch(resBodyPane, text, {');
+    expect(js).toContain('      viewToggle: bodyViewToggle,');
     expect(js).toContain('attachPaneSearch(resRawPane);');
+    // A bar carrying the picker is a four-child bar, and it states so: the
+    // shared 730px copy-label threshold was measured for three children, and
+    // with the picker the labelled bar wraps to 870px of pane in Japanese —
+    // past the 760px .details can reach — so the picker-bearing bar keeps its
+    // own threshold above that band.
+    expect(js).toContain("      bar.classList.add('pane-search-bar--with-view');");
+    expect(css).toContain('@container (max-width: 940px){');
+    expect(css).toContain('  .pane-search-bar--with-view .copy-btn .copy-btn-label{display:none}');
+    expect(css).toContain("  .pane-search-bar--with-view .copy-btn::before{content:'\\29C9';font-size:12px;line-height:16px}");
   });
 
   test('attaches it to the kv views too, without arming an Expand all that would switch tabs', () => {
@@ -3493,15 +3594,18 @@ describe('detail pane search contracts', () => {
     // One reject list, three reasons, all the same shape of bug: a second copy
     // of text already on screen, or text the panel wrote rather than captured.
     expect(js).toContain(
-      "            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details',",
+      "            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details,.image-preview-caption',",
     );
     // .kv-nested is generated from the raw parameter value in the same cell, so
     // 'utm_id' counted '1 / 2' with the second hit inside a closed disclosure.
     // .jwt-chip is 'JWT · expires in 2h 14m' — the panel's reading of a token,
     // searchable as if the response had sent those words; .jwt-details is the
     // rest of that reading, and .url-breakdown-decoded is the decoded copy of
-    // a query the same row already shows verbatim.
-    for (const derived of ['.url-breakdown-decoded', '.jwt-details']) {
+    // a query the same row already shows verbatim. .image-preview-caption
+    // joined them when the image stage moved into the searchable Body pane:
+    // 'image/gif · 1 × 1 px · 42 B' is the panel's reading of the bytes, and
+    // a search for 'gif' counted it beside the hex dump's own bytes.
+    for (const derived of ['.url-breakdown-decoded', '.jwt-details', '.image-preview-caption']) {
       expect([derived, js.includes(derived + ',') || js.includes(derived + "'")]).toEqual([derived, true]);
     }
     expect(js).toContain("  const JWT_SEGMENT_CLASSES = [");
@@ -3543,7 +3647,7 @@ describe('detail pane search contracts', () => {
     expect(js).toContain("const treeOwnsExpansion = !!pane.querySelector('.json-tree-controls');");
     expect(js).toContain("expandBtn.addEventListener('click', expandEverything);");
     // Both truncating panes provide their full source text for the count.
-    expect(js).toContain('attachPaneSearch(resBodyPane, text);');
+    expect(js).toContain('    attachPaneSearch(resBodyPane, text, {');
     expect(js).toContain('attachPaneSearch(reqBodyPane, text);');
     expect(css).toContain('.pane-search-expand');
   });
@@ -4197,21 +4301,140 @@ describe('jwt decode display contracts', () => {
     expect(js).toContain('      const copyName = item.copyName != null ? String(item.copyName) : keyName;');
     expect(js).toContain('        const copyButton = createKvCopyButton(kind, keyName, copyName, copyValue);');
     expect(js).toContain('        grid.appendChild(copyButton);');
-    // Eleven grids, eleven declarations: three stated inline, eight as the
-    // second argument on its own line. A grid added without one falls through
-    // to the cookie gate, so a missed declaration over-redacts, never leaks.
-    expect(js.match(/createKvGrid\(/g)).toHaveLength(11);
-    expect(js.match(/^ {10}'header',$/gm)).toHaveLength(3);
+    // Eight grids, eight declarations: two stated inline, six as the second
+    // argument on its own line. A grid added without one falls through to the
+    // cookie gate, so a missed declaration over-redacts, never leaks.
+    // Eight, not eleven: the Timing pane is a .timing-table now and both
+    // Cookies panes are .cookie-tables, and all three build the same copy
+    // control directly while still declaring their own gate.
+    expect(js.match(/createKvGrid\(/g)).toHaveLength(8);
+    expect(js.match(/^ {10}'header',$/gm)).toHaveLength(2);
     expect(js.match(/^ {10}'query',$/gm)).toHaveLength(1);
-    expect(js.match(/^ {10}'cookie',$/gm)).toHaveLength(1);
     expect(js.match(/^ {8}'query',$/gm)).toHaveLength(1);
     expect(js.match(/^ {6}'plain',$/gm)).toHaveLength(1);
-    expect(js.match(/createKvGrid\([A-Za-z]+, 'plain'\)/g)).toHaveLength(3);
+    expect(js.match(/createKvGrid\([A-Za-z]+, 'plain'\)/g)).toHaveLength(2);
     expect(js).toContain("      if (timeItems.length > 0) details.appendChild(createKvGrid(timeItems, 'plain'));");
     expect(js).toContain("    if (resInfoItems.length > 0) resHeadersPane.appendChild(createKvGrid(resInfoItems, 'plain'));");
-    expect(js).toContain("    resTimingPane.appendChild(createKvGrid(timingItems, 'plain'));");
+    // The Timing pane states the same gate on its own rows.
+    expect(js).toContain("      const copyButton = createKvCopyButton('plain', spec.name, spec.name, durationText);");
     // Both header grids hand the sanitizer the captured header name.
-    expect(js.match(/^ {12}copyName: h\.name,$/gm)).toHaveLength(3);
+    expect(js.match(/^ {12}copyName: h\.name,$/gm)).toHaveLength(2);
+  });
+
+  test('the two cookie tables declare their gate, and the response table copies the header', () => {
+    // The declaration moved out of a kv grid and into the table, and it had
+    // better be exactly as strong there: the request table states 'cookie'
+    // (every value redacted) and the response table states 'header' (an
+    // allowlist that does not contain set-cookie, so it redacts too).
+    expect(js).toContain('  function createCookieTable(columns, rows, kind) {');
+    expect(js).toContain(
+      "      reqCookiesPane.appendChild(createCookieTable(REQUEST_COOKIE_COLUMNS, requestCookieRows, 'cookie'));",
+    );
+    expect(js).toContain(
+      "      resCookiesPane.appendChild(createCookieTable(RESPONSE_COOKIE_COLUMNS, setCookieRows, 'header'));",
+    );
+    // The gate reads the row's stated CAPTURED name and CAPTURED bytes, never
+    // the cookie name or the value this table parsed out of the header.
+    expect(js).toContain('        const copyButton = createKvCopyButton(kind, row.copyLabel, row.copyName, row.copyValue);');
+    expect(js.match(/^ {10}copyName: h\.name,$/gm)).toHaveLength(1);
+    expect(js.match(/^ {10}copyValue: h\.value,$/gm)).toHaveLength(1);
+    expect(js).not.toContain('          copyName: cookie.name,');
+    expect(js).not.toContain('          copyValue: cookie.value,');
+    // A real table, so a screen reader can say which column a cell is in —
+    // a kv grid could only ever label the row 'Set-Cookie #1'.
+    expect(js).toContain("      th.scope = 'col';");
+    expect(js).toContain("        if (index === 0) cell.scope = 'row';");
+    // And one tab stop for the table, the same roving every kv grid uses.
+    expect(js).toContain('    armKvCopyRoving(table, copyButtons);');
+    // No fixed track anywhere: on a wide fallback font the cells wrap inside
+    // their own boxes, and the wrapper takes any residual overflow so the
+    // pane itself never scrolls sideways.
+    expect(css).toContain('.cookie-table-scroll{max-width:100%;overflow-x:auto}');
+    expect(css).toContain('.cookie-table{width:100%;border-collapse:collapse;table-layout:auto;font-size:13px}');
+    expect(css).not.toMatch(/\.cookie-table\{[^}]*table-layout:fixed[^}]*\}/);
+    // Only the Value column breaks at any character; the rest keep their words
+    // whole, which is what sets each column's floor. Unqualified, the pane's
+    // own overflow-wrap:anywhere inherits into every cell and gives a
+    // 320-character token the same 1-character minimum as the word 'Domain',
+    // so Value took the table and every other column read one letter per line.
+    expect(css).toMatch(/\.cookie-table th,\.cookie-table td\{[^}]*overflow-wrap:break-word[^}]*\}/);
+    expect(css).toContain('.cookie-table .cookie-cell--value{overflow-wrap:anywhere}');
+    expect(css).not.toMatch(/\.cookie-table th,\.cookie-table td\{[^}]*overflow-wrap:anywhere[^}]*\}/);
+    // And the same rule must not starve the column it was written for: an
+    // auto table sizes by minimum content width, and 'anywhere' gave Value a
+    // one-character minimum while every other column kept whole words, so at
+    // the 538px pane Value got 79px and "Show all" wrapped into five lines.
+    // The floor is in ch so it scales with the face, and it is wider than the
+    // control's longest word, so the control's words stay whole under it.
+    expect(css).toContain('.cookie-table .cookie-col--value,.cookie-table .cookie-cell--value{min-width:14ch}');
+    expect(css).not.toMatch(/\.cookie-table \.cookie-cell--value\{[^}]*min-width:0[^}]*\}/);
+    // And keep-all, because CJK offers a break between every pair of
+    // characters whatever overflow-wrap says: without it a column's floor was
+    // one character, 'コピー' rendered down three lines, and every row of the
+    // request table was three lines tall in Japanese.
+    expect(css).toMatch(/\.cookie-table th,\.cookie-table td\{[^}]*word-break:keep-all[^}]*\}/);
+    expect(css).not.toMatch(/\.cookie-(col|cell)--[a-z]+\{[^}]*(?<![-a-z])width:\d/);
+    // The clamp and the code face are scoped under .kv; the table states them
+    // again for its own cells or a long value renders unclipped and
+    // proportional.
+    expect(css).toContain(
+      '.cookie-table .val-text.val--clamped{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}',
+    );
+    expect(css).toMatch(/\.cookie-table \.val--mono\{[^}]*Cascadia Code[^}]*\}/);
+    // Every derived string in a cell is unselectable, so a drag across a
+    // cookie carries what the response sent and nothing the panel wrote.
+    expect(css).toMatch(/\.cookie-absent\{[^}]*user-select:none[^}]*\}/);
+    expect(css).toMatch(/\.cookie-expiry-computed\{[^}]*user-select:none[^}]*\}/);
+    expect(css).toMatch(/\.cookie-table \.kv-copy-btn\{[^}]*user-select:none[^}]*\}/);
+    expect(css).toMatch(/\.cookie-table \.kv-copy-btn\{[^}]*opacity:0[^}]*\}/);
+    expect(css).toContain(
+      '.cookie-table tbody tr:hover .kv-copy-btn,.cookie-table .kv-copy-btn:hover,.cookie-table .kv-copy-btn:focus-within{opacity:1;pointer-events:auto}',
+    );
+    // A flag chip wraps inside its cell rather than forcing a wide table.
+    expect(css).toMatch(/\.cookie-flag\{[^}]*max-width:100%[^}]*\}/);
+    expect(css).not.toMatch(/\.cookie-flag\{[^}]*white-space:nowrap[^}]*\}/);
+    // A domain is dot-separated labels, so the cell offers a break after each
+    // '.'. Without it the column could only claim the whole domain's width or
+    // break in the middle of a label; <wbr> adds nothing to textContent, so
+    // what the cell holds is still the domain the response sent.
+    expect(js).toContain('  function appendCookieDomainText(container, text) {');
+    expect(js).toContain("        container.appendChild(document.createTextNode('.'));");
+    expect(js).toContain("      render: (cell, row) => renderCookieAttributeCell(cell, row.cookie.domain, appendCookieDomainText),");
+  });
+
+  test('a Max-Age reads as an instant only when the response dates it, and says so', () => {
+    // Max-Age is a duration. The instant it works out to is the panel's
+    // arithmetic, so it is filed UNDER the literal the header sent, labelled,
+    // and never becomes the text a copy carries.
+    expect(js).toContain('  function planCookieExpiry(cookie, responseDate) {');
+    expect(js).toContain("      const responseDate = getHeaderValue(row.responseHeaders, 'date');");
+    expect(js).toContain("    computed.className = 'cookie-expiry-computed';");
+    expect(js).toContain("    label.textContent = uiText('cookieExpiryComputed');");
+    expect(js).toContain('    cell.appendChild(literal);');
+    expect(js).toContain('    if (!plan.computed) return;');
+    // Max-Age wins over Expires for the COMPUTED instant, the rule a browser
+    // applies, and an unparseable anchor or a non-integer duration leaves the
+    // literal alone.
+    expect(js).toContain("      const seconds = /^[+-]?\\d+$/.test(maxAge) ? Number(maxAge) : NaN;");
+    expect(js).toContain('      const computable = Number.isFinite(instant) && Math.abs(instant) <= COOKIE_MAX_TIME_VALUE;');
+    // But an Expires sent beside the Max-Age is kept and rendered, named: the
+    // plan returned expires: '' for it before, and the cell showed less than
+    // the captured header carried.
+    expect(js).toContain(
+      "      return { source: 'max-age', maxAge, expires, computed: computable ? new Date(instant).toUTCString() : '' };",
+    );
+    expect(js).not.toContain("return { source: 'max-age', maxAge, expires: ''");
+    expect(js).toContain("    if (plan.source === 'max-age' && plan.expires) {");
+    expect(js).toContain("      sent.className = 'cookie-expiry-literal cookie-expiry-literal--sent';");
+    expect(js).toContain("      sent.textContent = uiTextFormat('cookieExpiresLiteral', { value: plan.expires });");
+    // A break opportunity between the Computed label and the date, so the two
+    // are not one word to the table's layout — that word alone set the
+    // Expires column's floor 40px wider than anything in it.
+    expect(js).toContain("    computed.appendChild(document.createElement('wbr'));");
+    // A name-only cookie states its absent value the way every other absent
+    // attribute does; an empty cell reads the same as a value the renderer
+    // dropped.
+    expect(js).toContain('    if (!row.cookie.value) {\n      appendCookieAbsent(cell);\n      return;\n    }\n    if (row.mono) cell.classList.add(\'val--mono\');');
   });
 
   test('a Query row carries a copy, and the sub-grid inside a value opts out of one', () => {
@@ -4282,7 +4505,7 @@ describe('jwt decode display contracts', () => {
     // a value cell: they were the only new in-cell chrome a drag picked up.
     expect(css).toMatch(/\.kv-cookie-summary\{[^}]*user-select:none[^}]*\}/);
     expect(css).toContain(
-      ".kv .val-clamp-toggle,.url-breakdown .link-btn,.kv-nested-summary,.kv-cookie-open-btn{display:inline-block;padding:0;font:inherit;font-size:12px;line-height:18px;user-select:none;-webkit-user-select:none}",
+      ".kv .val-clamp-toggle,.cookie-table .val-clamp-toggle,.url-breakdown .link-btn,.kv-nested-summary,.kv-cookie-open-btn{display:inline-block;padding:0;font:inherit;font-size:12px;line-height:18px;user-select:none;-webkit-user-select:none}",
     );
   });
 });
