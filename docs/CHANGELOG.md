@@ -51,6 +51,15 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 - 🐛 **Sort arrow** — the arrow no longer falls outside its header cell, at any column width or font.
 - 🐛 **Keyboard focus** — focus is never dropped to the page when a column, the divider, or a pane control disappears under it.
 - 🐛 **Resize gestures** — a keyboard resize keeps its column while you hold it, and a drag released outside the window no longer freezes the fit.
+- ✨ **Timing table** — one row per phase with a swatch, a waterfall bar, the duration and its share of the total; the legend and the duplicate list are gone.
+  - Why: the pane showed every number three times and never said that 99.6% of a 2.45 s request was spent waiting.
+- 🔧 **Response tabs** — Headers · Body · Timing · Cookies · Raw. Preview is folded into Body, which picks its renderer: JSON tree or text, rendered HTML or source, image stage, hex dump.
+  - Why: for JSON, Preview was Body without the tree, the copy actions or the search, and it kept Timing two tabs away.
+- ✨ **Cookie tables** — both Cookies panes are tables with Name, Value, Domain, Path, Expires and Flags; Max-Age is shown as the absolute expiry it computes to.
+- 🐛 **Sub-millisecond timings** — a 0.4 ms phase reads "< 1 ms" instead of "0 ms", and time the phases do not account for is shown as its own row.
+- 🐛 **HTML preview in dark theme** — the rendered HTML frame paints on its own white ground, so a page’s default black text no longer sits on the dark pane.
+- 🐛 **Cookie value column** — Value stays the widest column and the Show all control keeps its words at every pane width, instead of collapsing to one character per line.
+- ✨ **Japanese timing** — the seven phase names, the HTML frame’s accessible name and the share column’s markers follow the panel language.
 
 ## v1.13.0 - 2026-08-29
 

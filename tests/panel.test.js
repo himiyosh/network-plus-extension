@@ -944,6 +944,173 @@ describe('calculateTimingSegments', () => {
   });
 });
 
+describe('planTimingTable', () => {
+  // Every shape the pane can be handed: phases that account for the reported
+  // duration exactly, phases that fall short of it, phases that overrun it,
+  // a capture with nothing at all, and one whose only phase is a genuine zero.
+  const SHAPES = [
+    ['exact', { blocked: 10, dns: 20, connect: 100, ssl: 40, send: 5, wait: 60, receive: 25 }, 220],
+    ['short of the reported duration', { blocked: 1, dns: 2, connect: 3, send: 4, wait: 20, receive: 5 }, 40],
+    ['past the reported duration', { blocked: 50, wait: 100, receive: 50 }, 120],
+    ['nothing reported', {}, 0],
+    ['a single genuine zero', { wait: 0 }, 0],
+    ['sub-millisecond phases', { dns: 0.4, wait: 0.6 }, 1],
+  ];
+
+  test.each(SHAPES)('shares sum to 100%% of the span for %s', (_name, timings, duration) => {
+    const plan = np.planTimingTable(timings, duration);
+    const sum = plan.rows.reduce((total, row) => total + row.sharePct, 0) + plan.unaccountedSharePct;
+    // A span of zero has no whole to take a share of; anything else adds up.
+    expect([plan.span > 0, Math.abs(sum - (plan.span > 0 ? 100 : 0)) < 1e-9]).toEqual([
+      plan.span > 0,
+      true,
+    ]);
+  });
+
+  test.each(SHAPES)('offsets accumulate and no bar leaves the track for %s', (_name, timings, duration) => {
+    const plan = np.planTimingTable(timings, duration);
+    let runningTotal = 0;
+    for (const row of plan.rows) {
+      // Each row starts exactly where the phase before it ended — the previous
+      // offset plus the previous share, not merely somewhere at or past it. A
+      // monotonic check alone passed bars that crept forward by half a share.
+      expect([row.phase, Math.abs(row.offsetPct - runningTotal) < 1e-9]).toEqual([row.phase, true]);
+      expect([row.phase, row.offsetPct + row.widthPct <= 100 + 1e-9]).toEqual([row.phase, true]);
+      runningTotal += row.sharePct;
+    }
+    // The remainder row starts where the last phase ended, for the same reason.
+    expect(Math.abs(plan.unaccountedOffsetPct - runningTotal) < 1e-9).toBe(true);
+    expect(plan.unaccountedOffsetPct + plan.unaccountedSharePct).toBeLessThanOrEqual(100 + 1e-9);
+  });
+
+  test('offsets are exactly the running total of the phases before each row', () => {
+    const plan = np.planTimingTable(
+      { blocked: 10, dns: 20, connect: 100, ssl: 40, send: 5, wait: 60, receive: 25 },
+      220,
+    );
+    // connect is 100 - 40 of TLS, so the span is 220 and each offset is the
+    // sum of the shares above it.
+    expect(plan.span).toBe(220);
+    expect(plan.rows.map((row) => Number(row.offsetPct.toFixed(4)))).toEqual([
+      0,
+      Number(((10 / 220) * 100).toFixed(4)),
+      Number(((30 / 220) * 100).toFixed(4)),
+      Number(((90 / 220) * 100).toFixed(4)),
+      Number(((130 / 220) * 100).toFixed(4)),
+      Number(((135 / 220) * 100).toFixed(4)),
+      Number(((195 / 220) * 100).toFixed(4)),
+    ]);
+    expect(plan.hasUnaccounted).toBe(false);
+    expect(plan.totalSharePct).toBe(100);
+  });
+
+  test('a phase never reported and a phase reported as zero are both muted but not the same claim', () => {
+    const plan = np.planTimingTable({ blocked: 0, dns: -1, wait: 20 }, 20);
+    const byPhase = Object.fromEntries(plan.rows.map((row) => [row.phase, row]));
+    // Both are muted and neither draws a bar...
+    expect([byPhase.blocked.muted, byPhase.dns.muted]).toEqual([true, true]);
+    expect([byPhase.blocked.widthPct, byPhase.dns.widthPct]).toEqual([0, 0]);
+    // ...but only one of them is a measurement the capture actually made.
+    expect([byPhase.blocked.available, byPhase.dns.available]).toEqual([true, false]);
+    expect(byPhase.wait.muted).toBe(false);
+    expect(byPhase.wait.sharePct).toBe(100);
+  });
+
+  test('the duration no phase accounts for becomes a row rather than a gap', () => {
+    const plan = np.planTimingTable({ blocked: 1, dns: 2, connect: 3, send: 4, wait: 20, receive: 5 }, 40);
+    expect(plan.segmentTotal).toBe(35);
+    expect(plan.span).toBe(40);
+    expect(plan.hasUnaccounted).toBe(true);
+    expect(plan.unaccounted).toBe(5);
+    expect(plan.unaccountedSharePct).toBe(12.5);
+    expect(plan.unaccountedOffsetPct).toBe(87.5);
+    expect(plan.totalSharePct).toBe(100);
+  });
+
+  test('float residue under a microsecond is not reported as an unaccounted row', () => {
+    const plan = np.planTimingTable({ wait: 19.9999995 }, 20);
+    expect(plan.unaccounted).toBeGreaterThan(0);
+    expect(plan.hasUnaccounted).toBe(false);
+  });
+
+  test('phases that sum past the reported duration show it in the Total share', () => {
+    const plan = np.planTimingTable({ blocked: 50, wait: 100, receive: 50 }, 120);
+    expect(plan.segmentTotal).toBe(200);
+    expect(plan.span).toBe(200);
+    expect(plan.hasUnaccounted).toBe(false);
+    // The Total row still reports the row's own duration; its share is what
+    // marks that the phases claim more time than the request took.
+    expect(plan.total).toBe(120);
+    expect(plan.totalSharePct).toBe(60);
+  });
+
+  test('a capture with no usable timing at all plans a table of muted rows', () => {
+    const plan = np.planTimingTable(null, NaN);
+    expect(plan.rows).toHaveLength(7);
+    expect(plan.rows.every((row) => row.muted && !row.available && row.widthPct === 0)).toBe(true);
+    expect([plan.span, plan.hasUnaccounted, plan.totalSharePct]).toEqual([0, false, 0]);
+  });
+
+  test('says whether any phase was reported, so the pane can collapse to one line when none was', () => {
+    // No phases at all — with or without a reported duration — is one fact,
+    // not seven "not reported" rows under a bar that is 100% unaccounted.
+    expect(np.planTimingTable(null, NaN).phasesReported).toBe(false);
+    expect(np.planTimingTable({}, 0).phasesReported).toBe(false);
+    expect(np.planTimingTable({}, 40).phasesReported).toBe(false);
+    expect(np.planTimingTable({ dns: -1, connect: -1 }, 40).phasesReported).toBe(false);
+    // A single phase, even a genuine zero, is a report.
+    expect(np.planTimingTable({ wait: 0 }, 0).phasesReported).toBe(true);
+    expect(np.planTimingTable({ blocked: 1, dns: -1 }, 40).phasesReported).toBe(true);
+  });
+});
+
+describe('timing table formatters', () => {
+  // fmtTime rounds, so a phase that took time can render as '0 ms'. Stated
+  // over a matrix rather than at one value: the property is that no non-zero
+  // duration is ever rendered as a bare zero.
+  const SUB_MS = [0.001, 0.04, 0.1, 0.25, 0.4, 0.49, 0.499];
+  const ROUNDS_UP = [0.5, 0.51, 0.9, 1, 1.4];
+
+  test.each(SUB_MS)('%p ms is marked as below the formatter resolution, never as 0 ms', (ms) => {
+    expect(np.fmtTime(ms)).toBe('0 ms');
+    expect(np.formatTimingDuration(ms)).toBe('< 1 ms');
+  });
+
+  test.each(ROUNDS_UP)('%p ms keeps the plain formatting', (ms) => {
+    expect(np.formatTimingDuration(ms)).toBe(np.fmtTime(ms));
+    expect(np.formatTimingDuration(ms)).not.toBe('< 1 ms');
+  });
+
+  test('a genuine zero is a zero, and an absent duration formats to nothing', () => {
+    expect(np.formatTimingDuration(0)).toBe('0 ms');
+    expect(np.formatTimingDuration(-1)).toBe('');
+    expect(np.formatTimingDuration(NaN)).toBe('');
+    expect(np.formatTimingDuration(null)).toBe('');
+    expect(np.formatTimingDuration(1500)).toBe('1.50 s');
+  });
+
+  test.each([0.0001, 0.004, 0.01, 0.049])('a %p%% share is marked, never rendered as 0.0%%', (pct) => {
+    expect(pct.toFixed(1)).toBe('0.0');
+    expect(np.formatTimingShare(pct)).toBe('< 0.1%');
+  });
+
+  test.each([
+    [0, '0.0%'],
+    [0.05, '0.1%'],
+    [12.5, '12.5%'],
+    [99.62, '99.6%'],
+    [100, '100.0%'],
+  ])('a %p%% share renders as %p', (pct, expected) => {
+    expect(np.formatTimingShare(pct)).toBe(expected);
+  });
+
+  test('an absent share formats to nothing', () => {
+    expect(np.formatTimingShare(NaN)).toBe('');
+    expect(np.formatTimingShare(-1)).toBe('');
+    expect(np.formatTimingShare(null)).toBe('');
+  });
+});
+
 describe('timing phase guidance', () => {
   test('defines each displayed phase without changing the timing calculation contract', () => {
     const expectedLabels = {
@@ -962,6 +1129,26 @@ describe('timing phase guidance', () => {
     }
     expect(np.getTimingPhaseGuidance('connect').description).toContain('not counted twice');
     expect(np.getTimingPhaseGuidance('wait').description).toContain('TTFB');
+  });
+
+  // The names are the table's key column now, not a collapsed guide's, so
+  // they translate. English stays byte-identical to the guidance labels; the
+  // acronyms are kept as they are in Japanese; an undocumented key is itself.
+  test('the displayed phase names translate through the dictionary, acronyms kept', () => {
+    np.applyLanguage('en');
+    for (const phase of ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive']) {
+      expect([phase, np.timingPhaseLabel(phase)]).toEqual([phase, np.getTimingPhaseGuidance(phase).label]);
+    }
+    expect(np.timingPhaseLabel('_blocked_queueing')).toBe('_blocked_queueing');
+    np.applyLanguage('ja');
+    expect(
+      ['blocked', 'dns', 'connect', 'ssl', 'send', 'wait', 'receive'].map((phase) => np.timingPhaseLabel(phase)),
+    ).toEqual(['ブロック', 'DNS', '接続', 'TLS (SSL)', '送信', '待機 (TTFB)', '受信']);
+    // The sub-tenth share marker keeps the digit column's shape in both
+    // languages: a numeral, not prose, right-aligned under the other shares.
+    expect(np.formatTimingShare(0.04)).toBe('< 0.1%');
+    np.applyLanguage('en');
+    expect(np.formatTimingShare(0.04)).toBe('< 0.1%');
   });
 
   test('handles unknown phases and states the browser-evidence limitation', () => {
@@ -4936,7 +5123,12 @@ describe('uiText and display-time reason localization', () => {
     expect(np.uiText('urlBreakdownOpenQuery')).toBe('?{count} params — open Query');
     expect(np.uiText('urlBreakdownShowFull')).toBe('Show full URL');
     expect(np.uiText('kvShowAll')).toBe('Show all ({count} chars)');
+    expect(np.uiText('timingNoPhasesReported')).toBe('No timing phases were reported for this request.');
+    expect(np.uiText('cookieExpiresLiteral')).toBe('Expires: {value}');
     np.applyLanguage('ja');
+    expect(np.uiText('timingNoPhasesReported')).toBe('このリクエストではタイミングフェーズが報告されていません。');
+    // A wire token, so it reads the same in both languages, like Max-Age.
+    expect(np.uiText('cookieExpiresLiteral')).toBe('Expires: {value}');
     expect(np.uiText('detailsEmptyTitle')).toBe('リクエストを選択してください...');
     expect(np.uiText('titleDetailsCopyUrl')).toBe('サニタイズ済み URL をコピー');
     expect(np.uiText('detailsQueryCount')).toBe('クエリパラメーター {count} 件');
@@ -5593,7 +5785,10 @@ describe('details reopen status', () => {
       'paneSearchPrevLabel',
       'paneSearchNextLabel',
       'paneSearchExpandLabel',
+      'paneSearchSourceLabel',
     ];
+    // The Body pane's renderer picker names the view each button switches to.
+    const BODY_VIEW_KEYS = ['bodyViewTree', 'bodyViewText', 'bodyViewRendered', 'bodyViewSource'];
     const INSPECTOR_HALF_FRAMES = [
       'inspectorCollapseHalfTitle',
       'inspectorExpandHalfTitle',
@@ -5619,6 +5814,7 @@ describe('details reopen status', () => {
       ...INSPECTOR_HALF_FRAMES.map((key) => ({ key, slot: 'half', values: INSPECTOR_HALF_KEYS })),
       { key: 'inspectorHalfPercentValue', slot: 'half', values: INSPECTOR_HALF_KEYS, others: { percent: 50 } },
       { key: 'menuHighlightColorNamed', slot: 'color', values: COLOR_NAME_KEYS },
+      { key: 'bodyViewButtonTitle', slot: 'view', values: BODY_VIEW_KEYS },
       { key: 'bodyPaneFrame', slot: 'label', values: BODY_STATE_KEYS, others: { reason: np.uiText('reasonBodyEvicted') } },
       { key: 'bodyPaneFrame', slot: 'reason', values: BODY_REASON_KEYS, others: { label: np.uiText('bodyStateEvicted') } },
     ];
@@ -7609,6 +7805,176 @@ describe('per-row value copy and the cookie header summary', () => {
   });
 });
 
+describe('set-cookie parsing for the Cookies tables', () => {
+  test('a Set-Cookie header splits into its pair and its attributes', () => {
+    const parsed = np.parseSetCookieHeader(
+      'session=a1b2c3; Domain=.example.test; Path=/checkout; Expires=Wed, 09 Sep 2026 09:00:01 GMT;' +
+        ' Secure; HttpOnly; SameSite=Lax; Partitioned',
+    );
+    expect(parsed.name).toBe('session');
+    expect(parsed.value).toBe('a1b2c3');
+    expect(parsed.domain).toBe('.example.test');
+    expect(parsed.path).toBe('/checkout');
+    expect(parsed.expires).toBe('Wed, 09 Sep 2026 09:00:01 GMT');
+    expect(parsed.secure).toBe(true);
+    expect(parsed.httpOnly).toBe(true);
+    expect(parsed.sameSite).toBe('Lax');
+    expect(parsed.partitioned).toBe(true);
+    expect(np.planSetCookieFlags(parsed)).toEqual(['Secure', 'HttpOnly', 'SameSite=Lax', 'Partitioned']);
+  });
+
+  test('attribute names are case-insensitive and the last one wins', () => {
+    // Every one of these is a name a server really sends, and a case-sensitive
+    // reading would have shown the cookie as having no attributes at all.
+    const shouted = np.parseSetCookieHeader('id=1; DOMAIN=a.test; path=/x; SECURE; httponly; samesite=None; PARTITIONED');
+    expect(shouted.domain).toBe('a.test');
+    expect(shouted.path).toBe('/x');
+    expect(shouted.secure).toBe(true);
+    expect(shouted.httpOnly).toBe(true);
+    expect(shouted.sameSite).toBe('None');
+    expect(shouted.partitioned).toBe(true);
+    // A repeated attribute takes its last value, the rule a browser applies.
+    expect(np.parseSetCookieHeader('id=1; Path=/a; Path=/b').path).toBe('/b');
+    // Whitespace and an empty run between semicolons are not attributes.
+    expect(np.parseSetCookieHeader('id=1;;  ; Secure ').secure).toBe(true);
+  });
+
+  test('only the first = splits the pair, and a name-only cookie keeps its name', () => {
+    // A base64 pad and a JWT both carry '=' inside the value; splitting on the
+    // last one, or on every one, loses the tail of the value.
+    const padded = np.parseSetCookieHeader('sig=YWJjZA==; Path=/');
+    expect(padded.name).toBe('sig');
+    expect(padded.value).toBe('YWJjZA==');
+    expect(padded.path).toBe('/');
+    // The same reading parseCookieHeader gives the request side, so the two
+    // tables agree about what a malformed cookie is and neither drops a row
+    // its tab already counted.
+    const bare = np.parseSetCookieHeader('justaname; Secure');
+    expect([bare.name, bare.value]).toEqual(['justaname', '']);
+    expect(np.parseCookieHeader('justaname')[0]).toEqual({ name: 'justaname', value: '' });
+    expect(np.parseSetCookieHeader('')).toMatchObject({ name: '', value: '' });
+    expect(np.parseSetCookieHeader(null)).toMatchObject({ name: '', value: '' });
+    // An attribute with no value is a flag; one the parser does not know is
+    // ignored rather than becoming a row of its own.
+    expect(np.parseSetCookieHeader('id=1; Priority=High; Secure')).toMatchObject({ secure: true, value: '1' });
+  });
+
+  test('a quoted value keeps its quotes, and the reading sits beside them', () => {
+    // RFC 6265 does not allow a ';' inside a quoted value, so the ';' split is
+    // safe. The captured bytes stay the value — the cell renders them and the
+    // clipboard carries them — and the unquoted reading is never either.
+    const quoted = np.parseSetCookieHeader('pref="a=b c"; Path=/');
+    expect(quoted.value).toBe('"a=b c"');
+    expect(quoted.quoted).toBe(true);
+    expect(quoted.unquoted).toBe('a=b c');
+    expect(quoted.path).toBe('/');
+    const plain = np.parseSetCookieHeader('pref=ab');
+    expect([plain.quoted, plain.unquoted]).toEqual([false, 'ab']);
+    // One quote is not a quoted value, and neither is a lone '"'.
+    expect(np.parseSetCookieHeader('pref="ab')).toMatchObject({ quoted: false, unquoted: '"ab' });
+    expect(np.parseSetCookieHeader('pref="')).toMatchObject({ quoted: false, unquoted: '"' });
+  });
+
+  test('a Max-Age reads as an instant only when the response dates it', () => {
+    const cookie = np.parseSetCookieHeader('id=1; Max-Age=3600');
+    expect(np.planCookieExpiry(cookie, 'Wed, 02 Sep 2026 09:00:01 GMT')).toEqual({
+      source: 'max-age',
+      maxAge: '3600',
+      expires: '',
+      computed: 'Wed, 02 Sep 2026 10:00:01 GMT',
+    });
+    // No date header, an unparseable one, or a Max-Age that is not an integer:
+    // the literal stands alone rather than the panel guessing an instant.
+    for (const anchor of ['', null, undefined, 'not a date']) {
+      expect([anchor, np.planCookieExpiry(cookie, anchor).computed]).toEqual([anchor, '']);
+      expect([anchor, np.planCookieExpiry(cookie, anchor).maxAge]).toEqual([anchor, '3600']);
+    }
+    for (const bad of ['soon', '3600.5', '1e3', '']) {
+      const plan = np.planCookieExpiry(np.parseSetCookieHeader('id=1; Max-Age=' + bad), 'Wed, 02 Sep 2026 09:00:01 GMT');
+      expect([bad, plan.computed]).toEqual([bad, '']);
+    }
+    // A negative Max-Age is an immediate expiry, and it dates backwards.
+    expect(
+      np.planCookieExpiry(np.parseSetCookieHeader('id=1; Max-Age=-1'), 'Wed, 02 Sep 2026 09:00:01 GMT').computed,
+    ).toBe('Wed, 02 Sep 2026 09:00:00 GMT');
+    // A duration past the largest time value JavaScript can hold would render
+    // as the string 'Invalid Date'; it states the literal instead.
+    expect(
+      np.planCookieExpiry(np.parseSetCookieHeader('id=1; Max-Age=99999999999999'), 'Wed, 02 Sep 2026 09:00:01 GMT'),
+    ).toMatchObject({ source: 'max-age', computed: '' });
+  });
+
+  test('Max-Age wins over Expires for the computed instant, and the sent Expires is kept', () => {
+    // Both attributes present: the browser's rule decides what the computed
+    // line reads from, but the Expires the response sent is still what the
+    // header carried, so the plan keeps it rather than rendering less than
+    // the captured header holds.
+    const both = np.parseSetCookieHeader('id=1; Expires=Wed, 09 Sep 2026 09:00:01 GMT; Max-Age=60');
+    expect(np.planCookieExpiry(both, 'Wed, 02 Sep 2026 09:00:01 GMT')).toEqual({
+      source: 'max-age',
+      maxAge: '60',
+      expires: 'Wed, 09 Sep 2026 09:00:01 GMT',
+      computed: 'Wed, 02 Sep 2026 09:01:01 GMT',
+    });
+    // And without an anchor the sent Expires still rides along with the
+    // Max-Age literal.
+    expect(np.planCookieExpiry(both, '')).toEqual({
+      source: 'max-age',
+      maxAge: '60',
+      expires: 'Wed, 09 Sep 2026 09:00:01 GMT',
+      computed: '',
+    });
+    // Expires is shown verbatim — it is an absolute instant already, so there
+    // is nothing to compute and nothing to mark.
+    expect(np.planCookieExpiry(np.parseSetCookieHeader('id=1; Expires=Wed, 09 Sep 2026 09:00:01 GMT'), '')).toEqual({
+      source: 'expires',
+      maxAge: '',
+      expires: 'Wed, 09 Sep 2026 09:00:01 GMT',
+      computed: '',
+    });
+    // A date Date.parse rejects is still what the response sent: the raw
+    // string, never the string 'Invalid Date'.
+    expect(np.planCookieExpiry(np.parseSetCookieHeader('id=1; Expires=yesterday'), '')).toMatchObject({
+      source: 'expires',
+      expires: 'yesterday',
+      computed: '',
+    });
+    // A session cookie states neither, and the cell says so rather than
+    // rendering as empty.
+    expect(np.planCookieExpiry(np.parseSetCookieHeader('id=1; Path=/'), 'Wed, 02 Sep 2026 09:00:01 GMT')).toEqual({
+      source: 'none',
+      maxAge: '',
+      expires: '',
+      computed: '',
+    });
+  });
+
+  test('every row a cookie table lists still redacts through its own gate', () => {
+    // The tables replaced two kv grids; the gate did not move with them. The
+    // response table hands the sanitizer the CAPTURED header name and the
+    // CAPTURED header bytes, never the cookie name or value it parsed out.
+    const captured = 'session=a1b2c3SECRET; Path=/; Secure; HttpOnly; SameSite=Lax';
+    const cookie = np.parseSetCookieHeader(captured);
+    expect(cookie.name).toBe('session');
+    expect(np.planKvCopyValue('header', 'Set-Cookie', captured)).toEqual({
+      masked: true,
+      text: np.REDACTION_MARKER,
+    });
+    // And the piece the row renders would have been let through by that gate:
+    // 'session' is a name no allowlist entry covers, but neither is it the
+    // name the row states, so the difference is what this test pins.
+    expect(np.planKvCopyValue('header', cookie.name, cookie.value).text).toBe(np.REDACTION_MARKER);
+    // The request table's rows go through the cookie gate, which redacts every
+    // value unconditionally whatever the cookie is called.
+    for (const parsed of np.parseCookieHeader('a=1; __proto__=poison; constructor=x')) {
+      expect([parsed.name, np.planKvCopyValue('cookie', parsed.name, parsed.value)]).toEqual([
+        parsed.name,
+        { masked: true, text: np.REDACTION_MARKER },
+      ]);
+    }
+  });
+});
+
 describe('sse capture pieces', () => {
   test('buildSseWrapperSource is a self-contained page IIFE with the shared caps', () => {
     const source = np.buildSseWrapperSource();
@@ -8904,7 +9270,7 @@ describe('json tree, raw view and tab signal contracts', () => {
     expect(res.textContent).toBe(resRaw);
   });
 
-  test('renderJsonHighlighted still returns its own <pre> for the Preview tab', () => {
+  test("renderJsonHighlighted still returns its own <pre> for the Body pane's Text view", () => {
     const pre = np.renderJsonHighlighted(np.formatJsonSafe('{"k":null}'));
     expect(pre.tagName).toBe('PRE');
     expect(pre.className).toBe('code-block code-json');
@@ -8918,6 +9284,27 @@ describe('json tree, raw view and tab signal contracts', () => {
     expect(np.planInspectorTabActivation('res-body', { 'res-cookies': 0 }, 'res-headers')).toBe('res-body');
     expect(np.planInspectorTabActivation(undefined, { 'res-cookies': 0 }, 'res-headers')).toBe('res-headers');
     expect(np.planInspectorTabActivation('req-query', { 'req-query': 0 }, undefined)).toBe('req-query');
+  });
+
+  test('a pick naming the retired Preview tab opens Body instead', () => {
+    // Preview was folded into Body. A choice made before that merge — the
+    // in-memory sticky pick, or a value restored from one — names a tab that
+    // no longer has a button, and the bar would silently stay where it was.
+    expect(np.planInspectorTabActivation('res-preview', {}, 'res-headers')).toBe('res-body');
+    // The choice is stored as a pane id, but a saved value may name the button.
+    expect(np.planInspectorTabActivation('res-tab-preview', {}, 'res-headers')).toBe('res-body');
+    // The mapped tab is then judged like any other: an empty Body still falls
+    // back to Headers, and a Body with content keeps the pick.
+    expect(np.planInspectorTabActivation('res-preview', { 'res-body': 0 }, 'res-headers')).toBe('res-headers');
+    expect(np.planInspectorTabActivation('res-preview', { 'res-body': 1 }, 'res-headers')).toBe('res-body');
+    // Only the retired tab is rewritten; every live tab is passed through.
+    expect(np.planInspectorTabActivation('res-timing', {}, 'res-headers')).toBe('res-timing');
+    expect(np.planInspectorTabActivation('req-body', {}, 'req-headers')).toBe('req-body');
+    // A saved value that happens to name an Object.prototype member is a tab
+    // id like any other: it passes through as the string it is, never as the
+    // function a bare lookup into the frozen literal would have returned.
+    expect(np.planInspectorTabActivation('toString', {}, 'res-headers')).toBe('toString');
+    expect(np.planInspectorTabActivation('hasOwnProperty', {}, 'res-headers')).toBe('hasOwnProperty');
   });
 
   test('the empty-pane and tree strings have Japanese frames', () => {

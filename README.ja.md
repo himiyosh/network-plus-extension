@@ -104,7 +104,7 @@ npm ci
 Chrome での検証内容:
 
 - Chrome 151 が `manifest.json` を拡張エラーなしで読み込むこと。
-- 実ブラウザ回帰テスト 129 件すべてが Chrome 151 で通ること(`CHROME_BIN=<path> npx jest tests/status-summary-browser.test.js tests/browser-availability-policy.test.js`)。
+- 実ブラウザ回帰テスト 133 件すべてが Chrome 151 で通ること(`CHROME_BIN=<path> npx jest tests/status-summary-browser.test.js tests/browser-availability-policy.test.js`)。
 - 実際の Chrome DevTools ウィンドウに `Network+` タブが現れることは手動で確認。この最後の 1 点だけは自動化の外にあります: DevTools 拡張パネルは自動化環境では安定して読み込まれず、組み込みパネルの列挙すら成功しないため、CI では断言できません。
 
 ### 初回起動
@@ -126,7 +126,7 @@ Chrome での検証内容:
 ### 調べる
 
 - 16 列 — Match・ID・Method・Status・Domain・Path・Type・Duration・Size・Client start に加え、既定で非表示の Server done・Initiator・URL・Waterfall・Operation・設定可能な Header 列。Match 列には行の状態チップが並びます。ヒットした検索キーワードごとに 1 個ずつ、そのキーワードの色で表示するため、複数条件に該当する行がどれに当たったのかが分かります(従来は最初の 1 色しか出ませんでした)。Header 列は Columns メニューで入力した任意のヘッダ名に紐づき(レスポンスヘッダ優先、無ければリクエストヘッダ)、トレース ID やキャッシュ状態をキャプチャ全体で追えます。他の列と同様にソート・フィルタ可能。表示・幅・並び順はすべて永続化されます。
-- タブ式インスペクタ: Request(Headers / Body / Query / Cookies / Raw)と Response(Headers / Body / Preview / Cookies / Timing / Raw)。Body と Raw の各ビューにはペイン下部に固定された専用キーワード検索があり、ヒットのハイライトと Enter / Shift+Enter ナビゲーションが使えます。レスポンスボディは `Content-Type` が宣言する文字コードでデコードされます(Shift_JIS・EUC-JP なども正しく表示)。画像・フォント・`.wasm` などそもそもテキストでないボディは、文字化けではなくオフセット/16 進/可読文字のダンプで表示します。`Preview` は画像を透過チェッカーボード上に描画し、小さすぎて見えない画像は拡大したうえで、実寸と拡大率をキャプションに明記します。
+- タブ式インスペクタ: Request(Headers / Body / Query / Cookies / Raw)と Response(Headers / Body / Timing / Cookies / Raw)。Body と Raw の各ビューにはスクロールしてもペイン上部に固定されたままのツールバーに専用キーワード検索があり、ヒットのハイライトと Enter / Shift+Enter ナビゲーションが使えます。レスポンスボディは `Content-Type` が宣言する文字コードでデコードされます(Shift_JIS・EUC-JP なども正しく表示)。`Body` は内容に応じて描画方法を切り替えます: 折りたたみ可能な JSON ツリー(ペインのツールバーの `Tree` / `Text` で従来の整形テキスト表示に切り替え)、サンドボックス化したフレームでの HTML 表示(`Source` でソースに切り替え)、そして透過チェッカーボード上に描画する画像 — 小さすぎて見えない画像は拡大したうえで、実寸と拡大率をキャプションに明記します。画像・フォント・`.wasm` などそもそもテキストでないボディは、文字化けではなくオフセット/16 進/可読文字のダンプで表示します。
 - フェーズごとの Timing 内訳(blocked・DNS・connect・TLS・send・wait・receive)。インラインガイドと、ブラウザ報告のタイミングが証明できないことの明示付き。
 - **Compare 2 selected requests** — <kbd>Ctrl</kbd>/<kbd>⌘</kbd> クリックでちょうど 2 行を選ぶと、URL・クエリパラメータ・メソッド・ステータス・プロトコル・ヘッダ・ボディを diff。一致・変更・片側のみの値が色分けされます。
 - **API トラフィック向けの Operation 列** — Columns メニューに既定 OFF で用意: GraphQL の `operationName`(なければ query / mutation / subscription 名を解析、バッチ対応)と JSON-RPC の `method` を POST ボディから抽出し、「POST /graphql」の行を「何をしているか」で読めるようにします。他の列と同じくソート・フィルタでき、Request の Headers ペインにも表示されます。

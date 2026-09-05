@@ -1676,17 +1676,22 @@ browserTest(
           listener(makeRequest(3, 'application/json', 'application/json', json, ''));
           await settle();
 
+          // Preview merged into Body: the image stage, the hex dump and the
+          // notice that names the bytes are all in the one pane now.
           const read = async (rowId) => {
             document.querySelector('#tbody tr[data-row-id="' + rowId + '"]').click();
             await settle();
-            document.querySelector('#res-tab-preview').click();
+            document.querySelector('#res-tab-body').click();
             await settle();
-            await new Promise((resolve) => setTimeout(resolve, 350));
+            // The caption is written by the image's own load handler.
+            for (let i = 0; i < 40; i++) {
+              if (document.querySelector('#res-body .image-preview-caption')?.textContent?.includes('px')) break;
+              await new Promise((resolve) => setTimeout(resolve, 25));
+            }
             const body = document.querySelector('#res-body');
-            const preview = document.querySelector('#res-preview');
             const raw = document.querySelector('#res-raw');
-            const image = preview.querySelector('.image-preview-stage img');
-            const stage = preview.querySelector('.image-preview-stage');
+            const image = body.querySelector('.image-preview-stage img');
+            const stage = body.querySelector('.image-preview-stage');
             const imageBox = image ? image.getBoundingClientRect() : null;
             const stageBox = stage ? stage.getBoundingClientRect() : null;
             return {
@@ -1695,11 +1700,20 @@ browserTest(
               bodyText: body.textContent,
               rawText: raw.textContent,
               hasJsonTree: !!body.querySelector('.json-tree'),
-              caption: preview.querySelector('.image-preview-caption')?.textContent || null,
+              caption: body.querySelector('.image-preview-caption')?.textContent || null,
               renderedWidth: imageBox ? Math.round(imageBox.width) : 0,
               renderedHeight: imageBox ? Math.round(imageBox.height) : 0,
               stagePainted: !!stageBox && stageBox.width > 0 && stageBox.height > 0,
-              previewText: preview.textContent,
+              // The renderer picker lives in the pane's one toolbar, not
+              // between the toolbar and the content.
+              viewButtons: Array.from(
+                body.querySelectorAll('.pane-search-bar .body-view-btn'),
+              ).map((button) => [button.textContent, button.getAttribute('aria-pressed')]),
+              strayViewButtons: body.querySelectorAll(
+                '.body-view-btn:not(.pane-search-bar .body-view-btn)',
+              ).length,
+              hasPreviewTab: !!document.querySelector('#res-tab-preview'),
+              hasPreviewPane: !!document.querySelector('#res-preview'),
             };
           };
           return { gif: await read(1), unknownType: await read(2), json: await read(3) };
@@ -1720,6 +1734,8 @@ browserTest(
         });
       }
 
+      // The tab and the pane Preview used are gone; Body answers for all of it.
+      expect([observed.gif.hasPreviewTab, observed.gif.hasPreviewPane]).toEqual([false, false]);
       expect(observed.gif.hasNotice).toBe(true);
       expect(observed.gif.dump).toBe(
         '00000000  47 49 46 38 39 61 01 00  01 00 80 00 00 00 00 00  |GIF89a..........|',
@@ -1727,7 +1743,8 @@ browserTest(
       expect(observed.gif.rawText).toContain('47 49 46 38 39 61');
 
       // A 1x1 transparent pixel at its intrinsic size is invisible; the fix is
-      // only real if the pane actually paints something a reader can see.
+      // only real if the pane actually paints something a reader can see —
+      // and it is the Body pane that paints it, beside the bytes it decodes.
       expect(observed.gif.caption).toBe('image/gif · 1 × 1 px · 42 B · enlarged 48×');
       expect(observed.gif.renderedWidth).toBe(48);
       expect(observed.gif.renderedHeight).toBe(48);
@@ -1737,11 +1754,18 @@ browserTest(
       expect(observed.unknownType.caption).toBe('image/gif · 1 × 1 px · 42 B · enlarged 48×');
       expect(observed.unknownType.renderedWidth).toBe(48);
 
-      // Text bodies keep the JSON tree and the JSON preview they always had.
+      // Text bodies keep the JSON tree they always had, and the flat view
+      // Preview used to hold is now a picker in the same pane's toolbar.
       expect(observed.json.hasNotice).toBe(false);
       expect(observed.json.dump).toBeNull();
       expect(observed.json.hasJsonTree).toBe(true);
-      expect(observed.json.previewText).toContain('"ok"');
+      expect(observed.json.viewButtons).toEqual([
+        ['Tree', 'true'],
+        ['Text', 'false'],
+      ]);
+      expect(observed.json.strayViewButtons).toBe(0);
+      // A binary body has one renderer, so it is offered no choice.
+      expect(observed.gif.viewButtons).toEqual([]);
     } finally {
       if (cdp) await cdp.close();
       await stopBrowser(browserProcess);
@@ -6278,9 +6302,9 @@ const DETAILS_HEADER_MEASURE = `(() => {
 // The inspector tabs that carry a count, pinned here as a literal. The
 // marker expectation below is derived from THIS list, never read back from
 // the data-count attribute that draws the marker: an expectation taken from
-// its own driver agrees with whatever the panel does. Headers, Body, Preview
-// and Raw hold one document or none, so an empty one takes an en dash rather
-// than a "0" that would read as a count of zero items.
+// its own driver agrees with whatever the panel does. Headers, Body and Raw
+// hold one document or none, so an empty one takes an en dash rather than a
+// "0" that would read as a count of zero items.
 const COUNTED_INSPECTOR_TABS = ['req-query', 'req-cookies', 'res-cookies'];
 
 const EMPTY_TAB_CONTRAST_MEASURE = `(() => {
@@ -8428,7 +8452,7 @@ browserTest(
             hidden: pane.hidden,
             tabSelected: document.querySelector('#req-tab-cookies').getAttribute('aria-selected'),
             focusedTab: document.activeElement ? document.activeElement.id : '',
-            rows: pane.querySelectorAll('.kv .key').length,
+            rows: pane.querySelectorAll('.cookie-table tbody > tr').length,
           };
         })()`,
       );
@@ -8680,13 +8704,33 @@ const KV_COPY_INJECT = `(async () => {
 // Presses Copy on every row of one pane and reports what reached the
 // clipboard. A row with no control is reported too, so the sweep can tell
 // "redacted" apart from "there was nothing to press".
+//
+// A row is whatever names a datum: a kv grid's key, a timing table's phase
+// name, or a cookie table's Name cell. The control is the row's own — inside
+// the same <tr>, or the first .kv-copy-btn before the next row of a grid
+// begins — so a row of six cells is walked the same way as a row of two.
 const kvCopySweep = (paneId) => `(async () => {${WAIT_FOR_IN_PAGE}
   const pane = document.querySelector('${paneId}');
+  const isRowStart = (node) =>
+    node.classList.contains('key') || node.classList.contains('timing-name');
   const rows = [];
-  for (const key of Array.from(pane.querySelectorAll('.kv > .key'))) {
-    const val = key.nextElementSibling;
-    const sibling = val.nextElementSibling;
-    const button = sibling && sibling.classList.contains('kv-copy-btn') ? sibling : null;
+  const rowStarts = pane.querySelectorAll(
+    '.kv > .key, .timing-table > .timing-name, .cookie-table tbody > tr > .cookie-cell--name',
+  );
+  for (const key of Array.from(rowStarts)) {
+    let button = null;
+    const tableRow = key.closest('tr');
+    if (tableRow) {
+      button = tableRow.querySelector('.kv-copy-btn');
+    } else {
+      for (let node = key.nextElementSibling; node; node = node.nextElementSibling) {
+        if (isRowStart(node)) break;
+        if (node.classList.contains('kv-copy-btn')) {
+          button = node;
+          break;
+        }
+      }
+    }
     if (!button) {
       rows.push({ pane: '${paneId}', key: key.textContent, hasCopy: false, clipboard: '', toast: '' });
       continue;
@@ -8761,7 +8805,15 @@ browserTest(
       expect(pressedIn('#req-cookies')).toBe(3);
       expect(pressedIn('#res-headers')).toBe(4);
       expect(pressedIn('#res-cookies')).toBe(2);
-      expect(pressedIn('#res-timing')).toBe(7);
+      // Seven phases, the remainder no phase accounts for, and Total — less
+      // the one phase this capture never reported, which has no duration to
+      // copy at all.
+      expect(pressedIn('#res-timing')).toBe(8);
+      expect(
+        swept
+          .filter((row) => row.pane === '#res-timing' && !row.hasCopy)
+          .map((row) => row.key),
+      ).toEqual(['TLS (SSL)']);
       // The Query grid carries one per parameter now. It shipped with none at
       // all — the values are prebuilt nodes, and a node-valued row has to
       // state its copy — which left the pane where the control matters most
@@ -8777,10 +8829,11 @@ browserTest(
       expect(copied('#req-cookies', 'JSESSIONID')).toEqual(['[REDACTED]', 'Copied masked value']);
       expect(copied('#req-cookies', 'remember_me')).toEqual(['[REDACTED]', 'Copied masked value']);
       expect(copied('#req-cookies', '_ga')).toEqual(['[REDACTED]', 'Copied masked value']);
-      // The counter in this label read as 'setcookie1' and matched no
-      // heuristic, so the whole Set-Cookie header went to the clipboard.
-      expect(copied('#res-cookies', 'Set-Cookie #1')).toEqual(['[REDACTED]', 'Copied masked value']);
-      expect(copied('#res-cookies', 'Set-Cookie #2')).toEqual(['[REDACTED]', 'Copied masked value']);
+      // The response table names its rows after the cookies it parsed, and the
+      // gate still judges the CAPTURED header name: 'JSESSIONID' is a name no
+      // allowlist covers either, so what the row renders never decides this.
+      expect(copied('#res-cookies', 'JSESSIONID')).toEqual(['[REDACTED]', 'Copied masked value']);
+      expect(copied('#res-cookies', 'remember_me')).toEqual(['[REDACTED]', 'Copied masked value']);
       // A private header no denylist has heard of, and a Referer whose secret
       // is in its query rather than in its name.
       expect(copied('#res-headers', 'x-internal-trace')).toEqual(['[REDACTED]', 'Copied masked value']);
@@ -8800,7 +8853,10 @@ browserTest(
       expect(copied('#req-headers', 'Accept')).toEqual(['application/json', 'Copied value']);
       expect(copied('#req-headers', 'Content-Type')).toEqual(['application/json', 'Copied value']);
       expect(copied('#res-headers', 'content-type')).toEqual(['application/json', 'Copied value']);
-      expect(copied('#res-timing', 'wait')).toEqual(['20 ms', 'Copied value']);
+      // The phase rows read as the names the panel documents, not the HAR's
+      // raw keys, and each copies the duration its own cell shows.
+      expect(copied('#res-timing', 'Wait (TTFB)')).toEqual(['20 ms', 'Copied value']);
+      expect(copied('#res-timing', 'Unaccounted')).toEqual(['5 ms', 'Copied value']);
       expect(copied('#res-timing', 'Total')).toEqual(['40 ms', 'Copied value']);
       expect(copied('#req-headers', 'Method')).toEqual(['GET', 'Copied value']);
 
@@ -8856,6 +8912,1020 @@ browserTest(
         })()`,
       );
       expect(shapes).toEqual({ callbackSegments: 1, nextSegments: 0 });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS * 2,
+);
+
+
+// Item 5-7: both Cookies panes are tables — one row per cookie, the attributes
+// in columns of their own instead of buried inside one blob per header.
+//
+// The capture carries every rendering the tables have to tell apart at once: a
+// cookie with the full set of attributes and all four flags, a Max-Age the
+// response dates (so the panel can work out an instant), a literal Expires, a
+// name-only cookie with no '=' at all, a value past the shared clamp, and a
+// second row whose response carries no `date` header, so the same Max-Age has
+// nothing to anchor to.
+const COOKIE_TABLE_LONG_VALUE = 'a1b2c3d4'.repeat(40);
+const COOKIE_TABLE_DATE = 'Wed, 02 Sep 2026 09:00:01 GMT';
+
+const COOKIE_TABLE_INJECT = `(async () => {
+  const settle = () =>
+    new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 60))));
+  const long = ${JSON.stringify(COOKIE_TABLE_LONG_VALUE)};
+  const entries = [
+    {
+      url: 'https://shop.example.test/checkout/cart',
+      requestHeaders: [
+        { name: 'Accept', value: 'text/html' },
+        { name: 'Cookie', value: 'session=' + long + '; pref=dark; optout' },
+      ],
+      responseHeaders: [
+        { name: 'content-type', value: 'text/html' },
+        { name: 'date', value: ${JSON.stringify(COOKIE_TABLE_DATE)} },
+        {
+          name: 'set-cookie',
+          value:
+            'session=' + long +
+            '; Domain=.shop.example.test; Path=/checkout; Secure; HttpOnly; SameSite=Lax; Partitioned',
+        },
+        { name: 'set-cookie', value: 'cart=abc123; Path=/; Max-Age=3600' },
+        { name: 'set-cookie', value: 'legacy=old; Expires=Wed, 09 Sep 2026 09:00:01 GMT' },
+        { name: 'set-cookie', value: 'optout' },
+        // Both expiry attributes at once: the browser reads Max-Age, but the
+        // Expires the response sent is still part of the header.
+        { name: 'set-cookie', value: 'promo=spring; Expires=Wed, 09 Sep 2026 09:00:01 GMT; Max-Age=60' },
+      ],
+    },
+    {
+      url: 'https://shop.example.test/checkout/ping',
+      requestHeaders: [{ name: 'Accept', value: 'text/html' }],
+      // No date header at all, so the same Max-Age has nothing to anchor to.
+      responseHeaders: [
+        { name: 'content-type', value: 'text/html' },
+        { name: 'set-cookie', value: 'ping=1; Max-Age=120' },
+      ],
+    },
+  ];
+  entries.forEach((entry, index) => {
+    globalThis.__networkPlusLiveListener({
+      startedDateTime: new Date(1704067200000 + index * 1000).toISOString(),
+      time: 40 + index,
+      request: { method: 'GET', url: entry.url, httpVersion: 'HTTP/2', headers: entry.requestHeaders },
+      response: {
+        status: 200,
+        statusText: 'OK',
+        httpVersion: 'HTTP/2',
+        headers: entry.responseHeaders,
+        content: { size: 9, mimeType: 'text/html' },
+      },
+      getContent(callback) {
+        callback('', '');
+      },
+    });
+  });
+  await settle();
+  return { rows: document.querySelectorAll('#tbody tr[data-row-id]').length, long };
+})()`;
+
+// What the tables ARE, read off the DOM rather than off a screenshot: the
+// element names, the header scopes, the row names, and how each cell reads.
+const COOKIE_TABLE_MEASURE = `(() => {
+  const uiTextProbeShowLess = 'Show less';
+  const table = (paneId) => document.querySelector(paneId + ' .cookie-table');
+  const headText = (paneId) =>
+    Array.from(table(paneId).querySelectorAll('thead th')).map((th) => th.textContent);
+  const headScopes = (paneId) =>
+    Array.from(table(paneId).querySelectorAll('thead th')).map((th) => th.getAttribute('scope'));
+  const bodyRows = (paneId) => Array.from(table(paneId).querySelectorAll('tbody > tr'));
+  const cell = (tr, id) => tr.querySelector('.cookie-cell--' + id);
+  const readRow = (tr) => ({
+    nameTag: cell(tr, 'name').tagName,
+    nameScope: cell(tr, 'name').getAttribute('scope'),
+    name: cell(tr, 'name').textContent,
+    value: cell(tr, 'value').textContent,
+    domain: cell(tr, 'domain') ? cell(tr, 'domain').textContent : null,
+    // A domain is dot-separated labels, so the cell offers a break after each
+    // '.'. Counted, not measured: <wbr> adds nothing to textContent, so the
+    // count says the opportunities are there while the assertion above says
+    // the cell still holds the domain the response sent.
+    domainBreaks: cell(tr, 'domain') ? cell(tr, 'domain').querySelectorAll('wbr').length : null,
+    path: cell(tr, 'path') ? cell(tr, 'path').textContent : null,
+    expiryLiteral: cell(tr, 'expires') && cell(tr, 'expires').querySelector('.cookie-expiry-literal')
+      ? cell(tr, 'expires').querySelector('.cookie-expiry-literal').textContent
+      : '',
+    expiryComputed: cell(tr, 'expires') && cell(tr, 'expires').querySelector('.cookie-expiry-computed')
+      ? cell(tr, 'expires').querySelector('.cookie-expiry-computed').textContent
+      : '',
+    // The Expires a response sent beside a Max-Age: kept and named, never
+    // dropped for the attribute the browser happens to prefer.
+    expirySent: cell(tr, 'expires') && cell(tr, 'expires').querySelector('.cookie-expiry-literal--sent')
+      ? cell(tr, 'expires').querySelector('.cookie-expiry-literal--sent').textContent
+      : '',
+    flags: cell(tr, 'flags')
+      ? Array.from(cell(tr, 'flags').querySelectorAll('.cookie-flag')).map((chip) => chip.textContent)
+      : null,
+    absent: cell(tr, 'flags')
+      ? Array.from(tr.querySelectorAll('.cookie-absent')).map((el) => el.textContent)
+      : [],
+    hasCopy: !!tr.querySelector('.kv-copy-btn'),
+  });
+  // A drag across one cell must carry that cell's datum and nothing else: no
+  // control label, no derived reading, and no newline inside one token.
+  const selectionOf = (el) => {
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    selection.addRange(range);
+    const text = selection.toString();
+    selection.removeAllRanges();
+    return text;
+  };
+  const resRows = bodyRows('#res-cookies');
+  const sessionRow = resRows[0];
+  const cartRow = resRows[1];
+  const valueCell = cell(sessionRow, 'value');
+  const computed = cell(cartRow, 'expires').querySelector('.cookie-expiry-computed');
+  return {
+    reqTag: table('#req-cookies').tagName,
+    resTag: table('#res-cookies').tagName,
+    reqHead: headText('#req-cookies'),
+    resHead: headText('#res-cookies'),
+    reqHeadScopes: headScopes('#req-cookies'),
+    resHeadScopes: headScopes('#res-cookies'),
+    reqRows: bodyRows('#req-cookies').map(readRow),
+    resRows: resRows.map(readRow),
+    // The count on the tab and the rows the tab lists are the same number.
+    reqTabCount: document.querySelector('#req-tab-cookies').dataset.count,
+    resTabCount: document.querySelector('#res-tab-cookies').dataset.count,
+    reqRowCount: bodyRows('#req-cookies').length,
+    resRowCount: resRows.length,
+    // The clamp is a clip, not a truncation: the whole value is still in the
+    // cell, and the toggle is the visible marker that it is being clipped.
+    clampedText: valueCell.querySelector('.val-text.val--clamped') ? valueCell.querySelector('.val-text').textContent : '',
+    clampToggle: valueCell.querySelector('.val-clamp-toggle')
+      ? valueCell.querySelector('.val-clamp-toggle').textContent
+      : '',
+    // The clamp is scoped under .kv in the stylesheet, so the table has to
+    // state it again for its own cells. Whether it did is a property, never a
+    // height in px: clipped means the box shows less than it holds, and
+    // pressing the toggle makes it show all of it.
+    clampClips: (() => {
+      const box = valueCell.querySelector('.val-text.val--clamped');
+      return box ? box.scrollHeight > box.clientHeight : false;
+    })(),
+    clampExpands: (() => {
+      const toggle = valueCell.querySelector('.val-clamp-toggle');
+      if (!toggle) return false;
+      toggle.click();
+      const box = valueCell.querySelector('.val-text');
+      const shown = box.scrollHeight <= box.clientHeight;
+      const label = toggle.textContent;
+      toggle.click();
+      return shown && label === uiTextProbeShowLess;
+    })(),
+    // The code face is scoped under .kv too.
+    valueFontFamily: getComputedStyle(valueCell).fontFamily,
+    valueSelected: selectionOf(valueCell),
+    expirySelected: selectionOf(cell(cartRow, 'expires')),
+    // Both literals are the header's words and both select; the computed line
+    // between them does not.
+    bothExpirySelected: selectionOf(cell(resRows[4], 'expires')),
+    computedUserSelect: getComputedStyle(computed).userSelect,
+    absentUserSelect: getComputedStyle(document.querySelector('#res-cookies .cookie-absent')).userSelect,
+    copyUserSelect: getComputedStyle(document.querySelector('#res-cookies .kv-copy-btn')).userSelect,
+    // One tab stop for the whole table, the same roving a kv grid keeps.
+    resTabStops: Array.from(document.querySelectorAll('#res-cookies .kv-copy-btn')).filter(
+      (button) => button.tabIndex === 0,
+    ).length,
+    resCopyButtons: document.querySelectorAll('#res-cookies .kv-copy-btn').length,
+  };
+})()`;
+
+// Nothing below may be derived from a measured text width. Over a sweep of
+// pane widths, and again under a face two sizes larger than any local one: no
+// cell clips, and the PANE never scrolls sideways. Six columns in a 420px pane
+// cannot always fit, and the answer to that may not be a clipped heading — so
+// the table's own wrapper takes the residue, and the property held at every
+// width is that it is scrollable rather than clipping. That the shipped design
+// fits without any scroll at all is stated once, where there is room for it.
+const COOKIE_TABLE_FIT_MEASURE = `(() => {
+  const overflow = (el) => Math.round(el.scrollWidth - el.clientWidth);
+  const within = (child, parent) =>
+    Math.round(child.getBoundingClientRect().right) <= Math.round(parent.getBoundingClientRect().right) + 1;
+  const cells = Array.from(document.querySelectorAll('#res-cookies .cookie-cell'));
+  const chips = Array.from(document.querySelectorAll('#res-cookies .cookie-flag'));
+  const heads = Array.from(document.querySelectorAll('#res-cookies thead th'));
+  const valueCell = document.querySelector('#res-cookies tbody > tr .cookie-cell--value');
+  const copyButton = document.querySelector('#res-cookies .kv-copy-btn');
+  // The column the reader came for has to be the widest text column, at any
+  // pane width and under any face: an auto table sizes by minimum content
+  // width, and the Value cell's overflow-wrap:anywhere gave it a one-character
+  // minimum while every other column kept whole words, so at the 538px pane
+  // Value got 79px of 509 while Expires had 105 and Flags 100.
+  const columnWidths = Object.fromEntries(
+    heads.map((th) => [th.className.replace('cookie-col cookie-col--', ''), th.getBoundingClientRect().width]),
+  );
+  const valueWidest = ['name', 'domain', 'path', 'expires', 'flags'].every(
+    (column) => columnWidths.value > columnWidths[column],
+  );
+  // The in-cell "Show all" control is chrome, not value: it breaks between its
+  // words or not at all. Each word is ranged on its own and asked how many line
+  // boxes it occupies — a word broken across lines occupies two — so this is
+  // a statement about where the breaks fall, never about a width.
+  const toggle = valueCell.querySelector('.val-clamp-toggle');
+  const toggleNode = toggle ? toggle.firstChild : null;
+  let toggleWordsWhole = false;
+  if (toggleNode && toggleNode.nodeType === Node.TEXT_NODE) {
+    let index = 0;
+    toggleWordsWhole = toggleNode.data.split(' ').every((word) => {
+      const range = document.createRange();
+      range.setStart(toggleNode, index);
+      range.setEnd(toggleNode, index + word.length);
+      index += word.length + 1;
+      return range.getClientRects().length === 1;
+    });
+  }
+  const toggleLines = toggle
+    ? Math.round(toggle.getBoundingClientRect().height / parseFloat(getComputedStyle(toggle).lineHeight))
+    : 0;
+  return {
+    columnWidths,
+    valueWidest,
+    toggleWordsWhole,
+    toggleLines,
+    paneOverflow: overflow(document.querySelector('#res-cookies')),
+    reqPaneOverflow: overflow(document.querySelector('#req-cookies')),
+    wrapperOverflow: overflow(document.querySelector('#res-cookies .cookie-table-scroll')),
+    wrapperScrollable: getComputedStyle(document.querySelector('#res-cookies .cookie-table-scroll')).overflowX === 'auto',
+    worstCellOverflow: Math.max(...cells.map(overflow)),
+    worstHeadOverflow: Math.max(...heads.map(overflow)),
+    chipsInsideCells: chips.every((chip) => within(chip, chip.closest('.cookie-cell'))),
+    copyInsideTable: within(copyButton, document.querySelector('#res-cookies .cookie-table')),
+    // The long value wraps rather than clipping: its text box holds at least
+    // two of its own line boxes — measured against the computed line-height,
+    // never a px constant: under the oversized probe a one-line cell was
+    // 30px tall and read as wrapped against a 24px threshold — and the whole
+    // string is still its textContent.
+    valueLines: (() => {
+      const valueText = valueCell.querySelector('.val-text') || valueCell;
+      const lineHeight = parseFloat(getComputedStyle(valueText).lineHeight);
+      return lineHeight > 0 ? valueText.getBoundingClientRect().height / lineHeight : NaN;
+    })(),
+    valueWrapped: (() => {
+      const valueText = valueCell.querySelector('.val-text') || valueCell;
+      const lineHeight = parseFloat(getComputedStyle(valueText).lineHeight);
+      return lineHeight > 0 && valueText.getBoundingClientRect().height >= lineHeight * 2 - 0.5;
+    })(),
+    valueCarriesWholeString: valueCell.textContent.indexOf(${JSON.stringify(COOKIE_TABLE_LONG_VALUE)}) !== -1,
+  };
+})()`;
+
+// A row whose every cell holds a single line is exactly as tall as the header
+// row above it. A comparison of two boxes in the same table under the same
+// font, never a height in px: whatever face CI resolves, the heading and a
+// one-line row are one line each. This is what fails when a label the panel
+// cannot break — 'コピー', which CJK line-breaking will split between any two
+// characters — renders down three lines and drags the whole row with it.
+const COOKIE_ROW_FITS = (paneId, value) => `(() => {
+  const table = document.querySelector('${paneId} .cookie-table');
+  const head = table.querySelector('thead tr').getBoundingClientRect().height;
+  const row = Array.from(table.querySelectorAll('tbody > tr')).find(
+    (tr) => tr.querySelector('.cookie-cell--value').textContent === ${JSON.stringify(value)},
+  );
+  return {
+    found: !!row,
+    fits: !!row && Math.round(row.getBoundingClientRect().height) <= Math.round(head) + 1,
+  };
+})()`;
+
+browserTest(
+  'both Cookies panes are tables whose cells wrap, mark a computed expiry, and copy the captured header',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT + CLIPBOARD_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await waitForLiveNetworkListener(cdp);
+      const injected = await evaluate(cdp, COOKIE_TABLE_INJECT, true);
+      expect(injected.rows).toBe(2);
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#tbody tr[data-row-id="1"]').click();
+          document.querySelector('#req-tab-cookies').click();
+          document.querySelector('#res-tab-cookies').click();
+        })()`,
+      );
+      await settleLayout(cdp);
+      const measured = await evaluate(cdp, COOKIE_TABLE_MEASURE);
+
+      // (a) Real tables, so a screen reader can say which column a cell is in.
+      // A kv grid could only ever label the row 'Set-Cookie #1'.
+      expect(measured.reqTag).toBe('TABLE');
+      expect(measured.resTag).toBe('TABLE');
+      expect(measured.reqHead).toEqual(['Name', 'Value', 'Copy']);
+      expect(measured.resHead).toEqual(['Name', 'Value', 'Domain', 'Path', 'Expires', 'Flags', 'Copy']);
+      expect(measured.reqHeadScopes).toEqual(['col', 'col', 'col']);
+      expect(measured.resHeadScopes).toEqual(['col', 'col', 'col', 'col', 'col', 'col', 'col']);
+      expect(measured.resRows.map((row) => row.nameTag)).toEqual(['TH', 'TH', 'TH', 'TH', 'TH']);
+      expect(measured.resRows.map((row) => row.nameScope)).toEqual(['row', 'row', 'row', 'row', 'row']);
+
+      // (b) One row per Set-Cookie header, and the tab's count is that same
+      // number — a parser that dropped a malformed cookie would disagree with
+      // the tab that promised it.
+      expect(measured.resRowCount).toBe(5);
+      expect(measured.resTabCount).toBe('5');
+      expect(measured.reqRowCount).toBe(3);
+      expect(measured.reqTabCount).toBe('3');
+
+      // (c) Every attribute in a column of its own, the flags as chips spelled
+      // the way the wire spells them, and a name-only cookie keeping its name.
+      expect(measured.resRows.map((row) => row.name)).toEqual(['session', 'cart', 'legacy', 'optout', 'promo']);
+      expect(measured.resRows[0].domain).toBe('.shop.example.test');
+      expect(measured.resRows[0].domainBreaks).toBe(3);
+      expect(measured.resRows[0].path).toBe('/checkout');
+      expect(measured.resRows[0].flags).toEqual(['Secure', 'HttpOnly', 'SameSite=Lax', 'Partitioned']);
+      expect(measured.resRows[1].flags).toEqual([]);
+      expect(measured.resRows[3].name).toBe('optout');
+      // A name-only cookie states its absent value the way every other absent
+      // attribute is stated: an empty cell would read the same as a value the
+      // renderer dropped. Five dashes — value, domain, path, expires, flags.
+      expect(measured.resRows[3].value).toBe('—');
+      expect(measured.resRows[3].absent).toEqual(['—', '—', '—', '—', '—']);
+      // Every response row has a control, because what it copies is the whole
+      // captured header — a cookie with no '=' still came in a Set-Cookie the
+      // reader may want. On the request side there is no header behind the
+      // pair, so a name-only cookie carries no control rather than one that
+      // copies an empty string.
+      expect(measured.resRows.map((row) => row.hasCopy)).toEqual([true, true, true, true, true]);
+      expect(measured.reqRows.map((row) => row.hasCopy)).toEqual([true, true, false]);
+      // An attribute the response never sent is stated as absent, so "no
+      // Domain" reads differently from a cell that failed to render.
+      expect(measured.resRows[1].absent).toEqual(['—', '—']);
+      expect(measured.reqRows.map((row) => row.name)).toEqual(['session', 'pref', 'optout']);
+      expect(measured.reqRows[1].value).toBe('dark');
+      expect(measured.reqRows[2].value).toBe('—');
+
+      // (d) The one string in a cell the response did not send. Max-Age is a
+      // duration; the instant it works out to is the panel's arithmetic, so it
+      // is filed UNDER the literal, labelled, and left out of a drag entirely.
+      expect(measured.resRows[1].expiryLiteral).toBe('Max-Age: 3600');
+      expect(measured.resRows[1].expiryComputed).toBe('ComputedWed, 02 Sep 2026 10:00:01 GMT');
+      expect(measured.expirySelected).toBe('Max-Age: 3600');
+      expect(measured.computedUserSelect).toBe('none');
+      expect(measured.absentUserSelect).toBe('none');
+      expect(measured.copyUserSelect).toBe('none');
+      // An Expires the response sent verbatim is not marked, because nothing
+      // was computed from it.
+      expect(measured.resRows[2].expiryLiteral).toBe('Wed, 09 Sep 2026 09:00:01 GMT');
+      expect(measured.resRows[2].expiryComputed).toBe('');
+      expect(measured.resRows[2].expirySent).toBe('');
+      // Both attributes at once: the computed line reads from the Max-Age, the
+      // rule a browser applies, but the Expires the response sent is still
+      // rendered — named, so under the Max-Age literal it cannot be mistaken
+      // for the instant the panel worked out — and a drag across the cell
+      // carries both literals and not the computed line between them.
+      expect(measured.resRows[4].expiryLiteral).toBe('Max-Age: 60');
+      expect(measured.resRows[4].expirySent).toBe('Expires: Wed, 09 Sep 2026 09:00:01 GMT');
+      expect(measured.resRows[4].expiryComputed).toBe('ComputedWed, 02 Sep 2026 09:01:01 GMT');
+      expect(measured.bothExpirySelected.split('\n').filter((line) => line !== '')).toEqual([
+        'Max-Age: 60',
+        'Expires: Wed, 09 Sep 2026 09:00:01 GMT',
+      ]);
+      // The other rows carry no second literal: nothing was sent to show.
+      expect(measured.resRows.slice(0, 4).map((row) => row.expirySent)).toEqual(['', '', '', '']);
+
+      // (e) A value past the shared clamp is clipped, not truncated: the whole
+      // string is still in the cell, the toggle is the visible marker that it
+      // is being clipped, and a drag across the cell carries the value alone —
+      // no toggle label, no "Copy", and no newline inside the token.
+      expect(measured.clampedText).toBe(injected.long);
+      expect(measured.clampToggle).toBe('Show all (320 chars)');
+      expect(measured.clampClips).toBe(true);
+      expect(measured.clampExpands).toBe(true);
+      expect(measured.valueFontFamily).toContain('Cascadia Code');
+      // And a row whose cells each hold one line is one line tall — the
+      // reference the Japanese pass below is measured against.
+      expect(await evaluate(cdp, COOKIE_ROW_FITS('#req-cookies', 'dark'))).toEqual({ found: true, fits: true });
+      expect(measured.valueSelected).toBe(injected.long);
+      expect(measured.valueSelected).not.toContain('\n');
+
+      // (f) One tab stop for the whole table, the roving every kv grid keeps.
+      expect(measured.resCopyButtons).toBe(5);
+      expect(measured.resTabStops).toBe(1);
+
+      // (h0) At the pane the panel ships at 1280x800, before any width is
+      // forced: Value is the widest text column and the in-cell control breaks
+      // between its words or not at all. The same two properties are held
+      // across the sweep below; this is the one width a reader actually gets.
+      const shipped = await evaluate(cdp, COOKIE_TABLE_FIT_MEASURE);
+      expect(shipped.valueWidest).toBe(true);
+      expect(shipped.toggleWordsWhole).toBe(true);
+      expect(shipped.toggleLines).toBeLessThanOrEqual(2);
+
+      // (g) The copy carries the CAPTURED header through the header gate, and
+      // never the pieces the table parsed out of it — not the cookie name it
+      // renders, and not the instant it computed.
+      const copied = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const before = globalThis.__networkPlusCopied.length;
+          document
+            .querySelectorAll('#res-cookies .cookie-table tbody > tr')[1]
+            .querySelector('.kv-copy-btn')
+            .click();
+          await waitFor(() => globalThis.__networkPlusCopied.length > before, 300);
+          return {
+            text: globalThis.__networkPlusCopied.slice(-1)[0],
+            toast: document.querySelector('#copyToast').textContent,
+          };
+        })()`,
+        true,
+      );
+      expect(copied).toEqual({ text: '[REDACTED]', toast: 'Copied masked value' });
+
+      // (h) The layout property, over a sweep of pane widths and again under a
+      // face two sizes larger than any local one. No track is a fixed px
+      // width, so the answer may not depend on a font: every cell wraps inside
+      // its own box, no cell clips, and neither the pane nor the wrapper has
+      // to scroll sideways.
+      for (const oversized of [false, true]) {
+        if (oversized) {
+          await evaluate(
+            cdp,
+            `(() => {
+              const style = document.createElement('style');
+              style.id = 'oversizedCookieProbe';
+              style.textContent =
+                '.cookie-table,.cookie-table th,.cookie-table td,.cookie-flag,.cookie-table .kv-copy-btn,' +
+                '.cookie-table .val-clamp-toggle,.cookie-expiry-computed{font-size:24px !important;line-height:30px !important}';
+              document.head.appendChild(style);
+            })()`,
+          );
+        }
+        for (const width of [440, 520, 640, 760, 900]) {
+          await evaluate(cdp, `document.querySelector('#details').style.flexBasis = '${width}px'`);
+          await settleLayout(cdp);
+          const fit = await evaluate(cdp, COOKIE_TABLE_FIT_MEASURE);
+          const at = (oversized ? 'oversized ' : '') + width + 'px';
+          expect([at, fit.paneOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.reqPaneOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.wrapperScrollable]).toEqual([at, true]);
+          expect([at, fit.worstCellOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.worstHeadOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.chipsInsideCells]).toEqual([at, true]);
+          expect([at, fit.copyInsideTable]).toEqual([at, true]);
+          expect([at, fit.valueWrapped]).toEqual([at, true]);
+          expect([at, fit.valueCarriesWholeString]).toEqual([at, true]);
+          // The column the reader came for is the widest text column at every
+          // width and under the oversized face too: its floor is in ch, so it
+          // scales with whatever face the table renders in.
+          expect([at, fit.valueWidest]).toEqual([at, true]);
+          // And the control inside it never breaks inside a word. Two lines at
+          // most: the floor is 14ch of the cell's own face and the control's
+          // longest word is 11ch of it, so "Show all" and "(320 chars)" each
+          // fit a line whatever the face — five lines was the defect.
+          expect([at, fit.toggleWordsWhole]).toEqual([at, true]);
+          expect([at, fit.toggleLines <= 2]).toEqual([at, true]);
+          // Given room, the columns fit by wrapping rather than by scrolling.
+          // Stated at the widest width of the sweep and at the shipped font,
+          // so it is a statement about the design and not about a face: at
+          // 900px the columns' own words take well under half the pane, and a
+          // fallback face half again as wide still leaves the table inside it.
+          if (!oversized && width === 900) {
+            expect([at, fit.wrapperOverflow <= 0]).toEqual([at, true]);
+          }
+        }
+        if (oversized) await evaluate(cdp, "document.querySelector('#oversizedCookieProbe').remove()");
+      }
+      await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
+
+      // (i) The second capture's response carries no `date` header, so the
+      // same Max-Age has nothing to anchor to and the literal stands alone —
+      // the panel states the number the response sent instead of guessing an
+      // instant from the clock.
+      await evaluate(cdp, "document.querySelector('#tbody tr[data-row-id=\"2\"]').click()");
+      await settleLayout(cdp);
+      const unanchored = await evaluate(
+        cdp,
+        `(() => {
+          const row = document.querySelector('#res-cookies .cookie-table tbody > tr');
+          const expires = row.querySelector('.cookie-cell--expires');
+          return {
+            name: row.querySelector('.cookie-cell--name').textContent,
+            literal: expires.querySelector('.cookie-expiry-literal').textContent,
+            computed: expires.querySelectorAll('.cookie-expiry-computed').length,
+          };
+        })()`,
+      );
+      expect(unanchored).toEqual({ name: 'ping', literal: 'Max-Age: 120', computed: 0 });
+
+      // (j) Japanese repaints the column names and the computed label from the
+      // same dictionary. The flags are protocol tokens and stay as the wire
+      // spells them: translating "HttpOnly" would name an attribute no
+      // response ever sent.
+      await reloadInLanguage(page, 'ja');
+      await waitForLiveNetworkListener(cdp);
+      expect((await evaluate(cdp, COOKIE_TABLE_INJECT, true)).rows).toBe(2);
+      await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#tbody tr[data-row-id="1"]').click();
+          document.querySelector('#req-tab-cookies').click();
+          document.querySelector('#res-tab-cookies').click();
+        })()`,
+      );
+      await settleLayout(cdp);
+      // The same property, in the language whose line-breaking rules broke it:
+      // every cell of this row still holds one line, control label included.
+      expect(await evaluate(cdp, COOKIE_ROW_FITS('#req-cookies', 'dark'))).toEqual({ found: true, fits: true });
+      const japanese = await evaluate(
+        cdp,
+        `(() => {
+          const table = document.querySelector('#res-cookies .cookie-table');
+          const rows = Array.from(table.querySelectorAll('tbody > tr'));
+          return {
+            head: Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent),
+            computedLabel: rows[1].querySelector('.cookie-expiry-computed-label').textContent,
+            copy: rows[1].querySelector('.kv-copy-btn').textContent,
+            flags: Array.from(rows[0].querySelectorAll('.cookie-flag')).map((chip) => chip.textContent),
+          };
+        })()`,
+      );
+      expect(japanese.head).toEqual(['名前', '値', 'ドメイン', 'パス', '有効期限', 'フラグ', 'コピー']);
+      expect(japanese.computedLabel).toBe('計算値');
+      expect(japanese.copy).toBe('コピー');
+      expect(japanese.flags).toEqual(['Secure', 'HttpOnly', 'SameSite=Lax', 'Partitioned']);
+      // The standing guard: nothing the panel WROTE here may be ASCII-only
+      // English. The flags are excluded deliberately and asserted verbatim
+      // above — they are the response's words, not the panel's.
+      const painted = [...japanese.head, japanese.computedLabel, japanese.copy];
+      expect(painted.length).toBe(9);
+      for (const value of painted) {
+        expect([value, /[A-Za-z]/.test(value)]).toEqual([value, false]);
+        expect([value, /[぀-ヿ㐀-鿿]/.test(value)]).toEqual([value, true]);
+      }
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS * 2,
+);
+
+// Item 5-4: the Timing pane is one table of phases, offset down a shared track.
+//
+// The capture is chosen so every rendering the table has to distinguish is on
+// screen at once: a phase reported as a genuine zero, a phase under the
+// formatter's own resolution, a phase the capture never reported at all, and a
+// reported duration the phases fall short of.
+const TIMING_TABLE_INJECT = `(async () => {
+  const settle = () =>
+    new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 60))));
+  globalThis.__networkPlusLiveListener({
+    startedDateTime: new Date(1704067200000).toISOString(),
+    time: 1000,
+    request: {
+      method: 'GET',
+      url: 'https://timing.example.test/v1/report',
+      httpVersion: 'HTTP/2',
+      headers: [{ name: 'Accept', value: 'application/json' }],
+    },
+    response: {
+      status: 200,
+      statusText: 'OK',
+      httpVersion: 'HTTP/2',
+      headers: [{ name: 'content-type', value: 'application/json' }],
+      content: { size: 11, mimeType: 'application/json' },
+    },
+    timings: { blocked: 0, dns: 0.4, connect: 40, ssl: -1, send: 10, wait: 800, receive: 50 },
+    getContent(callback) {
+      callback('{"ok":true}', '');
+    },
+  });
+  await settle();
+  document.querySelector('#tbody tr[data-row-id="1"]').click();
+  await settle();
+  document.querySelector('#res-tab-timing').click();
+  await settle();
+  return document.querySelectorAll('#res-timing .timing-table > .timing-name').length;
+})()`;
+
+// Everything the table claims, read back as fractions of its own rail and as
+// text. Not one pixel width, row height or wrap point is returned: CI runs on
+// a font this machine does not have, and the questions here — does it overflow,
+// does it wrap rather than clip, does each bar start where the last one ended —
+// have the same answer in every face.
+const TIMING_TABLE_MEASURE = `(() => {
+  const pane = document.querySelector('#res-timing');
+  const table = pane.querySelector('.timing-table');
+  const paneBox = pane.getBoundingClientRect();
+  const rows = Array.from(table.querySelectorAll(':scope > .timing-name')).map((name) => {
+    const track = name.nextElementSibling;
+    const duration = track.nextElementSibling;
+    const share = duration.nextElementSibling;
+    const after = share.nextElementSibling;
+    const rail = track.querySelector('.timing-rail');
+    const bar = track.querySelector('.timing-bar-seg');
+    const railBox = rail ? rail.getBoundingClientRect() : null;
+    const barBox = bar ? bar.getBoundingClientRect() : null;
+    const usable = railBox && railBox.width > 0 ? railBox.width : 0;
+    const swatch = name.previousElementSibling;
+    const dot = swatch ? swatch.querySelector('.timing-dot') : null;
+    const copy = after !== null && after.classList.contains('kv-copy-btn') ? after : null;
+    const ratio = (el) => {
+      const style = getComputedStyle(el);
+      return Math.round((parseFloat(style.lineHeight) / parseFloat(style.fontSize)) * 100) / 100;
+    };
+    return {
+      name: name.textContent,
+      duration: duration.textContent,
+      share: share.textContent,
+      title: name.title,
+      // The swatch that keys the bar: every row that draws a bar has one.
+      dotClass: dot ? dot.className : '',
+      // The rail clips, so a 2px minimum at a high offset cannot run past it.
+      railOverflow: rail ? getComputedStyle(rail).overflow : null,
+      // The row-end control is also a .link-btn, whose later padding and border
+      // rules used to win the cascade against the table's universal-child rule.
+      // Read back against the name cell of the same row rather than as numbers.
+      copyPaddingTop: copy ? getComputedStyle(copy).paddingTop : null,
+      copyPaddingRight: copy ? getComputedStyle(copy).paddingRight : null,
+      copyBorderBottom: copy ? getComputedStyle(copy).borderBottomWidth : null,
+      namePaddingTop: getComputedStyle(name).paddingTop,
+      nameBorderBottom: getComputedStyle(name).borderBottomWidth,
+      // Line-height as a ratio of each cell's own font size: font-relative,
+      // so a 22px face gets a 22px-shaped row instead of an 18px one.
+      lineHeightRatios: [name, duration, share].concat(copy ? [copy] : []).map(ratio),
+      titlesMatch:
+        duration.title === name.title && share.title === name.title && track.title === name.title,
+      muted: name.classList.contains('timing-row--muted'),
+      total: name.classList.contains('timing-row--total'),
+      hasBar: bar !== null,
+      barPhaseClass: bar ? bar.className : '',
+      hasCopy: after !== null && after.classList.contains('kv-copy-btn'),
+      railWidth: usable,
+      // What the bar was TOLD to be, and where it actually landed. The first
+      // proves the waterfall arithmetic reached the DOM at any rail width; the
+      // second proves nothing escapes the rail it was drawn in.
+      declaredOffset: bar ? parseFloat(bar.style.marginLeft) : null,
+      declaredWidth: bar ? parseFloat(bar.style.width) : null,
+      offsetFraction: barBox && usable ? (barBox.left - railBox.left) / usable : null,
+      endFraction: barBox && usable ? (barBox.right - railBox.left) / usable : null,
+      durationAlign: getComputedStyle(duration).textAlign,
+      shareAlign: getComputedStyle(share).textAlign,
+      durationFigures: getComputedStyle(duration).fontVariantNumeric,
+      shareFigures: getComputedStyle(share).fontVariantNumeric,
+      // A clipped label is a lost label; a wrapped one is not.
+      nameClipped: name.scrollWidth - name.clientWidth,
+      durationClipped: duration.scrollWidth - duration.clientWidth,
+      shareClipped: share.scrollWidth - share.clientWidth,
+      pastPane: Math.max(
+        name.getBoundingClientRect().right,
+        duration.getBoundingClientRect().right,
+        share.getBoundingClientRect().right,
+      ) - paneBox.right,
+    };
+  });
+  return {
+    rows,
+    paneOverflow: pane.scrollWidth - pane.clientWidth,
+    tableOverflow: table.scrollWidth - table.clientWidth,
+    // The separate bar and the legend it needed are gone.
+    strayBars: pane.querySelectorAll('.timing-bar-wrap, .timing-legend').length,
+    // A tab stop for the table, not one per row.
+    tabStops: Array.from(table.querySelectorAll('.kv-copy-btn')).filter((b) => b.tabIndex === 0).length,
+  };
+})()`;
+
+// A drag across one row has to yield the row's data and nothing else, and each
+// datum has to survive it whole.
+const TIMING_ROW_SELECTION = `(() => {
+  const names = Array.from(document.querySelectorAll('#res-timing .timing-table > .timing-name'));
+  const name = names.find((el) => el.textContent === 'Wait (TTFB)');
+  const share = name.nextElementSibling.nextElementSibling.nextElementSibling;
+  // Across the WHOLE row, the control at its end included: that is the drag a
+  // reader makes, and the control has to fall out of what it yields.
+  const last = share.nextElementSibling && share.nextElementSibling.classList.contains('kv-copy-btn')
+    ? share.nextElementSibling
+    : share;
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  const range = document.createRange();
+  range.setStartBefore(name);
+  range.setEndAfter(last);
+  selection.addRange(range);
+  const selected = selection.toString();
+  selection.removeAllRanges();
+  return selected;
+})()`;
+
+// Where the caveat sits now: inside the guide, ahead of the definitions.
+const TIMING_GUIDE_ORDER = `(() => {
+  const pane = document.querySelector('#res-timing');
+  const guide = pane.querySelector('.timing-guidance');
+  const note = guide.querySelector('.timing-evidence-note');
+  return {
+    notesInPane: pane.querySelectorAll('.timing-evidence-note').length,
+    noteInsideGuide: guide.contains(note),
+    childOrder: Array.from(guide.children).map((el) => el.tagName.toLowerCase()),
+    noteText: note.textContent,
+    // The table comes before the guide, so the data is what the pane shows first.
+    tableBeforeGuide:
+      pane.querySelector('.timing-table').compareDocumentPosition(guide) ===
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  };
+})()`;
+
+browserTest(
+  'the Timing pane is one waterfall table whose bars, shares and muted phases hold at every width',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await waitForLiveNetworkListener(cdp);
+      // Seven phases, the unaccounted remainder, and Total.
+      expect(await evaluate(cdp, TIMING_TABLE_INJECT, true)).toBe(9);
+      await settleLayout(cdp);
+
+      // The caveat is the guide's first paragraph and the table leads the pane.
+      expect(await evaluate(cdp, TIMING_GUIDE_ORDER)).toEqual({
+        notesInPane: 1,
+        noteInsideGuide: true,
+        childOrder: ['summary', 'p', 'dl'],
+        noteText:
+          'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause on the server.',
+        tableBeforeGuide: true,
+      });
+
+      // A drag across a row carries the datum, never the control beside it.
+      const selected = await evaluate(cdp, TIMING_ROW_SELECTION);
+      expect([
+        selected.indexOf('Wait (TTFB)') !== -1,
+        selected.indexOf('800 ms') !== -1,
+        selected.indexOf('80.0%') !== -1,
+        selected.indexOf('Copy') !== -1,
+      ]).toEqual([true, true, true, false]);
+
+      // The same questions at four pane widths and again under a face two
+      // sizes larger than any this machine has. Nothing below is a number a
+      // font can move.
+      for (const oversized of [false, true]) {
+        if (oversized) {
+          await evaluate(
+            cdp,
+            `(() => {
+              const style = document.createElement('style');
+              style.id = 'oversizedTimingProbe';
+              style.textContent =
+                '.timing-table,.timing-name,.timing-duration,.timing-share,.timing-table > .kv-copy-btn{font-size:24px !important;line-height:30px !important}';
+              document.head.appendChild(style);
+            })()`,
+          );
+          await settleLayout(cdp);
+        }
+        for (const width of [440, 520, 640, 760]) {
+          await evaluate(cdp, `document.querySelector('#details').style.flexBasis = '${width}px'`);
+          await settleLayout(cdp);
+          const measured = await evaluate(cdp, TIMING_TABLE_MEASURE);
+          const at = { oversized, width };
+
+          // (a) Nothing overflows and nothing is clipped: a long name wraps.
+          expect({ ...at, paneOverflow: measured.paneOverflow <= 1 }).toEqual({
+            ...at,
+            paneOverflow: true,
+          });
+          expect({ ...at, tableOverflow: measured.tableOverflow <= 1 }).toEqual({
+            ...at,
+            tableOverflow: true,
+          });
+          expect({
+            ...at,
+            clipped: measured.rows
+              .filter((row) => row.nameClipped > 1 || row.durationClipped > 1 || row.shareClipped > 1)
+              .map((row) => row.name),
+          }).toEqual({ ...at, clipped: [] });
+          expect({
+            ...at,
+            pastPane: measured.rows.filter((row) => row.pastPane > 1).map((row) => row.name),
+          }).toEqual({ ...at, pastPane: [] });
+
+          // (b) The waterfall, stated on what each bar was told to be: a bar
+          // begins exactly where every phase before it ended. Declared, not
+          // measured — a phase too small to draw is held at a 2px minimum so
+          // it stays visible, and on a narrow rail that minimum swallows the
+          // pixel difference between "offset by the phases above" and "drawn
+          // from zero", which is the defect this check exists to catch.
+          const bars = measured.rows.filter((row) => row.hasBar);
+          let accumulated = 0;
+          const outOfOrder = [];
+          for (const row of bars) {
+            if (Math.abs(row.declaredOffset - accumulated) > 0.2) outOfOrder.push(row.name);
+            accumulated += row.declaredWidth;
+          }
+          expect({ ...at, outOfOrder, accumulated: accumulated <= 100.2 }).toEqual({
+            ...at,
+            outOfOrder: [],
+            accumulated: true,
+          });
+
+          // And nothing drawn leaves the rail it was drawn in, at any width.
+          expect({
+            ...at,
+            escaped: bars
+              .filter((row) => row.endFraction > 1 + Math.max(0.005, 1.5 / row.railWidth))
+              .map((row) => row.name),
+          }).toEqual({ ...at, escaped: [] });
+
+          // (c) The numbers are right-aligned tabular figures in both columns.
+          expect({
+            ...at,
+            ragged: measured.rows
+              .filter(
+                (row) =>
+                  row.durationAlign !== 'right' ||
+                  row.shareAlign !== 'right' ||
+                  row.durationFigures.indexOf('tabular-nums') === -1 ||
+                  row.shareFigures.indexOf('tabular-nums') === -1,
+              )
+              .map((row) => row.name),
+          }).toEqual({ ...at, ragged: [] });
+
+          // (d) What each row says, and it is the same at every width: a phase
+          // reported as zero is a muted '0 ms', a phase the capture never
+          // reported says so instead of reading as a measured zero, a phase
+          // under the formatter's resolution is marked rather than rounded to
+          // '0 ms', and no muted row draws a bar.
+          expect({
+            ...at,
+            rows: measured.rows.map((row) => [row.name, row.duration, row.share, row.muted, row.hasBar]),
+          }).toEqual({
+            ...at,
+            rows: [
+              ['Blocked', '0 ms', '0.0%', true, false],
+              ['DNS', '< 1 ms', '< 0.1%', false, true],
+              ['Connect', '40 ms', '4.0%', false, true],
+              ['TLS (SSL)', 'not reported', '', true, false],
+              ['Send', '10 ms', '1.0%', false, true],
+              ['Wait (TTFB)', '800 ms', '80.0%', false, true],
+              ['Receive', '50 ms', '5.0%', false, true],
+              ['Unaccounted', '100 ms', '10.0%', false, true],
+              ['Total', '1.00 s', '100.0%', false, false],
+            ],
+          });
+
+          // (e) The bar carries the phase's own colour class — the one the
+          // grid's waterfall column uses — so the two surfaces cannot drift.
+          expect({ ...at, barClasses: bars.map((row) => row.barPhaseClass) }).toEqual({
+            ...at,
+            barClasses: [
+              'timing-bar-seg timing-phase-dns',
+              'timing-bar-seg timing-phase-connect',
+              'timing-bar-seg timing-phase-send',
+              'timing-bar-seg timing-phase-wait',
+              'timing-bar-seg timing-phase-receive',
+              'timing-bar-seg timing-bar-seg--rest',
+            ],
+          });
+
+          // (f) Hovering a row states what the phase measures, in the words
+          // the guide below uses, and every cell of the row carries it.
+          const waitRow = measured.rows.find((row) => row.name === 'Wait (TTFB)');
+          expect({ ...at, title: waitRow.title, spread: waitRow.titlesMatch }).toEqual({
+            ...at,
+            title:
+              'Time waiting for the response to start after sending the request (commonly called TTFB).',
+            spread: true,
+          });
+
+          // (g) A phase with no duration has nothing to copy; every other row
+          // does, and the table is still one tab stop.
+          expect({
+            ...at,
+            withoutCopy: measured.rows.filter((row) => !row.hasCopy).map((row) => row.name),
+            tabStops: measured.tabStops,
+            strayBars: measured.strayBars,
+          }).toEqual({ ...at, withoutCopy: ['TLS (SSL)'], tabStops: 1, strayBars: 0 });
+
+          // (h) Every row that draws a bar keys it with a swatch, the
+          // Unaccounted row included, in the same paint class its bar uses;
+          // muted rows and Total draw neither.
+          expect({ ...at, dots: measured.rows.map((row) => [row.name, row.dotClass]) }).toEqual({
+            ...at,
+            dots: [
+              ['Blocked', ''],
+              ['DNS', 'timing-dot timing-phase-dns'],
+              ['Connect', 'timing-dot timing-phase-connect'],
+              ['TLS (SSL)', ''],
+              ['Send', 'timing-dot timing-phase-send'],
+              ['Wait (TTFB)', 'timing-dot timing-phase-wait'],
+              ['Receive', 'timing-dot timing-phase-receive'],
+              ['Unaccounted', 'timing-dot timing-dot--rest'],
+              ['Total', ''],
+            ],
+          });
+
+          // (i) The rail clips what it holds, so the 2px minimum a tiny phase
+          // is drawn at cannot overshoot the rail's end at a high offset.
+          expect({
+            ...at,
+            unclipped: measured.rows.filter((row) => row.railOverflow !== null && row.railOverflow !== 'hidden').map((row) => row.name),
+            rails: measured.rows.filter((row) => row.railOverflow !== null).length,
+          }).toEqual({ ...at, unclipped: [], rails: 8 });
+
+          // (j) The row-end control sits on the row's own padding and hairline:
+          // the .link-btn rule later in the file no longer wins the cascade
+          // and zeroes its top padding, adds 4px on the right, or drops its
+          // border. Compared with the name cell of the same row, never pinned
+          // as a number.
+          expect({
+            ...at,
+            misaligned: measured.rows
+              .filter(
+                (row) =>
+                  row.copyPaddingTop !== null &&
+                  (row.copyPaddingTop !== row.namePaddingTop ||
+                    row.copyPaddingRight !== '0px' ||
+                    row.copyBorderBottom !== row.nameBorderBottom),
+              )
+              .map((row) => [row.name, row.copyPaddingTop, row.copyPaddingRight, row.copyBorderBottom]),
+          }).toEqual({ ...at, misaligned: [] });
+
+          // (k) Line-height is font-relative in every cell, the control
+          // included. Only outside the probe: the probe pins 30px on purpose.
+          if (!oversized) {
+            expect({
+              ...at,
+              offRatio: measured.rows
+                .filter((row) => row.lineHeightRatios.some((value) => Math.abs(value - 1.4) > 0.01))
+                .map((row) => [row.name, row.lineHeightRatios]),
+            }).toEqual({ ...at, offRatio: [] });
+          }
+        }
+      }
+
+      // A capture that reported no phase at all — a HAR entry with no timings
+      // block — is one fact, and the pane states it once instead of seven
+      // "not reported" rows under a bar that is 100% unaccounted. The guide
+      // stays, since it is what explains the phases the capture would have
+      // listed.
+      await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
+      const unreported = await evaluate(
+        cdp,
+        `(async () => {
+          const settle = () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 60))));
+          globalThis.__networkPlusLiveListener({
+            startedDateTime: new Date(1704067201000).toISOString(),
+            time: 40,
+            request: { method: 'GET', url: 'https://timing.example.test/v1/untimed', httpVersion: 'HTTP/2', headers: [] },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              httpVersion: 'HTTP/2',
+              headers: [{ name: 'content-type', value: 'application/json' }],
+              content: { size: 2, mimeType: 'application/json' },
+            },
+            getContent(callback) {
+              callback('{}', '');
+            },
+          });
+          await settle();
+          document.querySelector('#tbody tr[data-row-id="2"]').click();
+          await settle();
+          const pane = document.querySelector('#res-timing');
+          return {
+            tables: pane.querySelectorAll('.timing-table').length,
+            notReported: Array.from(pane.querySelectorAll('*')).filter((el) => el.textContent === 'not reported').length,
+            heading: pane.querySelector('.kv-group-heading').textContent,
+            message: Array.from(pane.querySelectorAll('.pane-empty')).map((el) => el.textContent),
+            guides: pane.querySelectorAll('.timing-guidance').length,
+            order: Array.from(pane.children).map((el) => el.className),
+          };
+        })()`,
+        true,
+      );
+      expect(unreported).toEqual({
+        tables: 0,
+        notReported: 0,
+        heading: 'Timing Breakdown',
+        message: ['No timing phases were reported for this request.'],
+        guides: 1,
+        order: ['kv-group-heading', 'pane-empty', 'timing-guidance'],
+      });
     } finally {
       await page.close();
     }
@@ -9166,12 +10236,14 @@ browserTest(
       await evaluate(cdp, "document.querySelector('#tbody tr[data-row-id=\"3\"]').click()");
       await settleLayout(cdp);
       const emptyBodyTabs = await evaluate(cdp, TAB_SIGNAL_MEASURE('res-tab-bar'));
+      // Five response tabs in reading order, Preview folded into Body: what
+      // came back, then what it holds, then when and with what cookies, then
+      // the wire. The array pins the order as well as the signals.
       expect(emptyBodyTabs.map((tab) => [tab.tab, tab.count, tab.empty])).toEqual([
         ['res-headers', null, false],
         ['res-body', null, true],
-        ['res-preview', null, false],
-        ['res-cookies', '0', true],
         ['res-timing', null, false],
+        ['res-cookies', '0', true],
         ['res-raw', null, false],
       ]);
       // Body counts nothing, so its empty marker is the en dash — the same
@@ -9716,6 +10788,465 @@ browserTest(
       expect(observersAfterMany).toBeLessThanOrEqual(9);
 
       await cdp.send('Emulation.clearDeviceMetricsOverride');
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+// Preview merged into Body, so one pane picks its renderer from the content.
+// The two bodies with more than one honest reading — JSON (tree or flat text)
+// and HTML (rendered or source) — carry that choice in the pane's one toolbar.
+const BODY_VIEW_MEASURE = `(() => {
+  const pane = document.querySelector('#res-body');
+  const bar = pane.querySelector('.pane-search-bar');
+  const toggle = bar ? bar.querySelector('.body-view-toggle') : null;
+  const content = bar ? bar.nextElementSibling : null;
+  const frame = pane.querySelector('iframe');
+  const expand = bar ? bar.querySelector('.pane-search-expand') : null;
+  const active = document.activeElement;
+  // The toolbar's row count, the same way the Tier 2 band reads it: how many
+  // distinct vertical centres its children occupy.
+  const rowsOf = (elements) => {
+    const centres = [];
+    for (const element of elements) {
+      const rect = element.getBoundingClientRect();
+      if (!rect.width) continue;
+      const centre = rect.top + rect.height / 2;
+      if (!centres.some((known) => Math.abs(known - centre) < 8)) centres.push(centre);
+    }
+    return centres.length;
+  };
+  return {
+    barRows: bar ? rowsOf(Array.from(bar.children)) : null,
+    copyLabelShown: bar ? getComputedStyle(bar.querySelector('.copy-btn-label')).display !== 'none' : null,
+    barWithView: bar ? bar.classList.contains('pane-search-bar--with-view') : null,
+    bars: pane.querySelectorAll('.pane-search-bar').length,
+    strayCopyActions: pane.querySelectorAll(':scope > .copy-actions').length,
+    toggles: pane.querySelectorAll('.body-view-toggle').length,
+    toggleInBar: !!toggle,
+    toggleName: toggle ? toggle.getAttribute('aria-label') : null,
+    views: Array.from(pane.querySelectorAll('.body-view-btn')).map((button) => [
+      button.textContent,
+      button.getAttribute('aria-pressed'),
+    ]),
+    focusedView: active && active.classList.contains('body-view-btn') ? active.dataset.view : null,
+    contentClass: content ? content.className : null,
+    contentTag: content ? content.tagName : null,
+    hasTree: !!pane.querySelector('.json-tree'),
+    treeControls: pane.querySelectorAll('.json-tree-controls').length,
+    flatJson: pane.querySelector('pre.code-json') ? pane.querySelector('pre.code-json').textContent : null,
+    sourceText: pane.querySelector('pre.code-block:not(.code-json)')
+      ? pane.querySelector('pre.code-block:not(.code-json)').textContent
+      : null,
+    frameSandbox: frame ? frame.getAttribute('sandbox') : null,
+    // The frame's own ground. Transparent, the captured document painted its
+    // default black text on --content-bg in the dark theme at about 1.2:1.
+    frameBackground: frame ? getComputedStyle(frame).backgroundColor : null,
+    frameTitle: frame ? frame.title : null,
+    frameSrcdoc: frame ? frame.srcdoc : null,
+    barOverflow: bar ? bar.scrollWidth - bar.clientWidth : null,
+    paneOverflow: pane.scrollWidth - pane.clientWidth,
+    expandHidden: expand ? expand.hidden : null,
+    expandLabel: expand ? expand.textContent : null,
+    count: bar ? bar.querySelector('.pane-search-count').textContent : null,
+    marks: pane.querySelectorAll('mark.pane-search-hit').length,
+  };
+})()`;
+
+// Denser than the JSON band it replaced, and reaching past the picker-bearing
+// bar's own copy-label threshold: the last two widths are where the labels
+// come back, and they have to come back beside a one-row bar.
+const BODY_VIEW_WIDTHS = [400, 440, 520, 640, 700, 760, 880, 960, 1000];
+// The container width at which the copy-button labels return (panel.css); the
+// oversized-face monotonic check stops below it, see the band assertions.
+const BODY_COPY_LABEL_THRESHOLD_PX = 940;
+
+browserTest(
+  'the Body pane renders JSON, HTML and images itself, and says when a match is only in the source',
+  async () => {
+    const html =
+      '<!doctype html><html><head><title>Checkout</title></head><body><p>needle-in-the-markup</p></body></html>';
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1400,
+      height: 900,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    const band = [];
+    try {
+      for (const [languageIndex, language] of ['en', 'ja'].entries()) {
+        if (languageIndex > 0) {
+          await reloadInLanguage(page, language);
+          await cdp.send('Emulation.setDeviceMetricsOverride', {
+            width: 1400,
+            height: 900,
+            deviceScaleFactor: 1,
+            mobile: false,
+          });
+        }
+        expect(await evaluate(cdp, 'document.documentElement.lang')).toBe(language);
+        await waitForLiveNetworkListener(cdp);
+        await evaluate(
+          cdp,
+          `(async () => {
+            const settle = () =>
+              new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 60))));
+            const send = (id, mime, payload, encoding) => {
+              globalThis.__networkPlusLiveListener({
+                startedDateTime: new Date(1704067200000 + id).toISOString(),
+                time: 20,
+                request: { method: 'GET', url: 'https://api.example.test/r' + id, httpVersion: 'HTTP/1.1', headers: [] },
+                response: {
+                  status: 200,
+                  statusText: 'OK',
+                  httpVersion: 'HTTP/1.1',
+                  headers: [{ name: 'content-type', value: mime }],
+                  content: { size: payload.length, mimeType: mime },
+                },
+                getContent(callback) {
+                  callback(payload, encoding || '');
+                },
+              });
+            };
+            send(1, 'application/json', '{"ok":true,"needle":"tree-and-text"}');
+            send(2, 'text/html', ${JSON.stringify(html)});
+            await settle();
+          })()`,
+          true,
+        );
+        const openBody = async (rowId) => {
+          await evaluate(
+            cdp,
+            `(() => {
+              document.querySelector('#tbody tr[data-row-id="${rowId}"]').click();
+              document.querySelector('#res-tab-body').click();
+            })()`,
+          );
+          await settleLayout(cdp);
+        };
+        const clickView = async (view) => {
+          await evaluate(cdp, `document.querySelector('#res-body .body-view-btn[data-view="${view}"]').click()`);
+          await settleLayout(cdp);
+        };
+
+        await openBody(1);
+        const jsonTree = await evaluate(cdp, BODY_VIEW_MEASURE);
+        // The picker is a child of the one toolbar, never a band of its own
+        // between the toolbar and the content.
+        expect(jsonTree).toMatchObject({
+          bars: 1,
+          strayCopyActions: 0,
+          toggles: 1,
+          toggleInBar: true,
+          contentClass: 'json-tree code-block',
+          hasTree: true,
+          flatJson: null,
+        });
+        await clickView('text');
+        const jsonText = await evaluate(cdp, BODY_VIEW_MEASURE);
+        expect(jsonText).toMatchObject({
+          bars: 1,
+          strayCopyActions: 0,
+          toggles: 1,
+          toggleInBar: true,
+          contentClass: 'code-block code-json',
+          contentTag: 'PRE',
+          hasTree: false,
+          // The tree's own Expand all went with the tree, so the toolbar owns
+          // expansion again rather than showing a second one beside it.
+          treeControls: 0,
+          // The switch keeps the keyboard where the person pressed it.
+          focusedView: 'text',
+        });
+        // The flat view is the pretty-printed body Preview used to show, not
+        // the bytes as they arrived on one line.
+        expect(jsonText.flatJson).toContain('\n  "ok": true');
+        await clickView('tree');
+        expect(await evaluate(cdp, BODY_VIEW_MEASURE)).toMatchObject({ hasTree: true, focusedView: 'tree' });
+
+        await openBody(2);
+        const htmlRendered = await evaluate(cdp, BODY_VIEW_MEASURE);
+        expect(htmlRendered).toMatchObject({
+          bars: 1,
+          strayCopyActions: 0,
+          toggleInBar: true,
+          contentTag: 'IFRAME',
+          // Captured markup renders with everything switched off.
+          frameSandbox: '',
+          // White in every theme block on purpose: the ground belongs to the
+          // frame, not to the pane it sits in.
+          frameBackground: 'rgb(255, 255, 255)',
+          // The frame's accessible name is in the reader's language too.
+          frameTitle: language === 'ja' ? 'レスポンス HTML プレビュー' : 'Response HTML preview',
+        });
+        expect(htmlRendered.frameSrcdoc).toContain('needle-in-the-markup');
+
+        // A term the frame is showing cannot be walked by the pane search: the
+        // frame is a separate document. Reporting a bare "No matches" would be
+        // the pane disagreeing with what the reader can see, so the hit is
+        // counted from the source and the toolbar offers the view that has it.
+        const typeQuery = async (query) => {
+          await evaluate(
+            cdp,
+            `(async () => {${WAIT_FOR_IN_PAGE}
+              const input = document.querySelector('#res-body .pane-search-input');
+              const count = () => document.querySelector('#res-body .pane-search-count').textContent;
+              const before = count();
+              input.value = ${JSON.stringify(query)};
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              await waitFor(() => count() !== before, 400);
+            })()`,
+            true,
+          );
+          await settleLayout(cdp);
+        };
+        await typeQuery('needle-in-the-markup');
+        const hidden = await evaluate(cdp, BODY_VIEW_MEASURE);
+        expect(hidden).toMatchObject({ marks: 0, expandHidden: false, contentTag: 'IFRAME' });
+        // The marker is the count saying the matches are somewhere else, and a
+        // control named for where they are.
+        expect(hidden.count).not.toBe('');
+        expect(hidden.count).toContain('1');
+        // Named for what it does to the matches: "Source" alone would be the
+        // same word as the picker button sitting beside it.
+        expect([language, hidden.expandLabel]).toEqual([
+          language,
+          language === 'ja' ? 'ソースで表示' : 'Show in Source',
+        ]);
+
+        await evaluate(cdp, "document.querySelector('#res-body .pane-search-expand').click()");
+        await settleLayout(cdp);
+        const revealed = await evaluate(cdp, BODY_VIEW_MEASURE);
+        expect(revealed).toMatchObject({ contentTag: 'PRE', expandHidden: true });
+        expect(revealed.marks).toBeGreaterThan(0);
+        expect(revealed.sourceText).toContain('needle-in-the-markup');
+        expect(revealed.views.map((view) => view[1])).toEqual(['false', 'true']);
+
+        // Both pickers are named in the reader's language; nothing here is a
+        // width, so the assertion holds under any font.
+        if (language === 'ja') {
+          expect(revealed.views.map((view) => view[0])).toEqual(['レンダリング', 'ソース']);
+          expect(revealed.toggleName).toBe('ボディの表示');
+          await openBody(1);
+          expect((await evaluate(cdp, BODY_VIEW_MEASURE)).views.map((view) => view[0])).toEqual([
+            'ツリー',
+            'テキスト',
+          ]);
+          await openBody(2);
+        } else {
+          expect(revealed.views.map((view) => view[0])).toEqual(['Rendered', 'Source']);
+          expect(revealed.toggleName).toBe('Body view');
+        }
+
+        // The widest state of this toolbar — search text, a hidden-source hit
+        // count, Show in Source and the picker, all beside the copy pair —
+        // must fit the pane at every width the panel ships, in both languages.
+        // Back to Rendered first: the stored query re-applies against the
+        // frame, so the count and Show in Source are on screen again. No label
+        // width is pinned: CI's fallback fonts are wider.
+        await clickView('rendered');
+        expect(await evaluate(cdp, BODY_VIEW_MEASURE)).toMatchObject({
+          contentTag: 'IFRAME',
+          expandHidden: false,
+          barWithView: true,
+        });
+        // The sweep runs at the shipped face and again under one two sizes
+        // larger than any local face, like the cookie and timing bands do: the
+        // wrap points move with the font, so a band at one face proves only
+        // that face.
+        for (const oversized of [false, true]) {
+          if (oversized) {
+            await evaluate(
+              cdp,
+              `(() => {
+                const style = document.createElement('style');
+                style.id = 'oversizedBodyBarProbe';
+                style.textContent =
+                  '#res-body .pane-search-bar,#res-body .pane-search-bar button,#res-body .pane-search-bar input,' +
+                  '#res-body .pane-search-bar .pane-search-count{font-size:22px !important}';
+                document.head.appendChild(style);
+              })()`,
+            );
+            await settleLayout(cdp);
+          }
+          for (const paneWidth of BODY_VIEW_WIDTHS) {
+            await cdp.send('Emulation.setDeviceMetricsOverride', {
+              width: paneWidth + 520,
+              height: 900,
+              deviceScaleFactor: 1,
+              mobile: false,
+            });
+            await settleLayout(cdp);
+            await evaluate(cdp, `document.querySelector('#details').style.flexBasis = '${paneWidth}px'`);
+            await settleLayout(cdp);
+            band.push({ language, oversized, requested: paneWidth, ...(await evaluate(cdp, BODY_VIEW_MEASURE)) });
+          }
+          await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
+          if (oversized) await evaluate(cdp, "document.querySelector('#oversizedBodyBarProbe').remove()");
+        }
+      }
+
+      expect(band).toHaveLength(BODY_VIEW_WIDTHS.length * 4);
+      for (const cell of band) {
+        const at = cell.language + (cell.oversized ? ' oversized' : '') + ' @ ' + cell.requested + 'px';
+        expect([at, cell.barOverflow <= 0]).toEqual([at, true]);
+        expect([at, cell.paneOverflow <= 0]).toEqual([at, true]);
+        // Non-vacuous: the picker really is in the bar being measured, and the
+        // bar really is in its widest state.
+        expect([at, cell.toggleInBar]).toEqual([at, true]);
+        expect([at, cell.views.length]).toEqual([at, 2]);
+        expect([at, cell.expandHidden]).toEqual([at, false]);
+        // No row cap here: below the 440px shipped minimum this four-child
+        // bar takes three rows in its widest state, which the monotonic check
+        // below still governs. The two Tier 2 invariants are what carry over.
+        // The Tier 2 invariant, on the bar Tier 2 never measured: the copy
+        // pair's labels are painted only where the row can hold them. The
+        // shared 730px threshold was measured for a three-child bar; with the
+        // picker as a fourth child the labelled bar wrapped to 870px of pane
+        // in Japanese, so labels came back at 740 beside a two-row bar.
+        // Stated at the shipped face: the threshold is a container width, and
+        // the band measures a 200px margin between the widest one-row wrap
+        // (ja at 760px) and the 940px threshold — the room CI's wider fallback
+        // faces take. A 22px face never reaches one row inside the sweep, so
+        // under the probe the claim is the monotonic one below, not this.
+        if (!cell.oversized) {
+          expect([at, cell.copyLabelShown && cell.barRows > 1]).toEqual([at, false]);
+        }
+      }
+      // Widening the pane never costs the reader a toolbar row — the property
+      // one width cannot state — and the band is not vacuous in either
+      // direction: it holds a width where the bar wraps, a width where it does
+      // not, and a width where the labels are painted (so the threshold sits
+      // above the band, not switched off).
+      for (const language of ['en', 'ja']) {
+        for (const oversized of [false, true]) {
+          const face = language + (oversized ? ' oversized' : '');
+          const languageBand = band.filter((cell) => cell.language === language && cell.oversized === oversized);
+          expect([face, languageBand.length]).toEqual([face, BODY_VIEW_WIDTHS.length]);
+          // Under the oversized face the check stops where the copy labels come
+          // back: the label threshold is a container width in px, so a face
+          // 1.7x the shipped one can legitimately regain a row exactly there
+          // (CI's wider Linux faces did: ja oversized went 1 -> 2 rows from
+          // 880 to 960px). That is a limit of a px threshold against a synthetic
+          // face, not a wrap the design promises never to add, so the promise
+          // is stated at the shipped face across the whole band and under the
+          // probe only below the threshold.
+          const monotonicBand = oversized
+            ? languageBand.filter((cell) => cell.requested < BODY_COPY_LABEL_THRESHOLD_PX)
+            : languageBand;
+          for (let index = 1; index < monotonicBand.length; index += 1) {
+            expect([face, monotonicBand[index - 1].requested, monotonicBand[index].requested, monotonicBand[index].barRows]).toEqual([
+              face,
+              monotonicBand[index - 1].requested,
+              monotonicBand[index].requested,
+              Math.min(monotonicBand[index - 1].barRows, monotonicBand[index].barRows),
+            ]);
+          }
+          // Not vacuous: the probe band still compares at least two widths.
+          expect([face, monotonicBand.length >= 2]).toEqual([face, true]);
+          // The band wraps somewhere under either face; it reaches one row and
+          // paints the labels at the shipped face, where the threshold was
+          // measured. Under the oversized face those two are not promised — a
+          // 22px bar may still wrap at the widest pane — so they are stated
+          // only where they are a claim about the design and not a face.
+          expect([face, languageBand.some((cell) => cell.barRows >= 2)]).toEqual([face, true]);
+          expect([face, languageBand.some((cell) => !cell.copyLabelShown)]).toEqual([face, true]);
+          if (!oversized) {
+            expect([face, languageBand.some((cell) => cell.barRows === 1)]).toEqual([face, true]);
+            expect([face, languageBand.some((cell) => cell.copyLabelShown)]).toEqual([face, true]);
+          }
+        }
+      }
+      await cdp.send('Emulation.clearDeviceMetricsOverride');
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS * 2,
+);
+
+// The captured document paints its own default black text on a transparent
+// canvas, so the frame has to bring a ground of its own: on the dark theme it
+// sat on --content-bg at about 1.2:1, and the merge made Rendered the default
+// view for every text/html body. Properties, not a screenshot: the frame is
+// visible and its background is a painted colour, not transparent.
+const HTML_FRAME_GROUND_MEASURE = `(() => {
+  const frame = document.querySelector('#res-body iframe');
+  const style = getComputedStyle(frame);
+  const rect = frame.getBoundingClientRect();
+  return {
+    theme: document.documentElement.getAttribute('data-theme'),
+    paneColor: getComputedStyle(document.querySelector('#res-body')).color,
+    background: style.backgroundColor,
+    colorScheme: style.colorScheme,
+    visible: frame.checkVisibility(),
+    sized: rect.width > 0 && rect.height > 0,
+    sandbox: frame.getAttribute('sandbox'),
+  };
+})()`;
+
+browserTest(
+  'the rendered HTML frame keeps a light ground of its own in the dark theme',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await cdp.send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-color-scheme', value: 'dark' }],
+      });
+      await evaluate(cdp, "document.documentElement.setAttribute('data-theme', 'dark'); true");
+      await waitForLiveNetworkListener(cdp);
+      await evaluate(
+        cdp,
+        `(async () => {
+          const settle = () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 60))));
+          const html = '<!doctype html><html><body><h1>Order 42</h1><p>body copy</p></body></html>';
+          globalThis.__networkPlusLiveListener({
+            startedDateTime: new Date(1704067200000).toISOString(),
+            time: 20,
+            request: { method: 'GET', url: 'https://api.example.test/page', httpVersion: 'HTTP/1.1', headers: [] },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              httpVersion: 'HTTP/1.1',
+              headers: [{ name: 'content-type', value: 'text/html' }],
+              content: { size: html.length, mimeType: 'text/html' },
+            },
+            getContent(callback) {
+              callback(html, '');
+            },
+          });
+          await settle();
+          document.querySelector('#tbody tr[data-row-id="1"]').click();
+          document.querySelector('#res-tab-body').click();
+          await settle();
+        })()`,
+        true,
+      );
+      await settleLayout(cdp);
+      const measured = await evaluate(cdp, HTML_FRAME_GROUND_MEASURE);
+      // The pane really is painted in the dark palette — its text is the dark
+      // theme's --fg — so the frame's ground below is measured against it and
+      // not against a light theme that happened to leak in.
+      expect(measured.theme).toBe('dark');
+      expect(measured.paneColor).toBe('rgb(226, 232, 240)');
+      expect(measured.sandbox).toBe('');
+      expect(measured.visible).toBe(true);
+      expect(measured.sized).toBe(true);
+      expect(measured.background).not.toBe('rgba(0, 0, 0, 0)');
+      expect(measured.background).toBe('rgb(255, 255, 255)');
+      // And the frame declares the light scheme, so the captured document is
+      // not asked to render dark against the white it now sits on.
+      expect(measured.colorScheme).toBe('light');
     } finally {
       await page.close();
     }
@@ -11058,10 +12589,13 @@ browserTest(
       // scrollport, which in the column never scrolls — the ride measured
       // above is the proof. No tab bar is sticky at all: a third pinned strip
       // is the peephole the column exists to remove.
-      expect(column.stickyDescendants.filter((name) => name !== 'pane-search-bar')).toEqual([
-        'inspector-request-toggle',
-        'inspector-response-toggle',
-      ]);
+      // The Body pane's bar carries the picker class beside the bar's own; both
+      // are the same pane toolbar, filtered out by exact name.
+      expect(
+        column.stickyDescendants.filter(
+          (name) => name !== 'pane-search-bar' && name !== 'pane-search-bar pane-search-bar--with-view',
+        ),
+      ).toEqual(['inspector-request-toggle', 'inspector-response-toggle']);
 
       // The vertical split is off while the column is on. The divider has no box
       // to click or focus here, so the events are dispatched at it directly —
@@ -12105,13 +13639,14 @@ const LOCALIZED_SURFACES_BUILD = `(async () => {${WAIT_FOR_IN_PAGE}
   // both are panel nouns, so both have to follow the language the toolbar is
   // already speaking.
   // The Timing pane's own heading is a panel noun too; the phase names under
-  // it are the capture's own keys and are not measured here. The LAST key in
-  // that grid is the exception: 'Total' is written by the panel, not read from
-  // the HAR, so it belongs to the heading's language and is measured with it.
+  // it are the untranslated proper nouns the guide uses and are not measured
+  // here. The LAST row of the table is the exception: 'Total' is written by
+  // the panel, not read from the HAR, so it belongs to the heading's language
+  // and is measured with it.
   document.querySelector('#res-tab-timing').click();
   await settle();
   const timingHeading = text(document.querySelector('#res-timing .kv-group-heading'));
-  const timingKeys = Array.from(document.querySelectorAll('#res-timing .kv .key')).map(text);
+  const timingKeys = Array.from(document.querySelectorAll('#res-timing .timing-table > .timing-name')).map(text);
   const timingTotalKey = timingKeys[timingKeys.length - 1];
   document.querySelector('#res-tab-raw').click();
   await settle();

@@ -7,7 +7,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
 
 /* --- Light Theme --- */
 :root{
-  --bg:#fafbfc;--surface:#f0f2f5;--content-bg:#ffffff;--fg:#1a1a2e;--muted:#606d7b;--text-muted:#526170;
+  --bg:#fafbfc;--surface:#f0f2f5;--content-bg:#ffffff;--html-frame-bg:#ffffff;--fg:#1a1a2e;--muted:#606d7b;--text-muted:#526170;
   --border:#dde1e6;--control-border:#7c8794;--separator:#7c8794;--hover:rgba(99,102,241,0.06);--row-hover:rgba(99,102,241,0.08);
   --selected:rgba(99,102,241,0.14);--accent:#6366f1;--text-accent:#4338ca;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(99,102,241,0.12);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
@@ -33,7 +33,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --brew:#3a2416;--cat-blush:#e8848f;--cup:#fffdf7;--otter:#a9744f;--otter-deep:#8a5a3a;--otter-light:#c08a5f;--otter-muzzle:#ecd9c3
 }
 @media (prefers-color-scheme: dark){:root{
-  --bg:#0f172a;--surface:#1e293b;--content-bg:#162032;--fg:#e2e8f0;--muted:#94a3b8;--text-muted:#a8b4c5;
+  --bg:#0f172a;--surface:#1e293b;--content-bg:#162032;--html-frame-bg:#ffffff;--fg:#e2e8f0;--muted:#94a3b8;--text-muted:#a8b4c5;
   --border:#334155;--control-border:#7c8794;--separator:#7c8794;--hover:rgba(129,140,248,0.08);--row-hover:rgba(129,140,248,0.1);
   --selected:rgba(129,140,248,0.18);--accent:#818cf8;--text-accent:#a5b4fc;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(129,140,248,0.15);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
@@ -59,7 +59,7 @@ body{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   --brew:#43291a;--cat-blush:#f0a0a9;--cup:#f5f1e8;--otter:#b57e57;--otter-deep:#96634a;--otter-light:#cf9068;--otter-muzzle:#e6d2b8
 }}
 html[data-theme="dark"]{
-  --bg:#0f172a;--surface:#1e293b;--content-bg:#162032;--fg:#e2e8f0;--muted:#94a3b8;--text-muted:#a8b4c5;
+  --bg:#0f172a;--surface:#1e293b;--content-bg:#162032;--html-frame-bg:#ffffff;--fg:#e2e8f0;--muted:#94a3b8;--text-muted:#a8b4c5;
   --border:#334155;--control-border:#7c8794;--separator:#7c8794;--hover:rgba(129,140,248,0.08);--row-hover:rgba(129,140,248,0.1);
   --selected:rgba(129,140,248,0.18);--accent:#818cf8;--text-accent:#a5b4fc;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(129,140,248,0.15);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
@@ -85,7 +85,7 @@ html[data-theme="dark"]{
   --brew:#43291a;--cat-blush:#f0a0a9;--cup:#f5f1e8;--otter:#b57e57;--otter-deep:#96634a;--otter-light:#cf9068;--otter-muzzle:#e6d2b8
 }
 html[data-theme="light"]{
-  --bg:#fafbfc;--surface:#f0f2f5;--content-bg:#ffffff;--fg:#1a1a2e;--muted:#606d7b;--text-muted:#526170;
+  --bg:#fafbfc;--surface:#f0f2f5;--content-bg:#ffffff;--html-frame-bg:#ffffff;--fg:#1a1a2e;--muted:#606d7b;--text-muted:#526170;
   --border:#dde1e6;--control-border:#7c8794;--separator:#7c8794;--hover:rgba(99,102,241,0.06);--row-hover:rgba(99,102,241,0.08);
   --selected:rgba(99,102,241,0.14);--accent:#6366f1;--text-accent:#4338ca;--accent-fill:#4f46e5;--on-accent:#ffffff;--accent-dim:rgba(99,102,241,0.12);
   --search-yellow:#fbbf24;--search-red:#ef4444;--search-green:#22c55e;--search-blue:#3b82f6;--search-purple:#a855f7;--search-orange:#f97316;
@@ -449,17 +449,69 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .json-tree-str-toggle{flex:none;background:none;border:none;padding:0 4px;margin-left:2px;color:var(--text-muted);cursor:pointer;font:inherit;line-height:inherit}
 .json-tree-str-toggle:hover{color:var(--text-accent)}
 
-/* === Timing Bar === */
-.timing-bar-wrap{display:flex;height:18px;margin:10px 0;border-radius:6px;overflow:hidden;background:var(--border);box-shadow:var(--shadow-sm)}
-.timing-bar-seg{height:100%;min-width:2px}
+/* === Timing Table === */
+/* The seven phase colours. Shared with the request grid's waterfall column
+   (.wf-seg carries the same classes), so the two surfaces cannot drift. */
 .timing-phase-blocked{background:var(--text-muted)}.timing-phase-dns{background:var(--search-blue)}
 .timing-phase-connect{background:var(--search-orange)}.timing-phase-ssl{background:var(--search-purple)}
 .timing-phase-send{background:var(--search-green)}.timing-phase-wait{background:var(--search-yellow)}
 .timing-phase-receive{background:var(--text-accent)}
-.timing-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--text-muted);margin-top:6px}
-.timing-legend-item{display:flex;align-items:center;gap:4px}
-.timing-legend-dot{width:10px;height:10px;border-radius:3px;display:inline-block}
-.timing-evidence-note{margin:8px 0 0;padding:6px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--fg);font-size:11px;line-height:1.4}
+/* One row per phase: swatch, name, the phase's bar in a track shared down the
+   column, duration, share. The separate bar and its 10px legend are gone — a
+   reader had to match a colour back to a key before either said anything.
+   Every cell states its own column, the way a kv row does: a row with nothing
+   to copy has five items, and auto-placement would otherwise slide the next
+   row's swatch into the track this one left empty.
+   No track is a fixed px width and no cell forbids wrapping: on a wide
+   fallback font the name and the words wrap instead of clipping or pushing
+   the pane into a horizontal overflow. The name column's floor is its longest
+   word: at minmax(0,1fr) the fr split handed the track the room and 'Connect'
+   broke mid-word under a large face while the rail beside it sat half empty. */
+.timing-table{display:grid;grid-template-columns:auto minmax(min-content,1fr) minmax(28px,1.4fr) auto auto auto;gap:0;margin:4px 0 0;font-size:13px}
+.timing-table > .timing-swatch{grid-column:1}
+.timing-table > .timing-name{grid-column:2}
+.timing-table > .timing-track{grid-column:3}
+.timing-table > .timing-duration{grid-column:4}
+.timing-table > .timing-share{grid-column:5}
+.timing-table > .kv-copy-btn{grid-column:6}
+/* Six named cells, not `> *`: the row-end control is also a .link-btn, and that rule
+   sits later in the file at the same specificity a universal selector has, so it took
+   the cell's padding and hairline with it. The line-height is font-relative: pinned at
+   18px, a 22px face overflowed every cell. */
+.timing-table > .timing-swatch,.timing-table > .timing-name,.timing-table > .timing-track,.timing-table > .timing-duration,.timing-table > .timing-share,.timing-table > .kv-copy-btn{padding:3px 0;line-height:1.4;border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent)}
+.timing-swatch{display:flex;align-items:center;width:18px}
+.timing-dot{width:10px;height:10px;border-radius:3px}
+/* The name is the row's key: muted and 12px, so the duration beside it reads
+   as the brightest text in the table. */
+.timing-name{color:var(--text-muted);padding-right:8px;overflow-wrap:normal;font-weight:600;font-size:12px}
+/* The shared track. Each row's bar is offset by every phase before it, so the
+   column reads down as one waterfall rather than seven bars from zero. */
+/* The rail is a child of the cell, not the cell itself: a margin on a grid item
+   would carry its hairline out of line with the rest of the row. */
+.timing-track{min-width:0}
+/* The rail clips: a phase too small to draw is held at a 2px minimum so it stays
+   visible, and at a high offset that minimum ran past the rail's end. */
+.timing-rail{position:relative;height:8px;margin:5px 8px;border-radius:3px;background:color-mix(in srgb,var(--border) 60%,transparent);overflow:hidden}
+.timing-bar-seg{position:absolute;top:0;bottom:0;min-width:2px;border-radius:3px}
+/* The unaccounted remainder has no phase colour; its bar and its swatch share this one. */
+.timing-bar-seg--rest,.timing-dot--rest{background:color-mix(in srgb,var(--text-muted) 45%,transparent)}
+/* Durations line up digit under digit against the share beside them. */
+.timing-duration{color:var(--fg);text-align:right;font-variant-numeric:tabular-nums}
+.timing-share{color:var(--text-muted);padding-left:10px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px}
+/* A phase reported as zero, or never reported at all, is dimmed and carries no
+   bar: there is nothing to draw and nothing to compare it against. */
+.timing-table > .timing-row--muted{color:var(--text-muted);opacity:0.7}
+/* The Total row is the pane's answer: bold, over a rule of its own. */
+.timing-table > .timing-row--total{border-top:1px solid var(--border);border-bottom:0;font-weight:700}
+.timing-table > .timing-name.timing-row--total,.timing-table > .timing-duration.timing-row--total{color:var(--fg)}
+/* The row-end copy control, in the track the row reserves for it — revealed
+   from any cell of the row, and unselectable, so a drag across a duration
+   never carries the word "Copy" with it. */
+.timing-table > .kv-copy-btn{display:flex;align-items:flex-start;justify-content:flex-end;align-self:start;padding:3px 0 3px 10px;font:inherit;font-size:11px;line-height:1.4;text-align:right;opacity:0;pointer-events:none;user-select:none;-webkit-user-select:none}
+.timing-table > .timing-swatch:hover + .timing-name + .timing-track + .timing-duration + .timing-share + .kv-copy-btn,.timing-table > .timing-name:hover + .timing-track + .timing-duration + .timing-share + .kv-copy-btn,.timing-table > .timing-track:hover + .timing-duration + .timing-share + .kv-copy-btn,.timing-table > .timing-duration:hover + .timing-share + .kv-copy-btn,.timing-table > .timing-share:hover + .kv-copy-btn,.timing-table > .kv-copy-btn:hover,.timing-table > .kv-copy-btn:focus-within{opacity:1;pointer-events:auto}
+/* Folded into the guide as its first paragraph, so the table is what the pane
+   shows first and the caveat travels with the explanation of the phases. */
+.timing-evidence-note{margin:0 8px 8px;padding:6px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--fg);font-size:11px;line-height:1.4}
 .timing-guidance{margin-top:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface)}
 .timing-guidance-summary{cursor:pointer;padding:6px 8px;color:var(--fg);font-size:11px;font-weight:700;line-height:1.4}
 .timing-guidance-summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:6px}
@@ -573,7 +625,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .kv .val-text.val--clamped{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 /* The controls inside a value cell are chrome, not value: selectable, a drag across
    the URL row copied the URL plus "?N params - open Query" and "Show full URL". */
-.kv .val-clamp-toggle,.url-breakdown .link-btn,.kv-nested-summary,.kv-cookie-open-btn{display:inline-block;padding:0;font:inherit;font-size:12px;line-height:18px;user-select:none;-webkit-user-select:none}
+.kv .val-clamp-toggle,.cookie-table .val-clamp-toggle,.url-breakdown .link-btn,.kv-nested-summary,.kv-cookie-open-btn{display:inline-block;padding:0;font:inherit;font-size:12px;line-height:18px;user-select:none;-webkit-user-select:none}
 /* A Query value that is itself a query string keeps its own text and files the pairs
    inside it under a disclosure, collapsed, so the pane is still a list of parameters. */
 /* A JWT is three base64url segments, not one 900-character word: each '.' offers a
@@ -646,6 +698,70 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .url-breakdown-full[hidden]{display:none}
 .kv-group-heading{display:block;margin:8px 0 2px;padding-bottom:3px;font-size:12px;font-weight:600;color:var(--fg);border-bottom:1px solid var(--border)}
 .tab-pane > .kv-group-heading:first-child{margin-top:0}
+
+/* === Cookies as tables === */
+/* One row per cookie, the attributes in columns of their own. Auto layout and
+   every cell wrapping at any character: no track is a fixed px width, so a
+   wide fallback font wraps inside its own cell instead of clipping a label or
+   pushing the pane sideways. The wrapper takes any residual overflow in a box
+   of its own, so the pane itself never scrolls horizontally. */
+.cookie-table-scroll{max-width:100%;overflow-x:auto}
+.cookie-table{width:100%;border-collapse:collapse;table-layout:auto;font-size:13px}
+.cookie-table th,.cookie-table td{padding:3px 8px 3px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent);vertical-align:top;text-align:left;line-height:18px;white-space:normal;overflow-wrap:break-word;word-break:keep-all}
+/* keep-all is what makes the headings hold in Japanese. CJK text offers a
+   break between every pair of characters whatever overflow-wrap says, so a
+   column's floor fell to ONE character: 'コピー' rendered down three lines and
+   made every row of the request table three lines tall. It suppresses nothing
+   in Latin, and the Value cell's overflow-wrap:anywhere still outranks it, so
+   an opaque token breaks wherever it has to. */
+/* Only the Value column breaks at any character. It is the one that holds an
+   opaque token with no break opportunity of its own, so it alone must never be
+   allowed to widen the table; every other column keeps its words whole, and
+   that is what sets each column's floor. The pane's own overflow-wrap:anywhere
+   inherits into every cell, and unqualified it did exactly the wrong thing:
+   a 320-character token has the same 1-character minimum as everything else,
+   so Value took the whole table and Name, Domain, Path and every heading
+   rendered one letter per line. */
+.cookie-table .cookie-cell--value{overflow-wrap:anywhere}
+/* ...and the same rule starved the column it was written for. An auto table sizes
+   by minimum content width, and 'anywhere' made Value's minimum ONE character while
+   every other column kept whole-label minimums: at the 538px pane Value got 79px of
+   509 and the in-cell "Show all" control wrapped into five lines. So Value has a real
+   floor, in ch so it scales with the face. The floor is also what keeps the control's
+   words whole: its longest word, "(N chars)", is 11ch of the same face, so 'anywhere'
+   never has to break inside it. Not nowrap: in the code face the control is 20ch wide,
+   and holding it to one line pushed the table 37px past the default 538px pane and the
+   row-end Copy off-screen. */
+.cookie-table .cookie-col--value,.cookie-table .cookie-cell--value{min-width:14ch}
+/* The column names read as keys, like a kv row's key does: muted and 12px, so
+   the values under them are the brightest text in the table. */
+.cookie-table thead th{border-bottom:1px solid var(--border);color:var(--text-muted);font-weight:600;font-size:12px}
+.cookie-table tbody th{color:var(--text-muted);font-weight:600;font-size:12px}
+.cookie-table .cookie-cell--value{color:var(--fg)}
+/* Opaque values in the code face, and the shared 240-character clamp — both
+   are scoped under .kv, so the table states them again for its own cells. */
+.cookie-table .val--mono{font-family:'Cascadia Code',Consolas,'Courier New',monospace;font-size:12px;line-height:18px}
+.cookie-table .val-text.val--clamped{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+/* An attribute the response never sent. The panel's word, not the header's,
+   so a drag down the column carries the values and not the gaps. */
+.cookie-absent{color:var(--text-muted);user-select:none;-webkit-user-select:none}
+/* The flags as chips, the same look the JWT chip uses: max-width instead of
+   nowrap, so on a wide fallback font a chip wraps inside its own cell rather
+   than pushing the table into a horizontal overflow. */
+.cookie-flag{display:inline-block;max-width:100%;padding:0 6px;border:1px solid var(--control-border);border-radius:9px;color:var(--text-muted);font-family:'Segoe UI',system-ui,-apple-system,Roboto,sans-serif;font-size:11px;line-height:16px}
+/* The literal the header sent, and under it the instant a Max-Age works out
+   to against the response date. The computed line is the panel's arithmetic:
+   labelled, muted, and unselectable, so a drag across the cell carries the
+   header's own words and the two can never be confused for one another. */
+.cookie-expiry-computed{color:var(--text-muted);font-size:12px;line-height:18px;user-select:none;-webkit-user-select:none}
+.cookie-expiry-computed-label{margin-right:4px;font-weight:600}
+/* The row-end copy control, in a column the table reserves for it — revealed
+   from anywhere in the row, and unselectable for the same reason every other
+   in-cell control is: a drag across a cookie must not carry the word "Copy".
+   align-self has no meaning in a table cell, so the button is a block of its
+   own inside a top-aligned cell. */
+.cookie-table .kv-copy-btn{display:block;padding:0 0 0 10px;overflow-wrap:normal;font:inherit;font-size:11px;line-height:18px;text-align:right;opacity:0;pointer-events:none;user-select:none;-webkit-user-select:none}
+.cookie-table tbody tr:hover .kv-copy-btn,.cookie-table .kv-copy-btn:hover,.cookie-table .kv-copy-btn:focus-within{opacity:1;pointer-events:auto}
 
 /* === Status Bar === */
 .statusbar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:5px 10px;border-top:1px solid var(--border);background:var(--surface);font-size:11px;color:var(--text-muted);flex:0 0 auto;overflow-x:visible;white-space:normal}
@@ -983,6 +1099,21 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .pane-search-nav:hover{border-color:var(--accent);color:var(--text-accent)}
 .pane-search-nav:disabled{opacity:.5;cursor:default}
 .pane-search-expand{color:var(--text-accent);border-color:var(--accent)}
+/* The Body pane's renderer picker (Tree | Text, Rendered | Source), sitting in the same
+   toolbar. Sized by its own text and allowed to wrap with the bar: the labels translate,
+   and a fixed cell would clip them under a wider fallback font. */
+.body-view-toggle{display:flex;flex:none;align-items:center}
+.body-view-btn{min-height:22px;padding:1px 8px;background:var(--bg);border:1px solid var(--control-border);color:var(--text-muted);border-radius:0;margin-left:-1px;cursor:pointer;font-size:11px;white-space:nowrap}
+.body-view-btn:first-child{border-radius:4px 0 0 4px;margin-left:0}
+.body-view-btn:last-child{border-radius:0 4px 4px 0}
+.body-view-btn:hover{border-color:var(--accent);color:var(--text-accent)}
+.body-view-btn[aria-pressed="true"]{position:relative;z-index:1;background:var(--accent-dim);border-color:var(--accent);color:var(--text-accent)}
+/* The rendered HTML frame brings a light ground of its own in both themes. The captured
+   document paints its default black text on a transparent canvas, which on the dark theme sat
+   on --content-bg at about 1.2:1; --html-frame-bg is white in every theme block on purpose —
+   the frame shows the page as a browser would, not the panel — and the light scheme keeps the
+   embedded document from being asked to render dark against it. */
+.body-html-frame{background:var(--html-frame-bg);color-scheme:light}
 mark.pane-search-hit{background:color-mix(in srgb,var(--search-yellow) var(--hl-primary-pct),transparent);color:inherit;border-radius:2px}
 mark.pane-search-hit-current{background:color-mix(in srgb,var(--search-orange) var(--hl-primary-pct),transparent);box-shadow:inset 0 0 0 2px var(--accent)}
 /* The copy pair gives up its labels before the bar gives up a row, across the WHOLE band
@@ -1000,6 +1131,18 @@ mark.pane-search-hit-current{background:color-mix(in srgb,var(--search-orange) v
   .pane-search-bar .copy-btn::before{content:'\29C9';font-size:12px;line-height:16px}
   /* Second in the pair is the one that opens the confirmation, the same "..." its label carries. */
   .pane-search-bar .copy-actions .copy-btn+.copy-btn::before{content:'\29C9\2026'}
+}
+/* The Body pane's bar carries a fourth child, the renderer picker, and 730px was measured
+   for three. With the picker present the labelled bar wraps to 870px of pane in Japanese
+   (widest state: a hidden-source hit count, Show in Source, the picker and the pair) — past
+   the 760px ceiling .details can reach — so beside a picker the pair keeps its icons at
+   every shipped width and the labels return only above the measured band, with the same
+   margin the shared threshold keeps. The tooltip and the accessible name keep the words. */
+@container (max-width: 940px){
+  .pane-search-bar--with-view .copy-btn{padding-left:7px;padding-right:7px}
+  .pane-search-bar--with-view .copy-btn .copy-btn-label{display:none}
+  .pane-search-bar--with-view .copy-btn::before{content:'\29C9';font-size:12px;line-height:16px}
+  .pane-search-bar--with-view .copy-actions .copy-btn+.copy-btn::before{content:'\29C9\2026'}
 }
 .copy-actions .copy-btn{float:none;margin-left:0}
 .copy-btn{float:right;padding:3px 10px;margin-left:8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;font-size:11px;transition:background-color 0.15s,border-color 0.15s,color 0.15s}
