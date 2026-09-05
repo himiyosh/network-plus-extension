@@ -76,6 +76,52 @@ if (!browserExecutable && runningInCi) {
 }
 const browserTest = browserExecutable ? test : test.skip;
 
+// The browser sometimes dies before it writes DevToolsActivePort — observed as
+// a SIGKILL with no exit code, and it took a run of this suite down. The shared
+// harness retries its own bring-up for exactly that reason; every launch below
+// spawns directly and had no such retry, so one unlucky start failed a test
+// that was not testing the browser. Only the bring-up retries: once CDP is
+// attached a failure belongs to the panel and must reach the test unchanged.
+const PANEL_BROWSER_START_ATTEMPTS = 2;
+async function startPanelBrowser(profilePrefix) {
+  const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
+  const failures = [];
+  for (let attempt = 1; attempt <= PANEL_BROWSER_START_ATTEMPTS; attempt += 1) {
+    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), profilePrefix));
+    const browserProcess = spawn(
+      browserExecutable,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        '--allow-file-access-from-files',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-sandbox',
+        panelUrl,
+      ],
+      { stdio: 'ignore' },
+    );
+    try {
+      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
+      return { browserProcess, profileDirectory, browserWebSocketUrl };
+    } catch (error) {
+      failures.push('attempt ' + attempt + ' failed: ' + error.message);
+      await stopBrowser(browserProcess);
+      removeProfileDirectory(profileDirectory);
+    }
+  }
+  throw new Error(
+    'The browser never started in ' +
+      PANEL_BROWSER_START_ATTEMPTS +
+      ' attempts, each on its own fresh profile directory. ' +
+      failures.join(' '),
+  );
+}
+
 async function waitForDevTools(browserProcess, profileDirectory) {
   const activePortPath = path.join(profileDirectory, 'DevToolsActivePort');
   const startedAt = Date.now();
@@ -736,31 +782,14 @@ test('grid focus allowance reports unexplained reserve and scroll beyond the pai
 browserTest(
   'same-frame live bursts batch retention cleanup and prefetch only retained rows',
   async () => {
-    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-live-retention-'));
     const fixtureDirectory = createInstrumentedPanelFixture();
-    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
     const instrumentedPanelUrl = pathToFileURL(path.join(fixtureDirectory, 'panel.html')).href;
-    const browserProcess = spawn(
-      browserExecutable,
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        '--allow-file-access-from-files',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-extensions',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-sandbox',
-        panelUrl,
-      ],
-      { stdio: 'ignore' },
+    const { browserProcess, profileDirectory, browserWebSocketUrl } = await startPanelBrowser(
+      'network-plus-live-retention-',
     );
 
     let cdp;
     try {
-      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
       const panelTarget = await findPanelTarget(browserWebSocketUrl);
       cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
       await cdp.send('Runtime.enable');
@@ -901,7 +930,8 @@ browserTest(
         true,
       );
       await evaluate(cdp, 'localStorage.clear()');
-      const visiblePanelUrl = panelUrl + '?scenario=visible-burst';
+      const visiblePanelUrl =
+        pathToFileURL(path.join(repositoryRoot, 'panel.html')).href + '?scenario=visible-burst';
       await cdp.send('Page.navigate', { url: visiblePanelUrl });
       await waitForLiveNetworkListener(cdp, visiblePanelUrl);
 
@@ -1558,29 +1588,12 @@ browserTest(
 browserTest(
   'a binary response reaches the panes as a hex dump and a visible image, not mojibake',
   async () => {
-    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-binary-body-'));
-    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
-    const browserProcess = spawn(
-      browserExecutable,
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        '--allow-file-access-from-files',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-extensions',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-sandbox',
-        panelUrl,
-      ],
-      { stdio: 'ignore' },
+    const { browserProcess, profileDirectory, browserWebSocketUrl } = await startPanelBrowser(
+      'network-plus-binary-body-',
     );
 
     let cdp;
     try {
-      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
       const panelTarget = await findPanelTarget(browserWebSocketUrl);
       cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
       await cdp.send('Runtime.enable');
@@ -1741,29 +1754,12 @@ browserTest(
 browserTest(
   'the row menu stays bounded and hands out full copies without a dialog',
   async () => {
-    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-row-menu-'));
-    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
-    const browserProcess = spawn(
-      browserExecutable,
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        '--allow-file-access-from-files',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-extensions',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-sandbox',
-        panelUrl,
-      ],
-      { stdio: 'ignore' },
+    const { browserProcess, profileDirectory, browserWebSocketUrl } = await startPanelBrowser(
+      'network-plus-row-menu-',
     );
 
     let cdp;
     try {
-      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
       const panelTarget = await findPanelTarget(browserWebSocketUrl);
       cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
       await cdp.send('Runtime.enable');
@@ -1991,29 +1987,12 @@ browserTest(
 browserTest(
   'live summary update preserves focused status chip identity and the pending click gesture',
   async () => {
-    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-status-dom-'));
-    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
-    const browserProcess = spawn(
-      browserExecutable,
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        '--allow-file-access-from-files',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-extensions',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-sandbox',
-        panelUrl,
-      ],
-      { stdio: 'ignore' },
+    const { browserProcess, profileDirectory, browserWebSocketUrl } = await startPanelBrowser(
+      'network-plus-status-dom-',
     );
 
     let cdp;
     try {
-      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
       const panelTarget = await findPanelTarget(browserWebSocketUrl);
       cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
       await cdp.send('Runtime.enable');
@@ -2122,29 +2101,12 @@ browserTest(
 browserTest(
   'details close control reclaims the workbench and row selection reopens it',
   async () => {
-    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-details-dom-'));
-    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
-    const browserProcess = spawn(
-      browserExecutable,
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        '--allow-file-access-from-files',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-extensions',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-sandbox',
-        panelUrl,
-      ],
-      { stdio: 'ignore' },
+    const { browserProcess, profileDirectory, browserWebSocketUrl } = await startPanelBrowser(
+      'network-plus-details-dom-',
     );
 
     let cdp;
     try {
-      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
       const panelTarget = await findPanelTarget(browserWebSocketUrl);
       cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
       await cdp.send('Runtime.enable');
@@ -2478,29 +2440,12 @@ browserTest(
 browserTest(
   'narrow sample status disclosure preserves the evidence workspace and interaction state',
   async () => {
-    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-status-workspace-dom-'));
-    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
-    const browserProcess = spawn(
-      browserExecutable,
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        '--allow-file-access-from-files',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-extensions',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-sandbox',
-        panelUrl,
-      ],
-      { stdio: 'ignore' },
+    const { browserProcess, profileDirectory, browserWebSocketUrl } = await startPanelBrowser(
+      'network-plus-status-workspace-dom-',
     );
 
     let cdp;
     try {
-      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
       const panelTarget = await findPanelTarget(browserWebSocketUrl);
       cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
       await cdp.send('Runtime.enable');
@@ -3107,29 +3052,12 @@ browserTest(
 browserTest(
   'constrained toolbar prioritizes actions while preserving local overflow access',
   async () => {
-    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-toolbar-dom-'));
-    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
-    const browserProcess = spawn(
-      browserExecutable,
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        '--allow-file-access-from-files',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-extensions',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-sandbox',
-        panelUrl,
-      ],
-      { stdio: 'ignore' },
+    const { browserProcess, profileDirectory, browserWebSocketUrl } = await startPanelBrowser(
+      'network-plus-toolbar-dom-',
     );
 
     let cdp;
     try {
-      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
       const panelTarget = await findPanelTarget(browserWebSocketUrl);
       cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
       await cdp.send('Runtime.enable');
@@ -3777,29 +3705,12 @@ browserTest(
 browserTest(
   'request-grid focus allowance matches the painted outline without disrupting pointer sorting or resizing',
   async () => {
-    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-grid-focus-dom-'));
-    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
-    const browserProcess = spawn(
-      browserExecutable,
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        '--allow-file-access-from-files',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-extensions',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-sandbox',
-        panelUrl,
-      ],
-      { stdio: 'ignore' },
+    const { browserProcess, profileDirectory, browserWebSocketUrl } = await startPanelBrowser(
+      'network-plus-grid-focus-dom-',
     );
 
     let cdp;
     try {
-      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
       const panelTarget = await findPanelTarget(browserWebSocketUrl);
       cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
       await cdp.send('Runtime.enable');
@@ -3839,31 +3750,79 @@ browserTest(
         'settingsBtn',
         'shortcutBtn',
       ];
-      const visibleColumns = [
-        ['match', 'Match'],
-        ['id', 'ID'],
-        ['method', 'Method'],
-        ['status', 'Status'],
-        ['domain', 'Domain'],
-        ['path', 'Path'],
-        ['type', 'Type'],
-        ['duration', 'Duration'],
-        ['size', 'Size'],
-        ['clientStart', 'Client start'],
-      ];
-      const expectedGridTargets = visibleColumns.flatMap(([columnId, label]) => [
-        {
-          key: `header:${columnId}`,
-          role: 'columnheader',
-          accessibleName: label,
-        },
-        {
-          key: `separator:${columnId}`,
-          role: 'separator',
-          accessibleName: `Resize ${label} column`,
-        },
-      ]);
-      const reverseGridTargets = expectedGridTargets.slice().reverse();
+      // The painted column set is a function of the wrap: below the stored
+      // sum the grid drops columns by priority rather than scrolling. So the
+      // Tab expectation is read from what is actually painted at each width —
+      // every header and separator on screen, in order, none skipped — rather
+      // than from a list that would silently stop covering the narrow widths.
+      // What is painted is NOT left to the page to say, though: the set and
+      // its accessible names are written out per viewport width below, so a
+      // renamed column or a column that silently stops being dropped still
+      // fails here. Each entry is arithmetic over the shipped stored widths
+      // (pinned in tests/panel.test.js) against the wrap this viewport gives,
+      // never a font measurement — the nearest boundary is 26px away, well
+      // outside any scrollbar-width difference between platforms.
+      const EXPECTED_PAINTED_COLUMNS = {
+        // Below the undroppable set's own width: only the row's sentence and
+        // the sort key the order needs are left, and the grid scrolls.
+        375: [
+          ['id', 'ID'],
+          ['method', 'Method'],
+          ['status', 'Status'],
+          ['domain', 'Domain'],
+          ['path', 'Path'],
+        ],
+        500: [
+          ['id', 'ID'],
+          ['method', 'Method'],
+          ['status', 'Status'],
+          ['domain', 'Domain'],
+          ['path', 'Path'],
+        ],
+        // Wide enough for the reading aids, not for Match or Client start.
+        800: [
+          ['id', 'ID'],
+          ['method', 'Method'],
+          ['status', 'Status'],
+          ['domain', 'Domain'],
+          ['path', 'Path'],
+          ['type', 'Type'],
+          ['duration', 'Duration'],
+          ['size', 'Size'],
+        ],
+        // 1280 with the details pane open leaves the same wrap band as 800.
+        1280: [
+          ['id', 'ID'],
+          ['method', 'Method'],
+          ['status', 'Status'],
+          ['domain', 'Domain'],
+          ['path', 'Path'],
+          ['type', 'Type'],
+          ['duration', 'Duration'],
+          ['size', 'Size'],
+        ],
+      };
+      const readPaintedColumns = () =>
+        evaluate(
+          cdp,
+          `Array.from(document.querySelectorAll('thead th[data-col-id]')).map((th) => [
+            th.dataset.colId,
+            th.getAttribute('aria-label'),
+          ])`,
+        );
+      const buildGridTargets = (paintedColumns) =>
+        paintedColumns.flatMap(([columnId, label]) => [
+          {
+            key: `header:${columnId}`,
+            role: 'columnheader',
+            accessibleName: label,
+          },
+          {
+            key: `separator:${columnId}`,
+            role: 'separator',
+            accessibleName: `Resize ${label} column`,
+          },
+        ]);
       const prepareGridFocusTransition = () =>
         evaluate(
           cdp,
@@ -4001,6 +3960,21 @@ browserTest(
           })()`,
           true,
         );
+        const paintedColumns = await readPaintedColumns();
+        // The literal pin: these ids and these accessible names, at this
+        // width. Everything below builds on it, so a name the page changed
+        // fails here rather than being adopted as the expectation.
+        expect([width, paintedColumns]).toEqual([width, EXPECTED_PAINTED_COLUMNS[width]]);
+        const expectedGridTargets = buildGridTargets(paintedColumns);
+        const reverseGridTargets = expectedGridTargets.slice().reverse();
+        // The wrap may drop columns, never the four the row's sentence needs.
+        for (const requiredId of GRID_PRIORITY_1_COLUMN_IDS) {
+          expect([width, requiredId, paintedColumns.map(([id]) => id).includes(requiredId)]).toEqual([
+            width,
+            requiredId,
+            true,
+          ]);
+        }
         const traversedToolbar = [];
         for (const expectedId of toolbarTabOrder) {
           await pressKey(cdp, 'Tab', 'Tab', 9);
@@ -4048,19 +4022,28 @@ browserTest(
         }
         focusMeasurements.push({
           width,
+          paintedColumns,
+          expectedGridTargets,
+          reverseGridTargets,
           traversedToolbar,
           forwardTabTrace,
           reverseTabTrace,
         });
       }
 
+      // Narrow really is narrower: the widest viewport in the matrix paints
+      // at least one column the narrowest does not, so the loop above is not
+      // measuring the same set four times over.
+      const narrowest = focusMeasurements[0];
+      const widest = focusMeasurements[focusMeasurements.length - 1];
+      expect(narrowest.paintedColumns.length).toBeLessThan(widest.paintedColumns.length);
       for (const measurement of focusMeasurements) {
         expect(measurement.traversedToolbar).toEqual(toolbarTabOrder);
         expect(measurement.forwardTabTrace.map((entry) => entry.key)).toEqual(
-          expectedGridTargets.map((target) => target.key),
+          measurement.expectedGridTargets.map((target) => target.key),
         );
         expect(measurement.reverseTabTrace.map((entry) => entry.key)).toEqual(
-          reverseGridTargets.map((target) => target.key),
+          measurement.reverseGridTargets.map((target) => target.key),
         );
         expect(
           [...measurement.forwardTabTrace, ...measurement.reverseTabTrace].every(
@@ -4122,6 +4105,12 @@ browserTest(
         deviceScaleFactor: 1,
         mobile: false,
       });
+      // Settled before the probe, not merely resized: this width drops columns
+      // to fit, and that re-plan rebuilds the header row a frame later. The
+      // probe holds on to the very <th> it listens on, so a rebuild landing
+      // between the two would leave it listening on a detached element while
+      // the click reached its replacement — a silent zero, not a failure.
+      await settleLayout(cdp);
       const headerPointerPoint = await evaluate(
         cdp,
         `(async () => {
@@ -4132,8 +4121,11 @@ browserTest(
           // Probe the LAST visible header: it is the final th in DOM order, so
           // once translated over the right edge it paints above the column that
           // naturally sits there. Method was only probe-safe while the old
-          // default widths happened to place it across the 375px edge.
-          const header = document.querySelector('th[data-col-id="clientStart"]');
+          // default widths happened to place it across the 375px edge, and
+          // Client start only while 375px still painted every column — at this
+          // width the wrap drops everything but the four it must keep, and
+          // Path is what is left at the end of the row.
+          const header = document.querySelector('th[data-col-id="path"]');
           header.style.transform = '';
           const tableRect = tableWrap.getBoundingClientRect();
           const visibleLeft = tableRect.left + tableWrap.clientLeft;
@@ -4208,7 +4200,7 @@ browserTest(
         cdp,
         `(async () => {
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          const header = document.querySelector('th[data-col-id="clientStart"]');
+          const header = document.querySelector('th[data-col-id="path"]');
           const measurement = {
             clickTargets: window.__gridPointerProbe.clickTargets,
             headerDeliveries: window.__gridPointerProbe.headerDeliveries,
@@ -4235,7 +4227,9 @@ browserTest(
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           tableWrap.style.transform = 'translateX(2px)';
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          const separator = document.querySelector('th[data-col-id="size"] .col-resizer');
+          // Domain, not Size: Size is dropped to fit a 375px wrap, and a
+          // separator that is not painted cannot be probed for pointer hits.
+          const separator = document.querySelector('th[data-col-id="domain"] .col-resizer');
           separator.style.transform = '';
           // Header cells clip their overflow (wide fallback fonts); this probe
           // deliberately drags the separator outside its cell, so lift the clip
@@ -4321,7 +4315,7 @@ browserTest(
       const separatorPointerMeasurement = await evaluate(
         cdp,
         `(() => {
-          const separator = document.querySelector('th[data-col-id="size"] .col-resizer');
+          const separator = document.querySelector('th[data-col-id="domain"] .col-resizer');
           const measurement = {
             mouseDownTargets: window.__gridResizeProbe.mouseDownTargets,
             resizeDeliveries: window.__gridResizeProbe.resizeDeliveries,
@@ -4339,14 +4333,14 @@ browserTest(
         })()`,
       );
       expect({
-        clientStart: {
+        path: {
           columnId: headerPointerPoint.columnId,
           hitHeader: headerPointerPoint.hitHeader,
           ...headerPointerMeasurement,
           tableScrollDelta:
             headerPointerMeasurement.tableScrollLeft - headerPointerPoint.tableScrollLeft,
         },
-        size: {
+        domain: {
           columnId: separatorPointerPoint.columnId,
           hitSeparator: separatorPointerPoint.hitSeparator,
           ...separatorPointerMeasurement,
@@ -4354,22 +4348,22 @@ browserTest(
             separatorPointerMeasurement.tableScrollLeft - separatorPointerPoint.tableScrollLeft,
         },
       }).toEqual({
-        clientStart: {
-          columnId: 'clientStart',
+        path: {
+          columnId: 'path',
           hitHeader: true,
-          clickTargets: [{ columnId: 'clientStart', kind: 'header' }],
+          clickTargets: [{ columnId: 'path', kind: 'header' }],
           headerDeliveries: 1,
           ariaSort: 'ascending',
-          focusedColumnId: 'clientStart',
+          focusedColumnId: 'path',
           tableScrollLeft: headerPointerPoint.tableScrollLeft,
           documentScrollLeft: 0,
           documentScrollTop: 0,
           tableScrollDelta: 0,
         },
-        size: {
-          columnId: 'size',
+        domain: {
+          columnId: 'domain',
           hitSeparator: true,
-          mouseDownTargets: [{ columnId: 'size', kind: 'separator' }],
+          mouseDownTargets: [{ columnId: 'domain', kind: 'separator' }],
           resizeDeliveries: 1,
           columnWidth: separatorPointerPoint.columnWidth + 20,
           tableScrollLeft: separatorPointerPoint.tableScrollLeft,
@@ -4391,29 +4385,12 @@ browserTest(
 browserTest(
   'workbench separators preserve inset focus rings across responsive themes and resizing inputs',
   async () => {
-    const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-separator-focus-dom-'));
-    const panelUrl = pathToFileURL(path.join(repositoryRoot, 'panel.html')).href;
-    const browserProcess = spawn(
-      browserExecutable,
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        '--allow-file-access-from-files',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-extensions',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-sandbox',
-        panelUrl,
-      ],
-      { stdio: 'ignore' },
+    const { browserProcess, profileDirectory, browserWebSocketUrl } = await startPanelBrowser(
+      'network-plus-separator-focus-dom-',
     );
 
     let cdp;
     try {
-      const browserWebSocketUrl = await waitForDevTools(browserProcess, profileDirectory);
       const panelTarget = await findPanelTarget(browserWebSocketUrl);
       cdp = await connectCdp(panelTarget.webSocketDebuggerUrl);
       await cdp.send('Runtime.enable');
@@ -4465,9 +4442,15 @@ browserTest(
         await cdp.send('Emulation.setEmulatedMedia', {
           features: [{ name: 'prefers-color-scheme', value: theme.mediaColorScheme }],
         });
+        // 1200, not 800: the narrow widths in this matrix stack the workbench,
+        // and at 800px of viewport the stacked details pane is short enough to
+        // enter the short-pane column, where the inspector divider has no box
+        // to focus or drag. The widths are the contract here; the height only
+        // has to keep every separator present, which 1200 does with room to
+        // spare at every width in the list.
         await cdp.send('Emulation.setDeviceMetricsOverride', {
           width,
-          height: 800,
+          height: 1200,
           deviceScaleFactor: 1,
           mobile: false,
         });
@@ -5039,6 +5022,12 @@ browserTest(
   TEST_TIMEOUT_MS,
 );
 
+// Path's floor. Below this the grid scrolls instead of squeezing further, so
+// it is the one constant these tests may state; every other width is read
+// back from the page's own separators rather than restated here.
+const ELASTIC_PATH_MIN_WIDTH = 120;
+const GRID_PRIORITY_1_COLUMN_IDS = ['status', 'method', 'domain', 'path'];
+
 const ELASTIC_GRID_MEASURE = `(() => {
   const tableWrap = document.querySelector('#tableWrap');
   const grid = document.querySelector('#grid');
@@ -5050,13 +5039,67 @@ const ELASTIC_GRID_MEASURE = `(() => {
     horizontalScroll: tableWrap.scrollWidth > tableWrap.clientWidth,
     gridStyleWidth: grid.style.width,
     gridWidth: Math.round(grid.getBoundingClientRect().width),
+    headerIds: headers.map((th) => th.dataset.colId),
     headerWidths: Object.fromEntries(
       headers.map((th) => [th.dataset.colId, Math.round(th.getBoundingClientRect().width)]),
     ),
+    // The stored width each column reports through its own separator: the
+    // authority the rendered widths are checked against.
+    storedByAria: Object.fromEntries(
+      headers.map((th) => [
+        th.dataset.colId,
+        Number(th.querySelector('.col-resizer').getAttribute('aria-valuenow')),
+      ]),
+    ),
+    firstRowCellIds: Array.from(
+      document.querySelectorAll('#tbody tr[data-row-id]')[0]?.querySelectorAll('td[data-col-id]') || [],
+    ).map((td) => td.dataset.colId),
+    // Auto-hide is not a preference: this is the raw preference blob, and it
+    // has to stay exactly what the reader's own actions put there.
+    storedRaw: localStorage.getItem('networkPlus.cols'),
     pathAriaValueNow: pathResizer ? pathResizer.getAttribute('aria-valuenow') : null,
     storedPathWidth: (stored.find((column) => column.id === 'path') || {}).width ?? null,
   };
 })()`;
+
+// The grid's own elasticity, restated as arithmetic over what the page
+// reports: every visible column renders at its stored width, and the elastic
+// column alone carries whatever the wrap has spare — or, when it is Path, is
+// short by, down to the floor.
+function expectedElasticWidths(measure) {
+  const ids = measure.headerIds;
+  const storedSum = ids.reduce((sum, id) => sum + measure.storedByAria[id], 0);
+  const slack = measure.wrapClientWidth - storedSum;
+  const elasticId = ids.includes('path') ? 'path' : ids[ids.length - 1];
+  const delta =
+    slack >= 0
+      ? slack
+      : elasticId === 'path'
+        ? Math.max(slack, ELASTIC_PATH_MIN_WIDTH - measure.storedByAria.path)
+        : 0;
+  const expected = {};
+  for (const id of ids) expected[id] = measure.storedByAria[id] + (id === elasticId ? delta : 0);
+  return expected;
+}
+
+// Everything that has to hold at every wrap width, whatever the fonts do.
+function expectElasticGridInvariants(measure, at) {
+  const expected = expectedElasticWidths(measure);
+  expect([at, measure.headerWidths]).toEqual([at, expected]);
+  // Header and cells name the same columns in the same order, or the grid skews.
+  expect([at, measure.firstRowCellIds]).toEqual([at, measure.headerIds]);
+  // No column the row's sentence needs is ever dropped.
+  for (const id of GRID_PRIORITY_1_COLUMN_IDS) {
+    expect([at, id, measure.headerIds.includes(id)]).toEqual([at, id, true]);
+  }
+  // Path never paints narrower than its floor.
+  expect([at, measure.headerWidths.path >= ELASTIC_PATH_MIN_WIDTH]).toEqual([at, true]);
+  const painted = Object.values(expected).reduce((sum, width) => sum + width, 0);
+  expect([at, measure.gridStyleWidth]).toEqual([at, painted + 'px']);
+  // Horizontal scroll exists exactly when the columns that may not be dropped
+  // still do not fit, never merely because a droppable one is on screen.
+  expect([at, measure.horizontalScroll]).toEqual([at, painted > measure.wrapClientWidth]);
+}
 
 browserTest(
   'the elastic Path column fills a wide wrap while the stored widths stay authoritative',
@@ -5080,45 +5123,76 @@ browserTest(
       expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
       await settleLayout(cdp);
       // Sample activation selects a row, so the pane is open: 1280 - 4 - the
-      // stylesheet's clamp() basis leaves a wrap narrower than the 992px sum.
+      // stylesheet's clamp() basis leaves a wrap narrower than the stored sum,
+      // and the grid answers by squeezing Path and dropping the columns that
+      // still do not fit rather than growing a scrollbar.
       const paneOpen = await evaluate(cdp, ELASTIC_GRID_MEASURE);
       expect(paneOpen.wrapClientWidth).toBeLessThan(992);
+      expectElasticGridInvariants(paneOpen, 'pane open');
       expect(paneOpen).toMatchObject({
-        horizontalScroll: true,
-        gridStyleWidth: '992px',
-        gridWidth: 992,
+        horizontalScroll: false,
+        gridStyleWidth: paneOpen.wrapClientWidth + 'px',
+        gridWidth: paneOpen.wrapClientWidth,
+        // The stored width is untouched by the squeeze.
         pathAriaValueNow: '260',
-      });
-      expect(paneOpen.headerWidths).toEqual({
-        match: 36,
-        id: 60,
-        method: 80,
-        status: 70,
-        domain: 140,
-        path: 260,
-        type: 90,
-        duration: 80,
-        size: 72,
-        clientStart: 104,
+        // And nothing about the fit reached the reader's preferences.
+        storedRaw: null,
       });
 
-      // Closing the pane widens the wrap past the sum: the surplus lands on
-      // Path's rendered width only, and the grid spans the wrap exactly.
+      // The one case where scrolling IS the answer, and the only place the
+      // scroll invariant above is read in its true branch: a wrap narrower
+      // than the columns that may never be dropped, with Path already at its
+      // floor. Without a width like this the whole matrix only ever proves
+      // that a grid which fits does not scroll.
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 320,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await settleLayout(cdp);
+      const overflowing = await evaluate(cdp, ELASTIC_GRID_MEASURE);
+      expectElasticGridInvariants(overflowing, 'undroppable set wider than the wrap');
+      expect(overflowing.horizontalScroll).toBe(true);
+      // Everything droppable is gone: what is left is the row's sentence plus
+      // the column the row order is explained by, and it still does not fit.
+      expect(
+        overflowing.headerIds.filter(
+          (id) => !GRID_PRIORITY_1_COLUMN_IDS.includes(id) && id !== 'id',
+        ),
+      ).toEqual([]);
+      expect(overflowing.headerWidths.path).toBe(ELASTIC_PATH_MIN_WIDTH);
+      expect(overflowing.gridWidth).toBeGreaterThan(overflowing.wrapClientWidth);
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await settleLayout(cdp);
+      expect(await evaluate(cdp, ELASTIC_GRID_MEASURE)).toEqual(paneOpen);
+
+      // Closing the pane widens the wrap past the sum: every dropped column
+      // is back, the surplus lands on Path's rendered width only, and the
+      // grid spans the wrap exactly.
       await evaluate(cdp, "document.querySelector('#detailsCloseBtn').click()");
       await settleLayout(cdp);
       const paneClosed = await evaluate(cdp, ELASTIC_GRID_MEASURE);
       expect(paneClosed.wrapClientWidth).toBeGreaterThan(992);
-      const closedSurplus = paneClosed.wrapClientWidth - 992;
+      expectElasticGridInvariants(paneClosed, 'pane closed');
       expect(paneClosed).toMatchObject({
         horizontalScroll: false,
         gridStyleWidth: paneClosed.wrapClientWidth + 'px',
         gridWidth: paneClosed.wrapClientWidth,
         pathAriaValueNow: '260',
+        storedRaw: null,
       });
-      expect(paneClosed.headerWidths).toEqual({
-        ...paneOpen.headerWidths,
-        path: 260 + closedSurplus,
-      });
+      // The narrow wrap really had dropped columns, and the wide one has them
+      // all back — asserted against each other, not against a column count.
+      expect(paneOpen.headerIds.length).toBeLessThan(paneClosed.headerIds.length);
+      expect(paneClosed.headerIds.filter((id) => paneOpen.headerIds.includes(id))).toEqual(
+        paneOpen.headerIds,
+      );
 
       // A keyboard resize on the elastic Path stores the new px (270) while
       // the rendered width keeps absorbing the recomputed surplus.
@@ -5139,6 +5213,7 @@ browserTest(
         storedPathWidth: 270,
       });
       expect(afterKeyboard.headerWidths.path).toBe(270 + (paneClosed.wrapClientWidth - 1002));
+      expectElasticGridInvariants(afterKeyboard, 'after keyboard resize');
 
       // Path hidden: the surplus moves to the last visible column instead.
       await evaluate(
@@ -5162,6 +5237,10 @@ browserTest(
         pathAriaValueNow: null,
       });
       expect(pathHidden.headerWidths.clientStart).toBe(104 + (pathHidden.wrapClientWidth - 732));
+      // Path hidden by hand is not Path dropped by the wrap: the surplus moves
+      // on, the header and the cells still agree, and nothing scrolls.
+      expect(pathHidden.firstRowCellIds).toEqual(pathHidden.headerIds);
+      expect(pathHidden.headerWidths).toEqual(expectedElasticWidths(pathHidden));
 
       // Widening the wrap with the pane closed (window resize) re-applies the
       // surplus from the observer without tripping the loop-limit error.
@@ -5176,10 +5255,842 @@ browserTest(
       expect(widened.wrapClientWidth).toBeGreaterThan(pathHidden.wrapClientWidth);
       expect(widened).toMatchObject({ horizontalScroll: false, gridWidth: widened.wrapClientWidth });
       expect(widened.headerWidths.clientStart).toBe(104 + (widened.wrapClientWidth - 732));
+      expect(widened.firstRowCellIds).toEqual(widened.headerIds);
+      expect(widened.headerWidths).toEqual(expectedElasticWidths(widened));
       expect(await evaluate(cdp, 'window.__resizeObserverErrors')).toEqual([]);
       expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).not.toContain(
         'ResizeObserver',
       );
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+// Auto-hide, read back from the page rather than restated here. Which columns
+// step aside is a function of the wrap, and the wrap is a function of the
+// viewport, the details pane's clamp() and the platform's scrollbars — so
+// every assertion below is a relation between measurements (this wrap against
+// that one, the note against the columns actually missing, the plan against
+// itself under a bigger font), never a column list or a count written down.
+const AUTO_HIDE_MEASURE = `(() => {
+  const menu = document.querySelector('#columnsMenu');
+  const checkboxes = Array.from(menu.querySelectorAll('[role="menuitemcheckbox"]')).filter(
+    (item) => item.dataset.columnId,
+  );
+  const tableWrap = document.querySelector('#tableWrap');
+  const firstRow = document.querySelectorAll('#tbody tr[data-row-id]')[0];
+  const note = menu.querySelector('.columns-autohide-note');
+  return {
+    wrapClientWidth: tableWrap.clientWidth,
+    horizontalScroll: tableWrap.scrollWidth > tableWrap.clientWidth,
+    headerIds: Array.from(document.querySelectorAll('thead th[data-col-id]')).map(
+      (th) => th.dataset.colId,
+    ),
+    firstRowCellIds: Array.from(firstRow ? firstRow.querySelectorAll('td[data-col-id]') : []).map(
+      (td) => td.dataset.colId,
+    ),
+    // The reader's own choice, straight from the box that carries it.
+    checkedIds: checkboxes
+      .filter((item) => item.getAttribute('aria-checked') === 'true')
+      .map((item) => item.dataset.columnId),
+    // Dimmed, never unchecked: the box still says the reader asked for it.
+    dimmedIds: checkboxes
+      .filter((item) => item.classList.contains('column-auto-hidden'))
+      .map((item) => item.dataset.columnId),
+    // The opt-out sits under the box it belongs to, and it is a row in two
+    // states: the offer while the wrap is dropping the column, and the state
+    // it produced once taken — which is the only place a pin can be undone.
+    showAnywayIds: Array.from(menu.querySelectorAll('.columns-show-anyway'))
+      .filter((button) => !button.classList.contains('column-pinned'))
+      .map((button) => button.dataset.pinColumnId),
+    pinnedRowIds: Array.from(menu.querySelectorAll('.columns-show-anyway.column-pinned')).map(
+      (button) => button.dataset.pinColumnId,
+    ),
+    // Each row sits under the checkbox it belongs to, so the pair reads as one
+    // entry rather than as a loose control after the list.
+    pinRowsFollowTheirCheckbox: Array.from(menu.querySelectorAll('.columns-show-anyway')).every(
+      (button) =>
+        button.previousElementSibling &&
+        button.previousElementSibling.dataset.columnId === button.dataset.pinColumnId,
+    ),
+    pinRowLabels: Array.from(menu.querySelectorAll('.columns-show-anyway')).map((button) => [
+      button.dataset.pinColumnId,
+      button.textContent,
+      button.getAttribute('aria-label'),
+    ]),
+    // The sorted header and the arrow that explains the order.
+    sortedColumnId:
+      (
+        document.querySelector('thead th[aria-sort="ascending"], thead th[aria-sort="descending"]') || {
+          dataset: {},
+        }
+      ).dataset.colId ?? null,
+    sortIndicatorColumnIds: Array.from(document.querySelectorAll('thead th .sort-indicator')).map(
+      (indicator) => indicator.closest('th').dataset.colId,
+    ),
+    noteText: note ? note.textContent : null,
+    // Auto-hide is a fit decision, not a preference, and must never reach one.
+    storedCols: localStorage.getItem('networkPlus.cols'),
+    storedVisibleIds: JSON.parse(localStorage.getItem('networkPlus.cols') || 'null')
+      ?.filter((column) => column.visible)
+      .map((column) => column.id) ?? null,
+    storedPins: localStorage.getItem('networkPlus.colPins.v1'),
+  };
+})()`;
+
+// Everything that has to hold about a dropped set, at any wrap, in any font:
+// the reader's choice is intact, the difference between that choice and what
+// is painted is stated where they chose it, and the grid does not skew.
+// Returns the dropped ids so the caller can go on to relate two readings.
+function expectAutoHideDifferenceIsVisible(measure, at) {
+  const dropped = measure.checkedIds.filter((id) => !measure.headerIds.includes(id));
+  // Nothing is painted that the reader did not ask for.
+  expect([at, measure.headerIds.filter((id) => !measure.checkedIds.includes(id))]).toEqual([at, []]);
+  // Header and cells name the same columns in the same order, or the grid skews.
+  expect([at, measure.firstRowCellIds]).toEqual([at, measure.headerIds]);
+  // No column the row's sentence needs is ever dropped.
+  for (const id of GRID_PRIORITY_1_COLUMN_IDS) {
+    expect([at, id, measure.headerIds.includes(id)]).toEqual([at, id, true]);
+  }
+  // The menu marks precisely the dropped columns and offers the opt-out on
+  // precisely those: a dimmed box the grid still paints would be a lie, and a
+  // column missing with no marker is the difference the reader cannot see.
+  expect([at, measure.dimmedIds.slice().sort()]).toEqual([at, dropped.slice().sort()]);
+  expect([at, measure.showAnywayIds.slice().sort()]).toEqual([at, dropped.slice().sort()]);
+  // A pin is only ever offered or shown against the column it belongs to.
+  expect([at, measure.pinRowsFollowTheirCheckbox]).toEqual([at, true]);
+  // Every stored pin on a column the reader still wants says so in the menu:
+  // a pin with no row is a one-way door, invisible and impossible to undo.
+  const storedPins = JSON.parse(measure.storedPins || '[]');
+  expect([at, measure.pinnedRowIds.slice().sort()]).toEqual([
+    at,
+    storedPins.filter((id) => measure.checkedIds.includes(id)).sort(),
+  ]);
+  // A pinned column is never among the dropped: that is what the pin buys.
+  expect([at, measure.pinnedRowIds.filter((id) => dropped.includes(id))]).toEqual([at, []]);
+  // Whatever the rows are ordered by is painted, with its arrow on screen.
+  if (measure.sortedColumnId) {
+    expect([at, measure.headerIds.includes(measure.sortedColumnId)]).toEqual([at, true]);
+    expect([at, measure.sortIndicatorColumnIds]).toEqual([at, [measure.sortedColumnId]]);
+  }
+  // The note is present exactly when something was dropped, and counts them.
+  expect([at, measure.noteText]).toEqual([
+    at,
+    dropped.length === 0 ? null : dropped.length + ' hidden to fit',
+  ]);
+  // Once anything has written the preferences, what they say is visible is the
+  // reader's whole choice — the dropped columns included. Auto-hide is a fit
+  // decision and a save taken while it is in force must not record it.
+  if (measure.storedVisibleIds !== null) {
+    expect([at, measure.storedVisibleIds.slice().sort()]).toEqual([
+      at,
+      measure.checkedIds.slice().sort(),
+    ]);
+  }
+  return dropped;
+}
+
+browserTest(
+  'the wrap drops columns by priority, says how many in the Columns menu, and pins one back on request',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1920, height: 800 });
+    const { cdp } = page;
+    const resizeTo = async (width, height) => {
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await settleLayout(cdp);
+    };
+    // The menu is built on open, so a reading taken through a menu left open
+    // across a resize would describe the previous wrap. Closed, then opened.
+    const readThroughFreshMenu = async () => {
+      await evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          if (menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+          document.querySelector('#columnsBtn').click();
+          return true;
+        })()`,
+      );
+      await settleLayout(cdp);
+      const measure = await evaluate(cdp, AUTO_HIDE_MEASURE);
+      await evaluate(cdp, "document.querySelector('#columnsBtn').click(); true");
+      await settleLayout(cdp);
+      return measure;
+    };
+    const droppedIn = (measure) => measure.checkedIds.filter((id) => !measure.headerIds.includes(id));
+    // A render inside the ResizeObserver callback is a fresh chance to trip the
+    // loop limit, and hiding a column removes the very scrollbar whose absence
+    // can hand the width back. Re-armed after the reload below, which is a new
+    // document and keeps none of this.
+    const watchResizeObserverErrors = () =>
+      evaluate(
+        cdp,
+        `(() => {
+          window.__resizeObserverErrors = [];
+          window.addEventListener('error', (event) => {
+            window.__resizeObserverErrors.push(event.message);
+          });
+          return true;
+        })()`,
+      );
+    try {
+      await waitForSampleCaptureAction(cdp);
+      await watchResizeObserverErrors();
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await settleLayout(cdp);
+
+      // 1920 with the pane open: the wrap holds everything the reader chose,
+      // so nothing is dropped, nothing is dimmed, and the menu says nothing.
+      const wide = await readThroughFreshMenu();
+      expect(expectAutoHideDifferenceIsVisible(wide, '1920 pane open')).toEqual([]);
+      expect(wide).toMatchObject({ horizontalScroll: false, noteText: null, storedPins: null });
+
+      // 1280 with the pane open, and 800 stacked. Which of the two is the
+      // narrower wrap is the layout's business, not this test's: the pair is
+      // compared by the wrap each actually produced, and the narrower wrap
+      // must drop a superset of what the wider one dropped.
+      await resizeTo(1280, 800);
+      const narrow = await readThroughFreshMenu();
+      const narrowDropped = expectAutoHideDifferenceIsVisible(narrow, '1280 pane open');
+      expect(narrowDropped.length).toBeGreaterThan(0);
+      expect(narrow.wrapClientWidth).toBeLessThan(wide.wrapClientWidth);
+      expect(narrow.storedCols).toBeNull();
+
+      // Nothing has written the preferences yet, so nothing has yet had the
+      // chance to record the fit into them. A keyboard resize is the cheapest
+      // action that saves them, and it is taken here precisely because columns
+      // are dropped right now: from this point on every reading below checks
+      // that the saved blob still calls the reader's whole choice visible.
+      await evaluate(
+        cdp,
+        "document.querySelector('th[data-col-id=\"domain\"] .col-resizer').focus(); true",
+      );
+      await pressKey(cdp, 'ArrowRight', 'ArrowRight', 39);
+      await settleLayout(cdp);
+      const afterSave = await readThroughFreshMenu();
+      expect(afterSave.storedCols).not.toBeNull();
+      expectAutoHideDifferenceIsVisible(afterSave, '1280 after a save while columns are dropped');
+
+      await resizeTo(800, 800);
+      const stacked = await readThroughFreshMenu();
+      expectAutoHideDifferenceIsVisible(stacked, '800 stacked');
+      const byWrap = [wide, narrow, stacked].sort((a, b) => b.wrapClientWidth - a.wrapClientWidth);
+      for (let index = 1; index < byWrap.length; index += 1) {
+        const at = byWrap[index - 1].wrapClientWidth + ' then ' + byWrap[index].wrapClientWidth;
+        const wider = droppedIn(byWrap[index - 1]);
+        const narrower = droppedIn(byWrap[index]);
+        expect([at, wider.every((id) => narrower.includes(id))]).toEqual([at, true]);
+      }
+      // And no amount of resizing rewrote the stored preferences: the blob is
+      // byte-for-byte what the keyboard resize above left there.
+      expect(stacked.storedCols).toBe(afterSave.storedCols);
+
+      // CI renders with fallback fonts several tiers wider than this machine's.
+      // The fit is decided on stored widths, never on measured text, so
+      // tripling the header type must move nothing about what is dropped —
+      // that invariance is the assertion, not any particular column set.
+      await resizeTo(1280, 800);
+      await evaluate(
+        cdp,
+        `(() => {
+          const style = document.createElement('style');
+          style.id = '__oversizedHeaderFont';
+          style.textContent = '.title-row th{font-size:18px !important;letter-spacing:2px !important}';
+          document.head.appendChild(style);
+          return true;
+        })()`,
+      );
+      await settleLayout(cdp);
+      const oversized = await readThroughFreshMenu();
+      expectAutoHideDifferenceIsVisible(oversized, '1280 under an oversized header font');
+      expect(oversized.headerIds).toEqual(narrow.headerIds);
+      await evaluate(cdp, "document.querySelector('#__oversizedHeaderFont').remove(); true");
+      await settleLayout(cdp);
+
+      // Match leads the drop order, so a wrap that dropped anything dropped it.
+      expect(narrowDropped).toContain('match');
+      // A keyword brings it back anyway — the chips have to be somewhere. The
+      // header is rebuilt with the body, so the two still name the same
+      // columns; a body-only render would skew the grid without throwing.
+      await evaluate(cdp, "document.querySelector('#searchToggleBtn').click(); true");
+      await settleLayout(cdp);
+      const typeKeyword = async (query) => {
+        await evaluate(
+          cdp,
+          `(() => {
+            const input = document.querySelector('.search-keyword-input');
+            input.value = ${JSON.stringify(query)};
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+          })()`,
+        );
+        await delay(600);
+        await settleLayout(cdp);
+      };
+      await typeKeyword('sample');
+      const searching = await readThroughFreshMenu();
+      expect(searching.headerIds).toContain('match');
+      expectAutoHideDifferenceIsVisible(searching, '1280 while a keyword exists');
+      // Clearing the last keyword lets Match step aside again.
+      await typeKeyword('');
+      const cleared = await readThroughFreshMenu();
+      expect(cleared.headerIds).not.toContain('match');
+      const clearedDropped = expectAutoHideDifferenceIsVisible(cleared, '1280 after the keyword goes');
+
+      // "Show anyway" pins a dropped column visible. It is a choice like
+      // visibility, so it is stored — in its own key, leaving the column
+      // preferences exactly as the reader's own actions left them.
+      const pinnedId = clearedDropped[0];
+      await evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          if (!menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+          menu.querySelector('[data-column-id="' + ${JSON.stringify(pinnedId)} + '"]')
+            .nextElementSibling.click();
+          return true;
+        })()`,
+      );
+      await settleLayout(cdp);
+      const pinned = await readThroughFreshMenu();
+      expect(pinned.headerIds).toContain(pinnedId);
+      expect(pinned.dimmedIds).not.toContain(pinnedId);
+      // What the row says once the pin is taken, and what a screen reader is
+      // told it does. Measured before this and never asserted, so both strings
+      // could have changed to anything without a test noticing.
+      const pinnedLabel = pinned.pinRowLabels.find((row) => row[0] === pinnedId);
+      expect(pinnedLabel).toEqual([pinnedId, 'Always shown — undo', expect.stringMatching(/^Stop always showing /)]);
+      expectAutoHideDifferenceIsVisible(pinned, '1280 after Show anyway');
+      expect(JSON.parse(pinned.storedPins)).toContain(pinnedId);
+      expect(pinned.storedCols).toBe(cleared.storedCols);
+      expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).toContain(
+        'stays visible',
+      );
+
+      // Every relayout above went through the ResizeObserver, and a render
+      // inside it is a fresh chance to trip the loop limit. Read before the
+      // reload below, which is what the listener would not survive.
+      expect(await evaluate(cdp, 'window.__resizeObserverErrors')).toEqual([]);
+      expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).not.toContain(
+        'ResizeObserver',
+      );
+
+      // The pin is the reader's, so it survives a reload; the auto-hidden set
+      // around it is planned again from the wrap it finds.
+      await page.navigate();
+      await waitForSampleCaptureAction(cdp);
+      await watchResizeObserverErrors();
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await settleLayout(cdp);
+      const reloaded = await readThroughFreshMenu();
+      expect(reloaded.headerIds).toContain(pinnedId);
+      expect(JSON.parse(reloaded.storedPins)).toContain(pinnedId);
+      expectAutoHideDifferenceIsVisible(reloaded, '1280 after a reload');
+      // The fresh load plans the fit from scratch, so it is its own chance to
+      // trip the loop limit — this listener is the reloaded page's own.
+      expect(await evaluate(cdp, 'window.__resizeObserverErrors')).toEqual([]);
+      expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).not.toContain(
+        'ResizeObserver',
+      );
+
+      // The pin is undone from the row that set it. Not a second control: the
+      // same row, which now names the state it produced. Without it the pin is
+      // a one-way door — nothing on screen says it is in force and nothing
+      // takes it back.
+      const clickPinRow = async (columnId) => {
+        await evaluate(
+          cdp,
+          `(() => {
+            const menu = document.querySelector('#columnsMenu');
+            if (!menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+            menu.querySelector('[data-pin-column-id="' + ${JSON.stringify(columnId)} + '"]').click();
+            return true;
+          })()`,
+        );
+        await settleLayout(cdp);
+      };
+      expect(reloaded.pinnedRowIds).toContain(pinnedId);
+      await clickPinRow(pinnedId);
+      const unpinned = await readThroughFreshMenu();
+      expect(JSON.parse(unpinned.storedPins || '[]')).not.toContain(pinnedId);
+      // The offer standing, not taken: the other half of the pair.
+      const offeredLabels = unpinned.pinRowLabels.filter((row) => row[1] !== 'Always shown — undo');
+      expect(offeredLabels.length).toBeGreaterThan(0);
+      for (const [columnId, text, ariaLabel] of offeredLabels) {
+        expect([columnId, text]).toEqual([columnId, 'Show anyway']);
+        expect([columnId, ariaLabel]).toEqual([columnId, expect.stringMatching(/ anyway$/)]);
+      }
+      expect(unpinned.pinnedRowIds).not.toContain(pinnedId);
+      expect(unpinned.headerIds).not.toContain(pinnedId);
+      expectAutoHideDifferenceIsVisible(unpinned, '1280 after undoing the pin');
+      expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).toContain(
+        'can be hidden to fit again',
+      );
+
+      // A column the reader hides by hand loses its pin with it. Left behind,
+      // re-ticking the column would bring it back permanently exempt from the
+      // fit, with nothing on screen saying why it never steps aside again.
+      await clickPinRow(pinnedId);
+      const repinned = await readThroughFreshMenu();
+      expect(JSON.parse(repinned.storedPins)).toContain(pinnedId);
+
+      // Reset restores the factory layout, and a pin is a choice like
+      // visibility: it goes with it. Left behind, the column comes back
+      // invisibly exempt from the fit with nothing on screen saying why.
+      const afterReset = await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#columnsBtn').click();
+          const menu = document.querySelector('#columnsMenu');
+          const before = localStorage.getItem('networkPlus.colPins.v1');
+          const reset = Array.from(menu.querySelectorAll('button')).find(
+            (button) => button.textContent.trim() === 'Reset',
+          );
+          if (!reset) throw new Error('Reset was not found in the Columns menu.');
+          reset.click();
+          return { before, after: localStorage.getItem('networkPlus.colPins.v1') };
+        })()`,
+      );
+      // Not vacuous: there was a pin for Reset to clear.
+      expect(JSON.parse(afterReset.before)).toContain(pinnedId);
+      expect(JSON.parse(afterReset.after || '[]')).toEqual([]);
+      const clickCheckbox = async (columnId) => {
+        await evaluate(
+          cdp,
+          `(() => {
+            const menu = document.querySelector('#columnsMenu');
+            if (!menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+            menu.querySelector('[data-column-id="' + ${JSON.stringify(columnId)} + '"]').click();
+            return true;
+          })()`,
+        );
+        await settleLayout(cdp);
+      };
+      await clickCheckbox(pinnedId);
+      const hiddenByHand = await readThroughFreshMenu();
+      expect(hiddenByHand.checkedIds).not.toContain(pinnedId);
+      expect(JSON.parse(hiddenByHand.storedPins || '[]')).not.toContain(pinnedId);
+      await clickCheckbox(pinnedId);
+      const reticked = await readThroughFreshMenu();
+      expect(reticked.checkedIds).toContain(pinnedId);
+      expect(JSON.parse(reticked.storedPins || '[]')).not.toContain(pinnedId);
+      // Back to droppable, exactly as it was before it was ever pinned.
+      expect(reticked.headerIds).toEqual(unpinned.headerIds);
+      expectAutoHideDifferenceIsVisible(reticked, '1280 after hiding and re-showing a pinned column');
+
+      // The opt-out row is indented past the ☑ glyph of the checkbox it hangs
+      // under. Both measures are read back, never written down: a browser
+      // minimum font size lifts every computed size in this menu at once, and
+      // an indent that did not lift with the glyph would sit on top of it.
+      const measurePinRowIndent = () =>
+        evaluate(
+          cdp,
+          `(() => {
+            const menu = document.querySelector('#columnsMenu');
+            if (!menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+            const row = menu.querySelector('.columns-show-anyway');
+            const item = row.previousElementSibling;
+            const range = document.createRange();
+            // The checkbox glyph and the space after it, measured as painted.
+            range.setStart(item.firstChild, 0);
+            range.setEnd(item.firstChild, 2);
+            const glyph = range.getBoundingClientRect();
+            const rowBox = row.getBoundingClientRect();
+            const rowStyle = getComputedStyle(row);
+            return {
+              glyphRight: Math.round(glyph.right),
+              glyphWidth: Math.round(glyph.width),
+              labelLeft: Math.round(rowBox.left + parseFloat(rowStyle.paddingLeft)),
+              rowFontSize: Math.round(parseFloat(rowStyle.fontSize)),
+              itemFontSize: Math.round(parseFloat(getComputedStyle(item).fontSize)),
+            };
+          })()`,
+        );
+      const indentAtDefault = await measurePinRowIndent();
+      expect(['default font', indentAtDefault.labelLeft >= indentAtDefault.glyphRight]).toEqual([
+        'default font',
+        true,
+      ]);
+      await evaluate(
+        cdp,
+        `(() => {
+          const style = document.createElement('style');
+          style.id = '__oversizedMenuFont';
+          // !important on purpose: a browser minimum font size lifts the row
+          // and the checkbox together, and this is the only way to reproduce
+          // that from a stylesheet.
+          style.textContent = '.context-menu-item{font-size:22px !important}';
+          document.head.appendChild(style);
+          return true;
+        })()`,
+      );
+      await settleLayout(cdp);
+      const indentAtLargeFont = await measurePinRowIndent();
+      expect(['22px font', indentAtLargeFont.labelLeft >= indentAtLargeFont.glyphRight]).toEqual([
+        '22px font',
+        true,
+      ]);
+      // Not vacuous: the glyph really did grow, so the indent really did have
+      // to grow with it.
+      expect(indentAtLargeFont.glyphWidth).toBeGreaterThan(indentAtDefault.glyphWidth);
+      expect(indentAtLargeFont.rowFontSize).toBeGreaterThan(indentAtDefault.rowFontSize);
+      await evaluate(cdp, "document.querySelector('#__oversizedMenuFont').remove(); true");
+      await settleLayout(cdp);
+      await evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          if (menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+          return true;
+        })()`,
+      );
+
+      // The column the rows are ordered by is the column that explains the
+      // order, so the wrap may not drop it. Sorted at a width that holds
+      // everything, then narrowed to one that does not.
+      await resizeTo(1920, 800);
+      await evaluate(cdp, "document.querySelector('th[data-col-id=\"duration\"]').click(); true");
+      await settleLayout(cdp);
+      const sortedWide = await readThroughFreshMenu();
+      expect(sortedWide.sortedColumnId).toBe('duration');
+      await resizeTo(980, 800);
+      const sortedNarrow = await readThroughFreshMenu();
+      expect(sortedNarrow.wrapClientWidth).toBeLessThan(sortedWide.wrapClientWidth);
+      expect(sortedNarrow.sortedColumnId).toBe('duration');
+      expect(sortedNarrow.headerIds).toContain('duration');
+      expect(sortedNarrow.sortIndicatorColumnIds).toEqual(['duration']);
+      expectAutoHideDifferenceIsVisible(sortedNarrow, '980 sorted by Duration');
+      // Painted is not the same as legible, and legible is not the same as
+      // attached. The arrow is the whole on-screen explanation of the order,
+      // so it has to be inside the cell the browser paints AND beside the
+      // label it annotates — parked against the right edge it survived the
+      // ellipsis but sat a whole cell away on a wide column. Both are
+      // measured, never written down: every number here is font-derived and
+      // CI renders with fallback fonts wider than this machine's.
+      const measureSortArrow = (columnId) =>
+        evaluate(
+          cdp,
+          `(() => {
+            const th = document.querySelector('thead th[data-col-id="${columnId}"]');
+            const indicator = th.querySelector('.sort-indicator');
+            const label = th.querySelector('.column-header-label');
+            const thBox = th.getBoundingClientRect();
+            const arrow = indicator.getBoundingClientRect();
+            const labelBox = label.getBoundingClientRect();
+            return {
+              arrowWidth: Math.round(arrow.width),
+              arrowRightInCell: Math.round(arrow.right - thBox.left),
+              cellRight: th.clientWidth,
+              // Positive and no wider than the arrow itself: beside the
+              // label, in the reading order, not somewhere else in the cell.
+              gapAfterLabel: Math.round(arrow.left - labelBox.right),
+              labelEllipsised: label.scrollWidth > label.clientWidth + 1,
+            };
+          })()`,
+        );
+      const expectArrowBesideLabel = (measure, at) => {
+        expect([at, 'inside the cell', measure.arrowRightInCell <= measure.cellRight]).toEqual([
+          at,
+          'inside the cell',
+          true,
+        ]);
+        expect([at, 'after the label', measure.gapAfterLabel >= 0]).toEqual([
+          at,
+          'after the label',
+          true,
+        ]);
+        expect([at, 'beside the label', measure.gapAfterLabel <= measure.arrowWidth]).toEqual([
+          at,
+          'beside the label',
+          true,
+        ]);
+      };
+      const arrowAtDefault = await measureSortArrow('duration');
+      expectArrowBesideLabel(arrowAtDefault, 'default font, narrow column');
+      // The narrow column is really narrow: the label itself is ellipsised,
+      // which is the case the arrow used to be eaten in.
+      expect(['default font, narrow column', arrowAtDefault.labelEllipsised]).toEqual([
+        'default font, narrow column',
+        true,
+      ]);
+      await evaluate(
+        cdp,
+        `(() => {
+          const style = document.createElement('style');
+          style.id = '__oversizedSortFont';
+          style.textContent = '.title-row th{font-size:20px !important;letter-spacing:2px !important}';
+          document.head.appendChild(style);
+          return true;
+        })()`,
+      );
+      await settleLayout(cdp);
+      const arrowAtLargeFont = await measureSortArrow('duration');
+      expectArrowBesideLabel(arrowAtLargeFont, '20px font, narrow column');
+      expect(arrowAtLargeFont.arrowWidth).toBeGreaterThan(arrowAtDefault.arrowWidth);
+      await evaluate(cdp, "document.querySelector('#__oversizedSortFont').remove(); true");
+      await settleLayout(cdp);
+
+      // And on a wide column, which is where parking the arrow at the right
+      // edge left it a whole cell away from the word it belongs to. Path is
+      // the elastic column, so at 1920 it is the widest thing on screen.
+      await resizeTo(1920, 800);
+      await evaluate(cdp, "document.querySelector('th[data-col-id=\"path\"]').click(); true");
+      await settleLayout(cdp);
+      const arrowOnWideColumn = await measureSortArrow('path');
+      expectArrowBesideLabel(arrowOnWideColumn, '1920 sorted by Path');
+      // Not vacuous: the cell really does run on far past the arrow, so an
+      // arrow at the right edge would have measured completely differently.
+      expect([
+        '1920 sorted by Path',
+        arrowOnWideColumn.cellRight - arrowOnWideColumn.arrowRightInCell >
+          arrowOnWideColumn.arrowWidth * 10,
+      ]).toEqual(['1920 sorted by Path', true]);
+      expect(['1920 sorted by Path', arrowOnWideColumn.labelEllipsised]).toEqual([
+        '1920 sorted by Path',
+        false,
+      ]);
+      // Back to the sort and the wrap the rest of this test expects. Duration
+      // is chosen while the wide wrap still paints it: at 980 it is on screen
+      // only because it is the sort key, so it cannot be clicked there.
+      await evaluate(cdp, "document.querySelector('th[data-col-id=\"duration\"]').click(); true");
+      await settleLayout(cdp);
+      await resizeTo(980, 800);
+      expect((await readThroughFreshMenu()).sortedColumnId).toBe('duration');
+
+      // Not vacuous, and the protection is released the moment the reader
+      // sorts by something else: at this very wrap, ordered by a column that
+      // needs no exemption, Duration is one of the columns the wrap drops.
+      await evaluate(cdp, "document.querySelector('th[data-col-id=\"domain\"]').click(); true");
+      await settleLayout(cdp);
+      const sortedByDomain = await readThroughFreshMenu();
+      expect(sortedByDomain.sortedColumnId).toBe('domain');
+      expect(sortedByDomain.wrapClientWidth).toBe(sortedNarrow.wrapClientWidth);
+      expect(sortedByDomain.headerIds).not.toContain('duration');
+      expectAutoHideDifferenceIsVisible(sortedByDomain, '980 sorted by Domain');
+
+      // A column drag suppresses the re-plan, because a render mid-gesture
+      // destroys the <th> the mousedown closed over. The release for that
+      // suppression cannot live only in the document's mouseup: a pointer let
+      // go outside the frame never delivers one, and the fit would then be
+      // suppressed for the rest of the session.
+      await resizeTo(1280, 800);
+      const beforeDrag = await readThroughFreshMenu();
+      expect(droppedIn(beforeDrag).length).toBeGreaterThan(0);
+      await evaluate(
+        cdp,
+        `(() => {
+          const resizer = document.querySelector('th[data-col-id="domain"] .col-resizer');
+          const box = resizer.getBoundingClientRect();
+          resizer.dispatchEvent(
+            new MouseEvent('mousedown', { bubbles: true, clientX: Math.round(box.left), clientY: Math.round(box.top) }),
+          );
+          return true;
+        })()`,
+      );
+      await resizeTo(1920, 800);
+      const whileHeld = await readThroughFreshMenu();
+      expect(whileHeld.wrapClientWidth).toBeGreaterThan(beforeDrag.wrapClientWidth);
+      expect(whileHeld.headerIds).toEqual(beforeDrag.headerIds);
+      // The frame taking the focus away is the release this gesture gets.
+      await evaluate(cdp, "window.dispatchEvent(new Event('blur')); true");
+      await settleLayout(cdp);
+      const afterRelease = await readThroughFreshMenu();
+      expect(afterRelease.headerIds.length).toBeGreaterThan(whileHeld.headerIds.length);
+      expectAutoHideDifferenceIsVisible(afterRelease, '1920 after a drag released outside the frame');
+
+      expect(await evaluate(cdp, 'window.__resizeObserverErrors')).toEqual([]);
+      expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).not.toContain(
+        'ResizeObserver',
+      );
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+// Where the focus actually is, named by what holds it rather than by an id
+// the header row does not have: 'th:<column>' for a header, 'resizer:<column>'
+// for one of its separators, the element id otherwise, and the bare tag name
+// for <body> — which is the answer this whole test exists to forbid.
+const HEADER_FOCUS_MEASURE = `(() => {
+  const active = document.activeElement;
+  const resizer = active && active.classList && active.classList.contains('col-resizer');
+  const header = active && active.closest ? active.closest('th[data-col-id]') : null;
+  return {
+    headerIds: Array.from(document.querySelectorAll('thead th[data-col-id]')).map(
+      (th) => th.dataset.colId,
+    ),
+    focus: header ? (resizer ? 'resizer:' : 'th:') + header.dataset.colId : (active && active.id) || (active && active.tagName) || null,
+    storedTypeWidth:
+      (JSON.parse(localStorage.getItem('networkPlus.cols') || '[]').find(
+        (column) => column.id === 'type',
+      ) || {}).width ?? null,
+    // The painted width, which exists before anything has saved a preference.
+    typeStyleWidth: (() => {
+      const th = document.querySelector('thead th[data-col-id="type"]');
+      return th ? Math.round(parseFloat(th.style.width)) : null;
+    })(),
+    storedPins: localStorage.getItem('networkPlus.colPins.v1'),
+  };
+})()`;
+
+// One concern per test: the original single journey ran five of them, took
+// longer than the 90s budget, and reported one failure for whichever of the
+// five broke. Each of these ends well inside the budget and names its own
+// defect. The three share HEADER_FOCUS_MEASURE above.
+browserTest(
+  'the header row hands focus to a neighbour when the wrap drops the focused column',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1600, height: 900 });
+    const { cdp } = page;
+    try {
+      // The focus moves are the point of the test, so this is the focused
+      // DevTools panel a reader is actually tabbing through.
+      await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+      await waitForSampleCaptureAction(cdp);
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await settleLayout(cdp);
+
+      const wide = await evaluate(cdp, HEADER_FOCUS_MEASURE);
+      expect(wide.headerIds).toContain('clientStart');
+      await evaluate(cdp, "document.querySelector('thead th[data-col-id=\"clientStart\"]').focus(); true");
+      expect((await evaluate(cdp, HEADER_FOCUS_MEASURE)).focus).toBe('th:clientStart');
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 900,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await settleLayout(cdp);
+      const afterDrop = await evaluate(cdp, HEADER_FOCUS_MEASURE);
+      // Not vacuous: the column the focus was on really did go.
+      expect(afterDrop.headerIds).not.toContain('clientStart');
+      // Left alone the browser drops focus to <body> and the reader loses
+      // their place in the grid entirely.
+      expect(afterDrop.focus).not.toBe('BODY');
+      // Wherever it landed, it landed on a header that is really painted —
+      // not on a separator, which would resize a column nobody asked about.
+      expect(afterDrop.focus.startsWith('th:')).toBe(true);
+      expect(afterDrop.headerIds).toContain(afterDrop.focus.slice('th:'.length));
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'a keyboard column resize keeps its column until the focus leaves the separator',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1300, height: 900 });
+    const { cdp } = page;
+    try {
+      await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+      await waitForSampleCaptureAction(cdp);
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await settleLayout(cdp);
+
+      // Type is a P3 column and droppable at this wrap, so the re-plan below
+      // has a reason to want it gone.
+      const beforeGesture = await evaluate(cdp, HEADER_FOCUS_MEASURE);
+      expect(beforeGesture.headerIds).toContain('type');
+      await evaluate(cdp, "document.querySelector('thead th[data-col-id=\"type\"] .col-resizer').focus(); true");
+      expect((await evaluate(cdp, HEADER_FOCUS_MEASURE)).focus).toBe('resizer:type');
+      for (let step = 0; step < 12; step += 1) {
+        // Shift is the large step: twelve of them take Type well past what
+        // this wrap can hold.
+        await pressKey(cdp, 'ArrowRight', 'ArrowRight', 39, 8);
+      }
+      await settleLayout(cdp);
+
+      const duringGesture = await evaluate(cdp, HEADER_FOCUS_MEASURE);
+      // A re-plan that drops the column under the reader's hand ends the
+      // gesture and strands the focus that was stepping the width.
+      expect(duringGesture.focus).toBe('resizer:type');
+      expect(duringGesture.headerIds).toContain('type');
+      // The steps really landed, and really made Type too wide for the wrap:
+      // without that the re-plan had nothing to drop and this proves nothing.
+      expect(duringGesture.typeStyleWidth).toBeGreaterThan(beforeGesture.typeStyleWidth);
+      expect(duringGesture.storedTypeWidth).toBe(duringGesture.typeStyleWidth);
+      // Other columns went instead — the exemption is one column wide.
+      expect(duringGesture.headerIds.length).toBeLessThan(beforeGesture.headerIds.length);
+
+      // And the exemption is scoped to the gesture, not latched onto the
+      // column: the moment the focus leaves the separator, the next re-plan
+      // drops the same over-wide column at the same wrap.
+      await evaluate(cdp, "document.querySelector('#searchToggleBtn').focus(); true");
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1299,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await settleLayout(cdp);
+      const afterGesture = await evaluate(cdp, HEADER_FOCUS_MEASURE);
+      expect(afterGesture.focus).toBe('searchToggleBtn');
+      expect(afterGesture.headerIds).not.toContain('type');
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'column pins drop ids that no longer exist, and hiding every column clears them',
+  async () => {
+    // Seeded before panel.js runs rather than written and reloaded: the
+    // reload was the slowest step of the journey these tests were split out
+    // of, and it proved nothing this seed does not.
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1300,
+      height: 900,
+      initScript:
+        "localStorage.setItem('networkPlus.colPins.v1', JSON.stringify(['type', 'ghostColumn', '']));",
+    });
+    const { cdp } = page;
+    try {
+      await waitForSampleCaptureAction(cdp);
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await settleLayout(cdp);
+
+      // A pin for a column that no longer exists can never be seen or undone,
+      // because the menu only ever lists real columns. Such ids are dropped
+      // as the set is read, and the store converges instead of carrying them.
+      const loaded = await evaluate(cdp, HEADER_FOCUS_MEASURE);
+      expect(JSON.parse(loaded.storedPins)).toEqual(['type']);
+
+      // 'Deselect all' hides every column, so it drops every pin — the same
+      // thing the per-column untick and Reset already do. A pin left behind
+      // comes back invisibly with the column and exempts it from the fit for
+      // good, with nothing on screen saying why.
+      const deselected = await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#columnsBtn').click();
+          const menu = document.querySelector('#columnsMenu');
+          const before = localStorage.getItem('networkPlus.colPins.v1');
+          const deselect = Array.from(menu.querySelectorAll('button')).find(
+            (button) => button.textContent.trim() === 'Deselect all',
+          );
+          if (!deselect) throw new Error('Deselect all was not found in the Columns menu.');
+          deselect.click();
+          return { before, after: localStorage.getItem('networkPlus.colPins.v1') };
+        })()`,
+      );
+      // Not vacuous: there was a pin to clear.
+      expect(JSON.parse(deselected.before)).toEqual(['type']);
+      expect(JSON.parse(deselected.after)).toEqual([]);
     } finally {
       await page.close();
     }
@@ -5221,8 +6132,22 @@ browserTest(
       }`,
     });
     const { cdp } = page;
+    // Match is the first column the wrap drops, and 1280 with the details
+    // pane open is narrow enough to drop it. This measure is about the
+    // gutter's own contract, so it reads it at a width that holds it.
+    const closeDetailsPane = async () => {
+      await evaluate(
+        cdp,
+        `(() => {
+          const closeButton = document.querySelector('#detailsCloseBtn');
+          if (closeButton && !document.querySelector('#details').hidden) closeButton.click();
+        })()`,
+      );
+      await settleLayout(cdp);
+    };
     try {
       await waitForSampleCaptureAction(cdp);
+      await closeDetailsPane();
       // v3 prefs: the version bump resets Match to the 36px gutter width and
       // keeps the saved order (ID before Match) and the other widths.
       expect(await evaluate(cdp, MATCH_GUTTER_MEASURE)).toEqual({
@@ -5249,6 +6174,7 @@ browserTest(
       );
       await page.navigate();
       await waitForSampleCaptureAction(cdp);
+      await closeDetailsPane();
       expect(await evaluate(cdp, MATCH_GUTTER_MEASURE)).toEqual({
         order: ['match', 'id', 'method'],
         styleWidth: '64px',
@@ -9754,7 +10680,11 @@ browserTest(
 browserTest(
   'the inspector halves collapse from their labels, persist, and restore with a double-click',
   async () => {
-    const page = await launchPanelPage({ executable: browserExecutable, width: 1440, height: 420 });
+    // A tall pane on purpose: the split this journey drags, keys and resets
+    // only exists while the pane is taller than the short-pane column's
+    // @container (max-height:480px) threshold. The column mode that owns the
+    // short pane has its own journey below.
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1280, height: 800 });
     const { cdp } = page;
     try {
       await waitForSampleCaptureAction(cdp);
@@ -9879,6 +10809,488 @@ browserTest(
       expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).toBe(
         'Request and response inspectors restored to 50/50.',
       );
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+// Tier 3 UX: the short-pane column. Bottom-docked DevTools and the stacked
+// layout leave each inspector about four rows tall, so under
+// @container (max-height:480px) on .details the two peepholes become one
+// scrolling column. Everything here is a property — a display keyword, a
+// pinned label, an unclipped half, an absent inline height — because the row
+// counts and label heights it is really about are font-derived, and CI renders
+// with fallback fonts two tiers wider than this machine's.
+const INSPECTOR_COLUMN_MEASURE = `(() => {
+  const panels = document.querySelector('.inspector-panels');
+  const request = document.querySelector('#inspector-request');
+  const response = document.querySelector('#inspector-response');
+  const requestArea = document.querySelector('#inspector-request-content');
+  const responseArea = document.querySelector('#inspector-response-content');
+  const requestLabel = document.querySelector('#inspector-request-toggle');
+  const responseLabel = document.querySelector('#inspector-response-toggle');
+  const divider = document.querySelector('#inspector-divider');
+  const clipped = (area) => area.scrollHeight > area.clientHeight + 1;
+  return {
+    panelsDisplay: getComputedStyle(panels).display,
+    panelsOverflowY: getComputedStyle(panels).overflowY,
+    panelsScrolls: panels.scrollHeight > panels.clientHeight + 1,
+    requestLabelPosition: getComputedStyle(requestLabel).position,
+    responseLabelPosition: getComputedStyle(responseLabel).position,
+    dividerDisplay: getComputedStyle(divider).display,
+    dividerHeight: Math.round(divider.getBoundingClientRect().height),
+    dividerValueNow: divider.getAttribute('aria-valuenow'),
+    requestHeight: Math.round(request.getBoundingClientRect().height),
+    responseHeight: Math.round(response.getBoundingClientRect().height),
+    panelsHeight: Math.round(panels.getBoundingClientRect().height),
+    requestInlineHeight: request.style.height || null,
+    responseInlineHeight: response.style.height || null,
+    requestAreaClipped: clipped(requestArea),
+    responseAreaClipped: clipped(responseArea),
+    requestCollapsed: request.classList.contains('is-collapsed'),
+    documentOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    statusText: document.querySelector('#statusText').textContent,
+    activeElementId: document.activeElement ? document.activeElement.id || document.activeElement.tagName : null,
+    // One scrolling column, one sticky layer per half — the caption, and only
+    // the caption. The tab bar and the pane toolbar deliberately ride with
+    // their content instead: three pinned strips in a 276px column would
+    // rebuild the peephole the column exists to remove, and the caption is the
+    // one control the column still needs pinned, because it is the collapse
+    // toggle that puts a half back.
+    stickyDescendants: Array.from(panels.querySelectorAll('*'))
+      .filter((element) => getComputedStyle(element).position === 'sticky')
+      .map((element) => element.id || element.className),
+    stored: localStorage.getItem('networkPlus.inspectorSplit.v1'),
+  };
+})()`;
+
+// The sticky caption is only a caption if it stays put, stays clickable, and
+// nothing pins itself over it. Scrolled to five positions rather than
+// spot-checked at one: when the half stops being a scrollport the pane
+// toolbar re-parents its stickiness to the column, and the collision it
+// caused appeared part of the way down, not at the top.
+const INSPECTOR_COLUMN_SCROLL_MATRIX = `(() => {
+  const panels = document.querySelector('.inspector-panels');
+  const requestLabel = document.querySelector('#inspector-request-toggle');
+  const responseArea = document.querySelector('#inspector-response-content');
+  const maximum = panels.scrollHeight - panels.clientHeight;
+  const positions = [];
+  for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
+    panels.scrollTop = Math.round(maximum * fraction);
+    const panelsBox = panels.getBoundingClientRect();
+    const labelBox = requestLabel.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      Math.round(labelBox.left + labelBox.width / 2),
+      Math.round(labelBox.top + labelBox.height / 2),
+    );
+    positions.push({
+      fraction,
+      labelTopOffset: Math.round(labelBox.top - panelsBox.top),
+      labelVisible: labelBox.bottom > panelsBox.top && labelBox.top < panelsBox.bottom,
+      // The caption is the collapse toggle, so being on top is not cosmetic.
+      labelHit: Boolean(hit) && (hit === requestLabel || requestLabel.contains(hit)),
+      scrollTop: panels.scrollTop,
+      // Every pane toolbar rides with its own content: its offset from the top
+      // of the column falls by exactly what was scrolled. A toolbar that has
+      // re-stuck to the column instead stops dead at the caption and covers it,
+      // which is a constant offset, not a falling one.
+      barOffsets: Object.fromEntries(
+        Array.from(panels.querySelectorAll('.pane-search-bar'))
+          .filter((bar) => bar.getBoundingClientRect().height > 0)
+          .map((bar) => [bar.parentElement.id, Math.round(bar.getBoundingClientRect().top - panelsBox.top)]),
+      ),
+      // The tab bars ride with their content for the same reason and are
+      // measured the same way: this is the shipped answer to "should the tab
+      // bar stick under the caption?", stated as a measurement rather than
+      // left to a comment.
+      tabBarOffsets: Object.fromEntries(
+        Array.from(panels.querySelectorAll('.tab-bar'))
+          .filter((bar) => bar.getBoundingClientRect().height > 0)
+          .map((bar) => [bar.id, Math.round(bar.getBoundingClientRect().top - panelsBox.top)]),
+      ),
+      // At the bottom of the column the response half has to be all the way
+      // in: that is the 503 whose response headers used to need a second drag.
+      responseTailReached: Math.round(responseArea.getBoundingClientRect().bottom - panelsBox.bottom) <= 2,
+    });
+  }
+  panels.scrollTop = 0;
+  return positions;
+})()`;
+
+browserTest(
+  'a short details pane becomes one scrolling column and the tall pane keeps its split',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1280, height: 800 });
+    const { cdp } = page;
+    const resizeTo = async (width, height) => {
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+      await settleLayout(cdp);
+    };
+    try {
+      // The focus hand-off below is driven by the divider's own blur, and a
+      // document the browser does not consider focused dispatches no focus or
+      // blur events at all. This is the focused DevTools panel a reader is
+      // actually tabbing through.
+      await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+      await waitForSampleCaptureAction(cdp);
+      expect(await activateSampleCapture(cdp)).toBeGreaterThan(1);
+      await settleLayout(cdp);
+
+      // Tall: the split layout, untouched by the container query.
+      const tall = await evaluate(cdp, INSPECTOR_COLUMN_MEASURE);
+      expect(tall).toMatchObject({
+        panelsDisplay: 'flex',
+        panelsScrolls: false,
+        requestLabelPosition: 'static',
+        responseLabelPosition: 'static',
+        dividerHeight: 3,
+        requestInlineHeight: null,
+        documentOverflowX: 0,
+      });
+      expect(tall.dividerDisplay).not.toBe('none');
+      expect(Math.abs(tall.requestHeight - tall.responseHeight)).toBeLessThanOrEqual(1);
+
+      // Drag the split lopsided while the pane is tall, so the column mode is
+      // entered with inline px heights to dispose of.
+      await evaluate(cdp, "document.querySelector('#inspector-divider').focus()");
+      await pressKey(cdp, 'ArrowDown', 'ArrowDown', 40, 8);
+      await pressKey(cdp, 'ArrowDown', 'ArrowDown', 40, 8);
+      await settleLayout(cdp);
+      const keyed = await evaluate(cdp, INSPECTOR_COLUMN_MEASURE);
+      expect(Number(keyed.dividerValueNow)).toBeGreaterThan(50);
+      expect(keyed.requestInlineHeight).not.toBeNull();
+      expect(keyed.stored).toBe('{"percent":' + keyed.dividerValueNow + ',"collapsed":null}');
+
+      // A middle short height, not only the extreme one: at 1440x420 the
+      // stored split is impossible anyway and the old code cleared it by
+      // accident, so 420 alone would pass over a live defect.
+      await resizeTo(1440, 560);
+      const middle = await evaluate(cdp, INSPECTOR_COLUMN_MEASURE);
+      expect(middle).toMatchObject({
+        panelsDisplay: 'block',
+        requestInlineHeight: null,
+        responseInlineHeight: null,
+        requestAreaClipped: false,
+        responseAreaClipped: false,
+        documentOverflowX: 0,
+      });
+
+      // Bottom-docked DevTools: one scrolling column, sticky captions, no divider.
+      await resizeTo(1440, 420);
+      const column = await evaluate(cdp, INSPECTOR_COLUMN_MEASURE);
+      expect(column).toMatchObject({
+        panelsDisplay: 'block',
+        panelsOverflowY: 'auto',
+        panelsScrolls: true,
+        requestLabelPosition: 'sticky',
+        responseLabelPosition: 'sticky',
+        dividerDisplay: 'none',
+        dividerHeight: 0,
+        requestInlineHeight: null,
+        responseInlineHeight: null,
+        // Neither half is a peephole any more: both are laid out in full and
+        // the one column is what scrolls.
+        requestAreaClipped: false,
+        responseAreaClipped: false,
+        documentOverflowX: 0,
+      });
+
+      const scrolled = await evaluate(cdp, INSPECTOR_COLUMN_SCROLL_MATRIX);
+      expect(scrolled).toHaveLength(5);
+      for (const position of scrolled) {
+        expect({
+          fraction: position.fraction,
+          labelVisible: position.labelVisible,
+          labelHit: position.labelHit,
+        }).toEqual({ fraction: position.fraction, labelVisible: true, labelHit: true });
+        expect(Math.abs(position.labelTopOffset)).toBeLessThanOrEqual(1);
+      }
+      // Both loops below skip: a position the column did not actually scroll
+      // to, and a bar the previous reading did not have. A column that stopped
+      // scrolling, or a selector that stopped matching, would take every
+      // assertion with it and still pass, so the skips are counted and the
+      // counts are asserted afterwards.
+      let measuredTransitions = 0;
+      let measuredBarRides = 0;
+      let measuredTabBarRides = 0;
+      for (let index = 1; index < scrolled.length; index += 1) {
+        const previous = scrolled[index - 1];
+        const current = scrolled[index];
+        const travelled = current.scrollTop - previous.scrollTop;
+        if (travelled === 0) continue;
+        measuredTransitions += 1;
+        for (const paneId of Object.keys(current.barOffsets)) {
+          if (!(paneId in previous.barOffsets)) continue;
+          measuredBarRides += 1;
+          expect({ paneId, moved: previous.barOffsets[paneId] - current.barOffsets[paneId] }).toEqual({
+            paneId,
+            moved: travelled,
+          });
+        }
+        // Same for the tab bars: they ride, they do not pin. This is the
+        // shipped answer to whether the tab bar should stick under the
+        // caption — one scrolling column, one sticky layer — and it is
+        // asserted rather than only written down in the checklist.
+        for (const barId of Object.keys(current.tabBarOffsets)) {
+          if (!(barId in previous.tabBarOffsets)) continue;
+          measuredTabBarRides += 1;
+          expect({ barId, moved: previous.tabBarOffsets[barId] - current.tabBarOffsets[barId] }).toEqual({
+            barId,
+            moved: travelled,
+          });
+        }
+      }
+      // The matrix really measured something: the column scrolled between
+      // readings, and both kinds of bar were on screen while it did.
+      expect({
+        measuredTransitions: measuredTransitions > 0,
+        measuredBarRides: measuredBarRides > 0,
+        measuredTabBarRides: measuredTabBarRides > 0,
+      }).toEqual({ measuredTransitions: true, measuredBarRides: true, measuredTabBarRides: true });
+      // Two halves, so the pane toolbar and tab bar of each is what the rides
+      // above are made of — not one bar measured over and over.
+      expect(Object.keys(scrolled[0].tabBarOffsets).length).toBeGreaterThanOrEqual(2);
+      expect(scrolled[scrolled.length - 1].responseTailReached).toBe(true);
+      // And the layer that sticks to the COLUMN is one per half, and it is the
+      // caption. The pane toolbars are sticky too, but to their own pane's
+      // scrollport, which in the column never scrolls — the ride measured
+      // above is the proof. No tab bar is sticky at all: a third pinned strip
+      // is the peephole the column exists to remove.
+      expect(column.stickyDescendants.filter((name) => name !== 'pane-search-bar')).toEqual([
+        'inspector-request-toggle',
+        'inspector-response-toggle',
+      ]);
+
+      // The vertical split is off while the column is on. The divider has no box
+      // to click or focus here, so the events are dispatched at it directly —
+      // which is exactly the reach a stale focus would still have.
+      // On the empty Cookies tab on purpose: with Headers showing, the request
+      // half is naturally taller than the whole column and the split maths
+      // refuses every step anyway, so an ungated handler would look innocent.
+      // A short pane is where a keyed step really would land.
+      await evaluate(cdp, "document.querySelector('#req-tab-cookies').click()");
+      await settleLayout(cdp);
+      await evaluate(
+        cdp,
+        "document.querySelector('#inspector-divider').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))",
+      );
+      // A whole pointer drag, aimed at the middle of the column where the split
+      // maths would accept it.
+      await evaluate(
+        cdp,
+        `(() => {
+          const panels = document.querySelector('.inspector-panels');
+          const box = panels.getBoundingClientRect();
+          const middle = Math.round(box.top + box.height / 2);
+          document
+            .querySelector('#inspector-divider')
+            .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientY: middle }));
+          document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientY: middle }));
+          document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientY: middle }));
+          return true;
+        })()`,
+      );
+      await evaluate(
+        cdp,
+        "document.querySelector('#inspector-divider').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))",
+      );
+      await settleLayout(cdp);
+      expect(await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).toMatchObject({
+        panelsDisplay: 'block',
+        requestInlineHeight: null,
+        responseInlineHeight: null,
+        statusText: column.statusText,
+        stored: keyed.stored,
+      });
+      await evaluate(cdp, "document.querySelector('#req-tab-headers').click()");
+      await settleLayout(cdp);
+
+      // Collapsing a half still works in the column, and the column still scrolls.
+      await evaluate(cdp, "document.querySelector('#inspector-request-toggle').click()");
+      await settleLayout(cdp);
+      const collapsed = await evaluate(cdp, INSPECTOR_COLUMN_MEASURE);
+      expect(collapsed).toMatchObject({
+        panelsDisplay: 'block',
+        requestCollapsed: true,
+        responseAreaClipped: false,
+        requestInlineHeight: null,
+      });
+      expect(collapsed.requestHeight).toBeLessThan(column.requestHeight);
+      // And the announcement names a control that is here. The split's
+      // sentence sends the reader to the divider; in the column that divider
+      // is display:none, so it names the caption they just clicked instead —
+      // which is exactly the control that puts the half back.
+      expect(collapsed.statusText).toBe(
+        'Request inspector collapsed. Click Request again to restore it.',
+      );
+      // Expanding it again goes through the same restore path the reopened
+      // details pane uses, and that path must not hand the remembered percent
+      // back while the column is on. Read in the SAME turn as the click, before
+      // a frame can run: ungated, the halves take inline heights for exactly one
+      // frame and the observer then clears them, so a settled measurement sees
+      // the tidied state and never the flash the reader would.
+      expect(
+        await evaluate(
+          cdp,
+          `(() => {
+            document.querySelector('#inspector-request-toggle').click();
+            const request = document.querySelector('#inspector-request');
+            const response = document.querySelector('#inspector-response');
+            return {
+              requestCollapsed: request.classList.contains('is-collapsed'),
+              requestInlineHeight: request.style.height || null,
+              responseInlineHeight: response.style.height || null,
+            };
+          })()`,
+        ),
+      ).toEqual({ requestCollapsed: false, requestInlineHeight: null, responseInlineHeight: null });
+      await settleLayout(cdp);
+
+      // display:block on .inspector-panels must not out-rank the [hidden] rule:
+      // the comparison view hides the column the same way it hid the split.
+      expect(
+        await evaluate(
+          cdp,
+          `(() => {
+            const panels = document.querySelector('.inspector-panels');
+            panels.hidden = true;
+            const display = getComputedStyle(panels).display;
+            panels.hidden = false;
+            return display;
+          })()`,
+        ),
+      ).toBe('none');
+
+      // Tall again: the divider comes back and so does the remembered split.
+      await resizeTo(1280, 800);
+      const restored = await evaluate(cdp, INSPECTOR_COLUMN_MEASURE);
+      expect(restored).toMatchObject({
+        panelsDisplay: 'flex',
+        panelsScrolls: false,
+        requestLabelPosition: 'static',
+        dividerHeight: 3,
+        dividerValueNow: keyed.dividerValueNow,
+        stored: keyed.stored,
+      });
+      expect(restored.dividerDisplay).not.toBe('none');
+      expect(restored.requestInlineHeight).not.toBeNull();
+      expect(
+        Math.abs(restored.requestHeight - (Number(keyed.dividerValueNow) / 100) * (restored.panelsHeight - 3)),
+      ).toBeLessThanOrEqual(1);
+      // The other branch of the same sentence: with the divider back, the
+      // announcement is the divider's again, byte for byte what it always was.
+      await evaluate(cdp, "document.querySelector('#inspector-request-toggle').click()");
+      await settleLayout(cdp);
+      expect(await evaluate(cdp, "document.querySelector('#statusText').textContent")).toBe(
+        'Request inspector collapsed. Double-click the divider to restore 50/50.',
+      );
+      await evaluate(cdp, "document.querySelector('#inspector-request-toggle').click()");
+      await settleLayout(cdp);
+
+      // The divider's focus across the threshold. Going short, the divider
+      // loses its box and the browser drops the focus to <body>; the panel
+      // hands it to the response caption, the control that still does the
+      // divider's job in the column. Going tall again it hands it back.
+      await evaluate(cdp, "document.querySelector('#inspector-divider').focus()");
+      expect(await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).toMatchObject({
+        panelsDisplay: 'flex',
+        activeElementId: 'inspector-divider',
+      });
+      await resizeTo(1440, 420);
+      expect(await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).toMatchObject({
+        panelsDisplay: 'block',
+        dividerDisplay: 'none',
+        activeElementId: 'inspector-response-toggle',
+      });
+      await resizeTo(1280, 800);
+      expect(await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).toMatchObject({
+        panelsDisplay: 'flex',
+        activeElementId: 'inspector-divider',
+      });
+
+      // Only while the caption still holds it: a reader who moved on keeps the
+      // focus they chose, and the divider does not snatch it back on the way
+      // up. Without this the hand-back is a focus steal on every resize.
+      await evaluate(cdp, "document.querySelector('#inspector-divider').focus()");
+      await resizeTo(1440, 420);
+      expect(await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).toMatchObject({
+        activeElementId: 'inspector-response-toggle',
+      });
+      await evaluate(cdp, "document.querySelector('#res-tab-headers').focus()");
+      await resizeTo(1280, 800);
+      expect(await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).toMatchObject({
+        panelsDisplay: 'flex',
+        activeElementId: 'res-tab-headers',
+      });
+
+      // The hand-over may not depend on which of the two events arrives
+      // first. The mode change takes the divider's box away and the browser
+      // drops its focus to <body>; nothing orders that drop against the
+      // resize that runs the crossing, and a hand-over that reads
+      // activeElement inside the crossing loses the focus for good whenever
+      // the resize wins. Both orders are therefore forced here, in one task
+      // each, by giving .details a short height (the container query is on
+      // .details) and then firing the blur and the resize in the order named.
+      // The assertion is the end state after the crossing settles, which is
+      // the same sentence for both.
+      const forceCrossingInOrder = (order) => `(() => {
+        const details = document.querySelector('#details');
+        const divider = document.querySelector('#inspector-divider');
+        const panels = document.querySelector('.inspector-panels');
+        divider.focus();
+        const before = getComputedStyle(panels).display;
+        details.style.height = '400px';
+        const after = getComputedStyle(panels).display;
+        if (${JSON.stringify(order)} === 'blur first') {
+          divider.blur();
+          window.dispatchEvent(new Event('resize'));
+        } else {
+          window.dispatchEvent(new Event('resize'));
+          divider.blur();
+        }
+        return { before, after };
+      })()`;
+      for (const order of ['blur first', 'resize first']) {
+        const forced = await evaluate(cdp, forceCrossingInOrder(order));
+        // The crossing really happened, in this very task: without that the
+        // assertion below would be about a pane that never changed mode.
+        expect([order, forced]).toEqual([order, { before: 'flex', after: 'block' }]);
+        await settleLayout(cdp);
+        expect([order, (await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).activeElementId]).toEqual([
+          order,
+          'inspector-response-toggle',
+        ]);
+        await evaluate(
+          cdp,
+          `(() => {
+            document.querySelector('#details').style.height = '';
+            window.dispatchEvent(new Event('resize'));
+            return true;
+          })()`,
+        );
+        await settleLayout(cdp);
+        // And back the other way, still without a real window resize.
+        expect([order, (await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).activeElementId]).toEqual([
+          order,
+          'inspector-divider',
+        ]);
+      }
+
+      // And a crossing the divider was never part of leaves the focus alone in
+      // both directions, so the hand-off is owed only where it was taken.
+      await evaluate(cdp, "document.querySelector('#detailsCloseBtn').focus()");
+      await resizeTo(1440, 420);
+      expect(await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).toMatchObject({
+        panelsDisplay: 'block',
+        activeElementId: 'detailsCloseBtn',
+      });
+      await resizeTo(1280, 800);
+      expect(await evaluate(cdp, INSPECTOR_COLUMN_MEASURE)).toMatchObject({
+        panelsDisplay: 'flex',
+        activeElementId: 'detailsCloseBtn',
+      });
     } finally {
       await page.close();
     }

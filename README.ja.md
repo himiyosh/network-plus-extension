@@ -104,7 +104,7 @@ npm ci
 Chrome での検証内容:
 
 - Chrome 151 が `manifest.json` を拡張エラーなしで読み込むこと。
-- 実ブラウザ回帰テスト 121 件すべてが Chrome 151 で通ること(`CHROME_BIN=<path> npx jest tests/status-summary-browser.test.js tests/browser-availability-policy.test.js`)。
+- 実ブラウザ回帰テスト 129 件すべてが Chrome 151 で通ること(`CHROME_BIN=<path> npx jest tests/status-summary-browser.test.js tests/browser-availability-policy.test.js`)。
 - 実際の Chrome DevTools ウィンドウに `Network+` タブが現れることは手動で確認。この最後の 1 点だけは自動化の外にあります: DevTools 拡張パネルは自動化環境では安定して読み込まれず、組み込みパネルの列挙すら成功しないため、CI では断言できません。
 
 ### 初回起動
