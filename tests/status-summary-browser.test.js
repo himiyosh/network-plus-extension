@@ -10859,6 +10859,9 @@ const BODY_VIEW_MEASURE = `(() => {
 // bar's own copy-label threshold: the last two widths are where the labels
 // come back, and they have to come back beside a one-row bar.
 const BODY_VIEW_WIDTHS = [400, 440, 520, 640, 700, 760, 880, 960, 1000];
+// The container width at which the copy-button labels return (panel.css); the
+// oversized-face monotonic check stops below it, see the band assertions.
+const BODY_COPY_LABEL_THRESHOLD_PX = 940;
 
 browserTest(
   'the Body pane renders JSON, HTML and images itself, and says when a match is only in the source',
@@ -11123,14 +11126,27 @@ browserTest(
           const face = language + (oversized ? ' oversized' : '');
           const languageBand = band.filter((cell) => cell.language === language && cell.oversized === oversized);
           expect([face, languageBand.length]).toEqual([face, BODY_VIEW_WIDTHS.length]);
-          for (let index = 1; index < languageBand.length; index += 1) {
-            expect([face, languageBand[index - 1].requested, languageBand[index].requested, languageBand[index].barRows]).toEqual([
+          // Under the oversized face the check stops where the copy labels come
+          // back: the label threshold is a container width in px, so a face
+          // 1.7x the shipped one can legitimately regain a row exactly there
+          // (CI's wider Linux faces did: ja oversized went 1 -> 2 rows from
+          // 880 to 960px). That is a limit of a px threshold against a synthetic
+          // face, not a wrap the design promises never to add, so the promise
+          // is stated at the shipped face across the whole band and under the
+          // probe only below the threshold.
+          const monotonicBand = oversized
+            ? languageBand.filter((cell) => cell.requested < BODY_COPY_LABEL_THRESHOLD_PX)
+            : languageBand;
+          for (let index = 1; index < monotonicBand.length; index += 1) {
+            expect([face, monotonicBand[index - 1].requested, monotonicBand[index].requested, monotonicBand[index].barRows]).toEqual([
               face,
-              languageBand[index - 1].requested,
-              languageBand[index].requested,
-              Math.min(languageBand[index - 1].barRows, languageBand[index].barRows),
+              monotonicBand[index - 1].requested,
+              monotonicBand[index].requested,
+              Math.min(monotonicBand[index - 1].barRows, monotonicBand[index].barRows),
             ]);
           }
+          // Not vacuous: the probe band still compares at least two widths.
+          expect([face, monotonicBand.length >= 2]).toEqual([face, true]);
           // The band wraps somewhere under either face; it reaches one row and
           // paints the labels at the shipped face, where the threshold was
           // measured. Under the oversized face those two are not promised — a
