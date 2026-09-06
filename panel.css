@@ -631,9 +631,15 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 /* A JWT is three base64url segments, not one 900-character word: each '.' offers a
    break and each segment takes its own tint, so the shape still reads while the value
    is clamped. The tints are the JSON key/string colours the raw views already use. */
-.kv .jwt-seg--header{color:var(--syn-key)}
-.kv .jwt-seg--payload{color:var(--syn-str)}
-.kv .jwt-seg--signature{color:var(--text-muted)}
+/* The tints alone are a hue difference with almost no luminance behind them —
+   measured 1.09, 1.25 and 1.14 against each other in dark and 1.20, 1.07 and 1.12
+   in light — so to a reader who cannot separate those hues the token was one
+   undivided run. Each segment therefore also carries a weight or a mark of its own:
+   the header is bold, the payload is the plain body text, and the signature is
+   underlined the way it is muted. The tints stay; they are no longer the only cue. */
+.kv .jwt-seg--header{color:var(--syn-key);font-weight:700}
+.kv .jwt-seg--payload{color:var(--syn-str);font-weight:400}
+.kv .jwt-seg--signature{color:var(--text-muted);font-weight:400;text-decoration:underline dotted;text-underline-offset:2px}
 /* The one fact a reader wants from a token without opening the decoded section.
    max-width instead of nowrap: on a wide fallback font the chip has to wrap inside
    its own box rather than push the value cell into a horizontal overflow.
@@ -676,6 +682,10 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
    newline inside the URL, so a drag-select copied a string no tool would accept. Four
    lines are clipped, not hidden — the whole text stays selectable and findable. */
 .url-breakdown-address{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+/* Lifted by the pane search when the hit it is stepping the reader to sits in the
+   clipped region: the count and the navigation reach text the clip hides, and the
+   "Show full URL" control beside this opens a different node entirely. */
+.url-breakdown-address--expanded{display:block;-webkit-line-clamp:unset;overflow:visible}
 .url-breakdown-path,.url-breakdown-query-text{overflow-wrap:anywhere}
 /* Each query parameter is a name and a value, not one run of punctuation: the name
    takes the header-name colour the raw views already use for a field name. */
@@ -1144,6 +1154,16 @@ mark.pane-search-hit-current{background:color-mix(in srgb,var(--search-orange) v
   .pane-search-bar--with-view .copy-btn::before{content:'\29C9';font-size:12px;line-height:16px}
   .pane-search-bar--with-view .copy-actions .copy-btn+.copy-btn::before{content:'\29C9\2026'}
 }
+/* Both thresholds above are container widths in px, and a px width was measured at
+   one face: under a 22px face the labelled Body bar still needed two rows at 960px
+   of pane, which is exactly where the 940px threshold paints the labels — the labels
+   came back on a wrapped bar. The queries stay as the coarse floor; the promise that
+   the labels are painted only beside a one-row bar is measured instead, and
+   syncPaneSearchCopyLabels puts this class on when they would cost a row. */
+.pane-search-bar--icon-copy .copy-btn{padding-left:7px;padding-right:7px}
+.pane-search-bar--icon-copy .copy-btn .copy-btn-label{display:none}
+.pane-search-bar--icon-copy .copy-btn::before{content:'\29C9';font-size:12px;line-height:16px}
+.pane-search-bar--icon-copy .copy-actions .copy-btn+.copy-btn::before{content:'\29C9\2026'}
 .copy-actions .copy-btn{float:none;margin-left:0}
 .copy-btn{float:right;padding:3px 10px;margin-left:8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;font-size:11px;transition:background-color 0.15s,border-color 0.15s,color 0.15s}
 .copy-btn:hover{background:var(--accent-dim);color:var(--text-accent);border-color:var(--accent)}

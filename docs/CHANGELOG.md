@@ -60,6 +60,14 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 - 🐛 **HTML preview in dark theme** — the rendered HTML frame paints on its own white ground, so a page’s default black text no longer sits on the dark pane.
 - 🐛 **Cookie value column** — Value stays the widest column and the Show all control keeps its words at every pane width, instead of collapsing to one character per line.
 - ✨ **Japanese timing** — the seven phase names, the HTML frame’s accessible name and the share column’s markers follow the panel language.
+- ✨ **Japanese status bar** — every message the panel writes to the status bar, and every toast a copy leaves, now follows the panel language.
+  - Why: a copy that failed answered in Japanese while the same copy succeeding answered in English.
+- ✨ **Japanese comparison view** — its headings, close control and accessible name translate, and a language switch made while it is open repaints it.
+- ✨ **Japanese search colours** — the search panel names a colour the way the row menu already did, through one lookup.
+- 🔧 **Separator announcements** — the grid separator announces its name and its percentage in the reader’s language, like the inspector divider beside it.
+- 🔒 **Operation name** — the GraphQL operation label reads the same in every sanitized copy and inside a copied body, instead of being redacted in one and printed in the others.
+- 🐛 **URL search hits** — a keyword found inside the clamped URL row is revealed instead of being counted and then hidden.
+- 🔧 **JWT segments** — the three parts are told apart by more than hue, so the structure reads without relying on colour.
 
 ## v1.13.0 - 2026-08-29
 
