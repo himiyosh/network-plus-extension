@@ -637,7 +637,10 @@ describe('guided sample capture static contracts', () => {
     expect(clearFiltersBlock).toContain('state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();');
     expect(clearFiltersBlock).toContain('renderBody();');
     expect(clearFiltersBlock).toContain('syncSearchUIAfterRender();');
-    expect(clearFiltersBlock).toContain("setStatus('Column filters cleared');");
+    expect(clearFiltersBlock).toContain("setStatus(uiText('statusColumnFiltersCleared'));");
+    // The line the reader sees is the dictionary's, so the wording is pinned
+    // where it now lives rather than at the call site.
+    expect(js).toContain("      en: 'Column filters cleared',");
     expect(clearFiltersBlock).not.toMatch(/state\.search|keywords/);
 
     const renderBodyBlock = js.slice(
@@ -683,7 +686,11 @@ describe('guided sample capture static contracts', () => {
     expect(activationBlock).toContain('createSampleCaptureRequests(SAMPLE_CAPTURE_BASE_TIMESTAMP)');
     expect(activationBlock).toContain("addRowsWithRetention(rows, 'sample')");
     expect(activationBlock).toContain('selectRow(retainedRows[0], null, true);');
-    expect(activationBlock).toContain('No network traffic was sent.');
+    expect(activationBlock).toContain("? 'statusSampleCaptureLoadedPaused'");
+    expect(activationBlock).toContain(": 'statusSampleCaptureLoaded',");
+    expect(js).toContain(
+      "      en: 'Local sample capture: 3 synthetic requests loaded. No network traffic was sent. Live recording is paused; Clear removes the sample and resumes capture.',",
+    );
     expect(activationBlock).not.toMatch(
       /fetch\s*\(|XMLHttpRequest|sendBeacon|chrome\.storage|localStorage|triggerObjectUrlDownload|exportHAR|\.click\(\)/,
     );
@@ -2197,12 +2204,15 @@ describe('outbound data-safety static contracts', () => {
     expect(js).toContain("buildMultiRowClipboardPayload(rows, 'summary', { mode: 'sanitized' })");
     // The row menu's six sanitized formats: the label is a dictionary key and
     // the status message stays the canonical English one.
-    expect(js).toContain("['summary', 'menuCopySanitizedSummary', 'Copied sanitized summary'],");
-    expect(js).toContain("['url', 'menuCopySanitizedUrl', 'Copied sanitized URL'],");
-    expect(js).toContain("['curl', 'menuCopySanitizedCurl', 'Copied sanitized cURL'],");
-    expect(js).toContain("['fetch', 'menuCopySanitizedFetch', 'Copied sanitized fetch'],");
-    expect(js).toContain("['powershell', 'menuCopySanitizedPowershell', 'Copied sanitized PowerShell'],");
-    expect(js).toContain("['markdown', 'menuCopySanitizedMarkdown', 'Copied sanitized Markdown'],");
+    expect(js).toContain("['summary', 'menuCopySanitizedSummary', 'statusCopiedSanitizedSummary'],");
+    // The sentence still has a home, now keyed rather than inline.
+    expect(js).toContain("      en: 'Copied sanitized summary',");
+    expect(js).toContain("['url', 'menuCopySanitizedUrl', 'statusCopiedSanitizedUrl'],");
+    expect(js).toContain("['curl', 'menuCopySanitizedCurl', 'statusCopiedSanitizedCurl'],");
+    expect(js).toContain("      en: 'Copied sanitized cURL',");
+    expect(js).toContain("['fetch', 'menuCopySanitizedFetch', 'statusCopiedSanitizedFetch'],");
+    expect(js).toContain("['powershell', 'menuCopySanitizedPowershell', 'statusCopiedSanitizedPowershell'],");
+    expect(js).toContain("['markdown', 'menuCopySanitizedMarkdown', 'statusCopiedSanitizedMarkdown'],");
     // The five pane toolbars that carry copy actions — Request Body, Request
     // Raw, Query, Response Body, Response Raw — read the same dictionary key
     // as the row menu's disclosure, so the label cannot drift into a second
@@ -2951,9 +2961,10 @@ describe('shortcut help static contracts', () => {
     const handler = js.slice(handlerStart, handlerEnd);
     expect(handlerStart).toBeGreaterThan(-1);
     expect(handler).toContain('buildSafeSupportSummary({');
-    expect(handler).toContain("writeClipboardPayload(summary, 'Copied safe support summary').then");
+    expect(handler).toContain("writeClipboardPayload(summary, uiText('statusCopiedSupportSummary')).then");
+    expect(js).toContain("      en: 'Copied safe support summary',");
     expect(handler).toContain("supportStatus.textContent = copied");
-    expect(handler).toContain("'Clipboard copy failed. No data was copied.'");
+    expect(handler).toContain("uiText('statusClipboardCopyFailed')");
     expect(handler).not.toContain('shortcutDialog.close');
     expect(handler).not.toContain('.focus()');
     expect(handler).not.toMatch(/state\.(?:rows|filteredRows|selectedRow|selectedRows|search|columnFilterRules)/);
@@ -2986,7 +2997,8 @@ describe('shortcut help static contracts', () => {
     const clipboardSource = js.slice(clipboardStart, clipboardEnd);
     expect(clipboardSource).toContain('showCopyFeedback(message);');
     expect(clipboardSource).toContain('queueDataSafetyAnnouncement(message);');
-    expect(clipboardSource).toContain("setStatus('Clipboard copy failed. No data was copied.');");
+    expect(clipboardSource).toContain("setStatus(uiText('statusClipboardCopyFailed'));");
+    expect(js).toContain("      en: 'Clipboard copy failed. No data was copied.',");
     expect(clipboardSource).toContain('return true;');
     expect(clipboardSource).toContain('return false;');
     expect(html).toMatch(
@@ -3549,6 +3561,20 @@ describe('detail pane search contracts', () => {
     expect(css).toContain('@container (max-width: 940px){');
     expect(css).toContain('  .pane-search-bar--with-view .copy-btn .copy-btn-label{display:none}');
     expect(css).toContain("  .pane-search-bar--with-view .copy-btn::before{content:'\\29C9';font-size:12px;line-height:16px}");
+    // Both thresholds are container widths in px, and a px width is a
+    // measurement of one face: under a 22px face the labelled Body bar still
+    // needed two rows at 960px of pane, which is where the 940px query paints
+    // the labels back. The queries stay as the coarse floor and the bar is
+    // measured on top of them, so the labels are withheld wherever they would
+    // cost a row — at any face, in any language.
+    expect(css).toContain('.pane-search-bar--icon-copy .copy-btn .copy-btn-label{display:none}');
+    expect(css).toContain(".pane-search-bar--icon-copy .copy-btn::before{content:'\\29C9';font-size:12px;line-height:16px}");
+    expect(js).toContain("    if (paneSearchBarWraps(bar)) bar.classList.add('pane-search-bar--icon-copy');");
+    expect(js).toContain('    syncPaneSearchCopyLabels(bar);');
+    expect(js).toContain('          syncPaneSearchCopyLabels(pane._paneSearchBar);');
+    // Nothing in the measurement is a font-derived constant: it asks whether a
+    // child starts at or below a previous child's bottom edge.
+    expect(js).toContain('      if (bottom !== null && rect.top >= bottom - 0.5) return true;');
   });
 
   test('attaches it to the kv views too, without arming an Expand all that would switch tabs', () => {
@@ -3609,6 +3635,27 @@ describe('detail pane search contracts', () => {
       expect([derived, js.includes(derived + ',') || js.includes(derived + "'")]).toEqual([derived, true]);
     }
     expect(js).toContain("  const JWT_SEGMENT_CLASSES = [");
+  });
+
+  test('treats every four-line clip as a fold the reveal has to lift', () => {
+    // Three folds keep a hit in layout while hiding it, and all three are in
+    // the one selector the obscured test reads. The URL address was the one
+    // left out: its search counted and navigated to a run 250px below the
+    // clipped box, and the "Show full URL" control beside it opens a different
+    // node, so pressing that left the marked run exactly where it was.
+    expect(js).toContain(
+      "    '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped,' +\n" +
+        "    ' .url-breakdown-address:not(.url-breakdown-address--expanded)';",
+    );
+    expect(js).toContain(
+      "    const address = mark.parentElement ? mark.parentElement.closest('.url-breakdown-address') : null;",
+    );
+    expect(js).toContain("    if (address) address.classList.add('url-breakdown-address--expanded');");
+    // The lifted state is a class on the address itself, not a second copy of
+    // the string: the spans, the breaks and the text nodes are untouched.
+    expect(css).toContain(
+      '.url-breakdown-address--expanded{display:block;-webkit-line-clamp:unset;overflow:visible}',
+    );
   });
 
   test('renders hits through safe DOM APIs with theme-token styling', () => {
@@ -3777,8 +3824,14 @@ describe('devtools-session mirror contracts', () => {
     // A mirror tab that outlived its DevTools session reattaches through a
     // bounded startup probe instead of stranding behind a duplicate tab.
     expect(js).toContain('let mirrorProbeAttemptsLeft = MIRROR_ADOPT_PROBE_ATTEMPTS;');
-    expect(js).toContain("setStatus('An existing Network+ tab reattached and mirrors this DevTools session again.');");
-    expect(js).toContain("setStatus('A Network+ tab is already mirroring this session; switch to it in the tab strip.');");
+    expect(js).toContain("setStatus(uiText('statusMirrorTabReattached'));");
+    expect(js).toContain("setStatus(uiText('statusMirrorTabAlreadyOpen'));");
+    expect(js).toContain(
+      "      en: 'An existing Network+ tab reattached and mirrors this DevTools session again.',",
+    );
+    expect(js).toContain(
+      "      en: 'A Network+ tab is already mirroring this session; switch to it in the tab strip.',",
+    );
     // An adopted tab that reloads gets fresh probe attempts.
     expect(js).toContain('mirrorProbeAttemptsLeft = MIRROR_ADOPT_PROBE_ATTEMPTS;\n            startMirrorReconnect();');
     // Commands time out instead of hanging their affordance, with a budget
@@ -3816,7 +3869,7 @@ describe('navigation persistence contracts', () => {
   test('navigation marks unfetched bodies and never clears the table', () => {
     const navStart = js.indexOf('chrome.devtools.network.onNavigated.addListener');
     expect(navStart).toBeGreaterThan(-1);
-    const navBlock = js.slice(navStart, js.indexOf("setStatus('Capturing...')", navStart));
+    const navBlock = js.slice(navStart, js.indexOf("setStatus(uiText('statusCapturing'))", navStart));
     // The sweep must cover rows held by a pending clear-undo snapshot too:
     // they were detached from state.rows but keep their request objects, and
     // Undo would otherwise restore them into doomed body fetches.
@@ -4034,7 +4087,8 @@ describe('export scope contracts', () => {
   test('both export modes honor the captured scope and the empty-selection guard', () => {
     expect(js).toContain("exportHAR({ mode: 'sanitized', scope });");
     expect(js).toContain("onConfirm: () => exportHAR({ mode: 'full', confirmed: true, scope }),");
-    expect(js).toContain("setStatus('No selected requests to export.');");
+    expect(js).toContain("setStatus(uiText('statusNoSelectedRequestsToExport'));");
+    expect(js).toContain("      en: 'No selected requests to export.',");
     expect(js).toContain("(exportScope === 'selected' ? getSelectedExportRows() : getExportRows()).slice()");
   });
 });
@@ -4102,10 +4156,19 @@ describe('stream capture contracts (WebSocket + SSE)', () => {
     expect(html).toContain('>Stream capture: Off</button>');
     expect(css).toContain('.ws-capture-btn[aria-pressed="true"]{');
     expect(js).toContain(
-      "wsCaptureBtn.textContent = streamCapture.enabled ? 'Stream capture: On' : 'Stream capture: Off';",
+      "wsCaptureBtn.textContent = uiText(streamCapture.enabled ? 'wsCaptureOn' : 'wsCaptureOff');",
     );
-    expect(js).toContain("setStatus('Stream capture on; WebSocket and SSE connections created from now on are recorded.');");
-    expect(js).toContain("setStatus('Stream capture off; recorded connections stay in the table.');");
+    // The sentence still has a home, and a language switch repaints the label
+    // the toggle writes for itself.
+    expect(js).toContain("      en: 'Stream capture: On',");
+    expect(js).toContain("      en: 'Stream capture: Off',");
+    expect(js).toContain('    if (refreshStreamCaptureLabel) refreshStreamCaptureLabel();');
+    expect(js).toContain("setStatus(uiText('statusStreamCaptureOn'));");
+    expect(js).toContain("setStatus(uiText('statusStreamCaptureOff'));");
+    expect(js).toContain(
+      "      en: 'Stream capture on; WebSocket and SSE connections created from now on are recorded.',",
+    );
+    expect(js).toContain("      en: 'Stream capture off; recorded connections stay in the table.',");
   });
 
   test('both wrappers inject through inspectedWindow.eval and survive navigation', () => {
@@ -4138,7 +4201,7 @@ describe('stream capture contracts (WebSocket + SSE)', () => {
 
 describe('markdown copy and HAR websocket import contracts', () => {
   test('markdown copy is offered sanitized in the menu and as a full format', () => {
-    expect(js).toContain("['markdown', 'menuCopySanitizedMarkdown', 'Copied sanitized Markdown'],");
+    expect(js).toContain("['markdown', 'menuCopySanitizedMarkdown', 'statusCopiedSanitizedMarkdown'],");
     expect(js).toContain("uiTextFormat('menuCopySanitizedTable', { count: targetRows.length })");
     expect(js).toContain("      en: 'Copy sanitized Markdown table ({count} rows)',");
     expect(js).toContain("if (action === 'markdown') return formatRowMarkdown(targetRow);");
@@ -4217,9 +4280,14 @@ describe('jwt decode display contracts', () => {
     );
     // Every theme block defines the two syntax tints and the muted text the
     // three segments take, so the structure reads in light and dark alike.
-    expect(css).toContain('.kv .jwt-seg--header{color:var(--syn-key)}');
-    expect(css).toContain('.kv .jwt-seg--payload{color:var(--syn-str)}');
-    expect(css).toContain('.kv .jwt-seg--signature{color:var(--text-muted)}');
+    // The tints, and a non-colour cue beside each of them: the three measured
+    // 1.09, 1.25 and 1.14 against each other in dark and 1.20, 1.07 and 1.12 in
+    // light, so hue was carrying the whole structure on its own.
+    expect(css).toContain('.kv .jwt-seg--header{color:var(--syn-key);font-weight:700}');
+    expect(css).toContain('.kv .jwt-seg--payload{color:var(--syn-str);font-weight:400}');
+    expect(css).toContain(
+      '.kv .jwt-seg--signature{color:var(--text-muted);font-weight:400;text-decoration:underline dotted;text-underline-offset:2px}',
+    );
     expect(css).toContain('.kv .jwt-chip--expired{border-color:var(--status-5xx-text);color:var(--status-5xx-text)}');
     // The chip is derived text beside the value, so a drag across the row
     // carries the value and not the chip; and it wraps rather than forcing the
@@ -4855,7 +4923,14 @@ describe('audit layout and contrast contracts', () => {
   });
 
   test('the URL breakdown offers its reveal only when the full string adds something', () => {
-    expect(js).toContain('if (url !== parts.scheme + parts.userinfo + parts.host + parts.pathname) {');
+    // Two branches, because the address has two renderings. Where the parts
+    // spell the URL back the reveal earns its place only past what the lines
+    // account for; where they cannot, the address IS the raw string, so the
+    // reveal repeats it unless the four-line clip can hide the end of it.
+    expect(js).toContain('    const revealAddsSomething = segments.segmented');
+    expect(js).toContain('      ? url !== parts.scheme + parts.userinfo + parts.host + parts.pathname');
+    expect(js).toContain('      : url.length > KV_CLAMP_CHARS;');
+    expect(js).toContain('    if (revealAddsSomething) {');
     expect(js).toContain("toggle.className = 'link-btn url-breakdown-toggle-btn';");
     expect(js).toContain("toggle.textContent = uiText('urlBreakdownShowFull');");
   });
@@ -5019,7 +5094,7 @@ describe('audit layout and contrast contracts', () => {
     // Both copy groups share the disclosure pattern and keep the sanitized routing.
     expect(menuBlock).toContain('sanitizedCopyGroup.hidden = !expanding;');
     expect(menuBlock).toContain("sanitizedCopyGroup.setAttribute('role', 'group');");
-    expect(menuBlock).toContain("copySanitizedAction(action, contextMenuRow, '', copiedMessage);");
+    expect(menuBlock).toContain("copySanitizedAction(action, contextMenuRow, '', uiText(copiedKey));");
     expect(menuBlock).not.toContain("'Copy (sanitized)'");
     // Every string the menu paints goes through the dictionary, so the whole
     // menu is one language: no bare English literal is handed to a menu item.

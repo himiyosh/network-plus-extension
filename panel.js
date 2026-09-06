@@ -260,6 +260,18 @@ const _NetworkPlus = (function () {
     'givenname',
     'familyname',
   ]);
+  // Protocol vocabulary that only looks sensitive to the heuristics below.
+  // `operationName` is a GraphQL/JSON-RPC field name, never a person's name;
+  // it matched nothing but the generic `…name$` PII suffix. Redacting it
+  // hid nothing — the sibling `query` is not sensitive and is copied
+  // verbatim with the same name spelled out inside it — while the panel
+  // already paints that name in the Operation column, the details title and
+  // the summary strip, and prints it verbatim through three sanitized sinks
+  // (createOutboundRowView's `operation`, formatRowMarkdown's Operation
+  // field, formatRowsCsv's operation column). So the label is non-sensitive
+  // everywhere, and the body agrees with the copies instead of contradicting
+  // them. Keep this set to keys that carry no payload value at all.
+  const NON_SENSITIVE_KEY_NAMES = new Set(['operationname']);
   const SAFE_OUTBOUND_HEADER_NAMES = new Set([
     'accept',
     'acceptencoding',
@@ -512,9 +524,10 @@ const _NetworkPlus = (function () {
         return true;
       })
       .catch((_error) => {
-        // Shared with the row menu's copy formats, whose status lines are
-        // deliberately still English; it translates with them, not here.
-        setStatus('Clipboard copy failed. No data was copied.');
+        // One sentence for every control that can reach it: the pane copy
+        // buttons, the row menu's copy formats and the support summary all
+        // read this entry rather than each spelling the failure out again.
+        setStatus(uiText('statusClipboardCopyFailed'));
         return false;
       });
   }
@@ -630,7 +643,7 @@ const _NetworkPlus = (function () {
       Promise.resolve()
         .then(() => action())
         .catch((_error) => {
-          setStatus('Full output failed. No data was copied or downloaded.');
+          setStatus(uiText('statusFullOutputFailed'));
         });
     });
   }
@@ -2169,6 +2182,7 @@ const _NetworkPlus = (function () {
     const key = normalizeSensitiveKey(name);
     if (!key) return false;
     if (SENSITIVE_KEY_NAMES.has(key)) return true;
+    if (NON_SENSITIVE_KEY_NAMES.has(key)) return false;
     return (
       /(?:password|passwd|passphrase)/.test(key) ||
       /(?:token|secret|credential|authorization|authentication|signature|assertion|ticket|nonce|state|session|sid|samlresponse|jwt)$/.test(
@@ -2572,14 +2586,9 @@ const _NetworkPlus = (function () {
       status: Number.isFinite(source.status) ? source.status : 0,
       statusText: String(source.statusText || ''),
       type: String(source.type || ''),
-      // The operation label is a derived name (GraphQL operationName or
-      // JSON-RPC method), never a payload value. Open follow-up, deliberately
-      // not settled here: THREE sanitized sinks print it verbatim — this row
-      // view (which feeds the sanitized summary and Markdown copies),
-      // formatRowMarkdown's Operation field, and formatRowsCsv's operation
-      // column — and redacting operationName inside a copied body hides
-      // nothing while the query string beside it is copied verbatim and
-      // carries the same name.
+      // A derived name (GraphQL operationName or JSON-RPC method), never a
+      // payload value; NON_SENSITIVE_KEY_NAMES settles why it is copied
+      // verbatim here and left alone inside a body.
       operation: String(source.operation || ''),
       protocol: String(source.protocol || ''),
       size: Number.isFinite(source.size) ? source.size : 0,
@@ -5702,7 +5711,7 @@ const _NetworkPlus = (function () {
     }
     const consumed = consumeClearUndoSnapshot('retention-exhausted');
     focusClearAfterUndoUnavailable(consumed);
-    setStatus('Cleared requests were evicted by the retention limit; Undo is no longer available.');
+    setStatus(uiText('statusRetentionEvictedUndo'));
   }
 
   // ============================================================
@@ -5835,7 +5844,7 @@ const _NetworkPlus = (function () {
     if (pref === 'dark') html.setAttribute('data-theme', 'dark');
     const select = $('#themeSelect');
     if (select) select.value = THEMES.includes(pref) ? pref : 'system';
-    setStatus('Theme=' + pref);
+    setStatus(uiTextFormat('statusThemeApplied', { theme: pref }));
   }
 
   // ============================================================
@@ -6446,9 +6455,38 @@ const _NetworkPlus = (function () {
       en: 'Keyboard shortcuts',
       ja: 'キーボードショートカット',
     },
+    // The grid's separator, beside the inspector divider below: one control
+    // announced its value in Japanese and its name in English until this
+    // existed.
+    ariaResizer: {
+      en: 'Resize request list and request details',
+      ja: 'リクエスト一覧と詳細のサイズを変更',
+    },
     ariaInspectorDivider: {
       en: 'Resize request and response inspectors',
       ja: 'リクエストとレスポンスのインスペクターのサイズを変更',
+    },
+    // The status bar's own controls. The dialogs and panels they open were
+    // translated in Tier 2; the buttons that open them were not.
+    sampleGuideBtn: {
+      en: 'Sample guide',
+      ja: 'サンプルガイド',
+    },
+    undoClearBtn: {
+      en: 'Undo clear',
+      ja: 'クリアを元に戻す',
+    },
+    ariaUndoClear: {
+      en: 'Undo clear',
+      ja: 'クリアを元に戻す',
+    },
+    statusDetailsToggle: {
+      en: 'More status',
+      ja: 'ステータスの詳細',
+    },
+    ariaComparePanel: {
+      en: 'Request comparison',
+      ja: 'リクエストの比較',
     },
     ariaRequestTabs: {
       en: 'Request details',
@@ -7598,6 +7636,335 @@ const _NetworkPlus = (function () {
       en: 'Orange',
       ja: 'オレンジ',
     },
+    // Colour swatches in the search panel name the same six colours the row
+    // menu's highlight swatches do. Both resolve through menuColorLabel, so
+    // one colour can never be named two ways inside one language.
+    searchColorPickerLabel: {
+      en: 'Search highlight color',
+      ja: '検索ハイライトの色',
+    },
+    searchColorUse: {
+      en: 'Use {color} search color',
+      ja: '検索色に{color}を使う',
+    },
+    searchColorChange: {
+      en: 'Change color',
+      ja: '色を変更',
+    },
+    searchColorChangeForKeyword: {
+      en: 'Change color for search keyword {index}',
+      ja: '検索キーワード {index} の色を変更',
+    },
+    // The comparison pane's own chrome. Its title (detailsComparingTwo) was
+    // translated in Tier 2; these are the headings and the close control that
+    // stayed English beside it, and translating them is what makes repainting
+    // an open comparison on a language switch worth doing.
+    compareClose: {
+      en: '✕ Close',
+      ja: '✕ 閉じる',
+    },
+    compareCloseTitle: {
+      en: 'Close comparison view',
+      ja: '比較ビューを閉じる',
+    },
+    compareLegendLabel: {
+      en: 'Compared requests',
+      ja: '比較中のリクエスト',
+    },
+    compareSectionOverview: {
+      en: 'Overview',
+      ja: '概要',
+    },
+    compareSectionUrl: {
+      en: 'URL',
+      ja: 'URL',
+    },
+    compareSectionQueryParams: {
+      en: 'Query Parameters',
+      ja: 'クエリパラメーター',
+    },
+    compareSectionRequestHeaders: {
+      en: 'Request Headers',
+      ja: 'リクエストヘッダー',
+    },
+    compareSectionResponseHeaders: {
+      en: 'Response Headers',
+      ja: 'レスポンスヘッダー',
+    },
+    compareSectionRequestBodies: {
+      en: 'Request Bodies',
+      ja: 'リクエストボディ',
+    },
+    compareSectionResponseBodies: {
+      en: 'Response Bodies',
+      ja: 'レスポンスボディ',
+    },
+    // The main workbench divider announces itself in the inspector divider's
+    // frame (inspectorHalfPercentValue) with its own noun, so the two
+    // separators beside each other read alike in either language.
+    mainSplitPercentValue: {
+      en: 'Request list {percent} percent',
+      ja: 'リクエスト一覧 {percent} パーセント',
+    },
+    // Status-bar lines the panel composes in JavaScript. A failure path more
+    // than one control can reach is one entry, read from every caller.
+    statusClipboardCopyFailed: {
+      en: 'Clipboard copy failed. No data was copied.',
+      ja: 'クリップボードへのコピーに失敗しました。データはコピーされていません。',
+    },
+    statusClipboardSanitizeFailed: {
+      en: 'Clipboard copy failed during sanitization. No data was copied.',
+      ja: 'サニタイズ中にクリップボードへのコピーが失敗しました。データはコピーされていません。',
+    },
+    statusFullOutputFailed: {
+      en: 'Full output failed. No data was copied or downloaded.',
+      ja: '完全出力に失敗しました。データのコピーもダウンロードも行われていません。',
+    },
+    statusSanitizedCopyFailed: {
+      en: 'Sanitized copy failed closed. No data was copied.',
+      ja: 'サニタイズ済みコピーはフェイルクローズしました。データはコピーされていません。',
+    },
+    statusFullCopyFailed: {
+      en: 'Full copy failed. No data was copied.',
+      ja: '完全コピーに失敗しました。データはコピーされていません。',
+    },
+    statusRetentionEvictedUndo: {
+      en: 'Cleared requests were evicted by the retention limit; Undo is no longer available.',
+      ja: '消去したリクエストは保持上限により破棄されました。元に戻すことはもうできません。',
+    },
+    // Debug-shaped before this ("Theme=dark"): a sentence now, with the
+    // stored preference token still visible so a support report can quote it.
+    statusThemeApplied: {
+      en: 'Theme set to {theme}.',
+      ja: 'テーマを {theme} に設定しました。',
+    },
+    statusLanguageApplied: {
+      en: 'Language set to {language}.',
+      ja: '言語を {language} に設定しました。',
+    },
+    statusColumnFiltersCleared: {
+      en: 'Column filters cleared',
+      ja: '列フィルターを消去しました',
+    },
+    statusDomainFilterCleared: {
+      en: 'Cleared the {domain} domain filter.',
+      ja: '{domain} のドメインフィルターを消去しました。',
+    },
+    statusSampleGuideEvidenceMissing: {
+      en: 'Sample guide evidence is unavailable because the failed sample request is missing.',
+      ja: '失敗したサンプルリクエストが見つからないため、サンプルガイドの根拠を表示できません。',
+    },
+    statusSampleGuideInactive: {
+      en: 'Sample guide is available only while the local sample capture is active.',
+      ja: 'サンプルガイドはローカルサンプルキャプチャ中にのみ利用できます。',
+    },
+    statusSampleCaptureNotAdded: {
+      en: 'Local sample capture was not added because captured requests are already present.',
+      ja: 'すでにキャプチャ済みのリクエストがあるため、ローカルサンプルキャプチャは追加しませんでした。',
+    },
+    statusSampleCaptureBlocksResume: {
+      en: 'Clear the local sample capture before resuming live recording.',
+      ja: 'ライブ記録を再開する前にローカルサンプルキャプチャを消去してください。',
+    },
+    statusNoSelectedRequestsToExport: {
+      en: 'No selected requests to export.',
+      ja: 'エクスポートする対象のリクエストが選択されていません。',
+    },
+    statusCsvExportSanitizeFailed: {
+      en: 'CSV export failed during sanitization. No file was downloaded.',
+      ja: 'サニタイズ中に CSV エクスポートが失敗しました。ファイルはダウンロードされていません。',
+    },
+    statusHarFullNeedsConfirmation: {
+      en: 'Full HAR export requires one-time confirmation. No file was downloaded.',
+      ja: '完全 HAR エクスポートには一度きりの確認が必要です。ファイルはダウンロードされていません。',
+    },
+    statusPreparingFullHarExport: {
+      en: 'Preparing full HAR export...',
+      ja: '完全 HAR エクスポートを準備しています...',
+    },
+    statusPreparingSanitizedHarExport: {
+      en: 'Preparing sanitized HAR export...',
+      ja: 'サニタイズ済み HAR エクスポートを準備しています...',
+    },
+    statusExportedFullHar: {
+      en: 'Exported full HAR for {count} requests after one-time confirmation.',
+      ja: '一度きりの確認のうえ、{count} 件のリクエストを完全 HAR としてエクスポートしました。',
+    },
+    statusExportedFullHarSelected: {
+      en: 'Exported full HAR for {count} selected requests after one-time confirmation.',
+      ja: '一度きりの確認のうえ、選択した {count} 件のリクエストを完全 HAR としてエクスポートしました。',
+    },
+    statusPanelLoaded: {
+      en: 'panel.js loaded',
+      ja: 'panel.js を読み込みました',
+    },
+    statusClearUndoNothingRestorable: {
+      en: 'Nothing from the last Clear remains available to restore.',
+      ja: '直前の消去から復元できるものは残っていません。',
+    },
+    statusClearUndoSampleGone: {
+      en: 'The cleared local sample could not be restored after live traffic arrived.',
+      ja: 'ライブトラフィックが到着したため、消去したローカルサンプルは復元できませんでした。',
+    },
+    statusNothingToUndo: {
+      en: 'Nothing is available to undo.',
+      ja: '元に戻せる操作はありません。',
+    },
+    statusWaterfallNotFilterable: {
+      en: 'Waterfall is a visual timing column and cannot be filtered.',
+      ja: 'ウォーターフォールは視覚的なタイミング列のため、フィルターできません。',
+    },
+    // The sample capture announces what it did and what Clear will do. Two
+    // keys rather than one frame with a slot: the second clause is a whole
+    // sentence in both languages, and a slot would have made the Japanese
+    // read as two fragments joined by a space.
+    statusSampleCaptureLoaded: {
+      en: 'Local sample capture: 3 synthetic requests loaded. No network traffic was sent. Live recording is paused; Clear removes the sample and resumes capture.',
+      ja: 'ローカルサンプルキャプチャ: 合成リクエスト 3 件を読み込みました。ネットワーク通信は発生していません。ライブ記録は一時停止中で、クリアするとサンプルを削除してキャプチャを再開します。',
+    },
+    statusSampleCaptureLoadedPaused: {
+      en: 'Local sample capture: 3 synthetic requests loaded. No network traffic was sent. Recording remains paused; Clear removes the sample.',
+      ja: 'ローカルサンプルキャプチャ: 合成リクエスト 3 件を読み込みました。ネットワーク通信は発生していません。記録は一時停止のままで、クリアするとサンプルを削除します。',
+    },
+    statusPaused: {
+      en: 'Paused',
+      ja: '一時停止中',
+    },
+    statusRecording: {
+      en: 'Recording...',
+      ja: '記録中...',
+    },
+    statusImportFinished: {
+      en: 'Import finished in the DevTools session; the table resyncs momentarily.',
+      ja: 'DevTools セッションでインポートが完了しました。まもなくテーブルが再同期します。',
+    },
+    // A copy that worked answered in English while a copy that failed answered
+    // in Japanese — one control, two languages, decided by whether it worked.
+    statusCopiedSanitizedSummary: {
+      en: 'Copied sanitized summary',
+      ja: 'サニタイズ済みサマリーをコピーしました',
+    },
+    statusCopiedSanitizedCurl: {
+      en: 'Copied sanitized cURL',
+      ja: 'サニタイズ済み cURL をコピーしました',
+    },
+    statusCopiedSanitizedFetch: {
+      en: 'Copied sanitized fetch',
+      ja: 'サニタイズ済み fetch をコピーしました',
+    },
+    statusCopiedSanitizedPowershell: {
+      en: 'Copied sanitized PowerShell',
+      ja: 'サニタイズ済み PowerShell をコピーしました',
+    },
+    statusCopiedSanitizedMarkdown: {
+      en: 'Copied sanitized Markdown',
+      ja: 'サニタイズ済み Markdown をコピーしました',
+    },
+    statusCopiedSanitizedTable: {
+      en: 'Copied a sanitized Markdown table of {count} requests',
+      ja: 'リクエスト {count} 件のサニタイズ済み Markdown 表をコピーしました',
+    },
+    statusCopiedSanitizedData: {
+      en: 'Copied sanitized data',
+      ja: 'サニタイズ済みデータをコピーしました',
+    },
+    statusCopiedFullUnsanitized: {
+      en: 'Copied unsanitized full {label}',
+      ja: 'サニタイズしていない完全版{label}をコピーしました',
+    },
+    statusCopiedSupportSummary: {
+      en: 'Copied safe support summary',
+      ja: '安全なサポート概要をコピーしました',
+    },
+    statusCopiedSupportSummaryReview: {
+      en: 'Copied safe support summary. Review it before posting.',
+      ja: '安全なサポート概要をコピーしました。投稿する前に内容を確認してください。',
+    },
+    statusCopiedOneSanitizedRequest: {
+      en: 'Copied 1 sanitized request',
+      ja: 'サニタイズ済みリクエスト 1 件をコピーしました',
+    },
+    statusCopiedSanitizedRequests: {
+      en: 'Copied {count} sanitized requests',
+      ja: 'サニタイズ済みリクエスト {count} 件をコピーしました',
+    },
+    // The stream-capture toggle paints its own state; both writers read these.
+    wsCaptureOn: {
+      en: 'Stream capture: On',
+      ja: 'ストリームキャプチャ: オン',
+    },
+    wsCaptureOff: {
+      en: 'Stream capture: Off',
+      ja: 'ストリームキャプチャ: オフ',
+    },
+    statusCapturing: {
+      en: 'Capturing...',
+      ja: 'キャプチャ中...',
+    },
+    statusNetworkApiUnavailable: {
+      en: 'DevTools network API unavailable',
+      ja: 'DevTools のネットワーク API を利用できません',
+    },
+    statusUncaughtError: {
+      en: 'Error: {message}',
+      ja: 'エラー: {message}',
+    },
+    statusPromiseError: {
+      en: 'Promise error: {message}',
+      ja: 'Promise エラー: {message}',
+    },
+    statusWaitingForDevtools: {
+      en: 'Waiting for the DevTools session...',
+      ja: 'DevTools セッションを待っています...',
+    },
+    statusNewDevtoolsSession: {
+      en: 'A new DevTools session connected; the table now mirrors it from the start.',
+      ja: '新しい DevTools セッションに接続しました。テーブルは最初からそのセッションをミラーします。',
+    },
+    statusImportFailed: {
+      en: 'Import failed: {reason}',
+      ja: 'インポートに失敗しました: {reason}',
+    },
+    statusImportTooLarge: {
+      en: 'Import failed: the file exceeds the 64 MiB mirror transfer limit.',
+      ja: 'インポートに失敗しました: ファイルがミラー転送の上限 64 MiB を超えています。',
+    },
+    statusImportUnreadable: {
+      en: 'Import failed: the selected file could not be read.',
+      ja: 'インポートに失敗しました: 選択したファイルを読み取れませんでした。',
+    },
+    statusImportNotConnectedFailure: {
+      en: 'Import failed: not connected',
+      ja: 'インポートに失敗しました: 接続していません',
+    },
+    statusSendingImportToDevtools: {
+      en: 'Sending {file} to the DevTools session...',
+      ja: '{file} を DevTools セッションに送信しています...',
+    },
+    statusMirrorTabReattached: {
+      en: 'An existing Network+ tab reattached and mirrors this DevTools session again.',
+      ja: '既存の Network+ タブが再接続し、この DevTools セッションを再びミラーしています。',
+    },
+    statusMirrorTabAlreadyOpen: {
+      en: 'A Network+ tab is already mirroring this session; switch to it in the tab strip.',
+      ja: 'すでに Network+ タブがこのセッションをミラーしています。タブストリップで切り替えてください。',
+    },
+    statusPopoutBlocked: {
+      en: 'The browser blocked opening the Network+ tab; allow pop-ups for DevTools and retry.',
+      ja: 'ブラウザーが Network+ タブの表示をブロックしました。DevTools のポップアップを許可して再試行してください。',
+    },
+    statusPopoutOpened: {
+      en: 'Network+ opened in a browser tab; it mirrors this DevTools session.',
+      ja: 'Network+ をブラウザータブで開きました。この DevTools セッションをミラーします。',
+    },
+    statusStreamCaptureOn: {
+      en: 'Stream capture on; WebSocket and SSE connections created from now on are recorded.',
+      ja: 'ストリームキャプチャをオンにしました。以後に作成される WebSocket と SSE の接続を記録します。',
+    },
+    statusStreamCaptureOff: {
+      en: 'Stream capture off; recorded connections stay in the table.',
+      ja: 'ストリームキャプチャをオフにしました。記録済みの接続はテーブルに残ります。',
+    },
   };
 
   let activeLanguage = 'en';
@@ -7672,6 +8039,14 @@ const _NetworkPlus = (function () {
     return uiText(TIMING_PHASE_LABEL_KEYS[phase]) || guidance.label;
   }
 
+  // The main workbench divider's aria-valuetext and its keyboard-resize
+  // status line are one sentence, exactly as inspectorPercentValue pairs the
+  // inspector divider's two announcements. The separators sit next to each
+  // other, so they must read alike in either language.
+  function mainSplitPercentValue(percent) {
+    return uiTextFormat('mainSplitPercentValue', { percent: String(percent) });
+  }
+
   function applyLanguage(pref) {
     const normalized = LANGS.includes(pref) ? pref : 'system';
     activeLanguage = resolveLanguage(normalized);
@@ -7702,7 +8077,9 @@ const _NetworkPlus = (function () {
     refreshDetailsEmptyTitle();
     refreshSelectedRowDetailsLanguage();
     if (refreshInspectorToggleTitles) refreshInspectorToggleTitles();
-    setStatus('Language=' + normalized);
+    if (refreshSearchColorLabels) refreshSearchColorLabels();
+    if (refreshStreamCaptureLabel) refreshStreamCaptureLabel();
+    setStatus(uiTextFormat('statusLanguageApplied', { language: normalized }));
   }
 
   // The details pane is painted once per selection, so its toolbars, tab
@@ -7710,24 +8087,29 @@ const _NetworkPlus = (function () {
   // the reader clicked another row. Repaint the open pane from the same
   // renderer the selection uses: the picked tab survives because the counts
   // are unchanged, and a pane search and the panes' scroll offsets restart.
-  // A comparison owns the pane instead and is left standing: renderRowDetails
-  // would paint one request over the two-request diff, and re-running
-  // renderComparisonPanel here would not be a language switch either, because
-  // that panel's own chrome (its close button, its legend labels) is written
-  // in English rather than read from UI_TEXT. So the limitation is exact: a
-  // language switch made while a comparison is open leaves the comparison's
-  // chrome in the language it was painted in, and the next comparison the
-  // reader opens is painted afresh. Localizing that panel is its own change.
-  // A pane the reader closed also stays closed: closeDetailsPanel hides the
+  // A comparison owns the pane instead of a single request, so renderRowDetails
+  // would paint one request over the two-request diff. It is repainted from its
+  // own renderer instead: Tier 2 left that standing because the panel's chrome
+  // (its close control, its section headings) was written in English rather
+  // than read from UI_TEXT, and re-running it would not have been a language
+  // switch. Those strings translate now, so it is. What the diff tables paint
+  // inside a section — the 'Name' column, the A/B fallback headers, the
+  // body-state notices — is still English in both languages, and repainting
+  // leaves it exactly where it was.
+  // A pane the reader closed stays closed: closeDetailsPanel hides the
   // pane but leaves state.selectedRow standing (the row keeps its selection,
   // and a click on it reopens the pane), so gating on the selection alone
   // reopened a pane the reader had explicitly dismissed the moment they
   // switched language. The pane's own hidden flag is what says whether it is
   // open.
   function refreshSelectedRowDetailsLanguage() {
-    if (!state.selectedRow || state.comparedRows) return;
     const details = $('#details');
     if (!details || details.hidden) return;
+    if (state.comparedRows) {
+      renderComparisonPanel(state.comparedRows[0], state.comparedRows[1]);
+      return;
+    }
+    if (!state.selectedRow) return;
     renderRowDetails(state.selectedRow);
   }
 
@@ -8039,21 +8421,31 @@ const _NetworkPlus = (function () {
     return localized || runtimeLabel;
   }
 
-  // HIGHLIGHT_COLORS.name is the canonical English name the swatch class is
-  // built from; only what the reader sees is translated.
-  const MENU_COLOR_LABEL_KEYS = {
-    'hl-yellow': 'menuColorYellow',
-    'hl-red': 'menuColorRed',
-    'hl-green': 'menuColorGreen',
-    'hl-blue': 'menuColorBlue',
-    'hl-purple': 'menuColorPurple',
-    'hl-orange': 'menuColorOrange',
+  // HIGHLIGHT_COLORS.name and SEARCH_COLORS.name are the same canonical
+  // English names; only what the reader sees is translated. Both palettes
+  // resolve through this one map, so the row menu and the search panel can
+  // never name one colour two ways inside a single language.
+  const SWATCH_COLOR_LABEL_KEYS = {
+    Yellow: 'menuColorYellow',
+    Red: 'menuColorRed',
+    Green: 'menuColorGreen',
+    Blue: 'menuColorBlue',
+    Purple: 'menuColorPurple',
+    Orange: 'menuColorOrange',
   };
 
-  function menuHighlightColorLabel(highlightColor) {
-    const key = MENU_COLOR_LABEL_KEYS[highlightColor.cls];
+  function swatchColorLabel(swatchColor) {
+    const key = SWATCH_COLOR_LABEL_KEYS[swatchColor && swatchColor.name];
     const localized = key ? uiText(key) : '';
-    return localized || highlightColor.name;
+    return localized || (swatchColor && swatchColor.name) || '';
+  }
+
+  function menuHighlightColorLabel(highlightColor) {
+    return swatchColorLabel(highlightColor);
+  }
+
+  function searchColorLabel(searchColor) {
+    return swatchColorLabel(searchColor);
   }
 
   // The one allow-list a method may become a class token through. Every
@@ -8218,7 +8610,7 @@ const _NetworkPlus = (function () {
     state.columnFilterRules = DEFAULT_COLUMN_FILTER_RULES();
     renderBody();
     syncSearchUIAfterRender();
-    setStatus('Column filters cleared');
+    setStatus(uiText('statusColumnFiltersCleared'));
   }
 
   function saveViewPreset(preset) {
@@ -10737,7 +11129,19 @@ const _NetworkPlus = (function () {
     // query and fragment, so the reveal earns its place only when the full
     // string still carries something more. On a URL the lines account for
     // entirely it revealed the text already on screen.
-    if (url !== parts.scheme + parts.userinfo + parts.host + parts.pathname) {
+    //
+    // A URL the parts cannot spell back byte for byte never reaches the
+    // segmented rendering at all: createUrlElement paints `raw` verbatim, so
+    // the reveal below would be the SAME characters in the same plain form one
+    // line under them — 'https://CB.Example.TEST:443/return?state=abc' was on
+    // screen twice, once behind a control offering to show it. There the
+    // reveal is worth a control only where the address's four-line clip can
+    // hide the end of it, and length is the font-independent stand-in for that
+    // clip: the KV_CLAMP_CHARS the value cells already clamp at.
+    const revealAddsSomething = segments.segmented
+      ? url !== parts.scheme + parts.userinfo + parts.host + parts.pathname
+      : url.length > KV_CLAMP_CHARS;
+    if (revealAddsSomething) {
       const toggleLine = line('url-breakdown-toggle');
       const toggle = document.createElement('button');
       toggle.type = 'button';
@@ -11908,6 +12312,12 @@ const _NetworkPlus = (function () {
         pane.hidden = !isActive;
       });
     }
+    // The pane just shown is the first moment its bar has a box to measure, so
+    // the copy labels are weighed before the inset that follows their height.
+    if (contentArea) {
+      const shownPane = contentArea.querySelector('.tab-pane.active');
+      if (shownPane) syncPaneSearchCopyLabels(shownPane._paneSearchBar);
+    }
     syncScrollportBarInset(contentArea);
     if (moveFocus) {
       activeButton.focus();
@@ -12120,7 +12530,7 @@ const _NetworkPlus = (function () {
       createSampleCaptureRequests(SAMPLE_CAPTURE_BASE_TIMESTAMP),
     );
     if (!evidence) {
-      setStatus('Sample guide evidence is unavailable because the failed sample request is missing.');
+      setStatus(uiText('statusSampleGuideEvidenceMissing'));
       return null;
     }
 
@@ -12193,7 +12603,7 @@ const _NetworkPlus = (function () {
     const dialog = $('#sampleGuideDialog');
     const button = $('#sampleGuideBtn');
     if (!state.sampleCaptureActive || !dialog || !button || button.hidden) {
-      setStatus('Sample guide is available only while the local sample capture is active.');
+      setStatus(uiText('statusSampleGuideInactive'));
       return false;
     }
     if (dialog.open) return true;
@@ -12848,7 +13258,7 @@ const _NetworkPlus = (function () {
       topbar.classList.remove('paused');
     }
     updateSampleCaptureStatus();
-    if (announceStatus !== false) setStatus(state.paused ? 'Paused' : 'Recording...');
+    if (announceStatus !== false) setStatus(uiText(state.paused ? 'statusPaused' : 'statusRecording'));
   }
 
   function enterSampleCaptureMode() {
@@ -12921,7 +13331,7 @@ const _NetworkPlus = (function () {
       const fallbackControl = $('#filterBtn');
       if (firstVisibleRow) firstVisibleRow.focus({ preventScroll: true });
       else if (fallbackControl) fallbackControl.focus();
-      setStatus('Local sample capture was not added because captured requests are already present.');
+      setStatus(uiText('statusSampleCaptureNotAdded'));
       return false;
     }
 
@@ -12932,10 +13342,11 @@ const _NetworkPlus = (function () {
     renderBody();
     if (retainedRows[0]) selectRow(retainedRows[0], null, true);
     setStatus(
-      'Local sample capture: 3 synthetic requests loaded. No network traffic was sent. ' +
-        (state.sampleCapturePreviousPaused
-          ? 'Recording remains paused; Clear removes the sample.'
-          : 'Live recording is paused; Clear removes the sample and resumes capture.'),
+      uiText(
+        state.sampleCapturePreviousPaused
+          ? 'statusSampleCaptureLoadedPaused'
+          : 'statusSampleCaptureLoaded',
+      ),
     );
     return true;
   }
@@ -13358,6 +13769,15 @@ const _NetworkPlus = (function () {
   // The collapse toggles' tooltips are composed in JavaScript, so the
   // language switch re-runs their sync instead of a data-i18n-title.
   let refreshInspectorToggleTitles = null;
+  // The search panel's colour swatches are painted once, at init, and its
+  // keyword rows only when the panel is re-rendered. Without this hook a
+  // language switch left both naming their colours in the previous language
+  // while the row menu's swatches — rebuilt on every open — had moved on.
+  let refreshSearchColorLabels = null;
+  // The stream toggle paints its own label, so a language switch has to ask it
+  // to repaint — the dictionary sweep only reaches markup, not text a function
+  // writes.
+  let refreshStreamCaptureLabel = null;
   // The status text the "closed" notice displaced, restored on reopen.
   let statusBeforeDetailsClose = null;
   // The selection line the reopen wrote, so a later selection can replace it
@@ -13790,10 +14210,10 @@ const _NetworkPlus = (function () {
   function copySanitizedAction(action, row, responseBody, message) {
     try {
       const payload = buildClipboardPayload(action, row, { mode: 'sanitized', responseBody });
-      return writeClipboardPayload(payload.text, message || 'Copied sanitized data');
+      return writeClipboardPayload(payload.text, message || uiText('statusCopiedSanitizedData'));
     } catch (_error) {
-      // Same shared failure path as the row menu's copies: still English.
-      setStatus('Sanitized copy failed closed. No data was copied.');
+      // Same shared failure path as the row menu's copies.
+      setStatus(uiText('statusSanitizedCopyFailed'));
       return Promise.resolve();
     }
   }
@@ -13838,9 +14258,9 @@ const _NetworkPlus = (function () {
     try {
       const payload = buildClipboardPayload(action, row, { mode: 'full', confirmed: true });
       // Row-menu format: its status line stays the canonical English one.
-      return writeClipboardPayload(payload.text, 'Copied unsanitized full ' + label);
+      return writeClipboardPayload(payload.text, uiTextFormat('statusCopiedFullUnsanitized', { label }));
     } catch (_error) {
-      setStatus('Full copy failed. No data was copied.');
+      setStatus(uiText('statusFullCopyFailed'));
       return Promise.resolve();
     }
   }
@@ -13955,10 +14375,18 @@ const _NetworkPlus = (function () {
   }
 
   // The folds that keep a hit in layout while hiding it: a folded long string
-  // clipped by -webkit-line-clamp, and a clamped value cell. Both have a box,
-  // so offsetParent is NOT null inside them — the reveal's first version
+  // clipped by -webkit-line-clamp, a clamped value cell, and the URL row's
+  // address, clipped to four lines by the same mechanism. All three have a
+  // box, so offsetParent is NOT null inside them — the reveal's first version
   // missed the very case its brief named.
-  const PANE_SEARCH_FOLD_SELECTOR = '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped';
+  //
+  // The address is the one a 31-parameter URL hides most of: its search counts
+  // and navigates to a hit 250px below the clipped box's bottom edge, and the
+  // "Show full URL" reveal beside it opens a DIFFERENT node, so pressing it
+  // left the marked run exactly where it was.
+  const PANE_SEARCH_FOLD_SELECTOR =
+    '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped,' +
+    ' .url-breakdown-address:not(.url-breakdown-address--expanded)';
 
   // The pane the mark belongs to, and whether the reader is looking at it.
   // attachPaneSearch runs on all four Body/Raw panes and a stored query
@@ -14020,12 +14448,19 @@ const _NetworkPlus = (function () {
   }
 
   // Open every collapsed <details> ancestor, unfold a long string the hit
-  // sits in, expand a clamped value around it, and press open whatever a
-  // reveal toggle still hides, so the current hit is visible. Only ever
-  // called for a hit in the pane the reader is actually looking at.
+  // sits in, expand a clamped value around it, lift the URL address's own
+  // four-line clip, and press open whatever a reveal toggle still hides, so
+  // the current hit is visible. Only ever called for a hit in the pane the
+  // reader is actually looking at.
   function revealPaneSearchHit(mark, pane) {
     const longString = mark.parentElement ? mark.parentElement.closest('.json-tree-str') : null;
     if (longString) setJsonTreeStringExpanded(longString, true);
+    // The address has no toggle of its own — "Show full URL" reveals a
+    // separate copy of the string — so the clip is lifted here instead. The
+    // spans, the <wbr> breaks and the text nodes are untouched, so the address
+    // still reads back as the URL verbatim once it is unfolded.
+    const address = mark.parentElement ? mark.parentElement.closest('.url-breakdown-address') : null;
+    if (address) address.classList.add('url-breakdown-address--expanded');
     let node = mark.parentElement ? mark.parentElement.closest('details') : null;
     while (node) {
       if (!node.open) node.open = true;
@@ -14073,6 +14508,47 @@ const _NetworkPlus = (function () {
   // bar. One scrollport is shared by all five panes of a half, so the inset
   // belongs to whichever pane is showing — a wrapped 58px Body bar used to
   // leave Headers scrolling under a 58px gap it does not have.
+  // Does this flex bar occupy more than one row? A child that starts at or
+  // below a previous child's bottom edge is on a new line; children on the
+  // same line always overlap vertically, however different their heights,
+  // because the bar centres them on one line box. No height, line count or
+  // label width is assumed — the same question at any font, in any language.
+  function paneSearchBarWraps(bar) {
+    let bottom = null;
+    for (const child of Array.from(bar.children)) {
+      const rect = child.getBoundingClientRect();
+      if (rect.width === 0) continue;
+      if (bottom !== null && rect.top >= bottom - 0.5) return true;
+      bottom = bottom === null ? rect.bottom : Math.max(bottom, rect.bottom);
+    }
+    return false;
+  }
+
+  // The copy pair keeps its labels only while the toolbar can still hold every
+  // child on one row. A container width in px cannot promise that: 730px and
+  // 940px were measured against the shipped face, and a face large enough
+  // wraps the labelled bar hundreds of pixels above either threshold — so the
+  // labels came back exactly where the bar regained a row (measured here: a
+  // 22px face, the Body bar in its widest state, labels at 960px of pane
+  // beside a two-row bar). The container queries stay as the coarse floor
+  // beneath this; the promise itself is measured. Idempotent, and the only
+  // write is a class that changes nothing when the answer is unchanged, so the
+  // ResizeObserver that re-runs it cannot ping-pong.
+  function syncPaneSearchCopyLabels(bar) {
+    if (!bar || !bar.isConnected) return;
+    const label = bar.querySelector('.copy-btn .copy-btn-label');
+    if (!label) return;
+    // A pane nobody is looking at has no box to measure; the observer runs
+    // this again the moment the pane is shown and the bar gains a size.
+    if (bar.getBoundingClientRect().width === 0) return;
+    bar.classList.remove('pane-search-bar--icon-copy');
+    // Labels the container query already withholds: nothing to weigh, and
+    // measuring the icon state would put the class on a bar that is narrow
+    // rather than one whose labels cost a row.
+    if (getComputedStyle(label).display === 'none') return;
+    if (paneSearchBarWraps(bar)) bar.classList.add('pane-search-bar--icon-copy');
+  }
+
   function syncScrollportBarInset(scrollport) {
     if (!scrollport || !scrollport.classList || !scrollport.classList.contains('tab-content-area')) return;
     const activePane = scrollport.querySelector('.tab-pane.active');
@@ -14309,12 +14785,19 @@ const _NetworkPlus = (function () {
       // new bar: attachPaneSearch runs two to four times per selection, and
       // an observer per bar accumulated one leak per render.
       if (!pane._paneBarObserver) {
-        pane._paneBarObserver = new ResizeObserver(() => syncScrollportBarInset(pane.parentElement));
+        // The copy labels are weighed first: dropping them can take a row off
+        // the bar, and the inset the scrollport keeps is the height that
+        // decision leaves behind.
+        pane._paneBarObserver = new ResizeObserver(() => {
+          syncPaneSearchCopyLabels(pane._paneSearchBar);
+          syncScrollportBarInset(pane.parentElement);
+        });
       } else {
         pane._paneBarObserver.disconnect();
       }
       pane._paneBarObserver.observe(bar);
     }
+    syncPaneSearchCopyLabels(bar);
     syncScrollportBarInset(pane.parentElement);
     const storedQuery = paneSearchQueries.get(paneId) || '';
     if (storedQuery) {
@@ -15662,9 +16145,9 @@ const _NetworkPlus = (function () {
     headerRow.appendChild(heading);
     const closeBtn = document.createElement('button');
     closeBtn.className = 'compare-close-btn';
-    closeBtn.textContent = '✕ Close';
-    closeBtn.title = 'Close comparison view';
-    closeBtn.setAttribute('aria-label', 'Close comparison view');
+    closeBtn.textContent = uiText('compareClose');
+    closeBtn.title = uiText('compareCloseTitle');
+    closeBtn.setAttribute('aria-label', uiText('compareCloseTitle'));
     closeBtn.addEventListener('click', () => {
       const invokingRowId = state.comparisonInvokingRowId;
       state.comparedRows = null;
@@ -15678,7 +16161,7 @@ const _NetworkPlus = (function () {
     // --- Column labels legend ---
     const legend = document.createElement('div');
     legend.className = 'compare-legend';
-    legend.setAttribute('aria-label', 'Compared requests');
+    legend.setAttribute('aria-label', uiText('compareLegendLabel'));
     const makeLabel = (letter, row) => {
       const item = document.createElement('div');
       item.className = 'compare-legend-item';
@@ -15702,7 +16185,7 @@ const _NetworkPlus = (function () {
     overviewSection.className = 'compare-section';
     const overviewHeading = document.createElement('h3');
     overviewHeading.className = 'compare-section-title';
-    overviewHeading.textContent = 'Overview';
+    overviewHeading.textContent = uiText('compareSectionOverview');
     overviewSection.appendChild(overviewHeading);
     const overviewEntries = [
       { name: 'Method',   valueA: rowA.method || '', valueB: rowB.method || '',
@@ -15727,7 +16210,7 @@ const _NetworkPlus = (function () {
     urlSection.className = 'compare-section';
     const urlHeading = document.createElement('h3');
     urlHeading.className = 'compare-section-title';
-    urlHeading.textContent = 'URL';
+    urlHeading.textContent = uiText('compareSectionUrl');
     urlSection.appendChild(urlHeading);
 
     const urlRowA = rowA.url || '';
@@ -15742,7 +16225,7 @@ const _NetworkPlus = (function () {
 
     const qHeading = document.createElement('h4');
     qHeading.className = 'compare-subsection-title';
-    qHeading.textContent = 'Query Parameters';
+    qHeading.textContent = uiText('compareSectionQueryParams');
     urlSection.appendChild(qHeading);
 
     let queryParamsA;
@@ -15758,7 +16241,7 @@ const _NetworkPlus = (function () {
     reqHdrSection.className = 'compare-section';
     const reqHdrHeading = document.createElement('h3');
     reqHdrHeading.className = 'compare-section-title';
-    reqHdrHeading.textContent = 'Request Headers';
+    reqHdrHeading.textContent = uiText('compareSectionRequestHeaders');
     reqHdrSection.appendChild(reqHdrHeading);
     reqHdrSection.appendChild(createDiffTable(diffHeaders(rowA.requestHeaders, rowB.requestHeaders), labelA, labelB));
     panel.appendChild(reqHdrSection);
@@ -15768,7 +16251,7 @@ const _NetworkPlus = (function () {
     resHdrSection.className = 'compare-section';
     const resHdrHeading = document.createElement('h3');
     resHdrHeading.className = 'compare-section-title';
-    resHdrHeading.textContent = 'Response Headers';
+    resHdrHeading.textContent = uiText('compareSectionResponseHeaders');
     resHdrSection.appendChild(resHdrHeading);
     resHdrSection.appendChild(createDiffTable(diffHeaders(rowA.responseHeaders, rowB.responseHeaders), labelA, labelB));
     panel.appendChild(resHdrSection);
@@ -15778,7 +16261,7 @@ const _NetworkPlus = (function () {
     reqBodySection.className = 'compare-section';
     const reqBodyHeading = document.createElement('h3');
     reqBodyHeading.className = 'compare-section-title';
-    reqBodyHeading.textContent = 'Request Bodies';
+    reqBodyHeading.textContent = uiText('compareSectionRequestBodies');
     reqBodySection.appendChild(reqBodyHeading);
     const reqBodyWrap = document.createElement('div');
     reqBodyWrap.className = 'compare-bodies';
@@ -15792,7 +16275,7 @@ const _NetworkPlus = (function () {
     bodySection.className = 'compare-section';
     const bodyHeading = document.createElement('h3');
     bodyHeading.className = 'compare-section-title';
-    bodyHeading.textContent = 'Response Bodies';
+    bodyHeading.textContent = uiText('compareSectionResponseBodies');
     bodySection.appendChild(bodyHeading);
     const bodyWrap = document.createElement('div');
     bodyWrap.className = 'compare-bodies';
@@ -15955,12 +16438,12 @@ const _NetworkPlus = (function () {
     const exportScope = scope === 'selected' ? 'selected' : 'displayed';
     const rows = (exportScope === 'selected' ? getSelectedExportRows() : getExportRows()).slice();
     if (exportScope === 'selected' && rows.length === 0) {
-      setStatus('No selected requests to export.');
+      setStatus(uiText('statusNoSelectedRequestsToExport'));
       return;
     }
     const payload = buildCsvPayload(rows);
     if (!payload.ok) {
-      setStatus('CSV export failed during sanitization. No file was downloaded.');
+      setStatus(uiText('statusCsvExportSanitizeFailed'));
       return;
     }
     const blob = new Blob([payload.text], { type: 'text/csv' });
@@ -15978,19 +16461,21 @@ const _NetworkPlus = (function () {
   async function exportHAR(policy) {
     const outboundPolicy = policy || { mode: 'sanitized' };
     if (outboundPolicy.mode === 'full' && !isFullOutputAuthorized(outboundPolicy)) {
-      setStatus('Full HAR export requires one-time confirmation. No file was downloaded.');
+      setStatus(uiText('statusHarFullNeedsConfirmation'));
       return;
     }
     const exportScope = outboundPolicy.scope === 'selected' ? 'selected' : 'displayed';
     const rows = (exportScope === 'selected' ? getSelectedExportRows() : getExportRows()).slice();
     if (exportScope === 'selected' && rows.length === 0) {
-      setStatus('No selected requests to export.');
+      setStatus(uiText('statusNoSelectedRequestsToExport'));
       return;
     }
     const exportButton = $('#exportHarBtn');
     let objectUrl = null;
     exportButton.disabled = true;
-    setStatus('Preparing ' + (outboundPolicy.mode === 'full' ? 'full' : 'sanitized') + ' HAR export...');
+    setStatus(
+      uiText(outboundPolicy.mode === 'full' ? 'statusPreparingFullHarExport' : 'statusPreparingSanitizedHarExport'),
+    );
     try {
       const responseContents = new Map();
       let unavailableCount = 0;
@@ -16031,7 +16516,11 @@ const _NetworkPlus = (function () {
           : 'network-plus-sanitized' + scopeSuffix + '.har',
       );
       if (outboundPolicy.mode === 'full') {
-        setStatus('Exported full HAR for ' + rows.length + scopeLabel + ' after one-time confirmation.');
+        setStatus(
+          uiTextFormat(exportScope === 'selected' ? 'statusExportedFullHarSelected' : 'statusExportedFullHar', {
+            count: rows.length,
+          }),
+        );
       } else {
         const counts = har.log._networkPlus.counts;
         setStatus(
@@ -16076,7 +16565,7 @@ const _NetworkPlus = (function () {
     initializeSampleGuideDialog();
     initializeSampleCaptureExitActions();
     initializeStatusDetailsDisclosure();
-    setStatus('panel.js loaded');
+    setStatus(uiText('statusPanelLoaded'));
 
     const toolbar = $('.topbar');
     toolbar.addEventListener('focusin', (event) => {
@@ -16266,14 +16755,14 @@ const _NetworkPlus = (function () {
       const restorePlan = createClearUndoRestorePlan(snapshot, state.retainedRows);
       if (restorePlan.rows.length === 0) {
         clearButton.focus({ preventScroll: true });
-        setStatus('Nothing from the last Clear remains available to restore.');
+        setStatus(uiText('statusClearUndoNothingRestorable'));
         return;
       }
       const activeRows = state.rows.slice();
       if (restorePlan.sampleCaptureActive && activeRows.length > 0) {
         cleanupEvictedRowReferences(restorePlan.rows, false);
         clearButton.focus({ preventScroll: true });
-        setStatus('The cleared local sample could not be restored after live traffic arrived.');
+        setStatus(uiText('statusClearUndoSampleGone'));
         return;
       }
       const activeRowSet = new Set(activeRows);
@@ -16429,7 +16918,7 @@ const _NetworkPlus = (function () {
       const consumed = consumeClearUndoSnapshot('undo');
       if (!consumed || consumed.disposition !== 'restore') {
         clearButton.focus({ preventScroll: true });
-        setStatus('Nothing is available to undo.');
+        setStatus(uiText('statusNothingToUndo'));
         return;
       }
       resetPendingLiveRows();
@@ -16440,7 +16929,7 @@ const _NetworkPlus = (function () {
     const pauseBtn = $('#pauseBtn');
     pauseBtn.addEventListener('click', () => {
       if (state.sampleCaptureActive) {
-        setStatus('Clear the local sample capture before resuming live recording.');
+        setStatus(uiText('statusSampleCaptureBlocksResume'));
         return;
       }
       state.paused = !state.paused;
@@ -16822,7 +17311,7 @@ const _NetworkPlus = (function () {
       const th = event.target.closest('th');
       const focusColId = th ? th.dataset.colId : null;
       if (isVisualOnlyColumn(focusColId)) {
-        setStatus('Waterfall is a visual timing column and cannot be filtered.');
+        setStatus(uiText('statusWaterfallNotFilterable'));
         return;
       }
       openFilterPopup(event.clientX, event.clientY, focusColId, th);
@@ -16924,11 +17413,11 @@ const _NetworkPlus = (function () {
             colorScheme: mediaPreferences.colorScheme,
             reducedMotion: mediaPreferences.reducedMotion,
           });
-          writeClipboardPayload(summary, 'Copied safe support summary').then((copied) => {
+          writeClipboardPayload(summary, uiText('statusCopiedSupportSummary')).then((copied) => {
             if (supportStatus) {
               supportStatus.textContent = copied
-                ? 'Copied safe support summary. Review it before posting.'
-                : 'Clipboard copy failed. No data was copied.';
+                ? uiText('statusCopiedSupportSummaryReview')
+                : uiText('statusClipboardCopyFailed');
             }
           });
         });
@@ -17077,7 +17566,7 @@ const _NetworkPlus = (function () {
       state.columnFilterRules.domain = { mode: 'multiText', conditions };
       renderBody();
       syncSearchUIAfterRender();
-      setStatus('Cleared the ' + domain + ' domain filter.');
+      setStatus(uiTextFormat('statusDomainFilterCleared', { domain }));
     };
 
     const getActiveDomainOnlyValues = () => {
@@ -17509,18 +17998,19 @@ const _NetworkPlus = (function () {
         reclampOpenPopups();
       });
       contextMenu.appendChild(sanitizedCopyToggle);
-      // The label translates; the status message stays the canonical English
-      // one every other sanitized copy sink already reports.
-      for (const [action, labelKey, copiedMessage] of [
-        ['summary', 'menuCopySanitizedSummary', 'Copied sanitized summary'],
-        ['url', 'menuCopySanitizedUrl', 'Copied sanitized URL'],
-        ['curl', 'menuCopySanitizedCurl', 'Copied sanitized cURL'],
-        ['fetch', 'menuCopySanitizedFetch', 'Copied sanitized fetch'],
-        ['powershell', 'menuCopySanitizedPowershell', 'Copied sanitized PowerShell'],
-        ['markdown', 'menuCopySanitizedMarkdown', 'Copied sanitized Markdown'],
+      // Label and toast read the same dictionary: a copy that worked used to
+      // answer in English while the same control's failure answered in the
+      // reader's language.
+      for (const [action, labelKey, copiedKey] of [
+        ['summary', 'menuCopySanitizedSummary', 'statusCopiedSanitizedSummary'],
+        ['url', 'menuCopySanitizedUrl', 'statusCopiedSanitizedUrl'],
+        ['curl', 'menuCopySanitizedCurl', 'statusCopiedSanitizedCurl'],
+        ['fetch', 'menuCopySanitizedFetch', 'statusCopiedSanitizedFetch'],
+        ['powershell', 'menuCopySanitizedPowershell', 'statusCopiedSanitizedPowershell'],
+        ['markdown', 'menuCopySanitizedMarkdown', 'statusCopiedSanitizedMarkdown'],
       ]) {
         sanitizedCopyGroup.appendChild(createRowMenuButton(uiText(labelKey), () => {
-          copySanitizedAction(action, contextMenuRow, '', copiedMessage);
+          copySanitizedAction(action, contextMenuRow, '', uiText(copiedKey));
         }));
       }
       if (targetRows.length > 1) {
@@ -17528,10 +18018,13 @@ const _NetworkPlus = (function () {
           createRowMenuButton(uiTextFormat('menuCopySanitizedTable', { count: targetRows.length }), () => {
             const payload = buildMarkdownTablePayload(targetRows);
             if (!payload.ok) {
-              setStatus('Clipboard copy failed during sanitization. No data was copied.');
+              setStatus(uiText('statusClipboardSanitizeFailed'));
               return;
             }
-            writeClipboardPayload(payload.text, 'Copied a sanitized Markdown table of ' + targetRows.length + ' requests');
+            writeClipboardPayload(
+              payload.text,
+              uiTextFormat('statusCopiedSanitizedTable', { count: targetRows.length.toLocaleString('en-US') }),
+            );
           }),
         );
       }
@@ -17659,12 +18152,14 @@ const _NetworkPlus = (function () {
         event.preventDefault();
         const payload = buildMultiRowClipboardPayload(rows, 'summary', { mode: 'sanitized' });
         if (!payload.ok) {
-          setStatus('Clipboard copy failed during sanitization. No data was copied.');
+          setStatus(uiText('statusClipboardSanitizeFailed'));
           return;
         }
         writeClipboardPayload(
           payload.text,
-          rows.length === 1 ? 'Copied 1 sanitized request' : 'Copied ' + rows.length + ' sanitized requests',
+          rows.length === 1
+            ? uiText('statusCopiedOneSanitizedRequest')
+            : uiTextFormat('statusCopiedSanitizedRequests', { count: rows.length.toLocaleString('en-US') }),
         );
       }
     });
@@ -17680,7 +18175,7 @@ const _NetworkPlus = (function () {
       tableWrap.style.flexBasis = split.primarySize + 'px';
       details.style.flexBasis = split.detailsSize + 'px';
       resizer.setAttribute('aria-valuenow', String(split.primaryPercent));
-      resizer.setAttribute('aria-valuetext', 'Request list ' + split.primaryPercent + ' percent');
+      resizer.setAttribute('aria-valuetext', mainSplitPercentValue(split.primaryPercent));
     };
 
     // A dragged or keyed side-by-side width outlives the session; the
@@ -17703,7 +18198,7 @@ const _NetworkPlus = (function () {
         details.style.flexBasis = '';
         tableWrap.style.flexBasis = '';
         resizer.setAttribute('aria-valuenow', '50');
-        resizer.setAttribute('aria-valuetext', 'Request list 50 percent');
+        resizer.setAttribute('aria-valuetext', mainSplitPercentValue(50));
         if (!isNarrow) restoreDetailsWidth();
       }
       mainSplitIsNarrow = isNarrow;
@@ -17738,7 +18233,7 @@ const _NetworkPlus = (function () {
       }
       if (currentSplit) {
         resizer.setAttribute('aria-valuenow', String(currentSplit.primaryPercent));
-        resizer.setAttribute('aria-valuetext', 'Request list ' + currentSplit.primaryPercent + ' percent');
+        resizer.setAttribute('aria-valuetext', mainSplitPercentValue(currentSplit.primaryPercent));
       }
     };
 
@@ -17797,7 +18292,7 @@ const _NetworkPlus = (function () {
       const split = adjustMainSplitByKeyboard(currentPrimarySize, totalSize, isNarrow, event.key, event.shiftKey);
       applyMainSplit(split);
       rememberMainSplit(split);
-      if (split) setStatus('Request list ' + split.primaryPercent + ' percent');
+      if (split) setStatus(mainSplitPercentValue(split.primaryPercent));
     });
     resizer.addEventListener('mousedown', (event) => {
       event.preventDefault();
@@ -18260,7 +18755,7 @@ const _NetworkPlus = (function () {
     colorPopup.style.position = 'fixed';
     colorPopup.style.display = 'none';
     colorPopup.setAttribute('role', 'menu');
-    colorPopup.setAttribute('aria-label', 'Search highlight color');
+    colorPopup.setAttribute('aria-label', uiText('searchColorPickerLabel'));
     installPopupKeyboardSupport(colorPopup);
     document.body.appendChild(colorPopup);
 
@@ -18269,10 +18764,13 @@ const _NetworkPlus = (function () {
       const swatch = document.createElement('button');
       swatch.className = 'search-color-swatch';
       swatch.style.background = SEARCH_COLORS[ci].cssColor;
-      swatch.title = SEARCH_COLORS[ci].name;
+      // The same lookup the row menu's highlight swatches use, so one colour
+      // is never named two ways inside one language.
+      const searchColorName = searchColorLabel(SEARCH_COLORS[ci]);
+      swatch.title = searchColorName;
       swatch.setAttribute('role', 'menuitemradio');
       swatch.setAttribute('aria-checked', 'false');
-      swatch.setAttribute('aria-label', 'Use ' + SEARCH_COLORS[ci].name + ' search color');
+      swatch.setAttribute('aria-label', uiTextFormat('searchColorUse', { color: searchColorName }));
       swatch.addEventListener('click', () => {
         const targetIndex = colorPopupTargetIdx;
         closeAccessiblePopup(colorPopup, false);
@@ -18288,6 +18786,18 @@ const _NetworkPlus = (function () {
       });
       colorPopup.appendChild(swatch);
     }
+
+    refreshSearchColorLabels = () => {
+      const swatches = colorPopup.querySelectorAll('.search-color-swatch');
+      for (let ci = 0; ci < SEARCH_COLORS.length && ci < swatches.length; ci++) {
+        const name = searchColorLabel(SEARCH_COLORS[ci]);
+        swatches[ci].title = name;
+        swatches[ci].setAttribute('aria-label', uiTextFormat('searchColorUse', { color: name }));
+      }
+      colorPopup.setAttribute('aria-label', uiText('searchColorPickerLabel'));
+      // The keyword rows carry the colour button's own tooltip and name.
+      if (searchPanelVisible) renderSearchRows();
+    };
 
     function addKeywordRow() {
       const colorIdx = state.search.keywords.length % SEARCH_COLORS.length;
@@ -18322,9 +18832,9 @@ const _NetworkPlus = (function () {
         const colorBtn = document.createElement('button');
         colorBtn.className = 'search-color-btn';
         colorBtn.style.background = SEARCH_COLORS[kw.colorIdx].cssColor;
-        colorBtn.title = 'Change color';
+        colorBtn.title = uiText('searchColorChange');
         colorBtn.dataset.keywordIndex = String(i);
-        colorBtn.setAttribute('aria-label', 'Change color for search keyword ' + (i + 1));
+        colorBtn.setAttribute('aria-label', uiTextFormat('searchColorChangeForKeyword', { index: i + 1 }));
         colorBtn.setAttribute('aria-haspopup', 'menu');
         colorBtn.setAttribute('aria-controls', 'searchColorMenu');
         colorBtn.setAttribute('aria-expanded', 'false');
@@ -18707,7 +19217,7 @@ const _NetworkPlus = (function () {
         } catch (error) {
           const message =
             error && error.name === 'ImportError' ? error.message : 'The selected file could not be imported.';
-          setStatus('Import failed: ' + message);
+          setStatus(uiTextFormat('statusImportFailed', { reason: message }));
           console.error('Network+ import failed: ' + message);
           return message;
         } finally {
@@ -18895,15 +19405,17 @@ const _NetworkPlus = (function () {
           );
         });
       }
-      setStatus('Capturing...');
+      setStatus(uiText('statusCapturing'));
     } else {
-      setStatus('DevTools network API unavailable');
+      setStatus(uiText('statusNetworkApiUnavailable'));
     }
 
     // Error handlers
-    window.addEventListener('error', (e) => setStatus('Error: ' + (e.message || e.error || e.filename)));
+    window.addEventListener('error', (e) =>
+      setStatus(uiTextFormat('statusUncaughtError', { message: e.message || e.error || e.filename })),
+    );
     window.addEventListener('unhandledrejection', (e) =>
-      setStatus('Promise error: ' + ((e.reason && e.reason.message) || e.reason)),
+      setStatus(uiTextFormat('statusPromiseError', { message: (e.reason && e.reason.message) || e.reason })),
     );
 
     // Comparison panel: dismiss on Escape and restore focus to invoking row
@@ -18959,7 +19471,7 @@ const _NetworkPlus = (function () {
               'To capture without interruption, keep DevTools open — undocked into its own window and minimized is fine.',
           );
         } else {
-          setStatus('Waiting for the DevTools session...');
+          setStatus(uiText('statusWaitingForDevtools'));
         }
       };
       const bumpNextId = (rowId) => {
@@ -19001,7 +19513,7 @@ const _NetworkPlus = (function () {
           // by id against the old session's would alias stale evidence onto
           // new requests, so the old table goes and the snapshot starts clean.
           removeRowsFromState(state.rows.slice(), false);
-          setStatus('A new DevTools session connected; the table now mirrors it from the start.');
+          setStatus(uiText('statusNewDevtoolsSession'));
         }
         const existingById = new Map(state.rows.map((row) => [row.id, row]));
         const orderedRows = [];
@@ -19113,7 +19625,7 @@ const _NetworkPlus = (function () {
         if (wsCaptureBtnViewer && control.streamCapture && typeof control.streamCapture === 'object') {
           wsCaptureBtnViewer.hidden = control.streamCapture.supported !== true;
           const streamEnabled = control.streamCapture.enabled === true;
-          wsCaptureBtnViewer.textContent = streamEnabled ? 'Stream capture: On' : 'Stream capture: Off';
+          wsCaptureBtnViewer.textContent = uiText(streamEnabled ? 'wsCaptureOn' : 'wsCaptureOff');
           wsCaptureBtnViewer.setAttribute('aria-pressed', streamEnabled ? 'true' : 'false');
         }
         if (control.devtoolsMinimized === false) maybeShowUndockHint();
@@ -19185,27 +19697,31 @@ const _NetworkPlus = (function () {
         viewerImportInput.value = '';
         if (!file) return;
         if (file.size > MIRROR_IMPORT_MAX_BYTES) {
-          setStatus('Import failed: the file exceeds the 64 MiB mirror transfer limit.');
+          setStatus(uiText('statusImportTooLarge'));
           return;
         }
-        setStatus('Sending ' + file.name + ' to the DevTools session...');
+        setStatus(uiTextFormat('statusSendingImportToDevtools', { file: file.name }));
         let importBytes;
         try {
           importBytes = new Uint8Array(await file.arrayBuffer());
         } catch (_error) {
-          setStatus('Import failed: the selected file could not be read.');
+          setStatus(uiText('statusImportUnreadable'));
           return;
         }
         try {
           viewerSession.sendImportFile(file.name, importBytes, (error) => {
             setStatus(
               error
-                ? 'Import failed: ' + error.message
-                : 'Import finished in the DevTools session; the table resyncs momentarily.',
+                ? uiTextFormat('statusImportFailed', { reason: error.message })
+                : uiText('statusImportFinished'),
             );
           });
         } catch (error) {
-          setStatus('Import failed: ' + (error && error.message ? error.message : 'not connected'));
+          setStatus(
+            error && error.message
+              ? uiTextFormat('statusImportFailed', { reason: error.message })
+              : uiText('statusImportNotConnectedFailure'),
+          );
         }
       });
       mirrorViewerResendDispatch = (spec, done) => viewerSession.sendCommand('resend', { spec }, done);
@@ -19445,7 +19961,7 @@ const _NetworkPlus = (function () {
           if (mirrorPort === port && !mirrorPortConfirmed) {
             mirrorPortConfirmed = true;
             if (!popoutWindow || popoutWindow.closed) {
-              setStatus('An existing Network+ tab reattached and mirrors this DevTools session again.');
+              setStatus(uiText('statusMirrorTabReattached'));
             }
           }
           if (message && message.type === 'hello') startMirrorSync();
@@ -19483,7 +19999,7 @@ const _NetworkPlus = (function () {
           // An adopted tab (opened by an earlier DevTools session) already
           // mirrors this one; a duplicate would fight it over the port, and
           // without the tabs permission it cannot be focused from here.
-          setStatus('A Network+ tab is already mirroring this session; switch to it in the tab strip.');
+          setStatus(uiText('statusMirrorTabAlreadyOpen'));
           return;
         }
         if (mirrorPort && !mirrorPortConfirmed) {
@@ -19511,11 +20027,11 @@ const _NetworkPlus = (function () {
           // A blocked opener is reported below exactly like a null return.
         }
         if (!opened) {
-          setStatus('The browser blocked opening the Network+ tab; allow pop-ups for DevTools and retry.');
+          setStatus(uiText('statusPopoutBlocked'));
           return;
         }
         popoutWindow = opened;
-        setStatus('Network+ opened in a browser tab; it mirrors this DevTools session.');
+        setStatus(uiText('statusPopoutOpened'));
         // Ask the background worker to tuck an undocked DevTools window
         // away; a docked session has no window of its own and stays put.
         // The answer refines the status either way, so a silent no-op
@@ -19564,9 +20080,10 @@ const _NetworkPlus = (function () {
         }
       };
       const updateStreamCaptureButton = () => {
-        wsCaptureBtn.textContent = streamCapture.enabled ? 'Stream capture: On' : 'Stream capture: Off';
+        wsCaptureBtn.textContent = uiText(streamCapture.enabled ? 'wsCaptureOn' : 'wsCaptureOff');
         wsCaptureBtn.setAttribute('aria-pressed', streamCapture.enabled ? 'true' : 'false');
       };
+      refreshStreamCaptureLabel = updateStreamCaptureButton;
       const injectStreamWrappers = () => {
         inspectedEval(buildWsWrapperSource(), () => {});
         inspectedEval(buildSseWrapperSource(), () => {});
@@ -19708,7 +20225,7 @@ const _NetworkPlus = (function () {
         if (streamCapture.enabled) {
           injectStreamWrappers();
           if (!streamCapture.timer) streamCapture.timer = setInterval(drainStreamQueues, WS_POLL_INTERVAL_MS);
-          setStatus('Stream capture on; WebSocket and SSE connections created from now on are recorded.');
+          setStatus(uiText('statusStreamCaptureOn'));
         } else {
           if (streamCapture.timer) {
             clearInterval(streamCapture.timer);
@@ -19716,7 +20233,7 @@ const _NetworkPlus = (function () {
           }
           inspectedEval('window.__networkPlusWS__ && window.__networkPlusWS__.setEnabled(false)', () => {});
           inspectedEval('window.__networkPlusSSE__ && window.__networkPlusSSE__.setEnabled(false)', () => {});
-          setStatus('Stream capture off; recorded connections stay in the table.');
+          setStatus(uiText('statusStreamCaptureOff'));
         }
         updateStreamCaptureButton();
       });
@@ -19793,9 +20310,9 @@ const _NetworkPlus = (function () {
           } catch (error) {
             const raw = error && error.message ? error.message : '';
             const reason = !raw || /disconnect|not connected/i.test(raw)
-              ? 'the DevTools session is not connected; reopen DevTools and try again'
+              ? uiText('resendErrNotConnected')
               : raw;
-            setStatus('Re-send failed: ' + reason);
+            setStatus(uiTextFormat('resendErrDispatch', { reason }));
             return error instanceof Error ? error : new Error(reason);
           }
           return null;
@@ -19806,7 +20323,7 @@ const _NetworkPlus = (function () {
               (result && result.error) ||
               (errorInfo && (errorInfo.description || errorInfo.value || errorInfo.code)) ||
               'evaluation failed';
-            setStatus('Re-send failed: ' + reason);
+            setStatus(uiTextFormat('resendErrDispatch', { reason }));
             return;
           }
           setStatus(

@@ -7004,6 +7004,85 @@ browserTest(
       // line count lands within a pixel of the bound and flips with the font.
       expect(breakdown.valHeight).toBeLessThan(revealed.fullHeight);
 
+      // A match in the tail of the address is a hit the reader is stepped to
+      // and cannot see: the four-line clip keeps it in layout, so it counts
+      // and navigates, and "Show full URL" beside it opens a DIFFERENT node —
+      // pressing that left the marked run exactly where it was. The reveal
+      // lifts the clip on the address itself. No pixel, line count or height
+      // is pinned: the clip is four lines of whatever face the browser has,
+      // and the claim is where the mark sits relative to the box it is in.
+      const clippedHit = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const address = document.querySelector('#req-headers .url-breakdown-address');
+          const expandedBefore = address.classList.contains('url-breakdown-address--expanded');
+          const clippedBefore = address.scrollHeight > address.clientHeight;
+          const count = () => document.querySelector('#req-headers .pane-search-count').textContent;
+          const input = document.querySelector('#req-headers .pane-search-input');
+          const before = count();
+          // A run inside ONE text node: the address paints each parameter's
+          // name in a span of its own, so 'p30=' straddles two nodes and the
+          // highlighter — which marks inside a text node — never sees it. This
+          // is the last parameter's value, so the match is past the fourth line.
+          input.value = 'vvv30';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => count() !== before, 400);
+          const mark = document.querySelector('#req-headers .url-breakdown-address mark.pane-search-hit');
+          const markRect = mark ? mark.getBoundingClientRect() : null;
+          const box = address.getBoundingClientRect();
+          return {
+            count: count(),
+            hits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
+            markInAddress: !!mark,
+            expandedBefore,
+            clippedBefore,
+            expandedAfter: address.classList.contains('url-breakdown-address--expanded'),
+            markInsideBox: markRect ? markRect.top >= box.top - 0.5 && markRect.bottom <= box.bottom + 0.5 : null,
+          };
+        })()`,
+        true,
+      );
+      // Non-vacuous: the address really was clipped, and really was folded.
+      expect(clippedHit.clippedBefore).toBe(true);
+      expect(clippedHit.expandedBefore).toBe(false);
+      expect(clippedHit.hits).toBe(1);
+      expect(clippedHit.count).toBe('1 / 1');
+      expect(clippedHit.markInAddress).toBe(true);
+      expect(clippedHit.expandedAfter).toBe(true);
+      expect(clippedHit.markInsideBox).toBe(true);
+      await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const input = document.querySelector('#req-headers .pane-search-input');
+          input.value = '';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => document.querySelectorAll('#req-headers mark.pane-search-hit').length === 0, 400);
+          return true;
+        })()`,
+        true,
+      );
+      // Lifting the clip must not change what the row holds: the address is
+      // still one block of inline spans, so a drag across it carries the URL
+      // verbatim with no newline in it — the thing the single-block address
+      // was built for in the first place.
+      const unfoldedSelection = await evaluate(
+        cdp,
+        `(() => {
+          const address = document.querySelector('#req-headers .url-breakdown-address');
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          const range = document.createRange();
+          range.selectNodeContents(address);
+          selection.addRange(range);
+          const text = selection.toString();
+          selection.removeAllRanges();
+          return { expanded: address.classList.contains('url-breakdown-address--expanded'), text };
+        })()`,
+      );
+      expect(unfoldedSelection.expanded).toBe(true);
+      expect(unfoldedSelection.text).toBe(injected.adUrl);
+      expect(unfoldedSelection.text).not.toContain('\n');
+
       const opened = await evaluate(
         cdp,
         `(() => {
@@ -7286,18 +7365,59 @@ browserTest(
 // from their values; `decoded` is the decoded reading of the query, written by
 // hand rather than derived, and null where decoding changes nothing and the
 // row must therefore show no decoded line at all.
+// `segmented` says the parts spell the URL back byte for byte, so the address
+// is painted as tinted spans rather than verbatim; `reveal` says the row
+// offers "Show full URL". Both are written by hand, per shape, never derived
+// from what the row renders.
 const URL_ROW_FIXTURES = [
-  { label: 'bare', url: 'https://app.example.test/dashboard', names: [], decoded: null },
-  { label: 'query', url: 'https://api.example.test/search?q=beacon&page=2', names: ['q', 'page'], decoded: null },
-  { label: 'fragment', url: 'https://docs.example.test/guide/setup#step-three', names: [], decoded: null },
-  { label: 'credentialed', url: 'https://alice:s3cret@creds.example.test/vault/item?k=1', names: ['k'], decoded: null },
-  { label: 'credentialed-bare', url: 'https://svc@creds.example.test/vault', names: [], decoded: null },
-  { label: 'ported', url: 'http://api.example.test:8080/ported/endpoint?a=1&b=2', names: ['a', 'b'], decoded: null },
+  { label: 'bare', url: 'https://app.example.test/dashboard', names: [], decoded: null, segmented: true, reveal: false },
+  {
+    label: 'query',
+    url: 'https://api.example.test/search?q=beacon&page=2',
+    names: ['q', 'page'],
+    decoded: null,
+    segmented: true,
+    reveal: true,
+  },
+  {
+    label: 'fragment',
+    url: 'https://docs.example.test/guide/setup#step-three',
+    names: [],
+    decoded: null,
+    segmented: true,
+    reveal: true,
+  },
+  {
+    label: 'credentialed',
+    url: 'https://alice:s3cret@creds.example.test/vault/item?k=1',
+    names: ['k'],
+    decoded: null,
+    segmented: true,
+    reveal: true,
+  },
+  {
+    label: 'credentialed-bare',
+    url: 'https://svc@creds.example.test/vault',
+    names: [],
+    decoded: null,
+    segmented: true,
+    reveal: false,
+  },
+  {
+    label: 'ported',
+    url: 'http://api.example.test:8080/ported/endpoint?a=1&b=2',
+    names: ['a', 'b'],
+    decoded: null,
+    segmented: true,
+    reveal: true,
+  },
   {
     label: 'ported-fragment',
     url: 'https://api.example.test:8443/v2/orders?status=open#totals',
     names: ['status'],
     decoded: null,
+    segmented: true,
+    reveal: true,
   },
   // Percent-encoded: the address must still be the string the request sent —
   // '?next=/dashboard' is a different URL from '?next=%2Fdashboard' and would
@@ -7307,6 +7427,8 @@ const URL_ROW_FIXTURES = [
     url: 'https://auth.example.test/login?next=%2Fdashboard%3Ftab%3Dbilling&lang=ja',
     names: ['next', 'lang'],
     decoded: '?next=/dashboard?tab=billing&lang=ja',
+    segmented: true,
+    reveal: true,
   },
   // A lone '%' is not an escape: decodeURIComponent throws on it, and the row
   // must fall back to the token as captured rather than show nothing.
@@ -7315,6 +7437,31 @@ const URL_ROW_FIXTURES = [
     url: 'https://cdn.example.test/asset?discount=100%&size=4%20x',
     names: ['discount', 'size'],
     decoded: '?discount=100%&size=4 x',
+    segmented: true,
+    reveal: true,
+  },
+  // The parts cannot spell this one back — new URL() lowercases the host and
+  // drops the default port — so the address is painted verbatim and a reveal
+  // would be the SAME characters one line under them, behind a control
+  // offering to show text already on screen.
+  {
+    label: 'unreconstructable',
+    url: 'https://CB.Example.TEST:443/return?state=abc',
+    names: [],
+    decoded: null,
+    segmented: false,
+    reveal: false,
+  },
+  // The same shape, long enough for the address's four-line clip to hide the
+  // end of it: there the reveal is the only way to the rest of the string, so
+  // it stays.
+  {
+    label: 'unreconstructable-long',
+    url: 'https://CB.Example.TEST:443/return?state=' + 'a'.repeat(260),
+    names: [],
+    decoded: null,
+    segmented: false,
+    reveal: true,
   },
 ];
 
@@ -7388,6 +7535,11 @@ const URL_ROW_SELECT_MEASURE = `(() => {
     pathColour: colourOf(wrap.querySelector('.url-breakdown-path')),
     fragmentWrap: fragmentLine ? getComputedStyle(fragmentLine).overflowWrap : null,
     userinfoColour: colourOf(wrap.querySelector('.url-breakdown-userinfo')),
+    toggleCount: wrap.querySelectorAll('.url-breakdown-toggle-btn').length,
+    // Painted as parts, or verbatim: the tinted host span exists only in the
+    // segmented rendering.
+    addressSegmented: !!wrap.querySelector('.url-breakdown-host'),
+    addressText: wrap.querySelector('.url-breakdown-address').textContent,
     revealHidden: wrap.querySelector('.url-breakdown-full')
       ? wrap.querySelector('.url-breakdown-full').hidden
       : null,
@@ -7422,12 +7574,21 @@ browserTest(
         expect([fixture.label, measured.addressBlocks]).toEqual([fixture.label, 0]);
         // The query is segmented: each parameter's name is its own span, and
         // the span holding the query still spells the search string exactly.
+        // A URL the parts cannot rebuild byte for byte never reaches that
+        // rendering — it is painted verbatim, so it has no part spans at all.
+        expect([fixture.label, measured.addressSegmented]).toEqual([fixture.label, fixture.segmented]);
+        expect([fixture.label, measured.addressText]).toEqual([fixture.label, fixture.url]);
         expect([fixture.label, measured.queryNames]).toEqual([fixture.label, fixture.names]);
         expect([fixture.label, measured.queryTextContent]).toEqual([
           fixture.label,
-          new URL(fixture.url).search || null,
+          fixture.segmented ? new URL(fixture.url).search || null : null,
         ]);
         expect([fixture.label, measured.ampsBrokenBefore]).toEqual([fixture.label, true]);
+        // "Show full URL" is offered only where the reveal would add
+        // something. On a verbatim address short enough to escape the
+        // four-line clip it is the same characters twice, once behind a
+        // control, and the row carried both.
+        expect([fixture.label, measured.toggleCount]).toEqual([fixture.label, fixture.reveal ? 1 : 0]);
         if (fixture.names.length > 0) {
           expect([fixture.label, measured.queryNameColour === measured.queryValueColour]).toEqual([
             fixture.label,
@@ -7452,9 +7613,11 @@ browserTest(
         }
         // And where a reveal exists it holds the same string, so neither path
         // to the address disagrees with the other.
-        if (measured.revealText !== null) {
+        if (fixture.reveal) {
           expect([fixture.label, measured.revealText]).toEqual([fixture.label, fixture.url]);
           expect([fixture.label, measured.revealHidden]).toEqual([fixture.label, true]);
+        } else {
+          expect([fixture.label, measured.revealText]).toEqual([fixture.label, null]);
         }
         const credentials = new URL(fixture.url).username
           ? new URL(fixture.url).username +
@@ -7485,6 +7648,17 @@ browserTest(
       // cleanly, and one carrying a '%' that decodeURIComponent refuses.
       expect(URL_ROW_FIXTURES.filter((fixture) => fixture.decoded !== null).length).toBeGreaterThanOrEqual(2);
       expect(URL_ROW_FIXTURES.some((fixture) => /%[^0-9a-fA-F]/.test(fixture.url))).toBe(true);
+      // And the shapes the reveal rule turns on: one address the parts rebuild
+      // and one they cannot, one row that offers the reveal and one that does
+      // not — so neither branch of the rule above is asserted about nothing.
+      expect(URL_ROW_FIXTURES.some((fixture) => fixture.segmented)).toBe(true);
+      expect(URL_ROW_FIXTURES.some((fixture) => !fixture.segmented)).toBe(true);
+      expect(URL_ROW_FIXTURES.some((fixture) => fixture.reveal)).toBe(true);
+      expect(URL_ROW_FIXTURES.some((fixture) => !fixture.reveal)).toBe(true);
+      // A verbatim address on both sides of the clip: one short enough that
+      // the reveal would only repeat it, one long enough that it would not.
+      expect(URL_ROW_FIXTURES.some((fixture) => !fixture.segmented && fixture.reveal)).toBe(true);
+      expect(URL_ROW_FIXTURES.some((fixture) => !fixture.segmented && !fixture.reveal)).toBe(true);
     } finally {
       await page.close();
     }
@@ -8128,6 +8302,18 @@ const HEADER_STRUCTURE_MEASURE = `(() => {
     segmentText: segments.map((el) => el.textContent).join('.'),
     segmentColors: segments.map((el) => getComputedStyle(el).color),
     distinctSegmentColors: new Set(segments.map((el) => getComputedStyle(el).color)).size,
+    // What the three segments look like with the colour taken away. The tints
+    // differ in hue and barely in luminance — measured 1.09, 1.25 and 1.14
+    // against each other in dark and 1.20, 1.07 and 1.12 in light — so a
+    // reader who cannot separate those hues had one undivided run.
+    segmentWeights: segments.map((el) => getComputedStyle(el).fontWeight),
+    segmentDecorations: segments.map((el) => getComputedStyle(el).textDecorationLine),
+    distinctSegmentShapes: new Set(
+      segments.map((el) => {
+        const style = getComputedStyle(el);
+        return [style.fontWeight, style.textDecorationLine, style.fontStyle].join('|');
+      }),
+    ).size,
     // .kv .key is painted with --text-muted, so it is the muted tint itself.
     mutedColor: getComputedStyle(authKey).color,
     dotBreaks: authVal.querySelectorAll('wbr').length,
@@ -8287,6 +8473,13 @@ browserTest(
       expect(measured.distinctSegmentColors).toBe(3);
       expect(measured.segmentColors[2]).toBe(measured.mutedColor);
       expect(measured.dotBreaks).toBe(2);
+      // The tints are not the only cue: the three segments differ from one
+      // another with the colour taken away too, so the structure still reads
+      // for someone who cannot separate those hues. Weights and decorations,
+      // never a width — a bold run is wider on some faces and not on others.
+      expect(measured.distinctSegmentShapes).toBe(3);
+      expect(measured.segmentWeights).toEqual(['700', '400', '400']);
+      expect(measured.segmentDecorations).toEqual(['none', 'none', 'underline']);
       // A drag across the cell carries the header value and nothing else: not
       // the chip beside it, not the word "Copy", and with no newline in it.
       expect(measured.selected).toBe('Bearer ' + injected.liveToken);
@@ -10859,9 +11052,6 @@ const BODY_VIEW_MEASURE = `(() => {
 // bar's own copy-label threshold: the last two widths are where the labels
 // come back, and they have to come back beside a one-row bar.
 const BODY_VIEW_WIDTHS = [400, 440, 520, 640, 700, 760, 880, 960, 1000];
-// The container width at which the copy-button labels return (panel.css); the
-// oversized-face monotonic check stops below it, see the band assertions.
-const BODY_COPY_LABEL_THRESHOLD_PX = 940;
 
 browserTest(
   'the Body pane renders JSON, HTML and images itself, and says when a match is only in the source',
@@ -11107,14 +11297,15 @@ browserTest(
         // shared 730px threshold was measured for a three-child bar; with the
         // picker as a fourth child the labelled bar wrapped to 870px of pane
         // in Japanese, so labels came back at 740 beside a two-row bar.
-        // Stated at the shipped face: the threshold is a container width, and
-        // the band measures a 200px margin between the widest one-row wrap
-        // (ja at 760px) and the 940px threshold — the room CI's wider fallback
-        // faces take. A 22px face never reaches one row inside the sweep, so
-        // under the probe the claim is the monotonic one below, not this.
-        if (!cell.oversized) {
-          expect([at, cell.copyLabelShown && cell.barRows > 1]).toEqual([at, false]);
-        }
+        //
+        // Stated under BOTH faces now. It used to hold only at the shipped
+        // one, because a container width in px is a threshold measured against
+        // a face: under the 22px probe the labelled bar still needed two rows
+        // at 960px of pane, which is exactly where the 940px query paints the
+        // labels — measured here, labels beside a two-row bar at 960, 1000 and
+        // 1100. The bar is measured now (syncPaneSearchCopyLabels), so the
+        // promise no longer depends on the reader's face.
+        expect([at, cell.copyLabelShown && cell.barRows > 1]).toEqual([at, false]);
       }
       // Widening the pane never costs the reader a toolbar row — the property
       // one width cannot state — and the band is not vacuous in either
@@ -11126,17 +11317,14 @@ browserTest(
           const face = language + (oversized ? ' oversized' : '');
           const languageBand = band.filter((cell) => cell.language === language && cell.oversized === oversized);
           expect([face, languageBand.length]).toEqual([face, BODY_VIEW_WIDTHS.length]);
-          // Under the oversized face the check stops where the copy labels come
-          // back: the label threshold is a container width in px, so a face
-          // 1.7x the shipped one can legitimately regain a row exactly there
-          // (CI's wider Linux faces did: ja oversized went 1 -> 2 rows from
-          // 880 to 960px). That is a limit of a px threshold against a synthetic
-          // face, not a wrap the design promises never to add, so the promise
-          // is stated at the shipped face across the whole band and under the
-          // probe only below the threshold.
-          const monotonicBand = oversized
-            ? languageBand.filter((cell) => cell.requested < BODY_COPY_LABEL_THRESHOLD_PX)
-            : languageBand;
+          // The whole band under both faces. This check used to stop below the
+          // 940px label threshold under the probe, because a px threshold is a
+          // measurement of one face: a face 1.7x the shipped one regained a row
+          // exactly where the labels came back (CI's wider Linux faces did: ja
+          // oversized went 1 -> 2 rows from 880 to 960px). The labels are
+          // withheld by measuring the bar now, so widening never costs a row at
+          // any face and the band no longer needs a hole cut in it.
+          const monotonicBand = languageBand;
           for (let index = 1; index < monotonicBand.length; index += 1) {
             expect([face, monotonicBand[index - 1].requested, monotonicBand[index].requested, monotonicBand[index].barRows]).toEqual([
               face,
@@ -13992,6 +14180,330 @@ browserTest(
         // And a label that is more than a bare proper noun ("☐ URL") has to
         // be Japanese, not an untranslated string that happens to be symbols.
         const bareProperNoun = stripAllowed(value).replace(/[\s☑☐]/g, '') === '';
+        expect([value, bareProperNoun || /[\u3040-\u30ff\u3400-\u9fff]/.test(value)]).toEqual([
+          value,
+          true,
+        ]);
+      }
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+// The i18n follow-up surfaces: the status bar's composed lines, the comparison
+// pane's own chrome, the search panel's colour swatches and the main workbench
+// divider. Latin that may legitimately survive in the Japanese rendering of
+// them: the product and format proper nouns the earlier journeys already
+// allow, plus the stored preference tokens the theme and language
+// confirmations quote back so a support report can name them.
+const FOLLOWUP_LOCALIZED_JA_ALLOWED_LATIN = [
+  ...LOCALIZED_SURFACES_JA_ALLOWED_LATIN,
+  'system',
+  'light',
+  'dark',
+  'ja',
+  'en',
+];
+
+// The shared clipboard failure sentence — the one every copy control reaches —
+// is only observable when the write itself fails, so the page is given a
+// clipboard that refuses.
+const CLIPBOARD_REJECT_INIT_SCRIPT = `(() => {
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: () => Promise.reject(new Error('clipboard denied')) },
+  });
+})();`;
+
+// One journey, parameterised by the language it runs in: the compare entry is
+// matched by the label that language paints (menuCompareTwo, pinned by the row
+// menu journey), and the language confirmation is triggered by re-selecting
+// the language the panel is already in.
+const followupLocalizedBuild = (compareLabel, ownLanguage) => `(async () => {
+  const settle = async () => {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  };
+  const statusText = () => document.querySelector('#statusText').textContent;
+  const rows = () => Array.from(document.querySelectorAll('#tbody tr[data-row-id]'));
+  const rightClickPath = (tr) => {
+    const cell = tr.querySelector('td[data-col-id="path"]');
+    const rect = tr.getBoundingClientRect();
+    cell.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: Math.round(rect.top) }));
+  };
+
+  // --- status bar: a plain sentence and one that quotes a stored token ---
+  const status = {};
+  const themeSelect = document.querySelector('#themeSelect');
+  themeSelect.value = 'dark';
+  themeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await settle();
+  status.theme = statusText();
+  themeSelect.value = 'system';
+  themeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await settle();
+
+  // The shared clipboard failure path, reached here from the details header's
+  // Copy URL control.
+  rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await settle();
+  document.querySelector('#detailsCopyUrlBtn').click();
+  await settle();
+  status.clipboardFailed = statusText();
+
+  // --- the main workbench divider, beside the inspector one ---
+  const resizer = document.querySelector('#resizer');
+  const divider = { value: resizer.getAttribute('aria-valuetext') };
+  resizer.focus();
+  resizer.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, bubbles: true }),
+  );
+  await settle();
+  divider.resizedValue = resizer.getAttribute('aria-valuetext');
+  divider.resizeStatus = statusText();
+
+  // --- the search panel's colour controls ---
+  document.querySelector('#searchToggleBtn').click();
+  await settle();
+  const colorTrigger = () => document.querySelector('#searchRows .search-color-btn');
+  colorTrigger().click();
+  await settle();
+  const colorPopup = document.querySelector('#searchColorMenu');
+  const search = {
+    popupLabel: colorPopup.getAttribute('aria-label'),
+    swatchTitles: Array.from(colorPopup.querySelectorAll('.search-color-swatch')).map((el) => el.title),
+    swatchLabels: Array.from(colorPopup.querySelectorAll('.search-color-swatch')).map((el) =>
+      el.getAttribute('aria-label'),
+    ),
+    changeTitle: colorTrigger().title,
+    changeLabel: colorTrigger().getAttribute('aria-label'),
+  };
+  colorTrigger().click();
+  await settle();
+  document.querySelector('#searchToggleBtn').click();
+  await settle();
+
+  // --- the comparison pane ---
+  for (const tr of rows().slice(0, 2)) {
+    tr.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true, metaKey: true }));
+  }
+  await settle();
+  rightClickPath(rows()[0]);
+  await settle();
+  const compareItem = Array.from(document.querySelectorAll('.context-menu-item')).find(
+    (el) => el.textContent === ${JSON.stringify(compareLabel)},
+  );
+  if (!compareItem) throw new Error('The compare entry was missing from the row menu.');
+  compareItem.click();
+  await settle();
+  const panel = document.querySelector('#comparePanel');
+  const closeBtn = panel.querySelector('.compare-close-btn');
+  const compare = {
+    title: panel.querySelector('.compare-title').textContent,
+    closeText: closeBtn.textContent,
+    closeTitle: closeBtn.title,
+    closeLabel: closeBtn.getAttribute('aria-label'),
+    legendLabel: panel.querySelector('.compare-legend').getAttribute('aria-label'),
+    sectionTitles: Array.from(panel.querySelectorAll('.compare-section-title')).map((el) => el.textContent),
+    subsectionTitles: Array.from(panel.querySelectorAll('.compare-subsection-title')).map((el) => el.textContent),
+  };
+
+  // The language confirmation, written while the panel is already in this
+  // language, so the sentence it reports is this language's.
+  const langSelect = document.querySelector('#langSelect');
+  langSelect.value = ${JSON.stringify(ownLanguage)};
+  langSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await settle();
+  status.language = statusText();
+  return { status, divider, search, compare };
+})()`;
+
+// Switching language with the comparison still open. Tier 2 documented this as
+// a gap — the pane was left standing because its chrome was English either way
+// — and the section headings are what prove it repaints now.
+const followupComparisonSwitchBuild = (toLanguage) => `(async () => {
+  const langSelect = document.querySelector('#langSelect');
+  langSelect.value = ${JSON.stringify(toLanguage)};
+  langSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const panel = document.querySelector('#comparePanel');
+  return {
+    lang: document.documentElement.lang,
+    open: !panel.hidden,
+    closeText: panel.querySelector('.compare-close-btn').textContent,
+    sectionTitles: Array.from(panel.querySelectorAll('.compare-section-title')).map((el) => el.textContent),
+  };
+})()`;
+
+browserTest(
+  'the status bar, comparison pane, search colours and main divider speak one language',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 1000,
+      initScript: CLIPBOARD_REJECT_INIT_SCRIPT,
+    });
+    try {
+      await openSampleCaptureInAnyLanguage(page.cdp, 'en');
+      const english = await evaluate(
+        page.cdp,
+        followupLocalizedBuild('Compare 2 selected requests', 'en'),
+        true,
+      );
+      // English is byte-for-byte what these surfaces have always shown, except
+      // the two preference confirmations: "Theme=system" and "Language=en"
+      // were debug shapes, and are sentences now in both languages.
+      expect(english.status).toEqual({
+        theme: 'Theme set to dark.',
+        clipboardFailed: 'Clipboard copy failed. No data was copied.',
+        language: 'Language set to en.',
+      });
+      // The frame, not the number: the split is a measured width, so the
+      // percent moves with the pane's clamped default and the fallback font.
+      expect(english.divider.value).toMatch(/^Request list \d+ percent$/);
+      expect(english.divider.resizedValue).toMatch(/^Request list \d+ percent$/);
+      expect(english.divider.resizedValue).not.toBe(english.divider.value);
+      expect(english.divider.resizeStatus).toBe(english.divider.resizedValue);
+      expect(english.search).toEqual({
+        popupLabel: 'Search highlight color',
+        swatchTitles: ['Yellow', 'Red', 'Green', 'Blue', 'Purple', 'Orange'],
+        swatchLabels: [
+          'Use Yellow search color',
+          'Use Red search color',
+          'Use Green search color',
+          'Use Blue search color',
+          'Use Purple search color',
+          'Use Orange search color',
+        ],
+        changeTitle: 'Change color',
+        changeLabel: 'Change color for search keyword 1',
+      });
+      expect(english.compare).toEqual({
+        title: 'Comparing 2 requests',
+        closeText: '✕ Close',
+        closeTitle: 'Close comparison view',
+        closeLabel: 'Close comparison view',
+        legendLabel: 'Compared requests',
+        sectionTitles: [
+          'Overview',
+          'URL',
+          'Request Headers',
+          'Response Headers',
+          'Request Bodies',
+          'Response Bodies',
+        ],
+        subsectionTitles: ['Query Parameters'],
+      });
+
+      // The comparison is still open; switching language repaints it in place.
+      const switchedToJapanese = await evaluate(page.cdp, followupComparisonSwitchBuild('ja'), true);
+      expect(switchedToJapanese).toEqual({
+        lang: 'ja',
+        open: true,
+        closeText: '✕ 閉じる',
+        sectionTitles: [
+          '概要',
+          'URL',
+          'リクエストヘッダー',
+          'レスポンスヘッダー',
+          'リクエストボディ',
+          'レスポンスボディ',
+        ],
+      });
+
+      // The same journey again, in Japanese, on a document reloaded in place.
+      await reloadInLanguage(page, 'ja');
+      await openSampleCaptureInAnyLanguage(page.cdp, 'ja');
+      const observed = await evaluate(
+        page.cdp,
+        followupLocalizedBuild('選択した 2 件のリクエストを比較', 'ja'),
+        true,
+      );
+      expect(observed.status).toEqual({
+        theme: 'テーマを dark に設定しました。',
+        clipboardFailed: 'クリップボードへのコピーに失敗しました。データはコピーされていません。',
+        language: '言語を ja に設定しました。',
+      });
+      // The same frame the inspector divider uses, with the grid's own noun:
+      // no ASCII space either side of a Japanese noun.
+      expect(observed.divider.value).toMatch(/^リクエスト一覧 \d+ パーセント$/);
+      expect(observed.divider.resizedValue).toMatch(/^リクエスト一覧 \d+ パーセント$/);
+      expect(observed.divider.resizedValue).not.toBe(observed.divider.value);
+      expect(observed.divider.resizeStatus).toBe(observed.divider.resizedValue);
+      // The colour names are the row menu's, from the one shared lookup.
+      expect(observed.search).toEqual({
+        popupLabel: '検索ハイライトの色',
+        swatchTitles: ['黄', '赤', '緑', '青', '紫', 'オレンジ'],
+        swatchLabels: [
+          '検索色に黄を使う',
+          '検索色に赤を使う',
+          '検索色に緑を使う',
+          '検索色に青を使う',
+          '検索色に紫を使う',
+          '検索色にオレンジを使う',
+        ],
+        changeTitle: '色を変更',
+        changeLabel: '検索キーワード 1 の色を変更',
+      });
+      expect(observed.compare).toEqual({
+        title: '2 件のリクエストを比較中',
+        closeText: '✕ 閉じる',
+        closeTitle: '比較ビューを閉じる',
+        closeLabel: '比較ビューを閉じる',
+        legendLabel: '比較中のリクエスト',
+        sectionTitles: [
+          '概要',
+          'URL',
+          'リクエストヘッダー',
+          'レスポンスヘッダー',
+          'リクエストボディ',
+          'レスポンスボディ',
+        ],
+        subsectionTitles: ['クエリパラメーター'],
+      });
+
+      // And back: the repaint is a language switch in either direction.
+      const switchedToEnglish = await evaluate(page.cdp, followupComparisonSwitchBuild('en'), true);
+      expect(switchedToEnglish).toEqual({
+        lang: 'en',
+        open: true,
+        closeText: '✕ Close',
+        sectionTitles: [
+          'Overview',
+          'URL',
+          'Request Headers',
+          'Response Headers',
+          'Request Bodies',
+          'Response Bodies',
+        ],
+      });
+
+      // The standing guard: nothing these surfaces paint in Japanese may be
+      // ASCII-only English. Longest allowed token first, so 'Network+ for
+      // DevTools' is stripped whole rather than leaving a bare 'for'.
+      const allowed = [...FOLLOWUP_LOCALIZED_JA_ALLOWED_LATIN].sort((a, b) => b.length - a.length);
+      const stripAllowed = (value) => allowed.reduce((rest, token) => rest.split(token).join(''), value);
+      const flatten = (value) =>
+        typeof value === 'string'
+          ? [value]
+          : Array.isArray(value)
+            ? value.flatMap(flatten)
+            : Object.values(value).flatMap(flatten);
+      const painted = flatten(observed).filter((value) => value.trim() !== '');
+      // 3 status lines, 3 divider strings, 15 from the search colour controls
+      // and 12 from the comparison pane.
+      expect(painted.length).toBe(33);
+      for (const value of painted) {
+        // No English word may survive the allow-list.
+        expect([value, /[A-Za-z]/.test(stripAllowed(value))]).toEqual([value, false]);
+        // And a string that is more than a bare proper noun ('URL') has to be
+        // Japanese, not an untranslated string that happens to be symbols.
+        const bareProperNoun = stripAllowed(value).replace(/[\s✕]/g, '') === '';
         expect([value, bareProperNoun || /[\u3040-\u30ff\u3400-\u9fff]/.test(value)]).toEqual([
           value,
           true,

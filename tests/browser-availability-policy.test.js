@@ -1279,5 +1279,9 @@ test('retains the local-only skip when no browser executable is discoverable', (
       skipped: true,
       title: 'the pane toolbar, Columns menu, inspector divider and tab bars speak one language',
     },
+    {
+      skipped: true,
+      title: 'the status bar, comparison pane, search colours and main divider speak one language',
+    },
   ]);
 });

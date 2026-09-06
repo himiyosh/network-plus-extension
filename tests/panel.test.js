@@ -19,6 +19,7 @@ const DICTIONARY_LOOKUPS = [
   'uiTextFormat',
   'paneSearchLabel',
   'menuHighlightColorLabel',
+  'searchColorLabel',
   'menuColumnLabel',
   'localizeBodyReason',
 ];
@@ -4193,6 +4194,75 @@ describe('outbound sensitive-data policy', () => {
     expect(body).toEqual(snapshot);
   });
 
+  // One GraphQL request copied through every sanitized sink that prints the
+  // operation label, next to the sanitized request body that carries the same
+  // name. All four have to tell one story, or a reader comparing a copied
+  // body against a copied row sees a name in one and a marker in the other.
+  test('the operation label reads the same in every sanitized sink and inside a copied body', () => {
+    const operation = 'GetUserProfile';
+    const body = JSON.stringify({
+      operationName: operation,
+      query: 'query ' + operation + ' { viewer { id } }',
+      variables: { first: 10, sessionToken: 'session-secret' },
+    });
+    const row = {
+      id: 7,
+      method: 'POST',
+      url: 'https://api.example.test/graphql?token=SECRET123',
+      status: 200,
+      statusText: 'OK',
+      type: 'application/json',
+      operation,
+      duration: 12,
+      size: 34,
+      requestHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+      requestPostData: { mimeType: 'application/json', text: body },
+    };
+
+    const rowView = np.sanitizeClipboardRow('markdown', row, '', { mode: 'sanitized' }).value;
+    const markdownLines = np.formatRowMarkdown(rowView).split('\n');
+    const csvLines = np.formatRowsCsv([rowView]).split('\r\n');
+    const copiedBody = JSON.parse(np.buildClipboardPayload('requestBody', row, { mode: 'sanitized' }).text);
+
+    // Structure first: each sink really produced an operation slot, so the
+    // agreement below cannot be satisfied by four missing fields.
+    const markdownOperationRows = markdownLines.filter((line) => line.startsWith('| Operation | '));
+    expect(markdownOperationRows).toHaveLength(1);
+    expect(csvLines[0].split(',')[6]).toBe('operation');
+    expect(csvLines[1].split(',')).toHaveLength(10);
+    expect(Object.keys(copiedBody).sort()).toEqual(['operationName', 'query', 'variables']);
+
+    // The one story: the derived label and the body field spell the same name.
+    expect({
+      rowView: rowView.operation,
+      markdown: markdownOperationRows[0],
+      csv: csvLines[1].split(',')[6],
+      body: copiedBody.operationName,
+    }).toEqual({
+      rowView: operation,
+      markdown: '| Operation | ' + operation + ' |',
+      csv: operation,
+      body: operation,
+    });
+
+    // The evidence behind that contract, and the proof the sanitizer is still
+    // switched on in the very same copies: the sibling `query` is not
+    // sensitive and repeats the name anyway, while a real secret beside it and
+    // the URL's query value are both still redacted.
+    expect(copiedBody.query).toContain(operation);
+    expect(copiedBody.variables).toEqual({ first: 10, sessionToken: np.REDACTION_MARKER });
+    expect(rowView.url).toContain(encodeURIComponent(np.REDACTION_MARKER));
+    expect(rowView.url).not.toContain('SECRET123');
+  });
+
+  // The carve-out is one protocol key, not a hole in the `…name$` PII rule.
+  test('only operationName escapes the name suffix rule', () => {
+    expect([np.isSensitiveKey('operationName'), np.isSensitiveKey('operation_name')]).toEqual([false, false]);
+    expect(
+      ['name', 'firstName', 'lastName', 'fullName', 'displayName', 'userName'].map((key) => np.isSensitiveKey(key)),
+    ).toEqual([true, true, true, true, true, true]);
+  });
+
   test('sanitizes only the surfaces required by each clipboard action', () => {
     const row = makeSensitiveRow();
     const summarySanitizers = {
@@ -5802,6 +5872,9 @@ describe('details reopen status', () => {
     const COLUMN_LABELS = np.DEFAULT_COLUMNS.map((column) => np.menuColumnLabel(column.id, column.label));
     const COMPOSED_JAPANESE_FRAMES = [
       ...COPY_FULL_FRAMES.map((key) => ({ key, slot: 'label', values: PANE_NAME_KEYS })),
+      // The toast the same control writes once the copy lands: it names the
+      // pane the way the confirmation above it did.
+      { key: 'statusCopiedFullUnsanitized', slot: 'label', values: PANE_NAME_KEYS },
       { key: 'menuFilterOnly', slot: 'column', texts: COLUMN_LABELS, others: { value: 'r-42' } },
       { key: 'menuFilterExclude', slot: 'column', texts: COLUMN_LABELS, others: { value: 'r-42' } },
       // The auto-hide opt-out names the column it pins back, in both places.
@@ -5814,6 +5887,9 @@ describe('details reopen status', () => {
       ...INSPECTOR_HALF_FRAMES.map((key) => ({ key, slot: 'half', values: INSPECTOR_HALF_KEYS })),
       { key: 'inspectorHalfPercentValue', slot: 'half', values: INSPECTOR_HALF_KEYS, others: { percent: 50 } },
       { key: 'menuHighlightColorNamed', slot: 'color', values: COLOR_NAME_KEYS },
+      // The search panel's swatches name the same six colours through the
+      // same lookup, so its frame is held to the same spacing rule.
+      { key: 'searchColorUse', slot: 'color', values: COLOR_NAME_KEYS },
       { key: 'bodyViewButtonTitle', slot: 'view', values: BODY_VIEW_KEYS },
       { key: 'bodyPaneFrame', slot: 'label', values: BODY_STATE_KEYS, others: { reason: np.uiText('reasonBodyEvicted') } },
       { key: 'bodyPaneFrame', slot: 'reason', values: BODY_REASON_KEYS, others: { label: np.uiText('bodyStateEvicted') } },
