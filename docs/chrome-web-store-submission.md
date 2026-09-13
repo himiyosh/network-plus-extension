@@ -84,7 +84,7 @@ Do not add unrelated search phrases to the description. Chrome Web Store metadat
 | Marquee promo tile | Not prepared | Optional 1400 x 560 asset; not needed for the first submission. |
 | YouTube video | Not supplied | Optional; the screenshots and deterministic test path are sufficient for the first review. |
 
-The four screenshots use only deterministic `.test` sample data and contain no real browsing history, credentials, customer traffic, private account UI, store UI, or review state. Machine-readable provenance and dimensions are recorded in `docs/store-assets/inventory.json` and enforced by `npm run store:check`.
+The four screenshots use only deterministic `.test` sample data and contain no real browsing history, credentials, customer traffic, private account UI, store UI, or review state. Machine-readable provenance and dimensions are recorded in `docs/store-assets/inventory.json` and enforced by `npm run store:check`. When the UI changes, `npm run store:screenshots` re-captures the panel view inside each composition; see [edge-addons-submission.md](edge-addons-submission.md) for what it keeps.
 
 ## Privacy practices
 

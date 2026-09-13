@@ -68,6 +68,9 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 - 🔒 **Operation name** — the GraphQL operation label reads the same in every sanitized copy and inside a copied body, instead of being redacted in one and printed in the others.
 - 🐛 **URL search hits** — a keyword found inside the clamped URL row is revealed instead of being counted and then hidden.
 - 🔧 **JWT segments** — the three parts are told apart by more than hue, so the structure reads without relying on colour.
+- 🐛 **Timing share column** — the share keeps its gap from the duration, so the Total row no longer reads "2.45 s100.0%".
+  - Why: the shared table-cell rule outranked the column's own padding, so the gap was never applied.
+- 📝 **Store screenshots** — the four 1280 x 800 screenshots show the current panel, and `npm run store:screenshots` regenerates them.
 
 ## v1.13.0 - 2026-08-29
 

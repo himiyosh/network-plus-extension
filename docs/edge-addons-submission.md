@@ -167,7 +167,7 @@ No account, credentials, subscription, remote service, or live customer traffic 
 
 ## Asset inventory
 
-Each screenshot is a 1280 x 800 composition: a one-line headline band above an unscaled, natively captured panel view. The panel content depicts only deterministic data produced by `createSampleCaptureRequests()` in `panel.js`. The `.test` domains are reserved for examples. The captures contain no real browsing history, credentials, customer traffic, account UI, private data, store UI, or certification status.
+Each screenshot is a 1280 x 800 composition: a one-line headline band above an unscaled, natively captured panel view. The panel content depicts only deterministic data produced by `createSampleCaptureRequests()` in `panel.js`. The `.test` domains are reserved for examples. The captures contain no real browsing history, credentials, customer traffic, account UI, private data, store UI, or certification status. `npm run store:screenshots` re-captures the panel view inside each composition from the current UI and leaves every pixel outside it unchanged; it needs `CHROME_BIN` and runs on the operator's machine, not in CI.
 
 | File | Depicted state | Synthetic evidence |
 |---|---|---|
