@@ -4,7 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- No changes have been recorded since v1.14.0.
+- 📝 **Store dossiers** — record the published v1.14.0 release, re-downloaded and byte-compared against builds from two timezones.
 
 ## v1.14.0 - 2026-09-14
 
