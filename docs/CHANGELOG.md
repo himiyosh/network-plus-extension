@@ -4,6 +4,10 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- No changes have been recorded since v1.14.0.
+
+## v1.14.0 - 2026-09-14
+
 - 📝 **Store dossiers** — record the published v1.13.0 release, re-downloaded and byte-compared against builds from two timezones.
 - 🔧 **Value wrapping** — header, query, cookie and raw values wrap at natural boundaries instead of splitting words and tokens mid-way.
   - Why: `.tab-pane{word-break:break-all}` applied to every value, so "The access t|oken" and UUIDs broke where a space or delimiter sat one character away.
