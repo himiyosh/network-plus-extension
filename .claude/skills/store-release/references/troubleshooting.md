@@ -107,6 +107,51 @@ renumber** after a deletion (removing `スクリーンショット 1` leaves `2.
 first; and a count read from a freshly mutated console DOM under-reports while
 rendering settles, so reload before believing any number.
 
+### v1.14.0 cycle (2026-09-14): the repaired path failed in two new ways
+
+**Chrome: `"画像を削除 プロモーション タイル（小）" would not clear (confirmed)` is not
+"nothing changed".** The screenshots slot is cleared first, and that deletion
+is saved to the draft at once, so the run stopped with **zero** screenshots on
+the draft while the message said the listing was unchanged. The small promo
+tile answers the confirmation and stays. It is a required slot, so it cannot be
+emptied, only replaced. The public listing is not affected until a submission.
+To recover, upload only the four screenshots (the tiles had not changed), one at
+a time. After each upload, confirm the `画像を削除 スクリーンショット N` count went up,
+then save the draft. Chrome serves the stored original: refetching each preview
+`src` with its size suffix swapped for `=w1280-h800` returns bytes identical to
+the PNGs in `docs/store-assets/`, so `cmp` settles it without any image
+normalization.
+
+**Edge: four `uploaded` lines, two screenshots landed.** `fillSlot` feeds the
+single screenshot input and waits a fixed four seconds, and uploads issued that
+fast were dropped. Only `screenshot-1` and `screenshot-4` reached the draft. The
+closing `N screenshots now on the listing` line (it said 1) is the one to
+believe. What repaired it:
+
+- Upload one file at a time and wait until its `img[alt="Screenshot <file>"]`
+  appears before the next.
+- To restore order, delete the out-of-place image, then save the draft and
+  reload before uploading a file with the same name again. In the same editor
+  session, re-uploading `screenshot-4` right after deleting it never appeared
+  (observed, not proven causal).
+
+Edge stores re-encoded 350×218 thumbnails, so bytes never match. Decode each and
+score it against the new and old PNGs scaled to that size. Correct slots scored a
+mean absolute difference of 5–6 against the new image and 11–14 against the
+previous release's.
+
+**`status` closes the `login` window.** It launches on the same profile and
+`closeBrowser()` kills every process on it, including a sign-in in progress.
+While the operator signs in, poll `http://localhost:9334/json/list` for tab URLs
+instead.
+
+**Listing text had silently drifted.** Through v1.13.0 both stores still showed
+the 2026-08-14 first-submission description (about 2,600 characters, including
+the retired 20,000-request default), because the text was only ever retyped
+"when the dossier changed". Read the live description from the console
+`textarea`. Compare it with the dossier block on every release, write the block
+with Playwright `fill()`, save the draft, and require an exact read-back.
+
 ## Facts that keep being rediscovered
 
 - `store-submit.yml` never fires from the release event (the release is

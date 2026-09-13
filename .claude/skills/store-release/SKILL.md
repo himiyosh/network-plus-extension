@@ -29,8 +29,10 @@ with `workflow_dispatch` on `main`. Second, **listing text and images have no
 API on either store** — the Chrome Items API and the Edge Update API both take
 packages and nothing else. Package submission is therefore automated in CI;
 the images are swapped by `npm run store:pages`, which drives the two consoles
-from the operator's own machine. Listing *text* is still typed into the portal
-by hand, and only in releases that changed it.
+from the operator's own machine. Listing *text* is still entered in the portal,
+and it must be compared with the dossier's description block on **every**
+release: through v1.13.0 both listings silently kept the first-submission text
+because it was only retyped when the dossier changed.
 
 ## Phase 0 — before cutting
 
