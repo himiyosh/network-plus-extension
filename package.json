@@ -18,6 +18,7 @@
     "store:check": "node scripts/check-store-readiness.js",
     "store:submit": "node scripts/submit-to-stores.js",
     "store:pages": "node scripts/publish-store-pages.js",
+    "store:screenshots": "node scripts/render-store-screenshots.js",
     "store:setup": "node scripts/setup-store-secrets.js",
     "audit:strict": "npm audit --audit-level=high",
     "contract:check": "node scripts/check-coordinator-contract.js"

@@ -483,7 +483,9 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .timing-dot{width:10px;height:10px;border-radius:3px}
 /* The name is the row's key: muted and 12px, so the duration beside it reads
    as the brightest text in the table. */
-.timing-name{color:var(--text-muted);padding-right:8px;overflow-wrap:normal;font-weight:600;font-size:12px}
+/* The selector matches the shared cell rule's specificity so its padding wins by
+   source order: as a bare .timing-name the rule's padding:3px 0 silently zeroed it. */
+.timing-table > .timing-name{color:var(--text-muted);padding-right:8px;overflow-wrap:normal;font-weight:600;font-size:12px}
 /* The shared track. Each row's bar is offset by every phase before it, so the
    column reads down as one waterfall rather than seven bars from zero. */
 /* The rail is a child of the cell, not the cell itself: a margin on a grid item
@@ -497,7 +499,10 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .timing-bar-seg--rest,.timing-dot--rest{background:color-mix(in srgb,var(--text-muted) 45%,transparent)}
 /* Durations line up digit under digit against the share beside them. */
 .timing-duration{color:var(--fg);text-align:right;font-variant-numeric:tabular-nums}
-.timing-share{color:var(--text-muted);padding-left:10px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px}
+/* Same specificity fix as the name: the gap before the share was never applied, and
+   right-alignment inside the column hid it until the widest value, 100.0%, filled
+   its cell and touched the duration beside it ("2.45 s100.0%"). */
+.timing-table > .timing-share{color:var(--text-muted);padding-left:10px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px}
 /* A phase reported as zero, or never reported at all, is dimmed and carries no
    bar: there is nothing to draw and nothing to compare it against. */
 .timing-table > .timing-row--muted{color:var(--text-muted);opacity:0.7}

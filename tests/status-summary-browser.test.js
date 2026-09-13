@@ -9763,6 +9763,19 @@ const TIMING_TABLE_MEASURE = `(() => {
       muted: name.classList.contains('timing-row--muted'),
       total: name.classList.contains('timing-row--total'),
       hasBar: bar !== null,
+      // The room between the duration's last glyph and the share's first. The
+      // share's padding-left used to lose the cascade to the shared cell rule,
+      // and right-alignment hid that until 100.0% filled its column and the two
+      // numbers touched ("2.45 s100.0%").
+      // null where there is nothing to touch: a phase that was never reported
+      // leaves its share empty, and an empty range has no rectangle to measure.
+      durationShareGap: (() => {
+        if (!share.textContent.trim() || !duration.textContent.trim()) return null;
+        const glyphs = (el) => { const range = document.createRange(); range.selectNodeContents(el); return range.getBoundingClientRect(); };
+        return Math.round((glyphs(share).left - glyphs(duration).right) * 10) / 10;
+      })(),
+      sharePaddingLeft: getComputedStyle(share).paddingLeft,
+      namePaddingRight: getComputedStyle(name).paddingRight,
       barPhaseClass: bar ? bar.className : '',
       hasCopy: after !== null && after.classList.contains('kv-copy-btn'),
       railWidth: usable,
@@ -9915,6 +9928,27 @@ browserTest(
             ...at,
             pastPane: measured.rows.filter((row) => row.pastPane > 1).map((row) => row.name),
           }).toEqual({ ...at, pastPane: [] });
+          // Two numbers never touch. Stated as a property of every row, not as
+          // a px width, so it holds under any face; and the cells' own padding
+          // is read back, because it was declared and silently overridden.
+          expect({
+            ...at,
+            touching: measured.rows
+              .filter((row) => row.durationShareGap !== null && !(row.durationShareGap > 0))
+              .map((row) => row.name),
+          }).toEqual({ ...at, touching: [] });
+          expect({
+            ...at,
+            unpadded: measured.rows
+              .filter((row) => row.sharePaddingLeft === '0px' || row.namePaddingRight === '0px')
+              .map((row) => row.name),
+          }).toEqual({ ...at, unpadded: [] });
+          // Not vacuous: the widest share, the one that fills its column and so
+          // exposed the defect, is among the rows measured.
+          expect({ ...at, widestShare: measured.rows.some((row) => row.share === '100.0%') }).toEqual({
+            ...at,
+            widestShare: true,
+          });
 
           // (b) The waterfall, stated on what each bar was told to be: a bar
           // begins exactly where every phase before it ended. Declared, not
