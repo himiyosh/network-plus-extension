@@ -1015,17 +1015,45 @@ browserTest(
             if (records.some((record) => record.type === 'childList')) mutationBatches += 1;
           });
           observer.observe(tbody, { childList: true });
+          // The burst arms two commit paths: the next frame and the 250ms
+          // max-wait timer. A starved runner can start that frame later than
+          // 250ms while the main thread idles, so the timer evicts rows 1-100
+          // in its own task and the frame appends in a second mutation batch.
+          // That path belongs to the max-wait scenario; hold the timer here so
+          // this one always measures the frame, and prove the frame cancelled it.
+          const heldFallbacks = new Map();
+          const originalSetTimeout = window.setTimeout;
+          const originalClearTimeout = window.clearTimeout;
+          window.setTimeout = function (callback, delay, ...args) {
+            if (!new Error().stack.includes('armPendingLiveCommitTimer')) {
+              return originalSetTimeout.call(window, callback, delay, ...args);
+            }
+            const id = -(heldFallbacks.size + 1);
+            heldFallbacks.set(id, { delay, cancelled: false });
+            return id;
+          };
+          window.clearTimeout = function (id) {
+            const held = heldFallbacks.get(id);
+            if (held) {
+              held.cancelled = true;
+              return;
+            }
+            originalClearTimeout.call(window, id);
+          };
 
           emitRange(5001, 100);
           await settleFrames();
           observer.disconnect();
           Element.prototype.querySelectorAll = originalQuerySelectorAll;
+          window.setTimeout = originalSetTimeout;
+          window.clearTimeout = originalClearTimeout;
 
           const renderedRows = Array.from(tbody.querySelectorAll('tr[data-row-id]'));
           const renderedIds = renderedRows.map((row) => Number(row.dataset.rowId));
           const firstBurst = {
             cleanupQueries,
             mutationBatches,
+            maxWaitFallbacks: Array.from(heldFallbacks.values()),
             rowCount: renderedRows.length,
             uniqueRowCount: new Set(renderedIds).size,
             firstRowId: renderedIds[0],
@@ -1443,6 +1471,7 @@ browserTest(
         expect.objectContaining({
           cleanupQueries: 1,
           mutationBatches: 1,
+          maxWaitFallbacks: [{ delay: 250, cancelled: true }],
           rowCount: 5000,
           uniqueRowCount: 5000,
           firstRowId: 101,
