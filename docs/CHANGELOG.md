@@ -2,7 +2,7 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
-## Unreleased
+## v1.14.0 - 2026-09-14
 
 - 📝 **Store dossiers** — record the published v1.13.0 release, re-downloaded and byte-compared against builds from two timezones.
 - 🔧 **Value wrapping** — header, query, cookie and raw values wrap at natural boundaries instead of splitting words and tokens mid-way.
