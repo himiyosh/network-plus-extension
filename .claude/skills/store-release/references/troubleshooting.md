@@ -116,7 +116,7 @@ check. Reload the console afterwards and compare it with the run's final list.
 
 | Defect | Fixed behaviour |
 | --- | --- |
-| Chrome cleared everything, then stopped on the required promo tile | Reads and fingerprints every slot, then plans. Any problem refuses the run before the first removal. Tiles are never cleared: a matching one is kept, a changed one is replaced through its input. Screenshots that already match stay. A failure lists what was removed, replaced and uploaded. |
+| Chrome cleared everything, then stopped on the required promo tile | Reads and fingerprints every slot, then plans. Any problem refuses the run before the first removal. Tiles are never cleared: a matching one is kept, a changed one is replaced through its input, and the run refuses if there is none. Screenshots that already match stay. A failure lists what was removed, replaced and uploaded. |
 | Edge: 4 × `uploaded`, 2 landed | One upload at a time, each waiting for `img[alt="Screenshot <file>"]` to appear. A cleared listing is saved and reloaded before re-uploading. The run ends by reloading and printing the files actually there, in order, and exits 1 on a mismatch. |
 | `status` killed the `login` window | A command that finds port 9334 already answering attaches to that browser and never stops it. `status` closes only its own tab. Only a headless browser that `status` launched itself is stopped, by its own process id. |
 
