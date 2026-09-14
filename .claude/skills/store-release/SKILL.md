@@ -131,27 +131,30 @@ archive to both stores and submits both for review. Done.
 
    It reads the file list from `docs/store-assets/inventory.json`, so a
    re-capture that renames a file cannot leave it uploading the previous set.
-   It clears the slots it is replacing before uploading — Partner Center keeps
-   what is uploaded whether or not anything is saved, so uploading onto slots
-   that did not clear is how a listing ends up with duplicates — and it never
-   touches the store icon or submits anything. It needs `CHROME_ITEM_ID` and
-   `EDGE_PRODUCT_ID` in the environment or in a local `.env.cws` / `.env.edge`;
-   those identifiers are recorded in CLAUDE.md.
+   It never touches the store icon or submits anything. It needs
+   `CHROME_ITEM_ID` and `EDGE_PRODUCT_ID` in the environment or in a local
+   `.env.cws` / `.env.edge`; those identifiers are recorded in CLAUDE.md.
 
-   **Verify the listing after this step rather than trusting the log.** The
-   clearing half was broken on both stores through the v1.12.0 cycle and is
-   worth confirming until a release has exercised the repaired path: `chrome`
-   reported every image `uploaded` while silently duplicating the screenshots,
-   and `edge` blamed a certification lock for a failure that was really its own
-   selector. Both now stop before uploading rather than clearing nothing and
-   carrying on, so a failure leaves the listing untouched. The Edge
-   confirmation control has not been re-verified against a live console —
-   both listings were in review when the fix was written — so treat the first
-   Edge run after this as the verification. `references/troubleshooting.md`
-   has the symptoms, the causes, and a pixel-comparison check that settles
-   listing state without trusting the log. `chrome` reporting `NO SLOT` is a
-   separate and genuine case: the console's labels are matched in Japanese and
-   English, so a console in a third language needs the label added to
+   - `chrome` reads and fingerprints every slot first and refuses to start if
+     anything could fail partway. It keeps screenshots that already match and
+     replaces the required tiles through their inputs, never by clearing them.
+   - `edge` clears the screenshots, saves and reloads, then uploads one at a
+     time, waiting for each file name to appear.
+   - Both end by reloading the console and printing what it actually holds, and
+     exit 1 when that differs from `docs/store-assets/`. A failure lists exactly
+     what the run had already removed, replaced and uploaded.
+   - `status` is safe to run while the `login` window is open: it attaches to
+     that browser and leaves it running.
+
+   **Still reload the console and read the listing after this step.** Both
+   stores broke the draft in the v1.12.0 and v1.14.0 cycles while the log read
+   as success. The fixes are unit-tested but have not yet run against a live
+   console, so the first release that uses them is the live check.
+   `references/troubleshooting.md` has the symptoms and a pixel-comparison
+   check that settles listing state without trusting the log. If `chrome`
+   refuses to start because slots look empty or have no input, but the console
+   clearly shows images, check the console language first. Labels are matched
+   in Japanese and English only, so a third language needs its label added to
    `CHROME_SLOTS`. The slot-by-slot manual procedure in the two submission
    dossiers remains the fallback.
 3. Dispatch again without `upload_only` — the publish step submits the whole

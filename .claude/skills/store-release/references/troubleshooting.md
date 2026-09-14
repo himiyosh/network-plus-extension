@@ -109,6 +109,19 @@ rendering settles, so reload before believing any number.
 
 ### v1.14.0 cycle (2026-09-14): the repaired path failed in two new ways
 
+**Status: all three defects below are fixed in `scripts/publish-store-pages.js`.**
+Each is pinned by a scenario test in `tests/store-pages.test.js`. The fix has not
+run against a live console yet, so the first release that uses it is the live
+check. Reload the console afterwards and compare it with the run's final list.
+
+| Defect | Fixed behaviour |
+| --- | --- |
+| Chrome cleared everything, then stopped on the required promo tile | Reads and fingerprints every slot, then plans. Any problem refuses the run before the first removal. Tiles are never cleared: a matching one is kept, a changed one is replaced through its input, and the run refuses if there is none. Screenshots that already match stay. A failure lists what was removed, replaced and uploaded. |
+| Edge: 4 × `uploaded`, 2 landed | One upload at a time, each waiting for `img[alt="Screenshot <file>"]` to appear. A cleared listing is saved and reloaded before re-uploading. The run ends by reloading and printing the files actually there, in order, and exits 1 on a mismatch. |
+| `status` killed the `login` window | A command that finds port 9334 already answering attaches to that browser and never stops it. `status` closes only its own tab. Only a headless browser that `status` launched itself is stopped, by its own process id. |
+
+The history below is kept for the symptoms.
+
 **Chrome: `"画像を削除 プロモーション タイル（小）" would not clear (confirmed)` is not
 "nothing changed".** The screenshots slot is cleared first, and that deletion
 is saved to the draft at once, so the run stopped with **zero** screenshots on
@@ -140,10 +153,11 @@ score it against the new and old PNGs scaled to that size. Correct slots scored 
 mean absolute difference of 5–6 against the new image and 11–14 against the
 previous release's.
 
-**`status` closes the `login` window.** It launches on the same profile and
-`closeBrowser()` kills every process on it, including a sign-in in progress.
-While the operator signs in, poll `http://localhost:9334/json/list` for tab URLs
-instead.
+**`status` closes the `login` window.** It launched on the same profile and
+`closeBrowser()` killed every process on it, including a sign-in in progress.
+Before the fix, the workaround was to poll `http://localhost:9334/json/list` for
+tab URLs while the operator signed in. That still works, but `status` is safe to
+run against an open `login` window now.
 
 **Listing text had silently drifted.** Through v1.13.0 both stores still showed
 the 2026-08-14 first-submission description (about 2,600 characters, including
