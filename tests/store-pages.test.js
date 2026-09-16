@@ -7,7 +7,9 @@ const {
   browserSessionPlan,
   buildRemovePattern,
   chromeListingSettled,
+  chromePreviewsReady,
   chromeTileLanded,
+  classifyStoreTab,
   chromeTilesToPut,
   chromeUploadLanded,
   compareListing,
@@ -16,9 +18,11 @@ const {
   edgeScreenshotFiles,
   edgeUploadLanded,
   formatChromeObservation,
+  isListingImageSource,
   multisetDifference,
   nextChromeRemoval,
   planChromeListing,
+  planLoginTabs,
   pollUntil,
   refuseToStart,
   resizeListingImageUrl,
@@ -489,5 +493,102 @@ describe('browser ownership', () => {
         stopOnFinish: false,
       });
     }
+  });
+});
+
+describe('listing previews are read only once they have loaded', () => {
+  const lh3 = (id) => `https://lh3.googleusercontent.com/${id}=w320-h200-rw`;
+
+  test('accepts only an image served from the store image host', () => {
+    expect(isListingImageSource(lh3('4B2wYp7Q31jHkp'))).toBe(true);
+    // What the small promo tile read as on 2026-09-17, before its preview loaded:
+    // resized, it became https://chrome.google.com/=w440-h280 and returned 404.
+    expect(isListingImageSource('https://chrome.google.com/')).toBe(false);
+    expect(isListingImageSource('https://lh3.googleusercontent.com/')).toBe(false);
+    expect(isListingImageSource('')).toBe(false);
+    expect(isListingImageSource(null)).toBe(false);
+  });
+
+  test('waits while any slot with a remove control still shows a placeholder', () => {
+    const shots = [1, 2, 3, 4].map((n) => ({ label: `画像を削除 スクリーンショット ${n}`, src: lh3(`shot${n}`) }));
+    const marquee = [{ label: '画像を削除 マーキー プロモーション タイル', src: lh3('marquee') }];
+    const tile = (src) => [{ label: '画像を削除 プロモーション タイル（小）', src }];
+
+    expect(chromePreviewsReady({ screenshot: shots, promoSmall: tile('https://chrome.google.com/'), marquee })).toBe(
+      false,
+    );
+    expect(chromePreviewsReady({ screenshot: shots, promoSmall: tile(null), marquee })).toBe(false);
+    expect(chromePreviewsReady({ screenshot: shots, promoSmall: tile(lh3('small')), marquee })).toBe(true);
+    // An empty slot has nothing to wait for.
+    expect(chromePreviewsReady({ screenshot: [], promoSmall: [], marquee: [] })).toBe(true);
+  });
+});
+
+describe('login leaves one tab per console', () => {
+  test('classifies the consoles, their sign-in pages and blank tabs', () => {
+    expect(classifyStoreTab('https://chrome.google.com/webstore/devconsole/592ee37a')).toEqual({
+      kind: 'chrome',
+      signIn: false,
+    });
+    expect(classifyStoreTab('https://accounts.google.com/v3/signin/confirmidentifier?authuser=0')).toEqual({
+      kind: 'chrome',
+      signIn: true,
+    });
+    expect(classifyStoreTab('https://partner.microsoft.com/en-us/dashboard/microsoftedge/overview')).toEqual({
+      kind: 'edge',
+      signIn: false,
+    });
+    expect(classifyStoreTab('https://login.microsoftonline.com/common/oauth2/v2.0/authorize')).toEqual({
+      kind: 'edge',
+      signIn: true,
+    });
+    expect(classifyStoreTab('https://login.live.com/oauth20_authorize.srf').kind).toBe('edge');
+    expect(classifyStoreTab('about:blank').kind).toBe('blank');
+    expect(classifyStoreTab('chrome://newtab/').kind).toBe('blank');
+    expect(classifyStoreTab('').kind).toBe('blank');
+    expect(classifyStoreTab('https://chatgpt.com/work/extension/installed').kind).toBe('other');
+  });
+
+  test('closes the pile-up from 2026-09-17 down to the two consoles, preferring each console over its sign-in page', () => {
+    // A shortened copy of the store profile's tabs that day: sign-in pages and
+    // blank tabs repeated by every run, then the consoles once signed in, and a
+    // page an installed extension opened.
+    const urls = [
+      'https://login.live.com/oauth20_authorize.srf',
+      'https://accounts.google.com/v3/signin/confirmidentifier',
+      'about:blank',
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+      'about:blank',
+      'https://accounts.google.com/v3/signin/confirmidentifier',
+      'https://partner.microsoft.com/en-us/dashboard/microsoftedge/overview',
+      'https://chrome.google.com/webstore/devconsole/592ee37a',
+      'https://chatgpt.com/work/extension/installed',
+      'https://chrome.google.com/webstore/devconsole/592ee37a',
+      'https://login.microsoftonline.com/cookiesdisabled',
+    ];
+    const plan = planLoginTabs(urls);
+
+    expect(plan.keep).toEqual({ chrome: 7, edge: 6 });
+    expect(plan.close).toEqual([0, 1, 2, 3, 4, 5, 9, 10]);
+    const left = urls.filter((_, index) => !plan.close.includes(index));
+    expect(left).toEqual([
+      'https://partner.microsoft.com/en-us/dashboard/microsoftedge/overview',
+      'https://chrome.google.com/webstore/devconsole/592ee37a',
+      'https://chatgpt.com/work/extension/installed',
+    ]);
+  });
+
+  test('keeps a sign-in page in progress when it is the only tab for its console', () => {
+    const plan = planLoginTabs([
+      'about:blank',
+      'https://accounts.google.com/v3/signin/confirmidentifier',
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+    ]);
+    expect(plan).toEqual({ keep: { chrome: 1, edge: 2 }, close: [0] });
+  });
+
+  test('asks for both consoles when neither is open', () => {
+    expect(planLoginTabs(['about:blank'])).toEqual({ keep: { chrome: null, edge: null }, close: [0] });
+    expect(planLoginTabs([])).toEqual({ keep: { chrome: null, edge: null }, close: [] });
   });
 });
