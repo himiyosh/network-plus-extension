@@ -70,6 +70,10 @@ const EDGE_MAX_SCREENSHOTS = 10;
 const POLL_INTERVAL_MS = 500;
 const REMOVE_TIMEOUT_MS = 20000;
 const UPLOAD_TIMEOUT_MS = 60000;
+const PREVIEW_TIMEOUT_MS = 30000;
+
+const CHROME_CONSOLE_URL = 'https://chrome.google.com/webstore/devconsole';
+const EDGE_CONSOLE_URL = 'https://partner.microsoft.com/dashboard/microsoftedge/overview';
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
@@ -205,6 +209,61 @@ function resizeListingImageUrl(src, width, height) {
   const base = at > url.pathname.lastIndexOf('/') ? url.pathname.slice(0, at) : url.pathname;
   url.pathname = `${base}=w${width}-h${height}`;
   return url.toString();
+}
+
+// Only an image the store serves from its image host is a listing preview. The
+// console renders a slot before its preview has an address, and in that moment
+// the image reads as the console's own origin, https://chrome.google.com/. Read
+// then, the small promo tile resized to https://chrome.google.com/=w440-h280, a
+// 404, and counted as "could not be compared" — so on 2026-09-17 a run over a
+// listing that already matched replaced that tile with the same file and saved a
+// draft, when it should have found nothing to do.
+const LISTING_IMAGE_SOURCE = /^https:\/\/[a-z0-9-]+\.googleusercontent\.com\/[^/?#]+/i;
+
+function isListingImageSource(src) {
+  return typeof src === 'string' && LISTING_IMAGE_SOURCE.test(src);
+}
+
+// A read of the listing is worth fingerprinting once every slot that shows a
+// remove control also shows its preview.
+function chromePreviewsReady(dom) {
+  return Object.keys(CHROME_SLOTS).every((slot) => (dom[slot] || []).every((entry) => isListingImageSource(entry.src)));
+}
+
+// Every automated run used to open tabs and leave them: sign-in pages, blank
+// tabs and duplicate consoles piled up to 33 in the store profile, and the
+// operator could no longer tell which one to look at. `login` therefore reuses
+// one tab per console — the console itself over its sign-in page — and closes
+// blank tabs and duplicates. A tab that is neither is not this script's to close.
+function classifyStoreTab(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { kind: url ? 'other' : 'blank', signIn: false };
+  }
+  if (/^(?:about:blank|chrome:\/\/new-?tab(?:-page)?\/?)$/.test(url)) return { kind: 'blank', signIn: false };
+  const host = parsed.hostname;
+  if (host === 'chrome.google.com' && parsed.pathname.startsWith('/webstore/devconsole')) {
+    return { kind: 'chrome', signIn: false };
+  }
+  if (host === 'accounts.google.com') return { kind: 'chrome', signIn: true };
+  if (host === 'partner.microsoft.com') return { kind: 'edge', signIn: false };
+  if (host === 'login.microsoftonline.com' || host === 'login.live.com') return { kind: 'edge', signIn: true };
+  return { kind: 'other', signIn: false };
+}
+
+function planLoginTabs(urls) {
+  const tabs = urls.map((url, index) => ({ index, ...classifyStoreTab(url) }));
+  const keep = {};
+  const close = new Set(tabs.filter((tab) => tab.kind === 'blank').map((tab) => tab.index));
+  for (const kind of ['chrome', 'edge']) {
+    const candidates = tabs.filter((tab) => tab.kind === kind);
+    const chosen = candidates.find((tab) => !tab.signIn) || candidates[0] || null;
+    keep[kind] = chosen ? chosen.index : null;
+    for (const tab of candidates) if (tab !== chosen) close.add(tab.index);
+  }
+  return { keep, close: [...close].sort((a, b) => a - b) };
 }
 
 // The two Chrome tiles are required slots. The console answers the delete
@@ -516,7 +575,7 @@ function stopLaunchedBrowser() {
   if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
 }
 
-async function openBrowser(command) {
+async function attachBrowser(command) {
   const playwright = loadPlaywright();
   const plan = browserSessionPlan({ command, portAnswered: await debuggingPortAnswers() });
   if (plan.launch) {
@@ -527,8 +586,15 @@ async function openBrowser(command) {
   // Disconnecting from a browser reached over CDP leaves it running, which is
   // what lets a visible window outlive this process.
   const browser = await playwright.chromium.connectOverCDP(`http://localhost:${port}`);
-  const context = browser.contexts()[0];
-  return { browser, page: await context.newPage() };
+  return { browser, context: browser.contexts()[0], launched: plan.launch };
+}
+
+// A browser this run launched opens on a blank tab; working in that tab rather
+// than beside it is one fewer tab left behind.
+async function openBrowser(command) {
+  const { browser, context, launched } = await attachBrowser(command);
+  const blank = launched ? context.pages().find((page) => classifyStoreTab(page.url()).kind === 'blank') : null;
+  return { browser, page: blank || (await context.newPage()) };
 }
 
 async function signedInTo(page, url, marker) {
@@ -539,14 +605,24 @@ async function signedInTo(page, url, marker) {
 }
 
 async function cmdLogin() {
-  const { browser, page } = await openBrowser('login');
-  await page.goto('https://chrome.google.com/webstore/devconsole', { waitUntil: 'domcontentloaded' });
-  const second = await browser.contexts()[0].newPage();
-  await second.goto('https://partner.microsoft.com/dashboard/microsoftedge/overview', {
-    waitUntil: 'domcontentloaded',
-  });
+  const { browser, context } = await attachBrowser('login');
+  const pages = context.pages();
+  const plan = planLoginTabs(pages.map((page) => page.url()));
+  // The console tabs are opened before anything is closed, so the window never
+  // runs out of tabs and closes under the operator.
+  for (const [kind, url] of [
+    ['chrome', CHROME_CONSOLE_URL],
+    ['edge', EDGE_CONSOLE_URL],
+  ]) {
+    if (plan.keep[kind] !== null) continue;
+    const page = await context.newPage();
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+  }
+  for (const index of plan.close) await pages[index].close();
+  const open = context.pages().length;
   process.stdout.write(
-    '\nA browser opened on its own profile, with both consoles.\n' +
+    `\nThe store profile's window holds ${open} tab${open === 1 ? '' : 's'}: one per console` +
+      `${open > 2 ? ', plus tabs this script did not open' : ''}.\n` +
       'Sign in to each one, then leave it open and run:\n\n' +
       '  node scripts/publish-store-pages.js status\n\n' +
       'status checks in this same window and leaves it open.\n' +
@@ -560,12 +636,8 @@ async function cmdStatus() {
   let chrome;
   let edge;
   try {
-    chrome = await signedInTo(page, 'https://chrome.google.com/webstore/devconsole', /アイテム|Items|Network\+/);
-    edge = await signedInTo(
-      page,
-      'https://partner.microsoft.com/dashboard/microsoftedge/overview',
-      /Network\+|拡張機能|Extensions/,
-    );
+    chrome = await signedInTo(page, CHROME_CONSOLE_URL, /アイテム|Items|Network\+/);
+    edge = await signedInTo(page, EDGE_CONSOLE_URL, /Network\+|拡張機能|Extensions/);
   } finally {
     // Only the tab this opened is closed. The browser itself is stopped only when
     // this run launched it; a window someone is signing in to is left alone.
@@ -640,7 +712,8 @@ async function readChromeDom(page) {
     Object.entries(CHROME_SLOTS).map(([name, label]) => [name, buildRemovePattern(label)]),
   );
   return page.evaluate(
-    ([slotPatterns, anyRemoveSource, saveSource]) => {
+    ([slotPatterns, anyRemoveSource, saveSource, listingImageSource]) => {
+      const listingImage = new RegExp(listingImageSource, 'i');
       const labelOf = (element) => (element.getAttribute('aria-label') || element.innerText || '').trim();
       const sourceOf = (image) => image.currentSrc || image.src || '';
       const anyRemove = new RegExp(anyRemoveSource, 'i');
@@ -652,7 +725,7 @@ async function readChromeDom(page) {
             [...node.querySelectorAll('button,[role=button]')].map(labelOf).filter((text) => anyRemove.test(text)),
           );
           if (removes.size > 1) return null;
-          const image = [...node.querySelectorAll('img')].find((img) => /^https:\/\//.test(sourceOf(img)));
+          const image = [...node.querySelectorAll('img')].find((img) => listingImage.test(sourceOf(img)));
           if (image) return sourceOf(image);
         }
         return null;
@@ -670,7 +743,7 @@ async function readChromeDom(page) {
       }
       return out;
     },
-    [patterns, buildRemovePattern('.+'), CHROME_SAVE_DRAFT.source],
+    [patterns, buildRemovePattern('.+'), CHROME_SAVE_DRAFT.source, LISTING_IMAGE_SOURCE.source],
   );
 }
 
@@ -688,7 +761,11 @@ async function fingerprintListingImage(page, src, asset) {
 }
 
 async function observeChromeListing(page, assets) {
-  const dom = await readChromeDom(page);
+  // Previews fill in after the slots render. A slot still unreadable when this
+  // gives up is reported as such, never as a match.
+  const { value: dom } = await pollUntil(() => readChromeDom(page), chromePreviewsReady, {
+    timeoutMs: PREVIEW_TIMEOUT_MS,
+  });
   const screenshots = [];
   for (const [index, entry] of dom.screenshot.entries()) {
     const asset = assets.screenshots[index];
@@ -827,7 +904,7 @@ async function cmdChrome() {
   const item = resolveStoreId(['CHROME_ITEM_ID', 'CWS_ITEM_ID'], '.env.cws', 'The Chrome item ID');
   const { browser, page } = await openBrowser('chrome');
 
-  await page.goto('https://chrome.google.com/webstore/devconsole', {
+  await page.goto(CHROME_CONSOLE_URL, {
     waitUntil: 'domcontentloaded',
     timeout: 90000,
   });
@@ -894,6 +971,7 @@ async function cmdChrome() {
     process.stdout.write(
       'Saved as a draft. Submit from the console, or with `npm run store:submit`, when the listing reads right.\n',
     );
+    await page.close();
   } else {
     process.exitCode = 1;
     process.stdout.write(
@@ -1122,9 +1200,10 @@ async function cmdEdge() {
   );
   if (comparison.matches && !tileUnconfirmed) {
     process.stdout.write(
-      'The draft holds the intended screenshots in order. Check the open window and publish from\n' +
-        'Partner Center, or with `npm run store:submit`, when it reads right.\n',
+      'The draft holds the intended screenshots in order. Publish from Partner Center, or with\n' +
+        '`npm run store:submit`, when it reads right.\n',
     );
+    await page.close();
   } else {
     process.exitCode = 1;
     process.stdout.write(
@@ -1171,6 +1250,8 @@ module.exports = {
   browserSessionPlan,
   buildRemovePattern,
   chromeListingSettled,
+  chromePreviewsReady,
+  classifyStoreTab,
   chromeTileLanded,
   chromeTilesToPut,
   chromeUploadLanded,
@@ -1180,9 +1261,11 @@ module.exports = {
   edgeScreenshotFiles,
   edgeUploadLanded,
   formatChromeObservation,
+  isListingImageSource,
   multisetDifference,
   nextChromeRemoval,
   planChromeListing,
+  planLoginTabs,
   pollUntil,
   refuseToStart,
   resizeListingImageUrl,

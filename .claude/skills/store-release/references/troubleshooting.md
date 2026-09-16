@@ -110,9 +110,33 @@ rendering settles, so reload before believing any number.
 ### v1.14.0 cycle (2026-09-14): the repaired path failed in two new ways
 
 **Status: all three defects below are fixed in `scripts/publish-store-pages.js`.**
-Each is pinned by a scenario test in `tests/store-pages.test.js`. The fix has not
-run against a live console yet, so the first release that uses it is the live
-check. Reload the console afterwards and compare it with the run's final list.
+Each is pinned by a scenario test in `tests/store-pages.test.js`. Reload the
+console afterwards and compare it with the run's final list.
+
+Live check on 2026-09-17, against the published v1.14.0 listing:
+
+- **Chrome:** the first run did not find "nothing to do". The small promo tile's
+  preview had not loaded yet and read as `https://chrome.google.com/`, which
+  resized to a 404. The run counted the tile as unreadable, replaced it with the
+  identical file and saved a draft. The draft content is unchanged, but the item
+  now carries an unsubmitted draft. Fixed: only a `*.googleusercontent.com`
+  image counts as a preview, and the run waits up to 30s for every slot's
+  preview before fingerprinting. The rerun kept all six images and printed
+  `nothing to do`.
+- **Edge:** still unverified live. It has no nothing-to-do path: every run
+  clears and re-uploads, so running it on a correct listing only adds risk.
+- **Tab pile-up:** runs and verification scripts left 33 tabs in the store
+  profile (sign-in pages, blanks, duplicate consoles), and the operator could not
+  tell which to use. Now `login` reuses one tab per console and closes blanks and
+  duplicates, a successful `chrome` or `edge` run closes its own tab, and a
+  browser a run launches works in its initial blank tab. Killing the browser
+  restored every tab on the next launch. Setting the profile's
+  `session.restore_on_startup` to `5` in `Default/Preferences` (browser closed)
+  stops that.
+- **Stale browser:** a store browser left running for days refused Playwright
+  with `Browser.setDownloadBehavior: Browser context management is not
+  supported`. Updating `playwright-core` alone did not help; relaunching the
+  browser did.
 
 | Defect | Fixed behaviour |
 | --- | --- |
