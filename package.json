@@ -60,6 +60,10 @@
     "testMatch": [
       "**/tests/**/*.test.js"
     ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/\\.claude/worktrees/"
+    ],
     "collectCoverageFrom": [
       "panel.js",
       "background.js",

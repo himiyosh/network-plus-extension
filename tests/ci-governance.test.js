@@ -36,6 +36,14 @@ const RETIRED_PROCEDURE_PATTERNS = [
 
 const readRepoFile = (relativePath) => fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 
+// A parallel session works in a git worktree under `.claude/worktrees/<name>`,
+// which is a whole checkout of this repository at some other commit. Its files
+// are another branch's guidance, not this checkout's, so walking into one made
+// this suite judge the current tree by a sibling session's history — and fail
+// on it. The same goes for a dependency tree that happens to sit under a
+// scanned directory.
+const SKIPPED_DIRECTORIES = new Set(['worktrees', 'node_modules', '.git']);
+
 const listMarkdownFiles = (relativeDirectory) => {
   const directory = path.join(ROOT, relativeDirectory);
   if (!fs.existsSync(directory)) {
@@ -49,7 +57,7 @@ const listMarkdownFiles = (relativeDirectory) => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const absolutePath = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        pending.push(absolutePath);
+        if (!SKIPPED_DIRECTORIES.has(entry.name)) pending.push(absolutePath);
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
         files.push(path.relative(ROOT, absolutePath));
       }
@@ -121,5 +129,29 @@ describe('CI governance', () => {
     for (const guidanceFile of currentGuidanceFiles()) {
       expectNoRetiredProcedure(guidanceFile);
     }
+  });
+
+  test('reads only this checkout: a parallel session worktree is not guidance, and jest skips its tests', () => {
+    const worktree = path.join(ROOT, '.claude', 'worktrees', 'ci-governance-fixture');
+    const planted = path.join(worktree, 'docs', 'CHANGELOG.md');
+    fs.mkdirSync(path.dirname(planted), { recursive: true });
+    try {
+      // The text a sibling session's history legitimately carries, and which
+      // this suite refuses to find in the current tree.
+      fs.writeFileSync(planted, '- Independent-review gate retired under repository-owner authorization.\n');
+      expect(RETIRED_PROCEDURE_PATTERNS.some(({ pattern }) => pattern.test(fs.readFileSync(planted, 'utf8')))).toBe(
+        true,
+      );
+      expect(
+        currentGuidanceFiles().filter((file) => file.includes(path.join('worktrees', 'ci-governance-fixture'))),
+      ).toEqual([]);
+    } finally {
+      fs.rmSync(path.join(ROOT, '.claude', 'worktrees', 'ci-governance-fixture'), { recursive: true, force: true });
+    }
+
+    // Those worktrees hold a copy of this suite too, so jest has to skip them
+    // by path or a run picks up every parallel session's tests as well.
+    const jestConfig = JSON.parse(readRepoFile('package.json')).jest;
+    expect(jestConfig.testPathIgnorePatterns).toContain('/\\.claude/worktrees/');
   });
 });
