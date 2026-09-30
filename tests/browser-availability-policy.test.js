@@ -1101,6 +1101,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
+      title: 'auto-scroll follows live requests after Clear and Undo until the reader scrolls upward',
+    },
+    {
+      skipped: true,
       title: 'same-frame live bursts batch retention cleanup and prefetch only retained rows',
     },
     {

@@ -780,6 +780,138 @@ test('grid focus allowance reports unexplained reserve and scroll beyond the pai
 });
 
 browserTest(
+  'auto-scroll follows live requests after Clear and Undo until the reader scrolls upward',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 480,
+      initScript: `(() => {
+        const chromeApi = globalThis.chrome || {};
+        chromeApi.storage = {
+          local: { get(_keys, callback) { callback({}); }, set(_value, callback) { if (callback) callback(); } },
+        };
+        chromeApi.runtime = { lastError: null, getManifest() { return { version: '1.6.0' }; } };
+        chromeApi.devtools = {
+          network: {
+            onRequestFinished: { addListener(listener) { globalThis.__networkPlusLiveListener = listener; } },
+            onNavigated: { addListener(listener) { globalThis.__networkPlusNavigatedListener = listener; } },
+          },
+          panels: { openResource() {} },
+        };
+        globalThis.chrome = chromeApi;
+      })();`,
+    });
+    try {
+      await waitForLiveNetworkListener(page.cdp);
+      const result = await evaluate(
+        page.cdp,
+        `(async () => {
+          const settle = async () => {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+          };
+          const tableWrap = document.querySelector('#tableWrap');
+          const emitRange = (start, count) => {
+            for (let id = start; id < start + count; id += 1) {
+              globalThis.__networkPlusLiveListener({
+                startedDateTime: new Date(1704067200000 + id).toISOString(),
+                time: 10,
+                request: {
+                  method: 'GET',
+                  url: 'https://' + (id % 2 === 0 ? 'assets' : 'api') + '.example.test/live/' + id,
+                  headers: [],
+                },
+                response: {
+                  status: 200, statusText: 'OK', httpVersion: 'HTTP/2', headers: [],
+                  bodySize: 0, content: { size: 0, mimeType: 'text/plain' },
+                },
+                timings: { wait: 10 },
+                getContent(callback) { callback('', ''); },
+              });
+            }
+          };
+          const snapshot = () => ({
+            rows: document.querySelectorAll('#tbody tr[data-row-id]').length,
+            pressed: document.querySelector('#autoScrollBtn').getAttribute('aria-pressed'),
+            atBottom: tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - 2,
+            scrollTop: tableWrap.scrollTop,
+            undoAvailable: !document.querySelector('#undoClearBtn').hidden,
+            lastRowId: document.querySelector('#tbody tr[data-row-id]:last-child')?.dataset.rowId || null,
+          });
+
+          emitRange(1, 60);
+          await settle();
+          const initial = snapshot();
+          document.querySelector('#clearBtn').click();
+          await settle();
+          const afterClear = snapshot();
+          globalThis.__networkPlusNavigatedListener();
+          emitRange(61, 60);
+          await settle();
+          const afterClearLive = snapshot();
+          document.querySelector('#undoClearBtn').click();
+          await settle();
+          const afterUndo = snapshot();
+          emitRange(121, 10);
+          await settle();
+          const afterUndoLive = snapshot();
+          tableWrap.querySelector('#tbody tr[data-row-id="130"]').dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, clientX: 200, clientY: 200 }),
+          );
+          const onlyAssets = Array.from(document.querySelectorAll('#rowContextMenu .context-menu-item'))
+            .find((item) => item.textContent === 'Only Domain assets.example.test');
+          if (!onlyAssets) throw new Error('The row quick filter for the assets domain was not available.');
+          onlyAssets.click();
+          await settle();
+          const afterFilter = snapshot();
+          emitRange(131, 20);
+          await settle();
+          const afterMatchingLive = snapshot();
+          tableWrap.scrollTop = Math.floor(tableWrap.scrollHeight / 2);
+          await settle();
+          const afterManualScroll = snapshot();
+          emitRange(151, 10);
+          await settle();
+          const afterManualLive = snapshot();
+          return {
+            initial, afterClear, afterClearLive, afterUndo, afterUndoLive,
+            afterFilter, afterMatchingLive, afterManualScroll, afterManualLive,
+          };
+        })()`,
+        true,
+      );
+
+      expect(result.initial).toMatchObject({ rows: 60, pressed: 'true', atBottom: true });
+      expect(result.initial.scrollTop).toBeGreaterThan(0);
+      expect(result.afterClear).toMatchObject({ rows: 0, pressed: 'true', undoAvailable: true });
+      expect(result.afterClearLive).toMatchObject({ rows: 60, pressed: 'true', atBottom: true });
+      expect(result.afterClearLive.scrollTop).toBeGreaterThan(0);
+      expect(result.afterUndo).toMatchObject({ rows: 120, pressed: 'true', atBottom: true });
+      expect(result.afterUndoLive).toMatchObject({ rows: 130, pressed: 'true', atBottom: true });
+      expect(result.afterFilter).toMatchObject({ rows: 65, pressed: 'true', atBottom: true });
+      expect(result.afterMatchingLive).toMatchObject({
+        rows: 75,
+        lastRowId: '150',
+        pressed: 'true',
+        atBottom: true,
+      });
+      expect(result.afterManualScroll).toMatchObject({ pressed: 'false', atBottom: false });
+      expect(result.afterManualLive).toMatchObject({
+        rows: 80,
+        pressed: 'false',
+        atBottom: false,
+        lastRowId: '160',
+        scrollTop: result.afterManualScroll.scrollTop,
+      });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'same-frame live bursts batch retention cleanup and prefetch only retained rows',
   async () => {
     const fixtureDirectory = createInstrumentedPanelFixture();
