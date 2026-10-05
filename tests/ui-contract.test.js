@@ -1809,7 +1809,7 @@ describe('release trust static contracts', () => {
     const scheduleBlock = js.slice(scheduleStart, scheduleEnd);
     expect(scheduleBlock).toContain('pendingResponseSearchFrame');
     expect(scheduleBlock).toContain('window.requestAnimationFrame');
-    expect(scheduleBlock).toContain('hasActiveSearchKeywords(state.search.keywords)');
+    expect(scheduleBlock).toContain('hasActiveSearchKeywords(state.search.keywords, state.search.options)');
     // Renders the header with the body: a late body that turns a keyword's
     // Match column on must not leave the header naming the old column set.
     expect(scheduleBlock).toContain('renderGridAfterSearchChange();');
@@ -4751,7 +4751,10 @@ describe('audit layout and contrast contracts', () => {
     );
     const searchBlock = js.slice(js.indexOf('function executeSearch()'), js.indexOf('const debouncedSearch'));
     expect(searchBlock).not.toContain('renderBody();');
-    expect(searchBlock.split('renderGridAfterSearchChange();').length - 1).toBe(2);
+    // Valid keywords and empty/invalid drafts share the same header/body
+    // re-plan, and both must refresh the search UI after it.
+    expect(searchBlock.split('renderGridAfterSearchChange();').length - 1).toBe(1);
+    expect(searchBlock).toContain('    updateSearchUI();');
     // A re-render mid-gesture destroys the <th> and the .col-resizer the
     // mousedown closed over, so the fit is re-planned once, on mouseup.
     expect(js).toContain('    if (columnResizeInFlight) return false;');
@@ -4777,10 +4780,11 @@ describe('audit layout and contrast contracts', () => {
     // B3. The column the rows are ordered by is the column that explains the
     // order: the fit may not drop it, and the exemption is derived on every
     // re-plan so it moves with the sort instead of accumulating.
-    expect(js).toContain('  function planForcedVisibleColumnIds(sort, searchKeywords, resizingColId) {');
-    expect(js).toContain("    if (hasActiveSearchKeywords(searchKeywords)) forcedIds.push('match');");
+    expect(js).toContain('  function planForcedVisibleColumnIds(sort, searchKeywords, resizingColId, searchOptions) {');
+    expect(js).toContain("    if (hasActiveSearchKeywords(searchKeywords, searchOptions)) forcedIds.push('match');");
     expect(js).toContain('    const sortColId = sort && sort.direction ? sort.colId : null;');
     expect(js).toContain('      keepIds: planForcedVisibleColumnIds(\n        state.sort,\n        state.search.keywords,\n');
+    expect(js).toContain("        state.search.options,\n      ),");
     expect(js).not.toContain("keepIds: hasActiveSearchKeywords(state.search.keywords) ? ['match'] : [],");
     // The column under an active keyboard resize is protected the same way:
     // dropping it ends the gesture and strands the focus that was stepping
