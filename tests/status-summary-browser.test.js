@@ -5616,7 +5616,7 @@ browserTest(
       // and the grid answers by squeezing Path and dropping the columns that
       // still do not fit rather than growing a scrollbar.
       const paneOpen = await evaluate(cdp, ELASTIC_GRID_MEASURE);
-      expect(paneOpen.wrapClientWidth).toBeLessThan(992);
+      expect(paneOpen.wrapClientWidth).toBeLessThan(1096);
       expectElasticGridInvariants(paneOpen, 'pane open');
       expect(paneOpen).toMatchObject({
         horizontalScroll: false,
@@ -5667,7 +5667,7 @@ browserTest(
       await evaluate(cdp, "document.querySelector('#detailsCloseBtn').click()");
       await settleLayout(cdp);
       const paneClosed = await evaluate(cdp, ELASTIC_GRID_MEASURE);
-      expect(paneClosed.wrapClientWidth).toBeGreaterThan(992);
+      expect(paneClosed.wrapClientWidth).toBeGreaterThan(1096);
       expectElasticGridInvariants(paneClosed, 'pane closed');
       expect(paneClosed).toMatchObject({
         horizontalScroll: false,
@@ -5701,7 +5701,8 @@ browserTest(
         pathAriaValueNow: '270',
         storedPathWidth: 270,
       });
-      expect(afterKeyboard.headerWidths.path).toBe(270 + (paneClosed.wrapClientWidth - 1002));
+      const storedSum = Object.values(afterKeyboard.storedByAria).reduce((sum, width) => sum + width, 0);
+      expect(afterKeyboard.headerWidths.path).toBe(270 + (paneClosed.wrapClientWidth - storedSum));
       expectElasticGridInvariants(afterKeyboard, 'after keyboard resize');
 
       // Path hidden: the surplus moves to the last visible column instead.
@@ -5725,7 +5726,8 @@ browserTest(
         gridWidth: pathHidden.wrapClientWidth,
         pathAriaValueNow: null,
       });
-      expect(pathHidden.headerWidths.clientStart).toBe(104 + (pathHidden.wrapClientWidth - 732));
+      expect(pathHidden.headerIds[pathHidden.headerIds.length - 1]).toBe('serverDone');
+      expect(pathHidden.headerWidths.serverDone).toBeGreaterThan(pathHidden.storedByAria.serverDone);
       // Path hidden by hand is not Path dropped by the wrap: the surplus moves
       // on, the header and the cells still agree, and nothing scrolls.
       expect(pathHidden.firstRowCellIds).toEqual(pathHidden.headerIds);
@@ -5743,7 +5745,8 @@ browserTest(
       const widened = await evaluate(cdp, ELASTIC_GRID_MEASURE);
       expect(widened.wrapClientWidth).toBeGreaterThan(pathHidden.wrapClientWidth);
       expect(widened).toMatchObject({ horizontalScroll: false, gridWidth: widened.wrapClientWidth });
-      expect(widened.headerWidths.clientStart).toBe(104 + (widened.wrapClientWidth - 732));
+      expect(widened.headerIds[widened.headerIds.length - 1]).toBe('serverDone');
+      expect(widened.headerWidths.serverDone).toBeGreaterThan(pathHidden.headerWidths.serverDone);
       expect(widened.firstRowCellIds).toEqual(widened.headerIds);
       expect(widened.headerWidths).toEqual(expectedElasticWidths(widened));
       expect(await evaluate(cdp, 'window.__resizeObserverErrors')).toEqual([]);
@@ -6604,7 +6607,7 @@ const MATCH_GUTTER_MEASURE = `(() => {
 })()`;
 
 browserTest(
-  'the Match gutter takes the v4 width on upgrade, clips its label only at gutter width, and fits two chips',
+  'the Match gutter takes the default width for v3 layouts but keeps a v4 custom width',
   async () => {
     const page = await launchPanelPage({
       executable: browserExecutable,
@@ -6647,10 +6650,10 @@ browserTest(
         ariaLabel: 'Match',
         title: 'Match: search and selection state; Alt+Left/Right Arrow to reorder',
         storedMatchWidth: 36,
-        storedVersion: '4',
+        storedVersion: '5',
       });
 
-      // v4 prefs with a user-kept 64px Match: no reset, label stays visible.
+      // v4 prefs: visibility resets, but a user-kept 64px Match width survives.
       await evaluate(
         cdp,
         `(() => {
@@ -6672,7 +6675,7 @@ browserTest(
         ariaLabel: 'Match',
         title: 'Match: search and selection state; Alt+Left/Right Arrow to reorder',
         storedMatchWidth: 64,
-        storedVersion: '4',
+        storedVersion: '5',
       });
 
       // Factory defaults: the selected row's ✓ chip and one keyword chip both
@@ -13922,6 +13925,200 @@ browserTest(
   TEST_TIMEOUT_MS,
 );
 
+browserTest(
+  'Server done defaults on, migrates v4 layouts, and remains hideable and responsive',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1920, height: 800 });
+    const { cdp } = page;
+    const readColumns = async () => {
+      await settleLayout(cdp);
+      return evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          if (menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+          document.querySelector('#columnsBtn').click();
+          const timing = Object.fromEntries(['clientStart', 'serverDone'].map((id) => {
+            const item = menu.querySelector('[data-column-id="' + id + '"]');
+            if (!item) throw new Error('Missing timing column: ' + id);
+            return [id, {
+              checked: item.getAttribute('aria-checked') === 'true',
+              dimmed: item.classList.contains('column-auto-hidden'),
+            }];
+          }));
+          const pin = menu.querySelector('[data-pin-column-id="serverDone"]');
+          const stored = localStorage.getItem('networkPlus.cols');
+          return {
+            timing,
+            headers: Array.from(document.querySelectorAll('thead th[data-col-id]')).map((th) => th.dataset.colId),
+            urlChecked: menu.querySelector('[data-column-id="url"]').getAttribute('aria-checked') === 'true',
+            pinLabel: pin ? pin.textContent : null,
+            stored: stored ? JSON.parse(stored) : null,
+            version: localStorage.getItem('networkPlus.cols.v'),
+          };
+        })()`,
+      );
+    };
+    const clickColumn = async (id) => {
+      await evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          if (!menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+          const item = menu.querySelector('[data-column-id="' + ${JSON.stringify(id)} + '"]');
+          if (!item) throw new Error('Missing column: ' + ${JSON.stringify(id)});
+          item.click();
+        })()`,
+      );
+    };
+    const clickServerPin = async () => {
+      await evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          if (!menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+          const pin = menu.querySelector('[data-pin-column-id="serverDone"]');
+          if (!pin) throw new Error('Server done has no Show anyway control.');
+          pin.click();
+        })()`,
+      );
+    };
+    try {
+      await waitForSampleCaptureAction(cdp);
+      const fresh = await readColumns();
+      expect(fresh).toMatchObject({
+        timing: {
+          clientStart: { checked: true, dimmed: false },
+          serverDone: { checked: true, dimmed: false },
+        },
+        stored: null,
+        version: null,
+      });
+      expect(fresh.headers).toEqual(expect.arrayContaining(['clientStart', 'serverDone']));
+
+      await evaluate(
+        cdp,
+        `(() => {
+          localStorage.setItem('networkPlus.cols', JSON.stringify([
+            { id: 'serverDone', visible: false, width: 137 },
+            { id: 'clientStart', visible: false, width: 119 },
+            { id: 'id', visible: true, width: 63 },
+            { id: 'url', visible: true, width: 433 },
+          ]));
+          localStorage.setItem('networkPlus.cols.v', '4');
+        })()`,
+      );
+      await page.navigate();
+      const migrated = await readColumns();
+      expect(migrated.version).toBe('5');
+      expect(migrated.timing).toEqual({
+        clientStart: { checked: true, dimmed: false },
+        serverDone: { checked: true, dimmed: false },
+      });
+      expect(migrated.urlChecked).toBe(false);
+      expect(migrated.stored.filter((column) => ['serverDone', 'clientStart', 'id', 'url'].includes(column.id)))
+        .toEqual([
+          { id: 'serverDone', visible: true, width: 137 },
+          { id: 'clientStart', visible: true, width: 119 },
+          { id: 'id', visible: true, width: 63 },
+          { id: 'url', visible: false, width: 433 },
+        ]);
+      expect(migrated.headers).toEqual(expect.arrayContaining(['clientStart', 'serverDone']));
+
+      await clickColumn('serverDone');
+      await clickColumn('clientStart');
+      const hidden = await readColumns();
+      expect(hidden.timing).toMatchObject({
+        clientStart: { checked: false },
+        serverDone: { checked: false },
+      });
+      expect(hidden.headers).not.toContain('serverDone');
+      expect(hidden.headers).not.toContain('clientStart');
+      await page.navigate();
+      const hiddenAfterReload = await readColumns();
+      expect(hiddenAfterReload.stored).toEqual(hidden.stored);
+      expect(hiddenAfterReload.timing).toMatchObject({
+        clientStart: { checked: false },
+        serverDone: { checked: false },
+      });
+
+      await clickColumn('serverDone');
+      await clickColumn('clientStart');
+      await page.navigate();
+      const shownAfterReload = await readColumns();
+      expect(shownAfterReload.timing).toMatchObject({
+        clientStart: { checked: true },
+        serverDone: { checked: true },
+      });
+      expect(shownAfterReload.headers).toEqual(expect.arrayContaining(['clientStart', 'serverDone']));
+      expect(shownAfterReload.stored.find((column) => column.id === 'serverDone').width).toBe(137);
+
+      await clickColumn('serverDone');
+      await clickColumn('clientStart');
+      await evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          const reset = Array.from(menu.querySelectorAll('.columns-header-action'))
+            .find((button) => button.textContent === 'Reset');
+          if (!reset) throw new Error('Columns Reset action is missing.');
+          reset.click();
+        })()`,
+      );
+      const reset = await readColumns();
+      expect(reset.timing).toMatchObject({
+        clientStart: { checked: true },
+        serverDone: { checked: true },
+      });
+      expect(reset.stored.filter((column) => ['serverDone', 'clientStart'].includes(column.id))).toEqual([
+        { id: 'serverDone', visible: true, width: 104 },
+        { id: 'clientStart', visible: true, width: 104 },
+      ]);
+      expect(reset.stored.map((column) => column.id)).toEqual(migrated.stored.map((column) => column.id));
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 800,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const narrow = await readColumns();
+      expect(narrow.timing).toEqual({
+        clientStart: { checked: true, dimmed: true },
+        serverDone: { checked: true, dimmed: true },
+      });
+      expect(narrow.headers).not.toContain('serverDone');
+      expect(narrow.pinLabel).toBe('Show anyway');
+      await clickServerPin();
+      const pinned = await readColumns();
+      expect(pinned.headers).toContain('serverDone');
+      expect(pinned.timing.serverDone).toEqual({ checked: true, dimmed: false });
+      expect(pinned.pinLabel).toBe('Always shown — undo');
+      await page.navigate();
+      expect((await readColumns()).pinLabel).toBe('Always shown — undo');
+      await clickServerPin();
+      const unpinned = await readColumns();
+      expect(unpinned.headers).not.toContain('serverDone');
+      expect(unpinned.pinLabel).toBe('Show anyway');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1920,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const wide = await readColumns();
+      expect(wide.headers).toEqual(expect.arrayContaining(['clientStart', 'serverDone']));
+      expect(wide.timing).toMatchObject({
+        clientStart: { checked: true, dimmed: false },
+        serverDone: { checked: true, dimmed: false },
+      });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
 const ROW_STATES_MEASURE = `(() => {
   const describe = (tr) => {
     const style = getComputedStyle(tr);
@@ -14496,7 +14693,7 @@ browserTest(
           '☐ Operation',
           '☐ Header',
           '☑ Client start',
-          '☐ Server done',
+          '☑ Server done',
           '☑ Duration',
           '☐ Waterfall',
           '☑ Type',
@@ -14587,7 +14784,7 @@ browserTest(
           '☐ オペレーション',
           '☐ ヘッダー',
           '☑ クライアント開始',
-          '☐ サーバー完了',
+          '☑ サーバー完了',
           '☑ 所要時間',
           '☐ ウォーターフォール',
           '☑ 種別',
