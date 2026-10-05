@@ -2855,6 +2855,64 @@ describe('evaluateFilterRule', () => {
     expect(np.evaluateFilterRule('12:00', rule, false)).toBe(false);
   });
 
+  test('excludes missing and malformed times whenever a time range has a bound', () => {
+    const bounds = [
+      { start: '22:00', end: '02:00' },
+      { start: '09:00', end: '17:30' },
+      { start: '22:00', end: '' },
+      { start: '', end: '02:00' },
+    ];
+    for (const bound of bounds) {
+      const rule = { mode: 'timeRange', ...bound };
+      for (const value of ['', null, undefined, ' ', 'invalid', '25:00', '12:60', '01:30:75']) {
+        expect(np.evaluateFilterRule(value, rule, false)).toBe(false);
+      }
+    }
+    for (const value of ['', null, 'invalid']) {
+      expect(np.evaluateFilterRule(value, { mode: 'timeRange', start: '', end: '' }, false)).toBe(true);
+    }
+  });
+
+  test('keeps valid single-sided, normal, and overnight time bounds inclusive', () => {
+    const normal = { mode: 'timeRange', start: '09:00', end: '17:30' };
+    expect(np.evaluateFilterRule('09:00', normal, false)).toBe(true);
+    expect(np.evaluateFilterRule('17:30', normal, false)).toBe(true);
+    expect(np.evaluateFilterRule('08:59', normal, false)).toBe(false);
+    expect(np.evaluateFilterRule('17:31', normal, false)).toBe(false);
+
+    const from = { mode: 'timeRange', start: '22:00', end: '' };
+    expect(np.evaluateFilterRule('22:00', from, false)).toBe(true);
+    expect(np.evaluateFilterRule('21:59', from, false)).toBe(false);
+    const to = { mode: 'timeRange', start: '', end: '02:00' };
+    expect(np.evaluateFilterRule('02:00', to, false)).toBe(true);
+    expect(np.evaluateFilterRule('02:01', to, false)).toBe(false);
+
+    const overnight = { mode: 'timeRange', start: '22:00', end: '02:00' };
+    expect(np.evaluateFilterRule('23:45:59.123', overnight, false)).toBe(true);
+    expect(np.evaluateFilterRule('01:30:00.000', overnight, false)).toBe(true);
+  });
+
+  test('does not match blank Server done or missing Client start from captured requests', () => {
+    const overnight = { mode: 'timeRange', start: '22:00', end: '02:00' };
+    const request = {
+      startedDateTime: new Date(2026, 0, 15, 23, 45).toISOString(),
+      time: 0,
+      request: { method: 'GET', url: 'https://example.test/zero-duration' },
+      response: { status: 304 },
+    };
+    const row = np.buildRowFromRequest(request, 1);
+    expect(np.getRowFilterValue(row, 'clientStart')).toBe('23:45');
+    expect(np.evaluateFilterRule(np.getRowFilterValue(row, 'clientStart'), overnight, false)).toBe(true);
+    expect(np.getRowFilterValue(row, 'serverDone')).toBe('');
+    expect(np.evaluateFilterRule(np.getRowFilterValue(row, 'serverDone'), overnight, false)).toBe(false);
+
+    for (const startedDateTime of ['', 'not-a-date']) {
+      const missingStart = np.buildRowFromRequest({ ...request, startedDateTime, time: 10 }, 2);
+      expect(np.getRowFilterValue(missingStart, 'clientStart')).toBe(startedDateTime);
+      expect(np.evaluateFilterRule(np.getRowFilterValue(missingStart, 'clientStart'), overnight, false)).toBe(false);
+    }
+  });
+
   test('supports multiText mode with multiple AND conditions', () => {
     const rule = {
       mode: 'multiText',
