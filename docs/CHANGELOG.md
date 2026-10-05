@@ -4,6 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🐛 **Deep-search regex** — keep malformed keywords editable but unapplied, preserving valid matches with accessible inline errors.
 - 🔧 **Body/Raw pane search** — keep search only in Request/Response Body and Raw, including empty Body; preserve Query copy and remove Header/Query/Cookie search bars.
 - 🔧 **Server done by default** — show it beside Client start; v4 visibility resets once, retaining order/width, then manual hide choices persist.
 - 🐛 **Column regex filters** — show accessible inline errors and leave malformed patterns unapplied without hiding captured requests.

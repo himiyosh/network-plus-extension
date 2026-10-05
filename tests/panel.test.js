@@ -2733,6 +2733,18 @@ describe('release trust helpers', () => {
     expect(np.hasActiveSearchKeywords([{ query: 'needle' }])).toBe(true);
   });
 
+  test('leaves malformed regex keywords as drafts while other valid keywords remain active', () => {
+    const regex = { regex: true, caseSensitive: false, wholeWord: false };
+    const invalid = { query: '[' };
+    const valid = { query: 'api[.]example' };
+    expect(np.isApplicableSearchKeyword(invalid, regex)).toBe(false);
+    expect(np.hasActiveSearchKeywords([invalid], regex)).toBe(false);
+    expect(np.hasActiveSearchKeywords([invalid, valid], regex)).toBe(true);
+    expect(np.isApplicableSearchKeyword(valid, regex)).toBe(true);
+    expect(np.isApplicableSearchKeyword(invalid, { regex: false })).toBe(true);
+    expect(np.isApplicableSearchKeyword(null, regex)).toBe(false);
+  });
+
   test('preserves the navigated row when new matches arrive before it', () => {
     const first = { id: 1 };
     const current = { id: 2 };
@@ -3352,6 +3364,8 @@ describe('scale trust helpers', () => {
   test('rejects active search keywords but ignores blank rows', () => {
     expect(eligible(null, 0, [{ query: 'needle' }])).toBe(false);
     expect(eligible(null, 0, [{ query: '   ' }])).toBe(true);
+    expect(np.isIncrementalAppendEligible(null, 0, [{ query: '[' }], 0, { regex: true })).toBe(true);
+    expect(np.isIncrementalAppendEligible(null, 0, [{ query: '[' }, { query: 'api' }], 0, { regex: true })).toBe(false);
   });
 
   test('re-evaluates changed state instead of trusting an earlier decision', () => {
@@ -3806,6 +3820,9 @@ describe('keyboard trust helpers', () => {
         'match',
         'duration',
       ]);
+      expect(np.planForcedVisibleColumnIds(sorted, [{ query: '[' }], null, { regex: true })).toEqual(['duration']);
+      expect(np.planForcedVisibleColumnIds(sorted, [{ query: '[' }, { query: 'api' }], null, { regex: true }))
+        .toEqual(['match', 'duration']);
       // Sorting BY Match asks for one exemption, not two.
       expect(
         np.planForcedVisibleColumnIds({ colId: 'match', direction: 'asc' }, [{ query: 'demo' }]),
@@ -7123,6 +7140,14 @@ describe('planVisibleSearchRows', () => {
   test('returns only matching rows when the toggle is on with an active search', () => {
     expect(np.planVisibleSearchRows(sorted, matched, true, true)).toEqual([rowB]);
     expect(np.planVisibleSearchRows(sorted, new Map(), true, true)).toEqual([]);
+  });
+
+  test('keeps captured rows visible when only a malformed regex draft exists', () => {
+    const active = np.hasActiveSearchKeywords([{ query: '[' }], { regex: true });
+    expect(np.planVisibleSearchRows(sorted, new Map(), true, active)).toEqual(sorted);
+    expect(np.planRequestCountSummary({
+      totalCount: 3, shownCount: 3, matchedCount: 0, matchesOnly: true, hasActiveSearch: active,
+    }).text).toBe('3 requests');
   });
 
   test('is defensive about malformed inputs', () => {

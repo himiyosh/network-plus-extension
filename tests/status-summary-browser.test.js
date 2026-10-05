@@ -1084,6 +1084,259 @@ browserTest(
 );
 
 browserTest(
+  'malformed deep-search regex stays a draft while valid keywords filter and navigate',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: `(() => {
+        const chromeApi = globalThis.chrome || {};
+        chromeApi.storage = {
+          local: { get(_keys, callback) { callback({}); }, set(_value, callback) { if (callback) callback(); } },
+        };
+        chromeApi.runtime = { lastError: null, getManifest() { return { version: '1.6.0' }; } };
+        chromeApi.devtools = {
+          network: {
+            onRequestFinished: { addListener(listener) { globalThis.__networkPlusLiveListener = listener; } },
+          },
+          panels: { openResource() {} },
+        };
+        globalThis.chrome = chromeApi;
+      })();`,
+    });
+    try {
+      const cdp = page.cdp;
+      await waitForLiveNetworkListener(cdp);
+      const initial = await evaluate(
+        cdp,
+        `(async () => {
+          for (const [host, path] of [
+            ['api.example.test', '/v1/items'],
+            ['static.example.test', '/site.css'],
+            ['api.example.test', '/v1/users'],
+          ]) {
+            globalThis.__networkPlusLiveListener({
+              startedDateTime: '2026-01-15T12:00:00.000Z',
+              time: 20,
+              request: { method: 'GET', url: 'https://' + host + path, headers: [] },
+              response: { status: 200, headers: [], content: { size: 0, mimeType: 'text/plain' } },
+              getContent(callback) { callback('', ''); },
+            });
+          }
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const snapshot = () => {
+            const inputs = Array.from(document.querySelectorAll('.search-keyword-input'));
+            return {
+              rows: Array.from(document.querySelectorAll('#tbody tr[data-row-id]'))
+                .map((row) => row.dataset.rowId),
+              requestCount: document.querySelector('#counter').textContent,
+              requestAnnouncement: document.querySelector('#requestCountStatus').textContent,
+              searchCount: document.querySelector('#searchCount').textContent,
+              searchAnnouncement: document.querySelector('#searchCountStatus').textContent,
+              notice: document.querySelector('#searchPanelNotice').textContent,
+              status: document.querySelector('#statusText').textContent,
+              regexPressed: document.querySelector('#searchOptRegexBtn').getAttribute('aria-pressed'),
+              matchesOnly: document.querySelector('#searchMatchesOnlyToggle').checked,
+              highlighted: document.querySelectorAll('#tbody .search-hl-1').length,
+              focusIndex: inputs.indexOf(document.activeElement),
+              keywords: inputs.map((input) => {
+                const row = input.closest('.search-keyword-row');
+                const descriptionId = input.getAttribute('aria-describedby');
+                const error = descriptionId ? document.getElementById(descriptionId) : null;
+                return {
+                  value: input.value,
+                  invalid: input.getAttribute('aria-invalid'),
+                  descriptionId,
+                  description: error?.textContent || '',
+                  errorRole: error?.getAttribute('role') || null,
+                  errorVisible: !!error && error.getBoundingClientRect().height > 1,
+                  title: input.title,
+                  count: row.querySelector('.search-kw-count').textContent,
+                  nextDisabled: row.querySelector('[data-search-direction="1"]').disabled,
+                  caret: input.selectionStart,
+                };
+              }),
+            };
+          };
+          const type = (index, query, caret = query.length) => {
+            const input = document.querySelectorAll('.search-keyword-input')[index];
+            if (!input) throw new Error('Search keyword ' + index + ' was not found.');
+            input.focus();
+            input.value = query;
+            input.setSelectionRange(caret, caret);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          const settle = (milliseconds = 450) =>
+            new Promise((resolve) => setTimeout(resolve, milliseconds));
+          globalThis.__deepRegex = { snapshot, type, settle };
+
+          const before = snapshot();
+          document.querySelector('#searchToggleBtn').click();
+          document.querySelector('#searchOptRegexBtn').click();
+          const toggle = document.querySelector('#searchMatchesOnlyToggle');
+          toggle.checked = true;
+          toggle.dispatchEvent(new Event('change', { bubbles: true }));
+          type(0, '[');
+          await settle(1350);
+          return { before, invalid: snapshot() };
+        })()`,
+        true,
+      );
+      expect(initial.before.rows).toEqual(['1', '2', '3']);
+      expect(initial.invalid).toMatchObject({
+        rows: ['1', '2', '3'],
+        requestCount: '3 requests',
+        requestAnnouncement: '3 requests',
+        searchCount: '',
+        searchAnnouncement: '',
+        notice: '',
+        status: 'Matches only is on; valid keywords narrow requests',
+        regexPressed: 'true',
+        matchesOnly: true,
+        highlighted: 0,
+        focusIndex: 0,
+        keywords: [{
+          value: '[', invalid: 'true', errorRole: 'status',
+          errorVisible: true, count: '', nextDisabled: true,
+        }],
+      });
+      const invalidKeyword = initial.invalid.keywords[0];
+      expect(invalidKeyword.descriptionId).toMatch(/^search-keyword-error-/);
+      expect(invalidKeyword.description).toMatch(/^Invalid regular expression:/);
+      expect(invalidKeyword.description).not.toMatch(/Invalid regular expression: Invalid regular expression:/);
+      expect(invalidKeyword.title).toBe(invalidKeyword.description);
+
+      const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      const keywordInput = accessibilityTree.nodes.find(
+        (node) => node.role?.value === 'textbox' && node.name?.value === 'Search keyword 1',
+      );
+      expect(keywordInput?.description?.value).toBe(invalidKeyword.description);
+      expect(keywordInput?.properties?.find((property) => property.name === 'invalid')?.value?.value).toBe('true');
+      expect(
+        accessibilityTree.nodes.some(
+          (node) =>
+            node.role?.value === 'status' &&
+            (node.childIds || []).some(
+              (id) => accessibilityTree.nodes.find((child) => child.nodeId === id)?.name?.value === invalidKeyword.description,
+            ),
+        ),
+      ).toBe(true);
+
+      await evaluate(cdp, "document.querySelector('#filterBtn').focus()");
+      await pressKey(cdp, 'f', 'KeyF', 70, 2);
+      const shortcut = await evaluate(cdp, 'globalThis.__deepRegex.snapshot()');
+      expect(shortcut.focusIndex).toBe(0);
+      expect(shortcut.keywords[0]).toMatchObject({ value: '[', invalid: 'true' });
+
+      const mixed = await evaluate(
+        cdp,
+        `(async () => {
+          document.querySelector('#searchAddBtn').click();
+          globalThis.__deepRegex.type(1, 'api[.]example');
+          await globalThis.__deepRegex.settle(1350);
+          return globalThis.__deepRegex.snapshot();
+        })()`,
+        true,
+      );
+      expect(mixed).toMatchObject({
+        rows: ['1', '3'],
+        requestCount: '2 / 3 requests · matches only',
+        requestAnnouncement: 'showing 2 of 3 requests, showing search matches only',
+        searchCount: '2 matches',
+        notice: 'Showing matches only',
+        status: 'Matches only is on; valid keywords narrow requests',
+        focusIndex: 1,
+        keywords: [
+          { value: '[', invalid: 'true', count: '', nextDisabled: true },
+          { value: 'api[.]example', invalid: null, descriptionId: null, count: '0/2', nextDisabled: false },
+        ],
+      });
+      expect(mixed.highlighted).toBeGreaterThan(0);
+
+      await pressKey(cdp, 'Enter', 'Enter', 13);
+      const forward = await evaluate(cdp, `({
+        selected: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+        focusIndex: globalThis.__deepRegex.snapshot().focusIndex,
+        count: document.querySelectorAll('.search-keyword-row')[1].querySelector('.search-kw-count').textContent,
+      })`);
+      expect(forward).toEqual({ selected: '1', focusIndex: 1, count: '1/2' });
+      await pressKey(cdp, 'Enter', 'Enter', 13, 8);
+      const backward = await evaluate(cdp, `({
+        selected: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+        focusIndex: globalThis.__deepRegex.snapshot().focusIndex,
+        count: document.querySelectorAll('.search-keyword-row')[1].querySelector('.search-kw-count').textContent,
+      })`);
+      expect(backward).toEqual({ selected: '3', focusIndex: 1, count: '2/2' });
+
+      const corrected = await evaluate(
+        cdp,
+        `(async () => {
+          globalThis.__deepRegex.type(0, 'static[.]example', 7);
+          await globalThis.__deepRegex.settle();
+          return globalThis.__deepRegex.snapshot();
+        })()`,
+        true,
+      );
+      expect(corrected).toMatchObject({
+        rows: ['1', '2', '3'],
+        requestCount: '3 requests · matches only',
+        searchCount: '3 matches',
+        focusIndex: 0,
+        keywords: [
+          { value: 'static[.]example', invalid: null, descriptionId: null, description: '', caret: 7, count: '0/1' },
+          { value: 'api[.]example', invalid: null, count: '2/2' },
+        ],
+      });
+
+      const toggled = await evaluate(
+        cdp,
+        `(async () => {
+          const { type, settle, snapshot } = globalThis.__deepRegex;
+          type(0, '[');
+          type(1, 'api');
+          await settle();
+          const regex = snapshot();
+          document.querySelector('#searchOptRegexBtn').click();
+          const literal = snapshot();
+          document.querySelector('#searchOptRegexBtn').click();
+          const restored = snapshot();
+          document.querySelectorAll('.search-keyword-row')[0].querySelector('.search-remove-btn').click();
+          const removed = snapshot();
+          return { regex, literal, restored, removed };
+        })()`,
+        true,
+      );
+      expect(toggled.regex).toMatchObject({
+        rows: ['1', '3'], searchCount: '2 matches',
+        keywords: [{ invalid: 'true', count: '' }, { value: 'api', invalid: null }],
+      });
+      expect(toggled.literal).toMatchObject({
+        rows: ['1', '3'], searchCount: '2 matches', regexPressed: 'false',
+      });
+      expect(toggled.literal.keywords[0]).toMatchObject({
+        value: '[', invalid: null, descriptionId: null, description: '', count: '0',
+      });
+      expect(toggled.restored).toMatchObject({
+        rows: ['1', '3'], regexPressed: 'true',
+      });
+      expect(toggled.restored.keywords[0]).toMatchObject({
+        value: '[', invalid: 'true', errorRole: 'status',
+      });
+      expect(toggled.removed).toMatchObject({
+        rows: ['1', '3'], searchCount: '2 matches',
+        keywords: [{ value: 'api', invalid: null, descriptionId: null, description: '' }],
+      });
+      expect(toggled.removed.keywords).toHaveLength(1);
+      expect(
+        await evaluate(cdp, "document.querySelectorAll('.search-keyword-error:not(:empty)').length"),
+      ).toBe(0);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'auto-scroll follows live requests after Clear and Undo until the reader scrolls upward',
   async () => {
     const page = await launchPanelPage({

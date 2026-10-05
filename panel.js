@@ -1049,9 +1049,9 @@ const _NetworkPlus = (function () {
   // resizingColId is the column under an active keyboard resize. Dropping it
   // ends the gesture and strands the focus that was stepping its width, which
   // is the opposite of what the re-plan after a keyed step is for.
-  function planForcedVisibleColumnIds(sort, searchKeywords, resizingColId) {
+  function planForcedVisibleColumnIds(sort, searchKeywords, resizingColId, searchOptions) {
     const forcedIds = [];
-    if (hasActiveSearchKeywords(searchKeywords)) forcedIds.push('match');
+    if (hasActiveSearchKeywords(searchKeywords, searchOptions)) forcedIds.push('match');
     const sortColId = sort && sort.direction ? sort.colId : null;
     if (sortColId && !forcedIds.includes(sortColId)) forcedIds.push(sortColId);
     if (resizingColId && !forcedIds.includes(resizingColId)) forcedIds.push(resizingColId);
@@ -3230,11 +3230,13 @@ const _NetworkPlus = (function () {
     return colId === 'waterfall' || colId === 'match';
   }
 
-  function hasActiveSearchKeywords(searchKeywords) {
-    return (
-      Array.isArray(searchKeywords) &&
-      searchKeywords.some((keyword) => keyword && String(keyword.query || '').trim() !== '')
-    );
+  function isApplicableSearchKeyword(keyword, options) {
+    const query = keyword ? String(keyword.query || '') : '';
+    return !!query.trim() && !(options && options.regex && compileSearchQuery(query, options).error);
+  }
+
+  function hasActiveSearchKeywords(searchKeywords, options) {
+    return Array.isArray(searchKeywords) && searchKeywords.some((keyword) => isApplicableSearchKeyword(keyword, options));
   }
 
   function preserveMatchingRowIndex(previousMatches, previousIndex, nextMatches) {
@@ -3448,10 +3450,10 @@ const _NetworkPlus = (function () {
     return !!resolvedRow && selectedRow === resolvedRow;
   }
 
-  function isIncrementalAppendEligible(sort, activeFilterCount, searchKeywords, renderedActiveFilterCount) {
+  function isIncrementalAppendEligible(sort, activeFilterCount, searchKeywords, renderedActiveFilterCount, searchOptions) {
     const hasNaturalOrder =
       !sort || !sort.colId || !sort.direction || (sort.colId === 'id' && sort.direction === 'asc');
-    const hasActiveSearch = hasActiveSearchKeywords(searchKeywords);
+    const hasActiveSearch = hasActiveSearchKeywords(searchKeywords, searchOptions);
     const synchronizedFilterCount =
       Number.isFinite(renderedActiveFilterCount) ? renderedActiveFilterCount : activeFilterCount;
     return (
@@ -12927,6 +12929,7 @@ const _NetworkPlus = (function () {
         state.sort,
         state.search.keywords,
         findKeyboardResizeColumnId(typeof document === 'undefined' ? null : document.activeElement),
+        state.search.options,
       ),
       previousHiddenIds,
     });
@@ -13239,7 +13242,7 @@ const _NetworkPlus = (function () {
   // Called from renderBody() so new rows are included in search.
   function refreshSearchMatches() {
     const srch = state.search;
-    const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    const activeKws = srch.keywords.filter((kw) => isApplicableSearchKeyword(kw, srch.options));
     const previousMatches = srch.matches;
     const previousIndex = srch.currentIndex;
     if (activeKws.length === 0) {
@@ -13257,11 +13260,7 @@ const _NetworkPlus = (function () {
     // Build per-keyword match lists while retaining each navigated row when it still matches.
     for (let ki = 0; ki < srch.keywords.length; ki++) {
       const kw = srch.keywords[ki];
-      if (!kw.query || !kw.query.trim()) {
-        srch.perKeyword.set(ki, { matches: [], currentIndex: -1 });
-        continue;
-      }
-      if (srch.options.regex && compileSearchQuery(kw.query, srch.options).error) {
+      if (!isApplicableSearchKeyword(kw, srch.options)) {
         srch.perKeyword.set(ki, { matches: [], currentIndex: -1 });
         continue;
       }
@@ -13555,7 +13554,7 @@ const _NetworkPlus = (function () {
       state.filteredRows,
       state.search.rowColors,
       state.search.matchesOnly,
-      hasActiveSearchKeywords(state.search.keywords),
+      hasActiveSearchKeywords(state.search.keywords, state.search.options),
     ).length;
   }
 
@@ -13566,7 +13565,7 @@ const _NetworkPlus = (function () {
       shownCount: Number.isFinite(visibleRowCount) ? visibleRowCount : countVisibleRows(),
       totalCount: state.rows.length,
       matchedCount: state.search.rowColors.size,
-      hasActiveSearch: hasActiveSearchKeywords(state.search.keywords),
+      hasActiveSearch: hasActiveSearchKeywords(state.search.keywords, state.search.options),
       matchesOnly: state.search.matchesOnly,
       activeFilterCount,
     });
@@ -13602,7 +13601,7 @@ const _NetworkPlus = (function () {
       }
     }
     const srch = state.search;
-    const activeKeywords = srch.keywords.filter((keyword) => keyword.query && keyword.query.trim());
+    const activeKeywords = srch.keywords.filter((keyword) => isApplicableSearchKeyword(keyword, srch.options));
     const countEl = $('#searchCount');
     if (countEl) {
       if (srch.matches.length === 0 && activeKeywords.length > 0) {
@@ -13655,6 +13654,7 @@ const _NetworkPlus = (function () {
         activeFilterCount,
         state.search.keywords,
         state.renderedActiveFilterCount,
+        state.search.options,
       )
     ) {
       return false;
@@ -13764,7 +13764,7 @@ const _NetworkPlus = (function () {
       getSortedRows(state.filteredRows),
       state.search.rowColors,
       state.search.matchesOnly,
-      hasActiveSearchKeywords(state.search.keywords),
+      hasActiveSearchKeywords(state.search.keywords, state.search.options),
     );
     const visibleBytes = rows.reduce((total, row) => total + (row.size || 0), 0);
     updateEmptyState(rows.length);
@@ -16373,7 +16373,7 @@ const _NetworkPlus = (function () {
       state.filteredRows,
       state.search.rowColors,
       state.search.matchesOnly,
-      hasActiveSearchKeywords(state.search.keywords),
+      hasActiveSearchKeywords(state.search.keywords, state.search.options),
     );
   }
 
@@ -18778,7 +18778,7 @@ const _NetworkPlus = (function () {
       saveSearchPrefs(currentSearchPrefs());
       setStatus(
         state.search.matchesOnly
-          ? 'Showing only requests that match search keywords'
+          ? 'Matches only is on; valid keywords narrow requests'
           : 'Showing all requests with search highlights',
       );
     });
@@ -18919,16 +18919,32 @@ const _NetworkPlus = (function () {
         input.placeholder = 'Enter search keyword...';
         input.value = kw.query;
         input.setAttribute('aria-label', 'Search keyword ' + (i + 1));
-        const keywordRegexError =
-          state.search.options.regex && kw.query.trim()
-            ? compileSearchQuery(kw.query, state.search.options).error
+        const errorMessage = document.createElement('span');
+        errorMessage.className = 'search-keyword-error';
+        errorMessage.id = 'search-keyword-error-' + i;
+        errorMessage.setAttribute('role', 'status');
+        errorMessage.setAttribute('aria-atomic', 'true');
+        const updateKeywordFeedback = () => {
+          const error = state.search.options.regex && input.value.trim()
+            ? compileSearchQuery(input.value, state.search.options).error
             : null;
-        if (keywordRegexError) {
-          input.classList.add('search-keyword-input-error');
-          input.title = 'Invalid regular expression: ' + keywordRegexError;
-        }
+          const message = error
+            ? error.startsWith('Invalid regular expression:') ? error : 'Invalid regular expression: ' + error
+            : '';
+          input.classList.toggle('search-keyword-input-error', !!message);
+          input.title = message;
+          if (message) {
+            input.setAttribute('aria-invalid', 'true');
+            input.setAttribute('aria-describedby', errorMessage.id);
+          } else {
+            input.removeAttribute('aria-invalid');
+            input.removeAttribute('aria-describedby');
+          }
+          errorMessage.textContent = message;
+        };
         input.addEventListener('input', () => {
           state.search.keywords[i].query = input.value;
+          updateKeywordFeedback();
           debouncedSearch();
         });
         input.addEventListener('keydown', (e) => {
@@ -18950,7 +18966,7 @@ const _NetworkPlus = (function () {
         const kwCurIdx = kwData ? kwData.currentIndex : -1;
         const countSpan = document.createElement('span');
         countSpan.className = 'search-kw-count';
-        if (kw.query.trim() && kwMatchCount === 0) {
+        if (isApplicableSearchKeyword(kw, state.search.options) && kwMatchCount === 0) {
           countSpan.textContent = '0';
           countSpan.style.color = 'var(--status-5xx-text)';
         } else if (kwMatchCount > 0) {
@@ -18999,7 +19015,9 @@ const _NetworkPlus = (function () {
           row.appendChild(removeBtn);
         }
 
+        row.appendChild(errorMessage);
         searchRows.appendChild(row);
+        updateKeywordFeedback();
       }
       // Restore focus to the same keyword input
       if (focusedIdx >= 0) {
@@ -19024,13 +19042,6 @@ const _NetworkPlus = (function () {
 
     function executeSearch() {
       const srch = state.search;
-      const activeKws = srch.keywords.filter((kw) => kw.query.trim());
-      if (activeKws.length === 0) {
-        srch.currentIndex = -1;
-        searchCount.textContent = '';
-        renderGridAfterSearchChange();
-        return;
-      }
       // refreshSearchMatches() is called inside renderBody()
       srch.currentIndex = -1; // reset navigation to recalculate after render
       renderGridAfterSearchChange();
@@ -19042,7 +19053,7 @@ const _NetworkPlus = (function () {
 
     function updateSearchUI() {
       const srch = state.search;
-      const activeKws = srch.keywords.filter((kw) => kw.query.trim());
+      const activeKws = srch.keywords.filter((kw) => isApplicableSearchKeyword(kw, srch.options));
       if (srch.matches.length === 0 && activeKws.length > 0) {
         searchCount.textContent = 'No matches';
         searchCount.style.color = 'var(--status-5xx-text)';
@@ -19302,7 +19313,7 @@ const _NetworkPlus = (function () {
     const scheduleResponseSearchRefresh = (row) => {
       if (
         !isActiveRetainedRow(row, state.retainedRows, state.activeRows) ||
-        !hasActiveSearchKeywords(state.search.keywords)
+        !hasActiveSearchKeywords(state.search.keywords, state.search.options)
       ) {
         return;
       }
@@ -19310,7 +19321,7 @@ const _NetworkPlus = (function () {
       pendingResponseSearchFrame = true;
       window.requestAnimationFrame(() => {
         pendingResponseSearchFrame = false;
-        if (!hasActiveSearchKeywords(state.search.keywords)) return;
+        if (!hasActiveSearchKeywords(state.search.keywords, state.search.options)) return;
         renderGridAfterSearchChange();
         updateSearchUI();
       });
@@ -19413,6 +19424,7 @@ const _NetworkPlus = (function () {
           countActiveColumnFilters(state.columnFilterRules),
           state.search.keywords,
           state.renderedActiveFilterCount,
+          state.search.options,
         );
         if (!fastPathEligible || !appendIncrementalRows(liveRows)) renderBody();
         if (shouldScrollToBottom && state.autoScroll) {
@@ -20563,6 +20575,7 @@ const _NetworkPlus = (function () {
     isRuleActive,
     countActiveColumnFilters,
     isVisualOnlyColumn,
+    isApplicableSearchKeyword,
     hasActiveSearchKeywords,
     compileSearchQuery,
     normalizeSearchPrefs,
