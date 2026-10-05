@@ -1828,7 +1828,7 @@ const _NetworkPlus = (function () {
     for (const column of columns) {
       const colId = column && column.id;
       if (isVisualOnlyColumn(colId)) continue;
-      const rule = colId ? filterRules[colId] : null;
+      const rule = colId ? getApplicableFilterRule(filterRules[colId]) : null;
       if (!rule) continue;
       const value = getRowFilterValue(targetRow, colId);
       const isNumeric = NUMERIC_COLUMNS.includes(colId);
@@ -3171,7 +3171,25 @@ const _NetworkPlus = (function () {
     return op === 'empty' || op === 'notempty';
   }
 
+  function getFilterRegexError(rule) {
+    if (!rule || rule.op !== 'regex' || rule.value == null || !String(rule.value).trim()) return '';
+    const error = compileSearchQuery(String(rule.value), { regex: true }).error;
+    return error && !error.startsWith('Invalid regular expression:')
+      ? 'Invalid regular expression: ' + error
+      : error || '';
+  }
+
+  function getApplicableFilterRule(rule) {
+    if (!rule) return null;
+    if (rule.mode === 'multiText' && Array.isArray(rule.conditions)) {
+      const conditions = rule.conditions.filter((condition) => !getFilterRegexError(condition));
+      return conditions.length === rule.conditions.length ? rule : { ...rule, conditions };
+    }
+    return getFilterRegexError(rule) ? null : rule;
+  }
+
   function isRuleActive(rule) {
+    rule = getApplicableFilterRule(rule);
     if (!rule) return false;
     if (rule.mode === 'methodSet') {
       return rule.include ? HTTP_METHODS.some((method) => rule.include[method] !== true) : false;
@@ -8598,16 +8616,18 @@ const _NetworkPlus = (function () {
   }
 
   function filterRows() {
+    const filters = [];
+    for (const col of state.columns) {
+      const colId = col.id;
+      if (isVisualOnlyColumn(colId)) continue;
+      const rule = getApplicableFilterRule(state.columnFilterRules[colId]);
+      if (rule) filters.push({ colId, rule, isNumeric: NUMERIC_COLUMNS.indexOf(colId) > -1 });
+    }
     state.filteredRows = state.rows.filter((r) => {
       // Per-column advanced filters
-      for (const col of state.columns) {
-        const colId = col.id;
-        if (isVisualOnlyColumn(colId)) continue;
-        const rule = state.columnFilterRules[colId];
-        if (!rule) continue;
-        const rowValue = getRowFilterValue(r, colId);
-        const isNumeric = NUMERIC_COLUMNS.indexOf(colId) > -1;
-        if (!evaluateFilterRule(rowValue, rule, isNumeric)) return false;
+      for (const filter of filters) {
+        const rowValue = getRowFilterValue(r, filter.colId);
+        if (!evaluateFilterRule(rowValue, filter.rule, filter.isNumeric)) return false;
       }
       return true;
     });
@@ -11802,6 +11822,30 @@ const _NetworkPlus = (function () {
     return NUMERIC_COLUMNS.indexOf(colId) > -1 ? FILTER_OPERATORS_NUMERIC : FILTER_OPERATORS_STRING;
   }
 
+  let nextFilterRegexErrorId = 0;
+  function createFilterRegexFeedback(opSelect, input, container) {
+    const message = document.createElement('span');
+    message.className = 'filter-regex-error';
+    message.id = 'filter-regex-error-' + ++nextFilterRegexErrorId;
+    message.setAttribute('role', 'status');
+    message.setAttribute('aria-atomic', 'true');
+    container.appendChild(message);
+
+    const update = () => {
+      const error = getFilterRegexError({ op: opSelect.value, value: input.value });
+      if (error) {
+        input.setAttribute('aria-invalid', 'true');
+        input.setAttribute('aria-describedby', message.id);
+      } else {
+        input.removeAttribute('aria-invalid');
+        input.removeAttribute('aria-describedby');
+      }
+      message.textContent = error;
+    };
+    update();
+    return update;
+  }
+
   function createColumnFilterControl(colId, onChange) {
     const wrap = document.createElement('div');
     wrap.className = 'filter-rule';
@@ -12091,6 +12135,10 @@ const _NetworkPlus = (function () {
             state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
             onChange();
             renderConditions();
+            const nextInput = wrap.querySelectorAll('.filter-condition-row .filter-value')[
+              Math.min(idx, conditions.length - 1)
+            ];
+            if (nextInput) nextInput.focus();
           });
 
           opSelect.addEventListener('change', () => {
@@ -12098,17 +12146,20 @@ const _NetworkPlus = (function () {
             updateInputState();
             conditions[idx].value = input.value;
             state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
+            updateRegexFeedback();
             onChange();
           });
           input.addEventListener('input', () => {
             conditions[idx].value = input.value;
             state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
+            updateRegexFeedback();
             onChange();
           });
 
           row.appendChild(opSelect);
           row.appendChild(input);
           if (conditions.length > 1) row.appendChild(removeBtn);
+          const updateRegexFeedback = createFilterRegexFeedback(opSelect, input, row);
           wrap.appendChild(row);
         });
 
@@ -12160,15 +12211,18 @@ const _NetworkPlus = (function () {
       state.columnFilterRules[colId].op = opSelect.value;
       updateInputState();
       state.columnFilterRules[colId].value = input.value;
+      updateRegexFeedback();
       onChange();
     });
     input.addEventListener('input', () => {
       state.columnFilterRules[colId].value = input.value;
+      updateRegexFeedback();
       onChange();
     });
 
     wrap.appendChild(opSelect);
     wrap.appendChild(input);
+    const updateRegexFeedback = createFilterRegexFeedback(opSelect, input, wrap);
     return wrap;
   }
 
@@ -20531,6 +20585,8 @@ const _NetworkPlus = (function () {
     buildHarResponseContent,
     cacheResponseContent,
     isValuelessFilterOperator,
+    getFilterRegexError,
+    getApplicableFilterRule,
     isRuleActive,
     countActiveColumnFilters,
     isVisualOnlyColumn,

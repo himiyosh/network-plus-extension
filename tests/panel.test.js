@@ -442,6 +442,27 @@ describe('guided local sample capture', () => {
     expect(JSON.stringify(rules)).toBe(snapshot);
   });
 
+  test('does not release malformed regex drafts when navigating sample evidence', () => {
+    const rules = np.deserializeFilterState({
+      type: { op: 'regex', value: '[' },
+      domain: {
+        mode: 'multiText',
+        conditions: [{ op: 'contains', value: 'api.network-plus.test' }, { op: 'regex', value: '[' }],
+      },
+    });
+    const plan = np.planSampleEvidenceNavigation({
+      sampleCaptureActive: true,
+      rows: createNavigationRows(),
+      destination: 'timing',
+      columns: [{ id: 'type' }, { id: 'domain' }],
+      columnFilterRules: rules,
+    });
+
+    expect(plan.blockingFilterIds).toEqual(['domain']);
+    expect(rules.type.value).toBe('[');
+    expect(rules.domain.conditions).toHaveLength(2);
+  });
+
   test('fails closed for missing, ambiguous, inactive, real, imported, or non-reserved targets', () => {
     const rows = createNavigationRows();
     const failedRow = rows.find((row) => row.status === 503);
@@ -2644,6 +2665,35 @@ describe('active column filter helpers', () => {
   test('counts value-less multiText conditions as active', () => {
     expect(np.isRuleActive({ mode: 'multiText', conditions: [{ op: 'empty', value: '' }] })).toBe(true);
     expect(np.isRuleActive({ mode: 'multiText', conditions: [{ op: 'notempty', value: '' }] })).toBe(true);
+  });
+
+  test('keeps malformed regex drafts out of the applied filter count', () => {
+    const malformed = { op: 'regex', value: '[' };
+    expect(np.getFilterRegexError(malformed)).toMatch(/^Invalid regular expression:/);
+    expect(np.getFilterRegexError({ op: 'regex', value: 'a+' })).toBe('');
+    expect(np.getFilterRegexError({ op: 'regex', value: '   ' })).toBe('');
+    expect(np.getFilterRegexError({ op: 'contains', value: '[' })).toBe('');
+    expect(np.getApplicableFilterRule(malformed)).toBeNull();
+    expect(np.isRuleActive(malformed)).toBe(false);
+    expect(np.countActiveColumnFilters({ type: malformed })).toBe(0);
+    expect(np.isRuleActive({ op: 'regex', value: 'a+' })).toBe(true);
+  });
+
+  test('applies valid multiText conditions without mutating an invalid regex draft', () => {
+    const conditions = [
+      { op: 'contains', value: 'api' },
+      { op: 'regex', value: '[' },
+      { op: 'regex', value: '\\.test$' },
+    ];
+    const rule = { mode: 'multiText', conditions };
+    const applicable = np.getApplicableFilterRule(rule);
+    expect(applicable.conditions).toEqual([conditions[0], conditions[2]]);
+    expect(rule.conditions).toEqual(conditions);
+    expect(np.isRuleActive(rule)).toBe(true);
+    expect(np.evaluateFilterRule('api.test', applicable, false)).toBe(true);
+    expect(np.evaluateFilterRule('web.test', applicable, false)).toBe(false);
+    expect(np.isRuleActive({ mode: 'multiText', conditions: [conditions[1]] })).toBe(false);
+    expect(np.countActiveColumnFilters({ domain: { mode: 'multiText', conditions: [conditions[1]] } })).toBe(0);
   });
 
   test('identifies value-less filter operators', () => {
