@@ -7405,46 +7405,18 @@ browserTest(
       expect(breakdown.fullText).toBe(injected.adUrl);
       expect(breakdown.fullHasWbr).toBe(true);
 
-      // Request Headers has a toolbar of its own now, and the URL row keeps the
-      // same address twice: once on screen and once inside the hidden reveal.
-      // The search must count what the reader can see. Counting both made every
-      // hit in the row a pair and stepped the reader through an invisible copy
-      // of the text in front of them.
-      const headerSearch = await evaluate(
+      // Headers has no pane search now. Its full URL stays available through
+      // the existing reveal control, and the same captured URL is searchable
+      // in Raw without indexing the hidden second copy in Headers.
+      const headersWithoutSearch = await evaluate(
         cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-headers .pane-search-input');
-          input.value = 'gampad';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelectorAll('#req-headers mark.pane-search-hit').length > 0, 400);
-          const hits = Array.from(document.querySelectorAll('#req-headers mark.pane-search-hit'));
-          return {
-            hits: hits.length,
-            inFull: hits.filter((mark) => mark.closest('.url-breakdown-full')).length,
-            occurrencesInUrl: document.querySelector('#req-headers .url-breakdown-full').textContent.split('gampad')
-              .length - 1,
-            count: document.querySelector('#req-headers .pane-search-count').textContent,
-            placeholder: document.querySelector('#req-headers .pane-search-input').placeholder,
-          };
-        })()`,
-        true,
+        `(() => ({
+          bars: document.querySelectorAll('#req-headers .pane-search-bar').length,
+          hits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
+          fullUrl: document.querySelector('#req-headers .url-breakdown-full').textContent,
+        }))()`,
       );
-      expect(headerSearch.placeholder).toBe('Search in request headers');
-      expect(headerSearch.occurrencesInUrl).toBe(1);
-      expect(headerSearch.hits).toBe(1);
-      expect(headerSearch.inFull).toBe(0);
-      expect(headerSearch.count).toBe('1 / 1');
-      await evaluate(
-        cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-headers .pane-search-input');
-          input.value = '';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelectorAll('#req-headers mark.pane-search-hit').length === 0, 400);
-          return true;
-        })()`,
-        true,
-      );
+      expect(headersWithoutSearch).toEqual({ bars: 0, hits: 0, fullUrl: injected.adUrl });
 
       const revealed = await evaluate(
         cdp,
@@ -7472,84 +7444,45 @@ browserTest(
       // line count lands within a pixel of the bound and flips with the font.
       expect(breakdown.valHeight).toBeLessThan(revealed.fullHeight);
 
-      // A match in the tail of the address is a hit the reader is stepped to
-      // and cannot see: the four-line clip keeps it in layout, so it counts
-      // and navigates, and "Show full URL" beside it opens a DIFFERENT node —
-      // pressing that left the marked run exactly where it was. The reveal
-      // lifts the clip on the address itself. No pixel, line count or height
-      // is pinned: the clip is four lines of whatever face the browser has,
-      // and the claim is where the mark sits relative to the box it is in.
-      const clippedHit = await evaluate(
+      const rawTailSearch = await evaluate(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
-          const address = document.querySelector('#req-headers .url-breakdown-address');
-          const expandedBefore = address.classList.contains('url-breakdown-address--expanded');
-          const clippedBefore = address.scrollHeight > address.clientHeight;
-          const count = () => document.querySelector('#req-headers .pane-search-count').textContent;
-          const input = document.querySelector('#req-headers .pane-search-input');
-          const before = count();
-          // A run inside ONE text node: the address paints each parameter's
-          // name in a span of its own, so 'p30=' straddles two nodes and the
-          // highlighter — which marks inside a text node — never sees it. This
-          // is the last parameter's value, so the match is past the fourth line.
+          document.querySelector('#req-tab-raw').click();
+          const input = document.querySelector('#req-raw .pane-search-input');
           input.value = 'vvv30';
           input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => count() !== before, 400);
-          const mark = document.querySelector('#req-headers .url-breakdown-address mark.pane-search-hit');
-          const markRect = mark ? mark.getBoundingClientRect() : null;
-          const box = address.getBoundingClientRect();
-          return {
-            count: count(),
-            hits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
-            markInAddress: !!mark,
-            expandedBefore,
-            clippedBefore,
-            expandedAfter: address.classList.contains('url-breakdown-address--expanded'),
-            markInsideBox: markRect ? markRect.top >= box.top - 0.5 && markRect.bottom <= box.bottom + 0.5 : null,
+          await waitFor(() => document.querySelector('#req-raw .pane-search-count').textContent === '1 / 1', 400);
+          const result = {
+            count: document.querySelector('#req-raw .pane-search-count').textContent,
+            hits: document.querySelectorAll('#req-raw mark.pane-search-hit').length,
+            headerHits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
           };
+          document.querySelector('#req-tab-headers').click();
+          return result;
         })()`,
         true,
       );
-      // Non-vacuous: the address really was clipped, and really was folded.
-      expect(clippedHit.clippedBefore).toBe(true);
-      expect(clippedHit.expandedBefore).toBe(false);
-      expect(clippedHit.hits).toBe(1);
-      expect(clippedHit.count).toBe('1 / 1');
-      expect(clippedHit.markInAddress).toBe(true);
-      expect(clippedHit.expandedAfter).toBe(true);
-      expect(clippedHit.markInsideBox).toBe(true);
-      await evaluate(
-        cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-headers .pane-search-input');
-          input.value = '';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelectorAll('#req-headers mark.pane-search-hit').length === 0, 400);
-          return true;
-        })()`,
-        true,
-      );
-      // Lifting the clip must not change what the row holds: the address is
-      // still one block of inline spans, so a drag across it carries the URL
-      // verbatim with no newline in it — the thing the single-block address
-      // was built for in the first place.
-      const unfoldedSelection = await evaluate(
+      expect(rawTailSearch).toEqual({ count: '1 / 1', hits: 1, headerHits: 0 });
+
+      // Showing the hidden full URL still gives a copyable, exact address;
+      // searching Raw no longer unfolds or changes the clipped Header row.
+      const revealedSelection = await evaluate(
         cdp,
         `(() => {
           const address = document.querySelector('#req-headers .url-breakdown-address');
+          const full = document.querySelector('#req-headers .url-breakdown-full');
           const selection = window.getSelection();
           selection.removeAllRanges();
           const range = document.createRange();
-          range.selectNodeContents(address);
+          range.selectNodeContents(full);
           selection.addRange(range);
           const text = selection.toString();
           selection.removeAllRanges();
-          return { expanded: address.classList.contains('url-breakdown-address--expanded'), text };
+          return { clipped: address.scrollHeight > address.clientHeight, fullVisible: !full.hidden, text };
         })()`,
       );
-      expect(unfoldedSelection.expanded).toBe(true);
-      expect(unfoldedSelection.text).toBe(injected.adUrl);
-      expect(unfoldedSelection.text).not.toContain('\n');
+      expect(revealedSelection).toEqual({ clipped: true, fullVisible: true, text: injected.adUrl });
+      expect(revealedSelection.text).not.toContain('\n');
 
       const opened = await evaluate(
         cdp,
@@ -8135,10 +8068,10 @@ browserTest(
 );
 // The Query pane, item by item: a value that is an absolute address renders as
 // one, a value that is itself a query string files its pairs under a collapsed
-// disclosure, a comma list may break after its commas, and the pane carries the
-// same toolbar Body and Raw carry. The values arrive already decoded by
-// searchParams, so what is nested inside them is decoded once more — and none
-// of that decoded text may reach the clipboard, which reads the captured URL.
+// disclosure, a comma list may break after its commas, and the copy actions
+// remain above the grid without a search bar. The values arrive already
+// decoded by searchParams, so what is nested inside them is decoded once more
+// — and none of that decoded text may reach a sanitized clipboard copy.
 const QUERY_PANE_KEYWORDS = Array.from({ length: 12 }, (_unused, index) => 'kw' + index).join(',');
 
 const QUERY_PANE_URL =
@@ -8191,16 +8124,24 @@ const QUERY_PANE_INJECT = `(async () => {
   globalThis.__networkPlusLiveListener({
     startedDateTime: new Date(1704067200000).toISOString(),
     time: 40,
-    request: { method: 'GET', url: ${JSON.stringify(QUERY_PANE_URL)}, httpVersion: 'HTTP/2', headers: [] },
+    request: {
+      method: 'GET',
+      url: ${JSON.stringify(QUERY_PANE_URL)},
+      httpVersion: 'HTTP/2',
+      headers: [{ name: 'Cookie', value: 'session=test-session' }],
+    },
     response: {
       status: 200,
       statusText: 'OK',
       httpVersion: 'HTTP/2',
-      headers: [{ name: 'content-type', value: 'text/plain' }],
-      content: { size: 2, mimeType: 'text/plain' },
+      headers: [
+        { name: 'content-type', value: 'text/plain' },
+        { name: 'set-cookie', value: 'session=test-session; Path=/' },
+      ],
+      content: { size: 0, mimeType: 'text/plain' },
     },
     getContent(callback) {
-      callback('ok', '');
+      callback('', '');
     },
   });
   await settle();
@@ -8236,10 +8177,12 @@ const QUERY_PANE_MEASURE = `(() => {
   // nodes still concatenate to the value the parameter holds.
   const tagNodes = Array.from(tags.childNodes);
   return {
-    // The toolbar is the pane's first element child and carries the copy pair.
-    toolbarFirst: pane.firstElementChild.className,
-    copyLabels: Array.from(pane.querySelectorAll('.pane-search-bar .copy-btn')).map((btn) => btn.textContent),
-    strayCopyActions: pane.querySelectorAll(':scope > .copy-actions').length,
+    // The copy pair stays first without a search bar and keeps accessible names.
+    firstElementClass: pane.firstElementChild.className,
+    copyLabels: Array.from(pane.querySelectorAll(':scope > .copy-actions .copy-btn')).map((btn) => btn.textContent),
+    copyNames: Array.from(pane.querySelectorAll(':scope > .copy-actions .copy-btn')).map((btn) => btn.getAttribute('aria-label')),
+    searchBars: pane.querySelectorAll('.pane-search-bar').length,
+    topCopyActions: pane.querySelectorAll(':scope > .copy-actions').length,
     outerKeys: Array.from(grid.querySelectorAll(':scope > .key')).map((key) => key.textContent),
     // Every row of this pane carries the row-end control, and it sits BESIDE
     // the value cell rather than inside it, so no line of a value can run
@@ -8285,30 +8228,22 @@ const QUERY_PANE_MEASURE = `(() => {
   };
 })()`;
 
-const QUERY_PANE_BAND_MEASURE = `(() => {
+const QUERY_PANE_COPY_FIT_MEASURE = `(() => {
   const pane = document.querySelector('#req-query');
-  const bar = pane.querySelector('.pane-search-bar');
-  const rowsOf = (elements) => {
-    const centres = [];
-    for (const element of elements) {
-      const rect = element.getBoundingClientRect();
-      if (!rect.width) continue;
-      const centre = rect.top + rect.height / 2;
-      if (!centres.some((known) => Math.abs(known - centre) < 8)) centres.push(centre);
-    }
-    return centres.length;
-  };
+  const copyActions = pane.querySelector(':scope > .copy-actions');
   return {
     paneWidth: Math.round(document.querySelector('#details').getBoundingClientRect().width),
-    barRows: rowsOf(Array.from(bar.children)),
-    barOverflow: Math.round(bar.scrollWidth - bar.clientWidth),
+    copyOverflow: Math.round(copyActions.scrollWidth - copyActions.clientWidth),
+    copyButtonsVisible: Array.from(copyActions.querySelectorAll('.copy-btn')).every(
+      (button) => button.getClientRects().length > 0 && button.getBoundingClientRect().width > 0,
+    ),
     paneOverflow: Math.round(pane.scrollWidth - pane.clientWidth),
     gridOverflow: Math.round(pane.querySelector(':scope > .kv').scrollWidth - pane.clientWidth),
   };
 })()`;
 
 browserTest(
-  'the Query pane segments URL values, nests query values behind a disclosure, and carries its own toolbar',
+  'the Query pane segments URL values, nests query values and retains copy actions without search',
   async () => {
     const page = await launchPanelPage({
       executable: browserExecutable,
@@ -8323,10 +8258,129 @@ browserTest(
       await settleLayout(cdp);
       const measured = await evaluate(cdp, QUERY_PANE_MEASURE);
 
-      expect(measured.toolbarFirst).toBe('pane-search-bar');
+      expect(measured.firstElementClass).toBe('copy-actions');
       expect(measured.copyLabels).toEqual(['Copy sanitized', 'Copy full...']);
-      expect(measured.strayCopyActions).toBe(0);
+      expect(measured.copyNames).toEqual(measured.copyLabels);
+      expect(measured.topCopyActions).toBe(1);
+      expect(measured.searchBars).toBe(0);
       expect(measured.outerKeys).toEqual(['redirect', 'utm', 'deep', 'tags', 'plain', 'token']);
+
+      const searchPlacement = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          await waitFor(() => !!document.querySelector('#res-body .pane-search-bar'), 400);
+          const searchable = ['req-body', 'req-raw', 'res-body', 'res-raw'];
+          const withoutSearch = ['req-headers', 'req-query', 'req-cookies', 'res-headers', 'res-cookies', 'res-timing'];
+          const bars = Object.fromEntries([...searchable, ...withoutSearch].map(
+            (id) => [id, document.querySelectorAll('#' + id + ' .pane-search-bar').length],
+          ));
+          const requestEmpty = document.querySelector('#req-body .pane-empty').textContent;
+          const responseEmpty = document.querySelector('#res-body pre.code-block').textContent;
+          const requestInput = document.querySelector('#req-body .pane-search-input');
+          const responseInput = document.querySelector('#res-body .pane-search-input');
+          requestInput.value = requestEmpty;
+          responseInput.value = responseEmpty;
+          requestInput.dispatchEvent(new Event('input', { bubbles: true }));
+          responseInput.dispatchEvent(new Event('input', { bubbles: true }));
+          const reqCount = () => document.querySelector('#req-body .pane-search-count').textContent;
+          const resCount = () => document.querySelector('#res-body .pane-search-count').textContent;
+          await waitFor(() => reqCount() === 'No matches' && resCount() === 'No matches', 500);
+          const tabShortcuts = [];
+          for (const [tabId, paneId, modifier] of [
+            ['req-tab-body', 'req-body', 'ctrlKey'],
+            ['req-tab-raw', 'req-raw', 'metaKey'],
+            ['res-tab-body', 'res-body', 'ctrlKey'],
+            ['res-tab-raw', 'res-raw', 'metaKey'],
+          ]) {
+            const tab = document.getElementById(tabId);
+            const input = document.querySelector('#' + paneId + ' .pane-search-input');
+            tab.click();
+            tab.focus();
+            const visible = input.getClientRects().length > 0;
+            tab.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'f', [modifier]: true, bubbles: true, cancelable: true,
+            }));
+            tabShortcuts.push({
+              tab: tabId,
+              visible,
+              focused: document.activeElement === input,
+              globalSearchHidden: document.querySelector('#searchPanel').style.display === 'none',
+            });
+          }
+          document.querySelector('#req-tab-query').click();
+          document.querySelector('#res-tab-headers').click();
+          return {
+            bars,
+            requestEmpty,
+            responseEmpty,
+            requestCount: reqCount(),
+            responseCount: resCount(),
+            requestHits: document.querySelectorAll('#req-body mark.pane-search-hit').length,
+            responseHits: document.querySelectorAll('#res-body mark.pane-search-hit').length,
+            requestNavDisabled: Array.from(document.querySelectorAll('#req-body .pane-search-nav:not(.pane-search-expand)')).every((button) => button.disabled),
+            responseNavDisabled: Array.from(document.querySelectorAll('#res-body .pane-search-nav:not(.pane-search-expand)')).every((button) => button.disabled),
+            cookieRows: [
+              document.querySelectorAll('#req-cookies .cookie-table tbody > tr').length,
+              document.querySelectorAll('#res-cookies .cookie-table tbody > tr').length,
+            ],
+            tabShortcuts,
+          };
+        })()`,
+        true,
+      );
+      expect(searchPlacement).toEqual({
+        bars: {
+          'req-body': 1, 'req-raw': 1, 'res-body': 1, 'res-raw': 1,
+          'req-headers': 0, 'req-query': 0, 'req-cookies': 0,
+          'res-headers': 0, 'res-cookies': 0, 'res-timing': 0,
+        },
+        requestEmpty: 'No request body',
+        responseEmpty: '(no response body)',
+        requestCount: 'No matches',
+        responseCount: 'No matches',
+        requestHits: 0,
+        responseHits: 0,
+        requestNavDisabled: true,
+        responseNavDisabled: true,
+        cookieRows: [1, 1],
+        tabShortcuts: [
+          { tab: 'req-tab-body', visible: true, focused: true, globalSearchHidden: true },
+          { tab: 'req-tab-raw', visible: true, focused: true, globalSearchHidden: true },
+          { tab: 'res-tab-body', visible: true, focused: true, globalSearchHidden: true },
+          { tab: 'res-tab-raw', visible: true, focused: true, globalSearchHidden: true },
+        ],
+      });
+
+      // Ctrl+F from a selected Headers tab or the Query copy pair uses global
+      // request search, not the Body/Raw search in another tab.
+      const shortcut = await evaluate(
+        cdp,
+        `(() => {
+          const headers = document.querySelector('#req-tab-headers');
+          headers.click();
+          headers.focus();
+          headers.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }));
+          const fromHeaders = {
+            focused: document.activeElement.className,
+            globalSearchVisible: document.querySelector('#searchPanel').style.display === 'block',
+          };
+          document.querySelector('#searchToggleBtn').click();
+          document.querySelector('#req-tab-query').click();
+          const button = document.querySelector('#req-query > .copy-actions .copy-btn');
+          button.focus();
+          button.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }));
+          const fromQuery = {
+            focused: document.activeElement.className,
+            globalSearchVisible: document.querySelector('#searchPanel').style.display === 'block',
+          };
+          document.querySelector('#searchToggleBtn').click();
+          return { fromHeaders, fromQuery };
+        })()`,
+      );
+      expect(shortcut).toEqual({
+        fromHeaders: { focused: 'search-keyword-input', globalSearchVisible: true },
+        fromQuery: { focused: 'search-keyword-input', globalSearchVisible: true },
+      });
 
       // The pane where the row-end control matters most had none at all: the
       // items pass a prebuilt node, and a node-valued row has to state its
@@ -8385,29 +8439,6 @@ browserTest(
       expect(opened.keys).toEqual(['utm_source', 'utm_id', 'cid']);
       expect(opened.values).toEqual(['news', '77', 'abc']);
 
-      // The pane's search reads the visible rows, including the nested pairs
-      // the reader just opened, and counts each hit once — the URL row's
-      // hidden copy of the address is the one place a hit is not doubled.
-      const searched = await evaluate(
-        cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-query .pane-search-input');
-          input.value = 'utm_id';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelectorAll('#req-query mark.pane-search-hit').length > 0, 400);
-          return {
-            hits: document.querySelectorAll('#req-query mark.pane-search-hit').length,
-            count: document.querySelector('#req-query .pane-search-count').textContent,
-          };
-        })()`,
-        true,
-      );
-      // Once, in the parameter's own text. The sub-grid is generated from that
-      // same text, so counting it too made every hit a pair and stepped the
-      // reader through a second copy of what is already in front of them.
-      expect(searched.hits).toBe(1);
-      expect(searched.count).toBe('1 / 1');
-
       // The copy reads the captured URL through the sanitizer. Not the decoded
       // text on screen: the sanitized payload redacts every query value, so
       // neither the decoded redirect nor the decoded space may appear in it.
@@ -8415,7 +8446,7 @@ browserTest(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
           const before = globalThis.__networkPlusCopied.length;
-          document.querySelector('#req-query .pane-search-bar .copy-btn').click();
+          document.querySelector('#req-query > .copy-actions .copy-btn').click();
           await waitFor(() => globalThis.__networkPlusCopied.length > before, 100);
           return { text: globalThis.__networkPlusCopied.slice(-1)[0], toast: document.querySelector('#copyToast').textContent };
         })()`,
@@ -8428,6 +8459,44 @@ browserTest(
       expect(copied.text).not.toContain('auth.example.test');
       expect(copied.text).not.toContain('hello');
       expect(copied.text).not.toContain('utm_source');
+
+      // Full URL copy still requires its one-time warning; cancelling cannot
+      // leak a value, and confirming returns the exact captured URL and focus.
+      const fullCopy = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const button = document.querySelector('#req-query > .copy-actions .copy-btn:last-child');
+          const dialog = document.querySelector('#dataSafetyDialog');
+          const before = globalThis.__networkPlusCopied.length;
+          button.click();
+          const warningVisible = dialog.open && !document.querySelector('#dataSafetyWarning').hidden;
+          document.querySelector('#dataSafetyCancelBtn').click();
+          await waitFor(() => !dialog.open && document.activeElement === button, 200);
+          const cancelledCopies = globalThis.__networkPlusCopied.length - before;
+          button.click();
+          const reopened = dialog.open;
+          document.querySelector('#dataSafetyConfirmBtn').click();
+          await waitFor(() => globalThis.__networkPlusCopied.length > before, 300);
+          await waitFor(() => document.activeElement === button, 200);
+          return {
+            warningVisible,
+            cancelledCopies,
+            reopened,
+            confirmedCopies: globalThis.__networkPlusCopied.length - before,
+            copied: globalThis.__networkPlusCopied.slice(-1)[0],
+            focusReturned: document.activeElement === button,
+          };
+        })()`,
+        true,
+      );
+      expect(fullCopy).toEqual({
+        warningVisible: true,
+        cancelledCopies: 0,
+        reopened: true,
+        confirmedCopies: 1,
+        copied: QUERY_PANE_URL,
+        focusReturned: true,
+      });
 
       // And the row-end control on this pane passes the very same gate: every
       // Query value leaves as the redaction marker, whatever the cell renders.
@@ -8511,11 +8580,8 @@ browserTest(
       await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       await settleLayout(cdp);
 
-      // The new toolbar obeys the band every pane toolbar obeys, in both
-      // languages: it never overflows its pane, and it never grows more rows
-      // as the pane gets wider. Stated over a sweep, because the Japanese pane
-      // noun is longer than the English one and CI's fallback fonts are wider
-      // than any local face.
+      // Standalone Query copy controls remain visible and do not overflow
+      // at any pane width in either language, without the former sticky bar.
       for (const language of ['en', 'ja']) {
         if (language !== 'en') {
           await reloadInLanguage(page, language);
@@ -8523,17 +8589,15 @@ browserTest(
           expect(await evaluate(cdp, QUERY_PANE_INJECT, true)).toBeGreaterThan(0);
           await settleLayout(cdp);
         }
-        let previousRows = Infinity;
         for (const width of [400, 460, 520, 600, 700, 820, 900]) {
           await evaluate(cdp, `document.querySelector('#details').style.flexBasis = '${width}px'`);
           await settleLayout(cdp);
-          const band = await evaluate(cdp, QUERY_PANE_BAND_MEASURE);
+          const fit = await evaluate(cdp, QUERY_PANE_COPY_FIT_MEASURE);
           const at = language + '@' + width;
-          expect([at, band.barOverflow <= 0]).toEqual([at, true]);
-          expect([at, band.paneOverflow <= 0]).toEqual([at, true]);
-          expect([at, band.gridOverflow <= 0]).toEqual([at, true]);
-          expect([at, band.barRows <= previousRows]).toEqual([at, true]);
-          previousRows = band.barRows;
+          expect([at, fit.copyOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.copyButtonsVisible]).toEqual([at, true]);
+          expect([at, fit.paneOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.gridOverflow <= 0]).toEqual([at, true]);
         }
         await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       }
@@ -9117,30 +9181,19 @@ browserTest(
           };
         })()`,
       );
-      // The pane's search reads response data, not the panel's reading of it.
-      // '14m' is the chip's own two-unit wording — the decoded claim row says
-      // '2 h' — so it exists nowhere but in text the panel wrote itself.
-      const chipSearch = await evaluate(
+      // The chip remains readable and both populated Request tabs have no
+      // pane-search controls; neither the summary nor decoded JWT rows are
+      // silently turned into search hits.
+      const headerTabs = await evaluate(
         cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-headers .pane-search-input');
-          input.value = '14m';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelector('#req-headers .pane-search-count').textContent !== '', 400);
-          const result = {
+        `(() => ({
             chipShowsIt: document.querySelector('#req-headers .jwt-chip').textContent.indexOf('14m') !== -1,
-            hits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
-            count: document.querySelector('#req-headers .pane-search-count').textContent,
-          };
-          input.value = '';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          return result;
-        })()`,
-        true,
+            headersBars: document.querySelectorAll('#req-headers .pane-search-bar').length,
+            cookiesBars: document.querySelectorAll('#req-cookies .pane-search-bar').length,
+            headersHits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
+          }))()`,
       );
-      expect(chipSearch.chipShowsIt).toBe(true);
-      expect(chipSearch.hits).toBe(0);
-      expect(chipSearch.count).toBe('No matches');
+      expect(headerTabs).toEqual({ chipShowsIt: true, headersBars: 0, cookiesBars: 0, headersHits: 0 });
 
       expect(opened).toEqual({
         active: true,
@@ -11054,7 +11107,7 @@ const PANE_TOOLBAR_NARROW_MEASURE = `(() => {
 })()`;
 
 browserTest(
-  'Body and Raw carry one sticky top toolbar that holds search and the copy actions',
+  'only Body and Raw carry a sticky search toolbar with copy actions',
   async () => {
     const page = await launchPanelPage({
       executable: browserExecutable,
@@ -11163,7 +11216,60 @@ browserTest(
       expect(scrolled.barTopOffset).toBe(0);
       await evaluate(cdp, "document.querySelector('#req-body').parentElement.scrollTop = 0");
 
-      // Raw on both halves gets the same toolbar.
+      // Raw on both halves gets the same toolbar, even when no Body tab is selected.
+      await evaluate(cdp, "document.querySelector('#req-tab-raw').click()");
+      await settleLayout(cdp);
+      expect(await evaluate(cdp, PANE_TOOLBAR_MEASURE('req-raw'))).toMatchObject({
+        barClass: 'pane-search-bar',
+        position: 'sticky',
+        barTopOffset: 0,
+        copyLabels: ['Copy sanitized', 'Copy full...'],
+        strayCopyActions: 0,
+        contentClass: 'code-block code-raw',
+      });
+      const rawKeyboard = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const pane = document.querySelector('#req-raw');
+          const input = pane.querySelector('.pane-search-input');
+          const count = () => pane.querySelector('.pane-search-count').textContent;
+          input.value = 'query';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => count() === '1 / 2', 400);
+          input.focus();
+          const press = (key, shiftKey = false) =>
+            input.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }));
+          const start = count();
+          press('Enter', true);
+          const previous = count();
+          press('Enter');
+          const wrapped = count();
+          press('Enter');
+          const next = count();
+          press('Escape');
+          return {
+            start,
+            previous,
+            wrapped,
+            next,
+            cleared: {
+              query: input.value,
+              count: count(),
+              hits: pane.querySelectorAll('mark.pane-search-hit').length,
+              focused: document.activeElement === input,
+            },
+          };
+        })()`,
+        true,
+      );
+      expect(rawKeyboard).toEqual({
+        start: '1 / 2',
+        previous: '2 / 2',
+        wrapped: '1 / 2',
+        next: '2 / 2',
+        cleared: { query: '', count: '', hits: 0, focused: true },
+      });
+      await evaluate(cdp, "document.querySelector('#req-tab-body').click()");
       expect(await evaluate(cdp, PANE_TOOLBAR_MEASURE('res-raw'))).toMatchObject({
         barClass: 'pane-search-bar',
         position: 'sticky',
@@ -11409,50 +11515,63 @@ browserTest(
       expect(wrapped.clusterRows).toBe(1);
       expect(wrapped.navGroupWraps).toBe('nowrap');
 
-      // One scrollport carries all five panes of the half, so the inset has to
-      // follow the pane the reader is on rather than the last bar attached.
-      // Headers now owns a toolbar of its own, and at 400px the two bars are
-      // measurably different heights: the Body bar wrapped its copy actions
-      // onto a second row above, and Headers carries no copy actions at all,
-      // so its bar cannot wrap where the same search cluster fit on one row.
-      // That difference is what makes this test discriminate — with one shared
-      // number both panes would agree by accident.
+      // One scrollport carries all the tabs of each half. A wrapped Body bar
+      // must not leave its sticky scroll inset behind on bar-less Headers,
+      // Query or Cookies; returning to Body must restore the measured inset.
       const insetAcrossTabs = await evaluate(
         cdp,
         `(() => {
-          const area = document.querySelector('#res-headers').parentElement;
-          const read = () => getComputedStyle(area).scrollPaddingTop;
-          const barHeight = (paneId) => {
-            const bar = document.querySelector('#' + paneId + ' .pane-search-bar');
-            return bar ? Math.round(bar.getBoundingClientRect().height) : 0;
-          };
+          const resArea = document.querySelector('#res-headers').parentElement;
+          const reqArea = document.querySelector('#req-body').parentElement;
+          const read = (area) => getComputedStyle(area).scrollPaddingTop;
           document.querySelector('#res-tab-headers').click();
-          const headers = read();
-          const headersBar = barHeight('res-headers');
+          const headers = read(resArea);
+          const headersBars = document.querySelectorAll('#res-headers .pane-search-bar').length;
           document.querySelector('#res-tab-body').click();
-          const backOnBody = read();
-          const bodyBar = barHeight('res-body');
+          const backOnBody = read(resArea);
+          const bodyBar = Math.round(document.querySelector('#res-body .pane-search-bar').getBoundingClientRect().height);
+          document.querySelector('#req-tab-body').click();
+          const requestBody = read(reqArea);
+          const requestBodyBar = Math.round(document.querySelector('#req-body .pane-search-bar').getBoundingClientRect().height);
+          const requestWithoutSearch = ['headers', 'query', 'cookies'].map((tab) => {
+            document.querySelector('#req-tab-' + tab).click();
+            return {
+              tab,
+              inset: read(reqArea),
+              bars: document.querySelectorAll('#req-' + tab + ' .pane-search-bar').length,
+            };
+          });
+          document.querySelector('#req-tab-body').click();
           return {
             headers,
-            headersBar,
+            headersBars,
             backOnBody,
             bodyBar,
-            headersCopyButtons: document.querySelectorAll('#res-headers .pane-search-bar .copy-btn').length,
-            sameScrollport: area === document.querySelector('#res-body').parentElement,
+            requestBody,
+            requestBodyBar,
+            requestWithoutSearch,
+            requestBackOnBody: read(reqArea),
+            sameScrollport: resArea === document.querySelector('#res-body').parentElement,
           };
         })()`,
       );
       expect(insetAcrossTabs.sameScrollport).toBe(true);
-      expect(insetAcrossTabs.headersCopyButtons).toBe(0);
-      expect(insetAcrossTabs.headers).toBe(insetAcrossTabs.headersBar + 'px');
+      expect(insetAcrossTabs.headersBars).toBe(0);
+      expect(insetAcrossTabs.headers).toBe('0px');
       expect(insetAcrossTabs.backOnBody).toBe(insetAcrossTabs.bodyBar + 'px');
-      expect(insetAcrossTabs.headersBar).toBeGreaterThan(0);
-      expect(insetAcrossTabs.headersBar).toBeLessThan(insetAcrossTabs.bodyBar);
+      expect(insetAcrossTabs.bodyBar).toBeGreaterThan(0);
+      expect(insetAcrossTabs.requestBody).toBe(insetAcrossTabs.requestBodyBar + 'px');
+      expect(insetAcrossTabs.requestWithoutSearch).toEqual([
+        { tab: 'headers', inset: '0px', bars: 0 },
+        { tab: 'query', inset: '0px', bars: 0 },
+        { tab: 'cookies', inset: '0px', bars: 0 },
+      ]);
+      expect(insetAcrossTabs.requestBackOnBody).toBe(insetAcrossTabs.requestBody);
       await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       await settleLayout(cdp);
 
-      // Rebuilding the toolbars on every selection must not accumulate
-      // observers: attachPaneSearch runs two to four times per row.
+      // Rebuilding the four Body/Raw toolbars on every selection must not
+      // accumulate observers.
       const observersAfterFirst = await evaluate(cdp, 'globalThis.__networkPlusLiveResizeObservers()');
       await evaluate(
         cdp,
@@ -11475,12 +11594,9 @@ browserTest(
       // One per pane that owns a toolbar, plus the details-title observer —
       // never one per render.
       expect(observersAfterMany).toBeLessThanOrEqual(observersAfterFirst);
-      // The ceiling is derived, not remembered: eight panes can own a toolbar
-      // (Request Headers/Query/Cookies/Body/Raw, Response Headers/Body/Raw),
-      // each keeping one observer for the life of the session, plus the
-      // details-title observer. Nine is the whole census; the line above is
-      // what actually says "never one per render".
-      expect(observersAfterMany).toBeLessThanOrEqual(9);
+      // Four pane owners plus the details-title observer: no observers are
+      // constructed for Headers, Query or Cookies.
+      expect(observersAfterMany).toBeLessThanOrEqual(5);
 
       await cdp.send('Emulation.clearDeviceMetricsOverride');
     } finally {
@@ -13218,8 +13334,24 @@ browserTest(
         documentOverflowX: 0,
       });
 
+      // Headers is deliberately bar-less now. Inactive Body/Raw bars keep
+      // sticky styles in the DOM but no layout box; only the captions of
+      // the selected Headers panes can pin to the column.
+      expect(
+        await evaluate(cdp, "document.querySelectorAll('#req-headers .pane-search-bar,#res-headers .pane-search-bar').length"),
+      ).toBe(0);
+      expect(
+        column.stickyDescendants.filter((name) => !name.startsWith('pane-search-bar')),
+      ).toEqual(['inspector-request-toggle', 'inspector-response-toggle']);
+      // Select Raw before measuring a pane toolbar's scroll movement.
+      await evaluate(cdp, "document.querySelector('#req-tab-raw').click()");
+      await settleLayout(cdp);
+      expect(
+        await evaluate(cdp, "document.querySelector('#req-raw .pane-search-bar').getClientRects().length"),
+      ).toBeGreaterThan(0);
       const scrolled = await evaluate(cdp, INSPECTOR_COLUMN_SCROLL_MATRIX);
       expect(scrolled).toHaveLength(5);
+      expect(Object.keys(scrolled[0].barOffsets)).toEqual(['req-raw']);
       for (const position of scrolled) {
         expect({
           fraction: position.fraction,
@@ -13270,22 +13402,12 @@ browserTest(
         measuredBarRides: measuredBarRides > 0,
         measuredTabBarRides: measuredTabBarRides > 0,
       }).toEqual({ measuredTransitions: true, measuredBarRides: true, measuredTabBarRides: true });
-      // Two halves, so the pane toolbar and tab bar of each is what the rides
-      // above are made of — not one bar measured over and over.
+      // The Raw pane supplies the toolbar rides; both halves supply their tab
+      // bars, not one tab bar measured over and over.
       expect(Object.keys(scrolled[0].tabBarOffsets).length).toBeGreaterThanOrEqual(2);
       expect(scrolled[scrolled.length - 1].responseTailReached).toBe(true);
-      // And the layer that sticks to the COLUMN is one per half, and it is the
-      // caption. The pane toolbars are sticky too, but to their own pane's
-      // scrollport, which in the column never scrolls — the ride measured
-      // above is the proof. No tab bar is sticky at all: a third pinned strip
-      // is the peephole the column exists to remove.
-      // The Body pane's bar carries the picker class beside the bar's own; both
-      // are the same pane toolbar, filtered out by exact name.
-      expect(
-        column.stickyDescendants.filter(
-          (name) => name !== 'pane-search-bar' && name !== 'pane-search-bar pane-search-bar--with-view',
-        ),
-      ).toEqual(['inspector-request-toggle', 'inspector-response-toggle']);
+      // Raw's toolbar rides with its own scrollport; no tab bar sticks to the
+      // column and creates a third pinned strip.
 
       // The vertical split is off while the column is on. The divider has no box
       // to click or focus here, so the events are dispatched at it directly —

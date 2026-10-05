@@ -14352,19 +14352,14 @@ const _NetworkPlus = (function () {
   // Query text per pane id, so the query survives re-renders and row switches.
   const paneSearchQueries = new Map();
 
-  // The pane name is a noun the toolbar's placeholder, tooltips, accessible
-  // names and copy confirmations all compose sentences around, so it is a
-  // dictionary key rather than an English literal; every en matches the name
-  // the toolbar has always shown.
+  // The pane name is a noun the toolbar's placeholder, tooltips and
+  // accessible names compose sentences around, so it is a dictionary key
+  // rather than an English literal.
   const PANE_SEARCH_LABEL_KEYS = {
     'req-body': 'paneNameRequestBody',
     'req-raw': 'paneNameRawRequest',
-    'req-query': 'paneNameQuery',
-    'req-headers': 'paneNameRequestHeaders',
-    'req-cookies': 'paneNameRequestCookies',
     'res-body': 'paneNameResponseBody',
     'res-raw': 'paneNameRawResponse',
-    'res-headers': 'paneNameResponseHeaders',
   };
 
   function paneSearchLabel(paneId) {
@@ -14457,19 +14452,10 @@ const _NetworkPlus = (function () {
     return { marks, truncated };
   }
 
-  // The folds that keep a hit in layout while hiding it: a folded long string
-  // clipped by -webkit-line-clamp, a clamped value cell, and the URL row's
-  // address, clipped to four lines by the same mechanism. All three have a
-  // box, so offsetParent is NOT null inside them — the reveal's first version
-  // missed the very case its brief named.
-  //
-  // The address is the one a 31-parameter URL hides most of: its search counts
-  // and navigates to a hit 250px below the clipped box's bottom edge, and the
-  // "Show full URL" reveal beside it opens a DIFFERENT node, so pressing it
-  // left the marked run exactly where it was.
+  // Folded text still has a layout box, so offsetParent alone cannot tell
+  // whether a Body search hit is hidden behind a string or value clamp.
   const PANE_SEARCH_FOLD_SELECTOR =
-    '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped,' +
-    ' .url-breakdown-address:not(.url-breakdown-address--expanded)';
+    '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped';
 
   // The pane the mark belongs to, and whether the reader is looking at it.
   // attachPaneSearch runs on all four Body/Raw panes and a stored query
@@ -14531,19 +14517,11 @@ const _NetworkPlus = (function () {
   }
 
   // Open every collapsed <details> ancestor, unfold a long string the hit
-  // sits in, expand a clamped value around it, lift the URL address's own
-  // four-line clip, and press open whatever a reveal toggle still hides, so
-  // the current hit is visible. Only ever called for a hit in the pane the
-  // reader is actually looking at.
+  // sits in, expand a clamped value around it, and press open whatever a
+  // reveal toggle still hides. Only called for a hit in the visible pane.
   function revealPaneSearchHit(mark, pane) {
     const longString = mark.parentElement ? mark.parentElement.closest('.json-tree-str') : null;
     if (longString) setJsonTreeStringExpanded(longString, true);
-    // The address has no toggle of its own — "Show full URL" reveals a
-    // separate copy of the string — so the clip is lifted here instead. The
-    // spans, the <wbr> breaks and the text nodes are untouched, so the address
-    // still reads back as the URL verbatim once it is unfolded.
-    const address = mark.parentElement ? mark.parentElement.closest('.url-breakdown-address') : null;
-    if (address) address.classList.add('url-breakdown-address--expanded');
     let node = mark.parentElement ? mark.parentElement.closest('details') : null;
     while (node) {
       if (!node.open) node.open = true;
@@ -14654,11 +14632,14 @@ const _NetworkPlus = (function () {
   // options.hiddenSource says the pane is showing its body in a form the
   // search cannot walk (the sandboxed HTML frame), so every hit in fullText is
   // a hidden one and options.onExpandHidden is what reveals them.
+  // options.emptyContent keeps the search usable without matching empty-state
+  // prose that was not captured from the network.
   function attachPaneSearch(pane, fullText, options) {
     if (!pane) return;
     const paneId = pane.id;
     const paneLabel = paneSearchLabel(paneId);
     const hiddenSource = !!(options && options.hiddenSource);
+    const emptyContent = !!(options && options.emptyContent);
     // One "expand everything" affordance per pane. Where the JSON tree renders
     // its own Expand / Collapse controls they own the job — the tree's Expand
     // all clicks through the truncation buttons too, so hits inside collapsed
@@ -14781,7 +14762,7 @@ const _NetworkPlus = (function () {
         : null;
       input.classList.toggle('pane-search-input-error', !!compiledError);
       input.title = compiledError ? uiTextFormat('paneSearchInvalidRegex', { error: compiledError }) : '';
-      if (query.trim() && !compiledError) {
+      if (query.trim() && !compiledError && !emptyContent) {
         const result = applyPaneSearchHits(pane, query, searchOptions);
         marks = result.marks;
         truncated = result.truncated;
@@ -14865,8 +14846,8 @@ const _NetworkPlus = (function () {
     pane._paneSearchBar = bar;
     if (typeof ResizeObserver === 'function') {
       // One observer per pane for the life of the session, re-pointed at the
-      // new bar: attachPaneSearch runs two to four times per selection, and
-      // an observer per bar accumulated one leak per render.
+      // new bar: attachPaneSearch runs for up to four panes per selection,
+      // and an observer per bar accumulated one leak per render.
       if (!pane._paneBarObserver) {
         // The copy labels are weighed first: dropping them can take a row off
         // the bar, and the inset the scrollport keeps is the height that
@@ -15715,6 +15696,7 @@ const _NetworkPlus = (function () {
     attachPaneSearch(resBodyPane, text, {
       viewToggle: bodyViewToggle,
       hiddenSource: htmlFrameShowing,
+      emptyContent: !displayText,
       onExpandHidden: () => {
         responseBodyViews.html = 'source';
         pickResponseBodyView(row);
@@ -15841,18 +15823,12 @@ const _NetworkPlus = (function () {
         ),
       );
     }
-    // The kv panes get the toolbar the Body and Raw panes have had: a header
-    // list is as long as a body and was the one place a reader could not
-    // search. No `fullText` second argument — nothing here is truncated away,
-    // and arming "Expand all" would press every link button in the pane,
-    // including "open Query", which switches the tab out from under the search.
-    attachPaneSearch(reqHeadersPane);
-
     // Request > Body
     const reqBodyPane = $('#req-body');
     reqBodyPane.textContent = '';
-    if (row.requestPostData && row.requestPostData.text) {
-      const text = row.requestPostData.text;
+    const requestBodyText = row.requestPostData && row.requestPostData.text;
+    if (requestBodyText) {
+      const text = requestBodyText;
       const treeEl = renderJsonTree(text);
       if (treeEl) {
         reqBodyPane.appendChild(treeEl);
@@ -15873,11 +15849,11 @@ const _NetworkPlus = (function () {
           onClick: (button) => requestFullClipboardAction('requestBody', row, '', button, 'paneNameRequestBody'),
         },
       ]);
-      attachPaneSearch(reqBodyPane, text);
     } else {
       renderPaneEmptyMessage(reqBodyPane, uiText('emptyRequestBody'));
     }
-    const hasRequestBody = !!(row.requestPostData && row.requestPostData.text);
+    attachPaneSearch(reqBodyPane, requestBodyText || '', { emptyContent: !requestBodyText });
+    const hasRequestBody = !!requestBodyText;
 
     // Request > Query
     const reqQueryPane = $('#req-query');
@@ -15900,10 +15876,9 @@ const _NetworkPlus = (function () {
           'query',
         ),
       );
-      // The copy pair Body and Raw carry, over the one payload this pane
-      // describes: the URL. Both go through the shared clipboard builder, so
-      // the sanitized copy redacts every query value and the full copy still
-      // needs its confirmation — neither reads the decoded text on screen.
+      // Keep the copy pair above the grid, even without a search bar. Both
+      // actions go through the shared clipboard builder: the sanitized copy
+      // redacts every query value and the full copy needs confirmation.
       addCopyActions(reqQueryPane, [
         {
           label: uiText('menuCopySanitized'),
@@ -15914,7 +15889,6 @@ const _NetworkPlus = (function () {
           onClick: (button) => requestFullClipboardAction('url', row, '', button, 'paneNameQuery'),
         },
       ]);
-      attachPaneSearch(reqQueryPane);
     } else if (hasRequestBody) {
       // A POST with no query string is not missing anything: point at Body.
       const hintMethod = String(row.method || '').trim();
@@ -15942,12 +15916,7 @@ const _NetworkPlus = (function () {
         copyValue: c.value,
       }));
       reqCookiesPane.appendChild(createCookieTable(REQUEST_COOKIE_COLUMNS, requestCookieRows, 'cookie'));
-      attachPaneSearch(reqCookiesPane);
     } else {
-      // The rule for all four new toolbars: a pane rendered as a one-line
-      // empty message keeps none. A search box over "No cookies were sent" has
-      // nothing to search, and it would still cost a resize observer and a
-      // scrollport inset the pane does not need.
       renderPaneEmptyMessage(reqCookiesPane, uiText('emptyRequestCookies'));
     }
 
@@ -16013,8 +15982,6 @@ const _NetworkPlus = (function () {
         ),
       );
     }
-    if (resHeadersPane.querySelector('.kv')) attachPaneSearch(resHeadersPane);
-
     // Response > Body and Raw — populated from the shared response cache
     setResponsePaneMessage(uiText('bodyPaneLoading'));
     cacheResponseContent(row)
@@ -19147,14 +19114,18 @@ const _NetworkPlus = (function () {
 
     searchToggleBtn.addEventListener('click', () => toggleSearchPanel());
 
-    // Ctrl+F toggles the search panel — unless focus is inside a detail pane
-    // that carries its own search bar, which then takes the shortcut.
+    // Ctrl+F opens request search unless focus is inside a Body/Raw pane or
+    // on its selected tab; those focus the pane's own search field.
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        const activePane =
-          document.activeElement && document.activeElement.closest
-            ? document.activeElement.closest('.tab-pane')
+        const focused = document.activeElement;
+        const focusedPane = focused && focused.closest ? focused.closest('.tab-pane') : null;
+        const selectedTab =
+          focused && focused.matches && focused.matches('.tab-btn[aria-selected="true"]')
+            ? focused
             : null;
+        const activePane =
+          focusedPane || (selectedTab ? document.getElementById(selectedTab.getAttribute('aria-controls')) : null);
         const paneSearchInput = activePane ? activePane.querySelector('.pane-search-input') : null;
         e.preventDefault();
         e.stopPropagation();
