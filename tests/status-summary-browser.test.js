@@ -846,6 +846,244 @@ browserTest(
 );
 
 browserTest(
+  'malformed column regex stays editable and unapplied with announced feedback across filter controls',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: `(() => {
+        const chromeApi = globalThis.chrome || {};
+        chromeApi.storage = {
+          local: { get(_keys, callback) { callback({}); }, set(_value, callback) { if (callback) callback(); } },
+        };
+        chromeApi.runtime = { lastError: null, getManifest() { return { version: '1.6.0' }; } };
+        chromeApi.devtools = {
+          network: {
+            onRequestFinished: { addListener(listener) { globalThis.__networkPlusLiveListener = listener; } },
+          },
+          panels: { openResource() {} },
+        };
+        globalThis.chrome = chromeApi;
+      })();`,
+    });
+    try {
+      const cdp = page.cdp;
+      await waitForLiveNetworkListener(cdp);
+      const initial = await evaluate(
+        cdp,
+        `(async () => {
+          const requests = [
+            ['api.example.test', '/v1/items', 'application/json'],
+            ['static.example.test', '/assets/site.css', 'text/css'],
+            ['api.example.test', '/v1/users', 'application/json'],
+          ];
+          for (const [domain, path, mimeType] of requests) {
+            globalThis.__networkPlusLiveListener({
+              startedDateTime: '2026-01-15T12:00:00.000Z',
+              time: 20,
+              request: { method: 'GET', url: 'https://' + domain + path, headers: [] },
+              response: { status: 200, headers: [], content: { size: 0, mimeType } },
+              getContent(callback) { callback('', ''); },
+            });
+          }
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          document.querySelector('#filterBtn').click();
+
+          const section = (label) => {
+            const match = Array.from(document.querySelectorAll('#columnFilterPopup .filter-section'))
+              .find((item) => item.querySelector('.filter-section-name')?.textContent === label);
+            if (!match) throw new Error(label + ' filter section was not found.');
+            return match;
+          };
+          const controls = (label, conditionIndex = 0) => {
+            const root = section(label);
+            const row = root.querySelectorAll('.filter-condition-row')[conditionIndex] || root;
+            const operator = row.querySelector('.filter-op');
+            const input = row.querySelector('.filter-value');
+            if (!operator || !input) throw new Error(label + ' filter controls were not found.');
+            return { root, row, operator, input };
+          };
+          const set = (label, index, operator, value) => {
+            const fields = controls(label, index);
+            if (operator !== undefined) {
+              fields.operator.focus();
+              fields.operator.value = operator;
+              fields.operator.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            if (value !== undefined) {
+              fields.input.focus();
+              fields.input.value = value;
+              fields.input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          };
+          const rows = () => Array.from(document.querySelectorAll('#tbody tr[data-row-id]'))
+            .map((row) => row.dataset.rowId);
+          const snapshot = (label, index = 0) => {
+            const fields = controls(label, index);
+            const descriptionId = fields.input.getAttribute('aria-describedby');
+            const error = descriptionId ? document.getElementById(descriptionId) : null;
+            return {
+              rows: rows(),
+              header: document.querySelector('#columnFilterPopup .filter-popup-header').textContent,
+              active: fields.root.querySelector('.filter-section-state').textContent,
+              invalid: fields.input.getAttribute('aria-invalid'),
+              description: error?.textContent || '',
+              role: error?.getAttribute('role') || null,
+              errorVisible: !!error && getComputedStyle(error).display !== 'none',
+              focus: document.activeElement === fields.input
+                ? 'input'
+                : document.activeElement === fields.operator ? 'operator' : 'other',
+            };
+          };
+          globalThis.__filterRegression = { section, controls, set, rows, snapshot };
+          const before = rows();
+          set('Type', 0, 'regex', '[');
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return { before, malformed: snapshot('Type') };
+        })()`,
+        true,
+      );
+
+      expect(initial.before).toEqual(['1', '2', '3']);
+      expect(initial.malformed).toMatchObject({
+        rows: ['1', '2', '3'],
+        header: 'Column Filters (0 active)',
+        active: '',
+        invalid: 'true',
+        role: 'status',
+        errorVisible: true,
+        focus: 'input',
+      });
+      expect(initial.malformed.description).toMatch(/^Invalid regular expression:/);
+
+      const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      const typeInput = accessibilityTree.nodes.find(
+        (node) => node.role?.value === 'textbox' && node.name?.value === 'Type filter value',
+      );
+      expect(typeInput?.description?.value).toMatch(/^Invalid regular expression:/);
+      expect(typeInput?.properties?.find((property) => property.name === 'invalid')?.value?.value).toBe('true');
+      const liveMessages = accessibilityTree.nodes
+        .filter((node) => node.role?.value === 'status')
+        .flatMap((node) => (node.childIds || []).map(
+          (id) => accessibilityTree.nodes.find((child) => child.nodeId === id)?.name?.value,
+        ));
+      expect(liveMessages).toContain(initial.malformed.description);
+
+      await pressKey(cdp, 'Tab', 'Tab', 9);
+      const keyboardFocus = await evaluate(
+        cdp,
+        `({
+          popupOpen: document.querySelector('#columnFilterPopup').classList.contains('show'),
+          triggerExpanded: document.querySelector('#filterBtn').getAttribute('aria-expanded'),
+          focusOnBody: document.activeElement === document.body,
+          onErrorMessage: document.activeElement?.classList.contains('filter-regex-error') === true,
+        })`,
+      );
+      expect(keyboardFocus).toEqual({
+        popupOpen: false, triggerExpanded: 'false', focusOnBody: false, onErrorMessage: false,
+      });
+
+      const reopened = await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#filterBtn').click();
+          return globalThis.__filterRegression.snapshot('Type');
+        })()`,
+      );
+      expect(reopened).toMatchObject({
+        rows: ['1', '2', '3'], header: 'Column Filters (0 active)',
+        invalid: 'true', role: 'status', errorVisible: true,
+      });
+
+      const corrected = await evaluate(
+        cdp,
+        `(async () => {
+          const filters = globalThis.__filterRegression;
+          const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
+
+          filters.set('Type', 0, undefined, 'json');
+          await settle();
+          const genericValid = filters.snapshot('Type');
+          filters.set('Type', 0, 'contains', 'css');
+          await settle();
+          const genericPlain = filters.snapshot('Type');
+          filters.set('Type', 0, undefined, 'json');
+          await settle();
+
+          filters.set('Domain', 0, 'regex', '[');
+          await settle();
+          const domainInvalid = filters.snapshot('Domain');
+          filters.set('Domain', 0, 'contains');
+          await settle();
+          const domainOperatorChanged = filters.snapshot('Domain');
+          filters.set('Domain', 0, 'regex', '^api[.]example[.]test$');
+          await settle();
+          const domainValid = filters.snapshot('Domain');
+
+          filters.set('Path', 0, undefined, '/v1/');
+          await settle();
+          filters.section('Path').querySelector('.filter-add-btn').click();
+          filters.set('Path', 1, 'regex', '[');
+          await settle();
+          const pathInvalid = filters.snapshot('Path', 1);
+          filters.set('Path', 1, undefined, 'items$');
+          await settle();
+          const pathValid = filters.snapshot('Path', 1);
+          filters.set('Path', 1, undefined, '[');
+          await settle();
+          const remove = filters.controls('Path', 1).row.querySelector('.filter-remove-btn');
+          remove.focus();
+          remove.click();
+          await settle();
+          const pathRemoved = filters.snapshot('Path');
+          const lingeringErrors = Array.from(document.querySelectorAll('#columnFilterPopup .filter-regex-error'))
+            .filter((error) => error.textContent !== '').length;
+          return {
+            genericValid, genericPlain, domainInvalid, domainOperatorChanged, domainValid,
+            pathInvalid, pathValid, pathRemoved, lingeringErrors,
+          };
+        })()`,
+        true,
+      );
+
+      expect(corrected.genericValid).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (1 active)',
+        active: 'Active', invalid: null, description: '', focus: 'input',
+      });
+      expect(corrected.genericPlain).toMatchObject({
+        rows: ['2'], header: 'Column Filters (1 active)', invalid: null, description: '',
+      });
+      expect(corrected.domainInvalid).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (1 active)',
+        active: '', invalid: 'true', role: 'status', errorVisible: true, focus: 'input',
+      });
+      expect(corrected.domainInvalid.description).toMatch(/^Invalid regular expression:/);
+      expect(corrected.domainOperatorChanged).toMatchObject({
+        rows: [], header: 'Column Filters (2 active)', invalid: null, description: '', focus: 'operator',
+      });
+      expect(corrected.domainValid).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (2 active)', invalid: null, description: '',
+      });
+      expect(corrected.pathInvalid).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (3 active)',
+        invalid: 'true', role: 'status', errorVisible: true, focus: 'input',
+      });
+      expect(corrected.pathInvalid.description).toMatch(/^Invalid regular expression:/);
+      expect(corrected.pathValid).toMatchObject({
+        rows: ['1'], header: 'Column Filters (3 active)', invalid: null, description: '',
+      });
+      expect(corrected.pathRemoved).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (3 active)',
+        invalid: null, description: '', focus: 'input',
+      });
+      expect(corrected.lingeringErrors).toBe(0);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'auto-scroll follows live requests after Clear and Undo until the reader scrolls upward',
   async () => {
     const page = await launchPanelPage({

@@ -1184,6 +1184,9 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .filter-rule .filter-value{flex:1 1 140px;width:auto;min-width:120px;border:1px solid var(--control-border);background:var(--bg);color:var(--fg);padding:4px;border-radius:6px;font-size:11px;transition:border-color 0.2s}
 .filter-rule .filter-value:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
 .filter-rule .filter-value:disabled{opacity:.5;cursor:not-allowed}
+.filter-rule .filter-value[aria-invalid="true"]{border-color:var(--status-5xx-text)}
+.filter-regex-error{flex:0 0 100%;font-size:11px;font-weight:600;color:var(--status-5xx-text);overflow-wrap:anywhere}
+.filter-regex-error:empty{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .filter-rule input[type="time"]{width:auto;min-width:90px}
 .filter-rule > label{display:block;font-size:11px;color:var(--text-muted);margin-top:4px;width:100%}
 .filter-rule label input[type="text"]{width:100%;margin-top:2px}
@@ -1200,7 +1203,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .filter-inline-field .filter-value{flex:1;width:auto}
 .filter-time-input{border:1px solid var(--control-border);background:var(--bg);color:var(--fg);padding:3px 4px;border-radius:6px;font-size:11px}
 .filter-time-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.filter-condition-row{display:flex;gap:4px;align-items:center;width:100%}
+.filter-condition-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center;width:100%}
 .filter-condition-row .filter-op{width:120px;min-width:110px;flex-shrink:0;-webkit-appearance:menulist;appearance:menulist}
 .filter-condition-row .filter-value{flex:1}
 .filter-remove-btn{background:none;border:1px solid var(--control-border);color:var(--text-muted);border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;transition:border-color 0.15s,color 0.15s}

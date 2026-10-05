@@ -1105,6 +1105,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
+      title: 'malformed column regex stays editable and unapplied with announced feedback across filter controls',
+    },
+    {
+      skipped: true,
       title: 'auto-scroll follows live requests after Clear and Undo until the reader scrolls upward',
     },
     {
