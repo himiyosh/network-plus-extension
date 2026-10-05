@@ -125,7 +125,7 @@ Chrome での検証内容:
 
 ### 調べる
 
-- 16 列 — Match・ID・Method・Status・Domain・Path・Type・Duration・Size・Client start に加え、既定で非表示の Server done・Initiator・URL・Waterfall・Operation・設定可能な Header 列。Match 列には行の状態チップが並びます。ヒットした検索キーワードごとに 1 個ずつ、そのキーワードの色で表示するため、複数条件に該当する行がどれに当たったのかが分かります(従来は最初の 1 色しか出ませんでした)。Header 列は Columns メニューで入力した任意のヘッダ名に紐づき(レスポンスヘッダ優先、無ければリクエストヘッダ)、トレース ID やキャッシュ状態をキャプチャ全体で追えます。他の列と同様にソート・フィルタ可能。表示・幅・並び順はすべて永続化されます。
+- 16 列 — Match・ID・Method・Status・Domain・Path・Type・Duration・Size・Client start・Server done が既定で表示され、Initiator・URL・Waterfall・Operation・設定可能な Header 列は既定で非表示です。Match 列には行の状態チップが並びます。ヒットした検索キーワードごとに 1 個ずつ、そのキーワードの色で表示するため、複数条件に該当する行がどれに当たったのかが分かります(従来は最初の 1 色しか出ませんでした)。Header 列は Columns メニューで入力した任意のヘッダ名に紐づき(レスポンスヘッダ優先、無ければリクエストヘッダ)、トレース ID やキャッシュ状態をキャプチャ全体で追えます。他の列と同様にソート・フィルタ可能。表示・幅・並び順はすべて永続化され、Client start と Server done は手動で非表示にすることも、狭い画面で一時的に非表示にすることもできます。
 - タブ式インスペクタ: Request(Headers / Body / Query / Cookies / Raw)と Response(Headers / Body / Timing / Cookies / Raw)。Body と Raw の各ビューにはスクロールしてもペイン上部に固定されたままのツールバーに専用キーワード検索があり、ヒットのハイライトと Enter / Shift+Enter ナビゲーションが使えます。レスポンスボディは `Content-Type` が宣言する文字コードでデコードされます(Shift_JIS・EUC-JP なども正しく表示)。`Body` は内容に応じて描画方法を切り替えます: 折りたたみ可能な JSON ツリー(ペインのツールバーの `Tree` / `Text` で従来の整形テキスト表示に切り替え)、サンドボックス化したフレームでの HTML 表示(`Source` でソースに切り替え)、そして透過チェッカーボード上に描画する画像 — 小さすぎて見えない画像は拡大したうえで、実寸と拡大率をキャプションに明記します。画像・フォント・`.wasm` などそもそもテキストでないボディは、文字化けではなくオフセット/16 進/可読文字のダンプで表示します。
 - フェーズごとの Timing 内訳(blocked・DNS・connect・TLS・send・wait・receive)。インラインガイドと、ブラウザ報告のタイミングが証明できないことの明示付き。
 - **Compare 2 selected requests** — <kbd>Ctrl</kbd>/<kbd>⌘</kbd> クリックでちょうど 2 行を選ぶと、URL・クエリパラメータ・メソッド・ステータス・プロトコル・ヘッダ・ボディを diff。一致・変更・片側のみの値が色分けされます。

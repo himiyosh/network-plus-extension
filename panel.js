@@ -134,7 +134,8 @@ const _NetworkPlus = (function () {
   const INSPECTOR_SPLIT_KEY = 'networkPlus.inspectorSplit.v1'; // request/response split percent + collapsed half
   const INSPECTOR_HALVES = ['request', 'response'];
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
-  const COL_PREF_VERSION = 4; // Bump when default visibility changes
+  const MATCH_GUTTER_PREF_VERSION = 4;
+  const COL_PREF_VERSION = 5; // Bump when default visibility changes
   const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';
   const UNDOCK_HINT_KEY = 'networkPlus.undockHint.v1'; // '1' = mirror tab's undock explainer dismissed for good
   const LEGACY_FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1'; // retired multi-preset store
@@ -328,7 +329,7 @@ const _NetworkPlus = (function () {
     { value: 'notempty', label: 'isNotEmpty' },
   ];
 
-  // Visible defaults sum to 992px: Path (the identifying column) is on the
+  // Visible defaults sum to 1096px: Path (the identifying column) is on the
   // first screen at 1280px with the details pane open, and the whole set fits
   // without horizontal scroll once the pane is closed. Match is a 36px state
   // gutter first (a ✓ chip plus one keyword chip fit without clipping).
@@ -345,7 +346,7 @@ const _NetworkPlus = (function () {
     { id: 'duration', label: 'Duration', width: 80, visible: true },
     { id: 'size', label: 'Size', width: 72, visible: true },
     { id: 'clientStart', label: 'Client start', width: 104, visible: true },
-    { id: 'serverDone', label: 'Server done', width: 104, visible: false },
+    { id: 'serverDone', label: 'Server done', width: 104, visible: true },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
     { id: 'url', label: 'URL', width: 420, visible: false },
     { id: 'waterfall', label: 'Waterfall', width: 200, visible: false },
@@ -8202,10 +8203,11 @@ const _NetworkPlus = (function () {
           const def = DEFAULT_COLUMNS.find((d) => d.id === sc.id);
           if (def) {
             // If schema version changed, reset visibility to current defaults (keep width/order).
-            // Match alone also takes its default width: it became a chip
-            // gutter in v4, and a v3 64px Match would keep a visible label.
+            // Match takes its default width only for pre-v4 layouts: a v3
+            // 64px Match would keep a visible label, but later visibility
+            // migrations must preserve the person's chosen width.
             const vis = needsVisReset ? def.visible : sc.visible;
-            const width = needsVisReset && def.id === 'match' ? def.width : sc.width;
+            const width = savedVersion < MATCH_GUTTER_PREF_VERSION && def.id === 'match' ? def.width : sc.width;
             ordered.push({ ...def, visible: vis, width });
             used.add(sc.id);
           }

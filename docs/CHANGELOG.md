@@ -4,6 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🔧 **Server done by default** — show it beside Client start; v4 visibility resets once, retaining order/width, then manual hide choices persist.
 - 🐛 **Column regex filters** — show accessible inline errors and leave malformed patterns unapplied without hiding captured requests.
 - 🐛 **HAR body sizes** — preserve known zero-byte request and response sizes across capture, imports, mirrors and full or sanitized exports.
 - 📝 **README security** — document static-SVG-only `innerHTML` use and the audited background worker allowed by the manifest validator.

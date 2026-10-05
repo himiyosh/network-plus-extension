@@ -1178,8 +1178,7 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
-      title:
-        'the Match gutter takes the v4 width on upgrade, clips its label only at gutter width, and fits two chips',
+      title: 'the Match gutter takes the default width for v3 layouts but keeps a v4 custom width',
     },
     {
       skipped: true,
@@ -1278,6 +1277,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title: 'the Columns menu groups its checkboxes under the button and Reset restores the defaults',
+    },
+    {
+      skipped: true,
+      title: 'Server done defaults on, migrates v4 layouts, and remains hideable and responsive',
     },
     {
       skipped: true,

@@ -3557,7 +3557,7 @@ describe('keyboard trust helpers', () => {
   // matrix of wrap widths, not a spot check on one arithmetic constant: the
   // stored widths this reads are free to change, the policy is not.
   describe('auto-hide plans a set that fits the wrap', () => {
-    const WRAP_WIDTHS = [320, 375, 456, 500, 622, 738, 800, 900, 992, 1156, 1280, 1920];
+    const WRAP_WIDTHS = [320, 375, 456, 500, 622, 738, 800, 900, 992, 1096, 1156, 1280, 1920];
     const P1_IDS = ['status', 'method', 'domain', 'path'];
     const defaults = () => np.DEFAULT_COLUMNS.map((column) => ({ ...column }));
     const surviving = (columns, hiddenIds) =>
@@ -3587,7 +3587,7 @@ describe('keyboard trust helpers', () => {
         ['duration', 80, true],
         ['size', 72, true],
         ['clientStart', 104, true],
-        ['serverDone', 104, false],
+        ['serverDone', 104, true],
         ['initiator', 220, false],
         ['url', 420, false],
         ['waterfall', 200, false],
@@ -3619,11 +3619,7 @@ describe('keyboard trust helpers', () => {
     // reads out the whole queue at once, in the order the spec fixes it:
     // P3 Match, Client start, Server done, Type, then P2 ID, Duration, Size.
     test('drops in the specified order inside each tier, not merely tier by tier', () => {
-      // Server done is off by default and is the only P3 entry that would go
-      // unwitnessed, taking a swap of the two middle entries with it.
-      const columns = np.DEFAULT_COLUMNS.map((column) =>
-        column.id === 'serverDone' ? { ...column, visible: true } : { ...column },
-      );
+      const columns = defaults();
       const kept = surviving(columns, np.planAutoHiddenColumns(columns, 150, {}));
       expect(kept.map((column) => column.id)).toEqual(['method', 'status', 'domain', 'path']);
       expect(np.planAutoHiddenColumns(columns, 150, {})).toEqual([
@@ -3662,22 +3658,30 @@ describe('keyboard trust helpers', () => {
         'duration',
         'size',
         'clientStart',
+        'serverDone',
         'initiator',
         'url',
       ]);
       // Every listed P3 column goes while both reader-enabled ones stay: what
       // they asked for outlasts what the defaults chose for them.
-      expect(np.planAutoHiddenColumns(columns, 1300, {})).toEqual(['match', 'clientStart', 'type']);
+      expect(np.planAutoHiddenColumns(columns, 1300, {})).toEqual([
+        'match',
+        'clientStart',
+        'serverDone',
+        'type',
+      ]);
       // Then the rightmost of the two, then the other.
       expect(np.planAutoHiddenColumns(columns, 1100, {})).toEqual([
         'match',
         'clientStart',
+        'serverDone',
         'type',
         'url',
       ]);
       expect(np.planAutoHiddenColumns(columns, 700, {})).toEqual([
         'match',
         'clientStart',
+        'serverDone',
         'type',
         'url',
         'initiator',
@@ -3686,6 +3690,7 @@ describe('keyboard trust helpers', () => {
       expect(np.planAutoHiddenColumns(columns, 150, {})).toEqual([
         'match',
         'clientStart',
+        'serverDone',
         'type',
         'url',
         'initiator',
@@ -5788,6 +5793,25 @@ describe('method class tokens', () => {
 });
 
 describe('column layout reset', () => {
+  test('restores both timing columns after manual hiding without changing their order', () => {
+    const columns = np.DEFAULT_COLUMNS.map((column) => ({ ...column }));
+    const clientStart = columns.find((column) => column.id === 'clientStart');
+    const serverDone = columns.find((column) => column.id === 'serverDone');
+    expect([clientStart.visible, serverDone.visible]).toEqual([true, true]);
+    clientStart.visible = false;
+    serverDone.visible = false;
+    clientStart.width = 120;
+    serverDone.width = 140;
+    const order = columns.map((column) => column.id);
+
+    np.applyDefaultColumnLayout(columns, np.DEFAULT_COLUMNS);
+
+    expect(columns.map((column) => column.id)).toEqual(order);
+    expect([clientStart.visible, clientStart.width, serverDone.visible, serverDone.width]).toEqual([
+      true, 104, true, 104,
+    ]);
+  });
+
   test('restores the default visibility and widths while keeping order and labels', () => {
     const columns = [
       { id: 'path', label: 'Path', width: 300, visible: false },
