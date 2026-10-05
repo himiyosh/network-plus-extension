@@ -195,6 +195,67 @@ const answerCommand = (cdp, commandId, control) =>
   );
 
 browserTest(
+  'mirror auto-scroll survives host Clear resync and follows new requests',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      query: '?view=window&src=7',
+      initScript: VIEWER_STUB,
+      width: 1280,
+      height: 480,
+    });
+    try {
+      await attachScriptedHostPort(page.cdp);
+      const settle = () =>
+        evaluate(page.cdp, 'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))', true);
+      const snapshot = () =>
+        evaluate(
+          page.cdp,
+          `(() => {
+            const tableWrap = document.querySelector('#tableWrap');
+            return {
+              rows: document.querySelectorAll('#tbody tr[data-row-id]').length,
+              pressed: document.querySelector('#autoScrollBtn').getAttribute('aria-pressed'),
+              atBottom: tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - 2,
+              scrollTop: tableWrap.scrollTop,
+            };
+          })()`,
+        );
+      const initialRows = Array.from({ length: 60 }, (_, index) => wireRow(index + 1));
+      await sendSnapshot(page.cdp, initialRows, syncControl());
+      await settle();
+      const initial = await snapshot();
+      await sendSnapshot(page.cdp, [], syncControl({ undoAvailable: true }));
+      await settle();
+      const afterClear = await snapshot();
+      const newRows = Array.from({ length: 60 }, (_, index) => wireRow(index + 61));
+      await evaluate(
+        page.cdp,
+        `for (const row of ${JSON.stringify(newRows)}) window.__send({ type: 'row', row }); true`,
+      );
+      await settle();
+      const afterClearLive = await snapshot();
+      await sendSnapshot(page.cdp, initialRows.concat(newRows), syncControl());
+      await settle();
+      const afterUndo = await snapshot();
+      await evaluate(page.cdp, "document.querySelector('#tableWrap').scrollTop = 0");
+      await settle();
+      const afterManualScroll = await snapshot();
+
+      expect(initial).toMatchObject({ rows: 60, pressed: 'true', atBottom: true });
+      expect(initial.scrollTop).toBeGreaterThan(0);
+      expect(afterClear).toMatchObject({ rows: 0, pressed: 'true' });
+      expect(afterClearLive).toMatchObject({ rows: 60, pressed: 'true', atBottom: true });
+      expect(afterUndo).toMatchObject({ rows: 120, pressed: 'true', atBottom: true });
+      expect(afterManualScroll).toMatchObject({ pressed: 'false', atBottom: false });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'the mirror viewer drives the session remotely and explains the docked case once',
   async () => {
     const page = await launchPanelPage({

@@ -16778,6 +16778,7 @@ const _NetworkPlus = (function () {
       state.sort = restorePlan.sort;
       state.paused = restorePlan.paused;
       state.autoScroll = restorePlan.autoScroll;
+      updateAutoScrollButton();
       state.sampleCaptureActive = restorePlan.sampleCaptureActive;
       state.sampleCapturePreviousPaused = restorePlan.sampleCapturePreviousPaused;
       state.sampleCapturePreviousColumnFilterRules =
@@ -16814,6 +16815,7 @@ const _NetworkPlus = (function () {
       syncSearchScopeControls();
       toggleSearchPanel(restorePlan.searchPanelVisible, false);
       render();
+      if (state.autoScroll) scrollGridToNewest();
       restoreSearchNavigation(restorePlan);
       updateSearchUI();
       if (restorePlan.comparedRows) {
@@ -16875,6 +16877,7 @@ const _NetworkPlus = (function () {
       updateRetentionStatus();
       clearDetailsPanel();
       const undoAvailable = armClearUndoSnapshot(snapshot);
+      if (state.autoScroll) scrollGridToNewest();
       clearButton.focus({ preventScroll: true });
       const undoMessage = undoAvailable
         ? ' Undo available for ' + CLEAR_UNDO_TIMEOUT_MS / 1000 + ' seconds.'
@@ -17723,7 +17726,9 @@ const _NetworkPlus = (function () {
     };
     tableWrap.addEventListener('scroll', () => {
       const currentScrollTop = tableWrap.scrollTop;
-      if (state.autoScroll && currentScrollTop < previousTableScrollTop) {
+      // Shrinking the grid can clamp its scroll position upward without user input.
+      const previousPositionStillFits = previousTableScrollTop <= tableWrap.scrollHeight - tableWrap.clientHeight;
+      if (state.autoScroll && currentScrollTop < previousTableScrollTop && previousPositionStillFits) {
         state.autoScroll = false;
         updateAutoScrollButton();
       }
@@ -19545,6 +19550,7 @@ const _NetworkPlus = (function () {
         for (const row of state.rows) knownRowIds.add(row.id);
         for (const row of pendingLiveRows) knownRowIds.add(row.id);
         render();
+        if (state.autoScroll) scrollGridToNewest();
         updateRetentionStatus();
       };
       const viewerSession = createMirrorViewerSession({
