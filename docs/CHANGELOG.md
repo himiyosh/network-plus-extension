@@ -4,6 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🔧 **Body/Raw pane search** — keep search only in Request/Response Body and Raw, including empty Body; preserve Query copy and remove Header/Query/Cookie search bars.
 - 🔧 **Server done by default** — show it beside Client start; v4 visibility resets once, retaining order/width, then manual hide choices persist.
 - 🐛 **Column regex filters** — show accessible inline errors and leave malformed patterns unapplied without hiding captured requests.
 - 🐛 **HAR body sizes** — preserve known zero-byte request and response sizes across capture, imports, mirrors and full or sanitized exports.

@@ -3546,11 +3546,12 @@ describe('search matches-only toggle contracts', () => {
 
 describe('detail pane search contracts', () => {
   test('attaches the in-pane search bar to the Body and Raw views of both inspectors', () => {
-    expect(js).toContain('attachPaneSearch(reqBodyPane, text);');
+    expect(js).toContain("attachPaneSearch(reqBodyPane, requestBodyText || '', { emptyContent: !requestBodyText });");
     expect(js).toContain('attachPaneSearch(reqRawPane);');
     // The response Body pane hands its one toolbar the renderer picker too.
     expect(js).toContain('    attachPaneSearch(resBodyPane, text, {');
     expect(js).toContain('      viewToggle: bodyViewToggle,');
+    expect(js).toContain('      emptyContent: !displayText,');
     expect(js).toContain('attachPaneSearch(resRawPane);');
     // A bar carrying the picker is a four-child bar, and it states so: the
     // shared 730px copy-label threshold was measured for three children, and
@@ -3577,20 +3578,14 @@ describe('detail pane search contracts', () => {
     expect(js).toContain('      if (bottom !== null && rect.top >= bottom - 0.5) return true;');
   });
 
-  test('attaches it to the kv views too, without arming an Expand all that would switch tabs', () => {
-    // A header or parameter list is as long as a body and was the one place a
-    // reader could not search.
-    expect(js).toContain('attachPaneSearch(reqHeadersPane);');
-    expect(js).toContain('attachPaneSearch(reqQueryPane);');
-    expect(js).toContain('attachPaneSearch(reqCookiesPane);');
-    expect(js).toContain("if (resHeadersPane.querySelector('.kv')) attachPaneSearch(resHeadersPane);");
-    // No second argument on any of them: `fullText` arms "Expand all", which
-    // clicks every link button in the pane — including the URL row's "open
-    // Query", which would switch the tab out from under the search.
-    expect(js).not.toContain('attachPaneSearch(reqHeadersPane,');
-    expect(js).not.toContain('attachPaneSearch(reqQueryPane,');
-    expect(js).not.toContain('attachPaneSearch(reqCookiesPane,');
-    expect(js).not.toContain('attachPaneSearch(resHeadersPane,');
+  test('omits kv-pane search while keeping Query copy actions ahead of the grid', () => {
+    for (const pane of ['reqHeadersPane', 'reqQueryPane', 'reqCookiesPane', 'resHeadersPane']) {
+      expect(js).not.toContain('attachPaneSearch(' + pane);
+    }
+    expect(js).toContain('if (query.trim() && !compiledError && !emptyContent) {');
+    expect(js).toContain('      addCopyActions(reqQueryPane, [');
+    expect(js).toContain('    container.insertBefore(wrapper, container.firstChild);');
+    expect(js).toContain('    syncScrollportBarInset(contentArea);');
   });
 
   test('every pane that owns a toolbar names itself from the dictionary', () => {
@@ -3604,12 +3599,8 @@ describe('detail pane search contracts', () => {
     expect(mapped.map((entry) => entry[1])).toEqual([
       'req-body',
       'req-raw',
-      'req-query',
-      'req-headers',
-      'req-cookies',
       'res-body',
       'res-raw',
-      'res-headers',
     ]);
     for (const [, paneId, key] of mapped) {
       expect([paneId, js.includes('    ' + key + ': {\n')]).toEqual([paneId, true]);
@@ -3637,25 +3628,13 @@ describe('detail pane search contracts', () => {
     expect(js).toContain("  const JWT_SEGMENT_CLASSES = [");
   });
 
-  test('treats every four-line clip as a fold the reveal has to lift', () => {
-    // Three folds keep a hit in layout while hiding it, and all three are in
-    // the one selector the obscured test reads. The URL address was the one
-    // left out: its search counted and navigated to a run 250px below the
-    // clipped box, and the "Show full URL" control beside it opens a different
-    // node, so pressing that left the marked run exactly where it was.
+  test('reveals Body hits hidden by a folded JSON string or clamped value', () => {
     expect(js).toContain(
-      "    '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped,' +\n" +
-        "    ' .url-breakdown-address:not(.url-breakdown-address--expanded)';",
+      "    '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped';",
     );
-    expect(js).toContain(
-      "    const address = mark.parentElement ? mark.parentElement.closest('.url-breakdown-address') : null;",
-    );
-    expect(js).toContain("    if (address) address.classList.add('url-breakdown-address--expanded');");
-    // The lifted state is a class on the address itself, not a second copy of
-    // the string: the spans, the breaks and the text nodes are untouched.
-    expect(css).toContain(
-      '.url-breakdown-address--expanded{display:block;-webkit-line-clamp:unset;overflow:visible}',
-    );
+    expect(js).toContain('    if (longString) setJsonTreeStringExpanded(longString, true);');
+    expect(js).toContain("    const clamped = mark.parentElement ? mark.parentElement.closest('.val--clamped') : null;");
+    expect(js).not.toContain("mark.parentElement.closest('.url-breakdown-address')");
   });
 
   test('renders hits through safe DOM APIs with theme-token styling', () => {
@@ -3695,7 +3674,7 @@ describe('detail pane search contracts', () => {
     expect(js).toContain("expandBtn.addEventListener('click', expandEverything);");
     // Both truncating panes provide their full source text for the count.
     expect(js).toContain('    attachPaneSearch(resBodyPane, text, {');
-    expect(js).toContain('attachPaneSearch(reqBodyPane, text);');
+    expect(js).toContain("attachPaneSearch(reqBodyPane, requestBodyText || '', { emptyContent: !requestBodyText });");
     expect(css).toContain('.pane-search-expand');
   });
 
@@ -3725,8 +3704,11 @@ describe('search options and preference persistence contracts', () => {
     expect(js).not.toMatch(/SEARCH_PREFS_KEY[^\n]*keywords/);
   });
 
-  test('Ctrl+F prefers the focused detail pane search bar', () => {
-    expect(js).toMatch(/closest\('\.tab-pane'\)[\s\S]{0,200}querySelector\('\.pane-search-input'\)/);
+  test('Ctrl+F prefers the focused Body/Raw pane or its selected tab', () => {
+    expect(js).toContain("focused.closest('.tab-pane')");
+    expect(js).toContain("focused.matches('.tab-btn[aria-selected=\"true\"]')");
+    expect(js).toContain("document.getElementById(selectedTab.getAttribute('aria-controls'))");
+    expect(js).toContain("activePane.querySelector('.pane-search-input')");
     expect(js).toContain('paneSearchInput.focus();');
   });
 });

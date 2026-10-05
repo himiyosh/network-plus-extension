@@ -1196,7 +1196,7 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title:
-        'the Query pane segments URL values, nests query values behind a disclosure, and carries its own toolbar',
+        'the Query pane segments URL values, nests query values and retains copy actions without search',
     },
     {
       skipped: true,
@@ -1230,7 +1230,7 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
-      title: 'Body and Raw carry one sticky top toolbar that holds search and the copy actions',
+      title: 'only Body and Raw carry a sticky search toolbar with copy actions',
     },
     {
       skipped: true,

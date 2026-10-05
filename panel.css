@@ -685,12 +685,9 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .url-breakdown-line{display:block}
 /* The address is one block of inline spans: a block boundary between its parts put a
    newline inside the URL, so a drag-select copied a string no tool would accept. Four
-   lines are clipped, not hidden — the whole text stays selectable and findable. */
+   lines are clipped, not removed: the whole URL remains selectable, and the
+   Show full URL control reveals it beyond the clip. */
 .url-breakdown-address{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
-/* Lifted by the pane search when the hit it is stepping the reader to sits in the
-   clipped region: the count and the navigation reach text the clip hides, and the
-   "Show full URL" control beside this opens a different node entirely. */
-.url-breakdown-address--expanded{display:block;-webkit-line-clamp:unset;overflow:visible}
 .url-breakdown-path,.url-breakdown-query-text{overflow-wrap:anywhere}
 /* Each query parameter is a name and a value, not one run of punctuation: the name
    takes the header-name colour the raw views already use for a field name. */
