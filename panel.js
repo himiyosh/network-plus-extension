@@ -3762,18 +3762,21 @@ const _NetworkPlus = (function () {
       headers: normalizeHarHeaders(response.headers),
       content: normalizedContent,
     };
+    const normalizedRequest = {
+      method: normalizeImportString(request.method),
+      url: normalizeImportString(request.url),
+      httpVersion: normalizeImportString(request.httpVersion),
+      headers: normalizeHarHeaders(request.headers),
+      postData,
+    };
+    const requestBodySize = normalizeImportNumber(request.bodySize, null);
+    if (requestBodySize !== null && requestBodySize >= -1) normalizedRequest.bodySize = requestBodySize;
     const bodySize = normalizeImportNumber(response.bodySize, null);
-    if (bodySize !== null && bodySize >= 0) normalizedResponse.bodySize = bodySize;
+    if (bodySize !== null && bodySize >= -1) normalizedResponse.bodySize = bodySize;
     return {
       startedDateTime: normalizeImportString(entry.startedDateTime),
       time: Math.max(0, normalizeImportNumber(entry.time, 0)),
-      request: {
-        method: normalizeImportString(request.method),
-        url: normalizeImportString(request.url),
-        httpVersion: normalizeImportString(request.httpVersion),
-        headers: normalizeHarHeaders(request.headers),
-        postData,
-      },
+      request: normalizedRequest,
       response: normalizedResponse,
       timings,
       initiator: null,
@@ -4086,6 +4089,7 @@ const _NetworkPlus = (function () {
     const statusText = responseParts.join(' ');
     const mimeType = getNormalizedHeaderValue(server.headers, 'content-type').split(';')[0];
     const bodySize = getUtf8ByteLength(server.body);
+    const requestBodyBoundary = findHttpHeaderBodySplit(clientBytes);
     return {
       startedDateTime,
       time: 0,
@@ -4095,6 +4099,7 @@ const _NetworkPlus = (function () {
         httpVersion,
         headers: client.headers,
         postData: client.body ? { mimeType: getNormalizedHeaderValue(client.headers, 'content-type'), text: client.body } : null,
+        bodySize: requestBodyBoundary >= 0 ? clientBytes.length - requestBodyBoundary - 4 : -1,
       },
       response: {
         status,
@@ -8802,6 +8807,10 @@ const _NetworkPlus = (function () {
       embeddedContent && typeof embeddedContent.text === 'string' ? embeddedContent.text : null;
     const embeddedResponseEncoding =
       embeddedResponseContent !== null && embeddedContent.encoding === 'base64' ? 'base64' : '';
+    const requestBodySize = req && req.request ? req.request.bodySize : undefined;
+    const responseBodySize = req && req.response ? req.response.bodySize : undefined;
+    const requestPostText = req && req.request && req.request.postData && req.request.postData.text;
+    const contentSize = embeddedContent && embeddedContent.size;
     const r = {
       _reqObj: req,
       method: (req && req.request && req.request.method) || '',
@@ -8812,6 +8821,18 @@ const _NetworkPlus = (function () {
       protocol: req && req.response && req.response.httpVersion ? String(req.response.httpVersion).toUpperCase() : '',
       size:
         Math.max(0, (req && req.response && (req.response.bodySize > 0 ? req.response.bodySize : (req.response.content && req.response.content.size > 0 ? req.response.content.size : 0))) || 0),
+      requestBodySize:
+        Number.isFinite(requestBodySize) && requestBodySize >= 0
+          ? requestBodySize
+          : requestBodySize == null && typeof requestPostText === 'string' && requestPostText.length > 0
+            ? requestPostText.length
+            : -1,
+      responseBodySize:
+        Number.isFinite(responseBodySize) && responseBodySize >= 0
+          ? responseBodySize
+          : responseBodySize == null && Number.isFinite(contentSize) && contentSize > 0
+            ? contentSize
+            : -1,
       clientStart: fmtLocalTime(isoStr),
       serverDone: fmtLocalTime(serverDoneIso),
       clientStartFilter: fmtFilterTime(isoStr),
@@ -8896,13 +8917,14 @@ const _NetworkPlus = (function () {
         url: row.url,
         headers: Array.isArray(row.requestHeaders) ? row.requestHeaders : [],
         postData: row.requestPostData || null,
+        bodySize: row.requestBodySize,
       },
       response: {
         status: row.status,
         statusText: row.statusText,
         httpVersion: row.protocol,
         headers: Array.isArray(row.responseHeaders) ? row.responseHeaders : [],
-        bodySize: row.size,
+        bodySize: Number.isFinite(row.responseBodySize) ? row.responseBodySize : row.size,
         content: { mimeType: row.type, size: row.size },
       },
       timings: row.timings || {},
@@ -8920,6 +8942,7 @@ const _NetworkPlus = (function () {
         url: request.url,
         headers: request.headers,
         postData: request.postData || null,
+        bodySize: request.bodySize,
       },
       response: wire.response && typeof wire.response === 'object' ? wire.response : {},
       timings: wire.timings && typeof wire.timings === 'object' ? wire.timings : {},
@@ -9212,6 +9235,7 @@ const _NetworkPlus = (function () {
           formatWsFrameLine(event),
           WS_DIRECTION_TEXT_LIMIT_CHARS,
         );
+        if (isLiveStreamRow(row)) row.requestBodySize = row.requestPostData.text.length;
         row._wsSentCount = (row._wsSentCount || 0) + 1;
         if (row.method !== 'SSE') {
           const preview = event.preview || '';
@@ -9239,6 +9263,7 @@ const _NetworkPlus = (function () {
         if (event.kind === 'ws-received') {
           row._wsReceivedCount = (row._wsReceivedCount || 0) + 1;
           row.size = (row.size || 0) + (event.preview ? event.preview.length : 0);
+          if (isLiveStreamRow(row)) row.responseBodySize = row.size;
           if (row.method !== 'SSE') {
             const preview = event.preview || '';
             const binary = WS_BINARY_PREVIEW_PATTERN.test(preview);
@@ -16376,7 +16401,9 @@ const _NetworkPlus = (function () {
           headers: reqHeaders,
           queryString: parseQueryString(url),
           headersSize: -1,
-          bodySize: r.requestPostData && r.requestPostData.text ? r.requestPostData.text.length : -1,
+          bodySize: Number.isFinite(r.requestBodySize)
+            ? r.requestBodySize
+            : r.requestPostData && r.requestPostData.text ? r.requestPostData.text.length : -1,
         },
         response: {
           status: r.status || 0,
@@ -16387,7 +16414,7 @@ const _NetworkPlus = (function () {
           content,
           redirectURL: '',
           headersSize: -1,
-          bodySize: r.size || -1,
+          bodySize: Number.isFinite(r.responseBodySize) ? r.responseBodySize : r.size || -1,
         },
         cache: {},
         timings,
