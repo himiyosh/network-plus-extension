@@ -780,6 +780,72 @@ test('grid focus allowance reports unexplained reserve and scroll beyond the pai
 });
 
 browserTest(
+  'Server done time picker excludes a zero-duration row across midnight',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: `(() => {
+        const chromeApi = globalThis.chrome || {};
+        chromeApi.storage = {
+          local: { get(_keys, callback) { callback({}); }, set(_value, callback) { if (callback) callback(); } },
+        };
+        chromeApi.runtime = { lastError: null, getManifest() { return { version: '1.6.0' }; } };
+        chromeApi.devtools = {
+          network: {
+            onRequestFinished: { addListener(listener) { globalThis.__networkPlusLiveListener = listener; } },
+          },
+          panels: { openResource() {} },
+        };
+        globalThis.chrome = chromeApi;
+      })();`,
+    });
+    try {
+      await waitForLiveNetworkListener(page.cdp);
+      const result = await evaluate(
+        page.cdp,
+        `(async () => {
+          const startedDateTime = new Date(2026, 0, 15, 23, 45).toISOString();
+          for (const [id, time] of [[1, 120], [2, 0]]) {
+            window.__networkPlusLiveListener({
+              startedDateTime,
+              time,
+              request: { method: 'GET', url: 'https://example.test/time/' + id, headers: [] },
+              response: {
+                status: time ? 200 : 304, headers: [],
+                content: { size: 0, mimeType: 'text/plain' },
+              },
+              getContent(callback) { callback('', ''); },
+            });
+          }
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const rowIds = () => Array.from(document.querySelectorAll('#tbody tr[data-row-id]'))
+            .map((row) => row.dataset.rowId);
+          const before = rowIds();
+
+          document.querySelector('#filterBtn').click();
+          const section = Array.from(document.querySelectorAll('#columnFilterPopup .filter-section'))
+            .find((item) => item.querySelector('.filter-section-name')?.textContent === 'Server done');
+          if (!section) throw new Error('Server done filter control is missing.');
+          const [start, end] = section.querySelectorAll('input[type="time"]');
+          if (!start || !end) throw new Error('Server done time inputs are missing.');
+          start.value = '22:00';
+          start.dispatchEvent(new Event('change', { bubbles: true }));
+          end.value = '02:00';
+          end.dispatchEvent(new Event('change', { bubbles: true }));
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return { before, after: rowIds(), bounds: [start.value, end.value] };
+        })()`,
+        true,
+      );
+      expect(result).toEqual({ before: ['1', '2'], after: ['1'], bounds: ['22:00', '02:00'] });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'auto-scroll follows live requests after Clear and Undo until the reader scrolls upward',
   async () => {
     const page = await launchPanelPage({

@@ -8524,7 +8524,9 @@ const _NetworkPlus = (function () {
       const start = rule.start || '';
       const end = rule.end || '';
       if (!start && !end) return true;
-      const v = value; // HH:MM format
+      // Filter times use HH:MM, but a display-time fallback uses HH:MM:SS.mmm.
+      if (!/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?$/.test(value)) return false;
+      const v = value;
       if (start <= end) {
         // Normal range: 09:00 - 17:30
         return (!start || v >= start) && (!end || v <= end);

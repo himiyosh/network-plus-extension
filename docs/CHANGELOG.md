@@ -7,6 +7,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 - 📝 **README security** — document static-SVG-only `innerHTML` use and the audited background worker allowed by the manifest validator.
 - 📝 **Store dossiers** — record the published v1.14.0 release, re-downloaded and byte-compared against builds from two timezones.
 - 🐛 **Auto-scroll after Clear** — when already on, bottom-following survives Clear, Undo and mirror resync until a deliberate upward scroll.
+- 🐛 **Overnight Time filters** — exclude missing or invalid request times from active ranges, including zero-duration Server done rows.
 
 ## v1.14.0 - 2026-09-14
 
