@@ -2483,6 +2483,145 @@ describe('capture retention helpers', () => {
   });
 });
 
+describe('HAR body-size fidelity', () => {
+  const exportSizes = (row) => {
+    const full = np.buildHarLogFromRows([row]);
+    const sanitized = np.sanitizeHar(full);
+    return [full, sanitized].map((har) => {
+      expect(har.log.entries).toHaveLength(1);
+      const { request, response } = har.log.entries[0];
+      return {
+        request: request.bodySize,
+        response: response.bodySize,
+        content: response.content.size,
+      };
+    });
+  };
+
+  test.each([
+    ['GET/204', 'GET', null],
+    ['empty POST/204', 'POST', { mimeType: 'text/plain', text: '' }],
+  ])('retains captured zero-byte sizes in full and sanitized HAR for %s', (_label, method, postData) => {
+    const captured = {
+      startedDateTime: '2026-01-01T00:00:00.000Z',
+      request: { method, url: 'https://example.test/empty', headers: [], bodySize: 0, postData },
+      response: {
+        status: 204,
+        bodySize: 0,
+        content: { mimeType: 'text/plain', size: 0 },
+      },
+      getContent: (callback) => callback('', ''),
+    };
+    const row = np.buildRowFromRequest(captured, 1);
+    row.responseContent = '';
+
+    expect(exportSizes(row)).toEqual([
+      { request: 0, response: 0, content: 0 },
+      { request: 0, response: 0, content: 0 },
+    ]);
+  });
+
+  test('round-trips imported declared zeros after releasing the source request', () => {
+    const imported = np.normalizeHarEntry({
+      request: { method: 'GET', url: 'https://example.test/import', bodySize: 0 },
+      response: { status: 204, bodySize: 0, content: { mimeType: 'text/plain', size: 0 } },
+    });
+    expect(np.classifyImportedResponseContent(imported).state).toBe('empty');
+    const row = np.buildRowFromRequest(imported, 2);
+    row.responseContent = '';
+    row._reqObj = null;
+
+    expect(exportSizes(row)).toEqual([
+      { request: 0, response: 0, content: 0 },
+      { request: 0, response: 0, content: 0 },
+    ]);
+  });
+
+  test('keeps a declared zero body size when imported response content is unavailable or contradictory', () => {
+    const imported = np.normalizeHarEntry({
+      request: { method: 'POST', url: 'https://example.test/import', bodySize: 0,
+        postData: { mimeType: 'text/plain', text: 'unexpected' } },
+      response: { status: 200, bodySize: 0, content: { mimeType: 'text/plain', size: 7 } },
+    });
+    const availability = np.classifyImportedResponseContent(imported);
+    expect(availability.state).toBe('unavailable');
+    const row = np.buildRowFromRequest(imported, 3);
+    row.responseContentState = availability.state;
+    row.responseContentReason = availability.reason;
+    row._reqObj = null;
+
+    expect(exportSizes(row)).toEqual([
+      { request: 0, response: 0, content: 7 },
+      { request: 0, response: 0, content: 7 },
+    ]);
+    expect(np.buildHarLogFromRows([row]).log.entries[0].response.content).toEqual(
+      expect.objectContaining({ _networkPlus: expect.objectContaining({ status: 'unavailable' }) }),
+    );
+  });
+
+  test.each([
+    ['missing', {}, {}, 0],
+    ['declared unknown', { bodySize: -1, postData: { mimeType: 'text/plain', text: 'data' } },
+      { bodySize: -1, content: { mimeType: 'text/plain', size: 9 } }, 9],
+  ])('does not invent body sizes for %s source metadata', (_label, requestFields, responseFields, contentSize) => {
+    const imported = np.normalizeHarEntry({
+      request: { method: 'POST', url: 'https://example.test/unknown', ...requestFields },
+      response: { status: 200, ...responseFields },
+    });
+    const row = np.buildRowFromRequest(imported, 4);
+    row._reqObj = null;
+
+    expect(exportSizes(row)).toEqual([
+      { request: -1, response: -1, content: contentSize },
+      { request: -1, response: -1, content: contentSize },
+    ]);
+  });
+
+  test('keeps declared positives and existing inferred positives when body sizes are missing', () => {
+    const sources = [
+      { request: { bodySize: 5, postData: { text: 'x' } }, response: { bodySize: 12, content: { size: 12 } } },
+      { request: { postData: { text: 'data' } }, response: { content: { size: 12 } } },
+    ];
+    for (const source of sources) {
+      const row = np.buildRowFromRequest({
+        request: { method: 'POST', url: 'https://example.test/positive', ...source.request },
+        response: { status: 200, ...source.response },
+      }, 5);
+      expect(exportSizes(row)).toEqual([
+        { request: source.request.bodySize ?? source.request.postData.text.length, response: 12, content: 12 },
+        { request: source.request.bodySize ?? source.request.postData.text.length, response: 12, content: 12 },
+      ]);
+    }
+  });
+
+  test('exports measured empty SAZ requests and responses as zero bytes', () => {
+    const encoder = new TextEncoder();
+    const responseBytes = encoder.encode('HTTP/1.1 204 No Content\r\n\r\n');
+    const entry = np.createSazHarEntry(
+      encoder.encode('POST https://example.test/empty HTTP/1.1\r\n\r\n'),
+      responseBytes,
+      '2026-01-01T00:00:00.000Z',
+    );
+    const row = np.buildRowFromRequest(entry, 6);
+    row._reqObj = null;
+
+    expect(exportSizes(row)).toEqual([
+      { request: 0, response: 0, content: 0 },
+      { request: 0, response: 0, content: 0 },
+    ]);
+
+    const utf8Entry = np.createSazHarEntry(
+      encoder.encode('POST https://example.test/utf8 HTTP/1.1\r\n\r\n\u00e9'),
+      responseBytes,
+      '2026-01-01T00:00:00.000Z',
+    );
+    expect(exportSizes(np.buildRowFromRequest(utf8Entry, 7))).toEqual([
+      { request: 2, response: 0, content: 0 },
+      { request: 2, response: 0, content: 0 },
+    ]);
+  });
+});
+
 describe('active column filter helpers', () => {
   test('identifies Waterfall as a visual-only column', () => {
     expect(np.isVisualOnlyColumn('waterfall')).toBe(true);
@@ -6027,6 +6166,26 @@ describe('WebSocket frame HAR export', () => {
     expect(sseRow._wsFrames).toBeUndefined();
   });
 
+  test('live frame previews keep their positive HAR sizes on the host and mirror', () => {
+    const row = np.buildRowFromRequest({
+      request: { method: 'WS', url: 'wss://example.test/socket', postData: { mimeType: 'text/plain', text: '' } },
+      response: { bodySize: 0, content: { size: 0, mimeType: 'websocket', text: '' } },
+    }, 31);
+    row._wsSocketId = 1;
+    np.ingestWsEvents([
+      { kind: 'ws-sent', socketId: 1, at: 1000, preview: 'ping' },
+      { kind: 'ws-received', socketId: 1, at: 2000, preview: 'pong' },
+    ], { getRow: () => row });
+
+    const wire = JSON.parse(JSON.stringify(np.serializeRowForMirror(row)));
+    const viewerRow = np.buildRowFromRequest(np.buildMirrorEntryFromWire(wire), wire.id);
+    for (const exportedRow of [row, viewerRow]) {
+      const entry = np.buildHarLogFromRows([exportedRow]).log.entries[0];
+      expect(entry.request.bodySize).toBe(row.requestPostData.text.length);
+      expect(entry.response.bodySize).toBe(row.size);
+    }
+  });
+
   test('export writes Chrome-shaped _webSocketMessages with honest fidelity notes', () => {
     const row = {
       id: 1,
@@ -7095,6 +7254,26 @@ describe('devtools-session mirror', () => {
     expect(viewerRow.initiator).toEqual(hostRow.initiator);
     expect(viewerRow.domain).toBe(hostRow.domain);
     expect(viewerRow.responseContentState).toBe('not-loaded');
+  });
+
+  test.each([
+    ['empty', 0, 0, 0],
+    ['unknown', -1, -1, 0],
+    ['positive', 5, 12, 12],
+    ['declared zero with content', 0, 0, 7],
+  ])('mirrors %s body sizes without inferring them from display size', (_label, requestSize, responseSize, contentSize) => {
+    const hostRow = np.buildRowFromRequest({
+      request: { method: 'POST', url: 'https://example.test/mirror', bodySize: requestSize },
+      response: { status: 200, bodySize: responseSize, content: { mimeType: 'text/plain', size: contentSize } },
+    }, 8);
+    const wire = JSON.parse(JSON.stringify(np.serializeRowForMirror(hostRow)));
+    const viewerRow = np.buildRowFromRequest(np.buildMirrorEntryFromWire(wire), wire.id);
+    viewerRow._reqObj = null;
+    const entry = np.buildHarLogFromRows([viewerRow]).log.entries[0];
+
+    expect([entry.request.bodySize, entry.response.bodySize, entry.response.content.size]).toEqual([
+      requestSize, responseSize, contentSize,
+    ]);
   });
 
   const createLinkedSessions = ({
