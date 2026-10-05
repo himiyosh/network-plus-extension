@@ -319,10 +319,10 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 
 ## 🔐 Security
 
-- Every piece of user data rendered into the DOM goes through `textContent` or DOM APIs. `innerHTML` is not used anywhere.
+- User-controlled values in the panel are rendered via `textContent` or DOM APIs. The only `innerHTML` assignment swaps predefined Pause/Resume SVG icons, never user data.
 - The Content Security Policy is declared explicitly in [manifest.json](manifest.json): `script-src 'self'; object-src 'self'`.
 - The extension requests exactly one permission, `storage`, used to persist the theme and search preferences (scope, match options, and the Matches only state — never search keywords or captured traffic). HAR downloads use a local Blob URL and a temporary `<a download>` element, so the `downloads` permission is not needed.
-- The manifest allows only the 8 top-level keys currently in use; host permissions, background workers, and content scripts are rejected by the validator outright.
+- The manifest is limited to nine audited top-level keys. Its sole permitted background worker, `background.js`, minimizes undocked DevTools on pop-out without extra permissions; host permissions, content scripts, and other workers are rejected by the validator.
 - `npm run extension:check` verifies exact permission parity and real usage, runtime path symlink and root boundaries, resource locality, the inline-script ban, the CSP, and the distribution allowlist.
 
 ## 🚧 Limitations
