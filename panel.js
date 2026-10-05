@@ -14658,6 +14658,11 @@ const _NetworkPlus = (function () {
     count.className = 'pane-search-count';
     count.setAttribute('role', 'status');
     count.setAttribute('aria-live', 'polite');
+    const errorMessage = document.createElement('span');
+    errorMessage.className = 'pane-search-error';
+    errorMessage.id = 'pane-search-error-' + paneId;
+    errorMessage.setAttribute('role', 'status');
+    errorMessage.setAttribute('aria-atomic', 'true');
     const prevBtn = document.createElement('button');
     prevBtn.className = 'pane-search-nav';
     prevBtn.textContent = '↑';
@@ -14713,11 +14718,13 @@ const _NetworkPlus = (function () {
       const query = input.value.trim();
       const total = marks.length + (truncated ? '+' : '');
       count.textContent =
-        marks.length > 0
-          ? (currentIndex >= 0 ? currentIndex + 1 + ' / ' : '') + total
-          : query
-            ? uiText('paneSearchNoMatches')
-            : '';
+        errorMessage.textContent
+          ? ''
+          : marks.length > 0
+            ? (currentIndex >= 0 ? currentIndex + 1 + ' / ' : '') + total
+            : query
+              ? uiText('paneSearchNoMatches')
+              : '';
       if (collapsedHits > 0) {
         count.textContent += uiTextFormat('paneSearchCollapsedSuffix', { count: collapsedHits });
       }
@@ -14760,8 +14767,21 @@ const _NetworkPlus = (function () {
       const compiledError = query.trim() && searchOptions.regex
         ? compileSearchQuery(query, searchOptions).error
         : null;
+      const message = compiledError
+        ? uiTextFormat('paneSearchInvalidRegex', {
+            error: compiledError.replace(/^Invalid regular expression:\s*/, ''),
+          })
+        : '';
       input.classList.toggle('pane-search-input-error', !!compiledError);
-      input.title = compiledError ? uiTextFormat('paneSearchInvalidRegex', { error: compiledError }) : '';
+      input.title = message;
+      if (compiledError) {
+        input.setAttribute('aria-invalid', 'true');
+        input.setAttribute('aria-describedby', errorMessage.id);
+      } else {
+        input.removeAttribute('aria-invalid');
+        input.removeAttribute('aria-describedby');
+      }
+      errorMessage.textContent = message;
       if (query.trim() && !compiledError && !emptyContent) {
         const result = applyPaneSearchHits(pane, query, searchOptions);
         marks = result.marks;
@@ -14839,6 +14859,7 @@ const _NetworkPlus = (function () {
     // under a single band instead of between a copy band and a footer.
     const copyActions = pane.querySelector(':scope > .copy-actions');
     if (copyActions) bar.appendChild(copyActions);
+    bar.appendChild(errorMessage);
     pane.classList.add('pane-search-host');
     pane.insertBefore(bar, pane.firstChild);
     // The bar this pane owns; syncScrollportBarInset reads it back when the
@@ -18787,6 +18808,10 @@ const _NetworkPlus = (function () {
       optionButton.el.addEventListener('click', () => {
         state.search.options[optionButton.key] = !state.search.options[optionButton.key];
         executeSearch();
+        for (const paneId of Object.keys(PANE_SEARCH_LABEL_KEYS)) {
+          const pane = document.getElementById(paneId);
+          if (pane && typeof pane._paneSearchRefresh === 'function') pane._paneSearchRefresh();
+        }
         updateSearchUI();
         saveSearchPrefs(currentSearchPrefs());
         setStatus(

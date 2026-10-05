@@ -11360,6 +11360,170 @@ const PANE_TOOLBAR_NARROW_MEASURE = `(() => {
 })()`;
 
 browserTest(
+  'Body and Raw pane regex errors are visible, associated with their inputs and recover in both languages',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await waitForLiveNetworkListener(cdp);
+      const observed = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const responseText = '{"result":"needle"}';
+          globalThis.__networkPlusLiveListener({
+            startedDateTime: '2026-01-15T12:00:00.000Z',
+            time: 20,
+            request: {
+              method: 'POST',
+              url: 'https://api.example.test/v1/search',
+              headers: [{ name: 'content-type', value: 'application/json' }],
+              postData: { mimeType: 'application/json', text: '{"query":"needle"}' },
+            },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              headers: [{ name: 'content-type', value: 'application/json' }],
+              content: { size: responseText.length, mimeType: 'application/json' },
+            },
+            getContent(callback) { callback(responseText, ''); },
+          });
+          await waitFor(() => !!document.querySelector('#tbody tr[data-row-id="1"]'), 1200);
+          document.querySelector('#tbody tr[data-row-id="1"]').click();
+          const paneIds = ['req-body', 'req-raw', 'res-body', 'res-raw'];
+          if (!await waitFor(() => paneIds.every((id) =>
+            !!document.querySelector('#' + id + ' .pane-search-input')) &&
+            document.querySelector('#res-raw').textContent.includes('needle'), 1200)) {
+            throw new Error('The captured POST and JSON response did not populate all Body/Raw panes.');
+          }
+          document.querySelector('#searchOptRegexBtn').click();
+          const regexPressed = document.querySelector('#searchOptRegexBtn').getAttribute('aria-pressed');
+          const snapshot = (id) => {
+            const pane = document.getElementById(id);
+            const input = pane.querySelector('.pane-search-input');
+            const descriptionId = input.getAttribute('aria-describedby');
+            const error = descriptionId
+              ? document.getElementById(descriptionId)
+              : pane.querySelector('.pane-search-error');
+            return {
+              count: pane.querySelector('.pane-search-count').textContent,
+              hits: pane.querySelectorAll('mark.pane-search-hit').length,
+              navDisabled: Array.from(pane.querySelectorAll('.pane-search-nav:not(.pane-search-expand)'))
+                .every((button) => button.disabled),
+              invalid: input.getAttribute('aria-invalid'),
+              descriptionId,
+              description: error?.textContent || '',
+              errorRole: error?.getAttribute('role') || null,
+              errorVisible: !!error && error.getBoundingClientRect().height > 1,
+              errorInPane: !!error && error.closest('.tab-pane') === pane,
+              title: input.title,
+              focused: document.activeElement === input,
+            };
+          };
+          const type = async (id, value, ready) => {
+            const input = document.querySelector('#' + id + ' .pane-search-input');
+            input.focus();
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            if (!await waitFor(() => ready(snapshot(id)), 1000)) {
+              throw new Error('Pane search did not update for ' + id + ': ' + value);
+            }
+            return snapshot(id);
+          };
+          const english = {};
+          for (const id of paneIds) {
+            document.querySelector('#' + id.replace('-', '-tab-')).click();
+            const valid = await type(id, 'needle', (state) => state.hits === 1);
+            const invalid = await type(id, '[', (state) =>
+              state.title.startsWith('Invalid regular expression:') && state.hits === 0);
+            const corrected = await type(id, 'needle', (state) =>
+              state.hits === 1 && state.invalid === null);
+            const missing = await type(id, 'absent', (state) => state.count === 'No matches');
+            english[id] = { valid, invalid, corrected, missing };
+          }
+          const language = document.querySelector('#langSelect');
+          language.value = 'ja';
+          language.dispatchEvent(new Event('change', { bubbles: true }));
+          if (!await waitFor(() => document.documentElement.lang === 'ja' &&
+            paneIds.every((id) => !!document.querySelector('#' + id + ' .pane-search-input')), 1200)) {
+            throw new Error('The Japanese Body/Raw panes did not render.');
+          }
+          const japanese = {};
+          for (const id of paneIds) {
+            document.querySelector('#' + id.replace('-', '-tab-')).click();
+            japanese[id] = await type(id, '[', (state) =>
+              state.title.startsWith('正規表現が不正です:') && state.hits === 0);
+          }
+          document.querySelector('#searchOptRegexBtn').click();
+          const literalUpdated = await waitFor(() => paneIds.every((id) =>
+            snapshot(id).invalid === null && snapshot(id).count === '一致なし'), 1000);
+          const literal = Object.fromEntries(paneIds.map((id) => [id, snapshot(id)]));
+          document.querySelector('#searchOptRegexBtn').click();
+          const regexRestored = await waitFor(() => paneIds.every((id) =>
+            snapshot(id).invalid === 'true'), 1000);
+          return { regexPressed, english, japanese, literalUpdated, literal, regexRestored };
+        })()`,
+        true,
+      );
+      expect(observed.regexPressed).toBe('true');
+      const ids = ['req-body', 'req-raw', 'res-body', 'res-raw'];
+      for (const id of ids) {
+        const { valid, invalid, corrected, missing } = observed.english[id];
+        expect(valid).toMatchObject({
+          count: '1 / 1', hits: 1, navDisabled: false, invalid: null, descriptionId: null,
+          description: '', focused: true,
+        });
+        expect(invalid).toMatchObject({
+          count: '', hits: 0, navDisabled: true, invalid: 'true',
+          descriptionId: 'pane-search-error-' + id, errorRole: 'status',
+          errorVisible: true, errorInPane: true, focused: true,
+        });
+        expect(invalid.description).toMatch(/^Invalid regular expression: /);
+        expect(invalid.description).not.toMatch(/Invalid regular expression: Invalid regular expression:/);
+        expect(invalid.title).toBe(invalid.description);
+        expect(corrected).toMatchObject({
+          count: '1 / 1', hits: 1, navDisabled: false, invalid: null, descriptionId: null,
+          description: '', title: '', focused: true,
+        });
+        expect(missing).toMatchObject({
+          count: 'No matches', hits: 0, navDisabled: true, invalid: null, descriptionId: null,
+          description: '', title: '', focused: true,
+        });
+        expect(observed.japanese[id]).toMatchObject({
+          count: '', hits: 0, navDisabled: true, invalid: 'true',
+          descriptionId: 'pane-search-error-' + id, errorRole: 'status',
+          errorVisible: true, errorInPane: true, focused: true,
+        });
+        expect(observed.japanese[id].description).toMatch(/^正規表現が不正です: /);
+        expect(observed.japanese[id].title).toBe(observed.japanese[id].description);
+        expect(observed.literal[id]).toMatchObject({
+          count: '一致なし', hits: 0, navDisabled: true, invalid: null, descriptionId: null,
+          description: '', title: '',
+        });
+      }
+      expect(new Set(ids.map((id) => observed.english[id].invalid.descriptionId)).size).toBe(4);
+      expect(observed.literalUpdated).toBe(true);
+      expect(observed.regexRestored).toBe(true);
+
+      const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      const restoredError = observed.japanese['res-raw'].description;
+      const accessibleInput = accessibilityTree.nodes.find(
+        (node) => node.role?.value === 'textbox' && node.description?.value === restoredError,
+      );
+      expect(accessibleInput?.properties?.find((property) => property.name === 'invalid')?.value?.value)
+        .toBe('true');
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'only Body and Raw carry a sticky search toolbar with copy actions',
   async () => {
     const page = await launchPanelPage({

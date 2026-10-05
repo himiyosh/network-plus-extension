@@ -1109,6 +1109,8 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .pane-search-input{flex:1 1 160px;min-width:120px;background:var(--content-bg);color:var(--fg);border:1px solid var(--control-border);border-radius:4px;padding:3px 6px;font:inherit;font-size:12px}
 .pane-search-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .pane-search-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--text-muted);white-space:nowrap}
+.pane-search-error{flex:0 0 100%;box-sizing:border-box;font-size:11px;font-weight:600;color:var(--status-5xx-text);overflow-wrap:anywhere}
+.pane-search-error:empty{position:absolute;width:0;height:1px;overflow:hidden;clip-path:inset(50%)}
 .pane-search-nav{flex:none;min-height:22px;background:var(--bg);border:1px solid var(--control-border);color:var(--text-muted);border-radius:4px;cursor:pointer;padding:1px 7px;font-size:11px}
 .pane-search-nav:hover{border-color:var(--accent);color:var(--text-accent)}
 .pane-search-nav:disabled{opacity:.5;cursor:default}

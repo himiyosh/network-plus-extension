@@ -1234,6 +1234,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
+      title: 'Body and Raw pane regex errors are visible, associated with their inputs and recover in both languages',
+    },
+    {
+      skipped: true,
       title: 'only Body and Raw carry a sticky search toolbar with copy actions',
     },
     {
