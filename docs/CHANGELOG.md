@@ -2,6 +2,10 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
+## Unreleased
+
+- No changes have been recorded since v1.15.0.
+
 ## v1.15.0 - 2026-10-06
 
 - 🐛 **Body/Raw regex errors** — show localized inline feedback linked to each pane input instead of reporting No matches for malformed searches.
