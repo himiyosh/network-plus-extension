@@ -104,7 +104,7 @@ function assertRuntimeOnly(directory) {
   if (errors.length) throw new Error(`Unpacked extension is invalid: ${errors.join('; ')}`);
 }
 
-async function startUnpackedBrowser(directory) {
+async function startUnpackedBrowser() {
   const failures = [];
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-unpacked-parity-'));
@@ -114,8 +114,6 @@ async function startUnpackedBrowser(directory) {
         '--headless=new',
         '--remote-debugging-port=0',
         `--user-data-dir=${profile}`,
-        `--disable-extensions-except=${directory}`,
-        `--load-extension=${directory}`,
         '--disable-background-networking',
         '--disable-default-apps',
         '--no-default-browser-check',
@@ -139,22 +137,15 @@ async function startUnpackedBrowser(directory) {
 }
 
 async function openUnpackedPanel(directory) {
-  const session = await startUnpackedBrowser(directory);
+  const session = await startUnpackedBrowser();
   let page = null;
   let unsubscribe = null;
   const cdpErrors = [];
   try {
-    let worker = null;
-    for (let attempt = 0; attempt < 40 && !worker; attempt += 1) {
-      const { targetInfos } = await session.cdp.send('Target.getTargets');
-      worker = targetInfos.find(
-        ({ type, url }) =>
-          type === 'service_worker' && /^chrome-extension:\/\/[a-p]{32}\/background\.js$/.test(url),
-      );
-      if (!worker) await delay(150);
-    }
-    if (!worker) throw new Error(`Unpacked extension did not register its MV3 worker: ${directory}`);
-    const panelUrl = `chrome-extension://${new URL(worker.url).host}/panel.html`;
+    // Branded Chrome no longer honors --load-extension; CDP loads this exact folder.
+    const { id } = await session.cdp.send('Extensions.loadUnpacked', { path: directory });
+    if (!/^[a-p]{32}$/.test(id)) throw new Error(`Unpacked extension returned an invalid ID: ${id}`);
+    const panelUrl = `chrome-extension://${id}/panel.html`;
     const target = await findPageTarget(session.websocket, (item) => item.url === 'about:blank');
     page = await connectCdp(target.webSocketDebuggerUrl);
     await page.send('Runtime.enable');
