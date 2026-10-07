@@ -4117,6 +4117,58 @@ describe('method badge contracts', () => {
   });
 });
 
+describe('compact status signal contracts', () => {
+  test('keeps the v1.15 workbench palette and compact grid dimensions in all theme modes', () => {
+    const palette = (theme) =>
+      Object.fromEntries(
+        ['bg', 'surface', 'content-bg', 'th-bg', 'selected', 'topbar-bg'].map((token) => [
+          token,
+          theme[token],
+        ]),
+      );
+    const originalLight = {
+      bg: '#fafbfc',
+      surface: '#f0f2f5',
+      'content-bg': '#ffffff',
+      'th-bg': '#eef0f4',
+      selected: 'rgba(99,102,241,0.14)',
+      'topbar-bg': 'linear-gradient(180deg,#f8f9fb 0%,#eef0f4 100%)',
+    };
+    const originalDark = {
+      bg: '#0f172a',
+      surface: '#1e293b',
+      'content-bg': '#162032',
+      'th-bg': '#1e293b',
+      selected: 'rgba(129,140,248,0.18)',
+      'topbar-bg': 'linear-gradient(180deg,#1e293b 0%,#172033 100%)',
+    };
+    expect(palette(light)).toEqual(originalLight);
+    expect(palette(forcedLight)).toEqual(originalLight);
+    expect(palette(systemDark)).toEqual(originalDark);
+    expect(palette(forcedDark)).toEqual(originalDark);
+    expect(css).toContain(
+      '.grid tbody td{border-bottom:1px solid var(--row-rule);padding:3px 8px;line-height:1.4;',
+    );
+    expect(css).toContain(
+      '.title-row th{position:sticky;top:0;background:var(--th-bg);border-bottom:2px solid var(--th-border);font-weight:700;text-align:left;padding:7px 8px;',
+    );
+  });
+
+  test('frames only exceptional status text with safe DOM without changing row height', () => {
+    expect(js).toContain("c.id === 'status' && text && ['3xx', '4xx', '5xx'].includes(statusClass)");
+    expect(js).toContain("contentHost.className = 'status-badge';");
+    expect(css).toContain(
+      '.status-badge{display:inline-block;padding:0 4px;border:1px solid currentColor;border-radius:4px;background:var(--content-bg);font-size:11px;line-height:16px;',
+    );
+    expect(css).toContain(
+      ".details-summary-status--3xx::before,.details-summary-status--4xx::before,.details-summary-status--5xx::before{content:'';",
+    );
+    expect(css).toContain(
+      '.empty-state .icon{display:grid;place-items:center;flex:none;width:52px;height:52px;border:1px solid var(--control-border);',
+    );
+  });
+});
+
 describe('stream capture contracts (WebSocket + SSE)', () => {
   test('WS conversations round-trip through HAR with honest losses and sanitized omission', () => {
     expect(js).toContain('function recordWsFrame(row, frame) {');

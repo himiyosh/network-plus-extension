@@ -310,6 +310,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .details-summary-status--3xx{color:var(--status-3xx-text)}
 .details-summary-status--4xx{color:var(--status-4xx-text)}
 .details-summary-status--5xx{color:var(--status-5xx-text)}
+.details-summary-status--3xx::before,.details-summary-status--4xx::before,.details-summary-status--5xx::before{content:'';display:inline-block;width:5px;height:5px;margin-right:6px;border-radius:50%;background:currentColor;vertical-align:middle}
 /* The header chip is a bordered pill; the trailing separator sits on the item before it, outside the pill. */
 .details-summary-chip{padding:0 6px;border:1px solid var(--border);border-radius:999px;background:var(--content-bg);color:var(--fg)}
 /* Before any selection: one line of guidance instead of two empty tab strips. */
@@ -571,6 +572,8 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .grid tbody tr.status-3xx .status-cell{color:var(--status-3xx-text);font-weight:700}
 .grid tbody tr.status-4xx .status-cell{color:var(--status-4xx-text);font-weight:700}
 .grid tbody tr.status-5xx .status-cell{color:var(--status-5xx-text);font-weight:700}
+/* Exceptional codes gain a shape without adding height or tinting an entire data cell. */
+.status-badge{display:inline-block;padding:0 4px;border:1px solid currentColor;border-radius:4px;background:var(--content-bg);font-size:11px;line-height:16px;text-align:center;vertical-align:middle}
 
 /* Method colors */
 .grid tbody tr .method-cell{font-weight:700;font-size:11px}
@@ -1243,7 +1246,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 
 /* === Empty State === */
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;padding:24px 16px;color:var(--text-muted);font-size:14px;line-height:1.5;text-align:center;gap:8px}
-.empty-state .icon{font-size:32px;opacity:0.5}
+.empty-state .icon{display:grid;place-items:center;flex:none;width:52px;height:52px;border:1px solid var(--control-border);border-radius:50%;background:var(--surface);font-size:26px}
 .empty-state-title{margin:0;color:var(--fg);font:inherit;font-weight:700}
 .empty-state-description{max-width:380px;font-size:12px;overflow-wrap:anywhere}
 .empty-state-action{min-height:32px;max-width:100%;margin-top:4px;padding:5px 12px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-dim);color:var(--text-accent);font:inherit;font-weight:600;line-height:1.5;white-space:nowrap;cursor:pointer;transition:background-color 0.15s,border-color 0.15s,color 0.15s}

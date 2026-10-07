@@ -11761,6 +11761,10 @@ const _NetworkPlus = (function () {
           contentHost = document.createElement('span');
           contentHost.className = 'method-badge';
           td.appendChild(contentHost);
+        } else if (c.id === 'status' && text && ['3xx', '4xx', '5xx'].includes(statusClass)) {
+          contentHost = document.createElement('span');
+          contentHost.className = 'status-badge';
+          td.appendChild(contentHost);
         }
         if (srch.keywords.length > 0 && text) {
           contentHost.appendChild(highlightTextMulti(text, srch.keywords, srch.options));
