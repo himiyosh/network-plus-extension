@@ -428,11 +428,25 @@ function auditVisiblePanel() {
   const background = (element) => {
     const ancestors = [];
     for (let current = element; current; current = current.parentElement) ancestors.unshift(current);
+    const point = element.getBoundingClientRect();
     let result = [255, 255, 255];
     for (const ancestor of ancestors) {
       const computed = globalThis.getComputedStyle(ancestor);
-      if (computed.backgroundImage !== 'none') imageBackgrounds.add(`${ancestor.tagName}.${ancestor.className}`);
       result = over(color(computed.backgroundColor), result);
+      if (computed.backgroundImage === 'none') continue;
+      const gradient = computed.backgroundImage.match(
+        /^linear-gradient\((rgb\([^)]+\)) 0%, (rgb\([^)]+\)) 100%\)$/,
+      );
+      if (!gradient) {
+        imageBackgrounds.add(`${ancestor.tagName}.${ancestor.className}`);
+        continue;
+      }
+      const rect = ancestor.getBoundingClientRect();
+      const fraction = Math.max(0, Math.min(1, (point.top + point.height / 2 - rect.top) / rect.height));
+      const first = color(gradient[1]);
+      const last = color(gradient[2]);
+      const sampled = first.map((channel, index) => channel * (1 - fraction) + last[index] * fraction);
+      result = over(sampled, result);
     }
     return result;
   };
@@ -677,7 +691,7 @@ async function main() {
         }
       }
     }
-    const failures = captures.filter((report) => report.name.startsWith('baseline-') === false).flatMap((report) => {
+    const failures = captures.flatMap((report) => {
       const problems = [];
       if (report.text.failures.length) problems.push(`text ${JSON.stringify(report.text.failures)}`);
       if (report.borders.failures.length) problems.push(`borders ${JSON.stringify(report.borders.failures)}`);
