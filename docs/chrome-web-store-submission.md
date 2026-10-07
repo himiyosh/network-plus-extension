@@ -10,8 +10,8 @@ This dossier is a repository-local recommendation for a future Chrome Web Store 
 
 - **Release:** `v1.15.0` (candidate; not yet published)
 - **ZIP:** `network-plus-extension-1.15.0.zip`
-- **Size:** `299709 bytes`
-- **SHA-256:** `de4c330fce77edcddd0a54e8ba09c0d2119909866fe42ffab48a5bd5bcfe98cf`
+- **Size:** `299699 bytes`
+- **SHA-256:** `04ace491e1a2d8f02f3144d5350da8c10e39780eb910893f97c78a3eeafeaa26`
 - **Download after publication:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.15.0/network-plus-extension-1.15.0.zip
 
 The ZIP was built from the reviewed commit by `TZ=UTC npm run extension:package`; a second local build reproduced the same bytes, size and digest. Archive entries carry fixed timestamps normalized in local time, so `npm run extension:package` at tag `v1.15.0` reproduces the same bytes from any timezone. The publishing workflow refuses to create a release whose archive does not match this digest. Public observation of the v1.15.0 release is a post-merge step and is not claimed here; the download route above is a future target, not a verified public asset. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
