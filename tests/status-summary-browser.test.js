@@ -780,6 +780,695 @@ test('grid focus allowance reports unexplained reserve and scroll beyond the pai
 });
 
 browserTest(
+  'Server done time picker excludes a zero-duration row across midnight',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: `(() => {
+        const chromeApi = globalThis.chrome || {};
+        chromeApi.storage = {
+          local: { get(_keys, callback) { callback({}); }, set(_value, callback) { if (callback) callback(); } },
+        };
+        chromeApi.runtime = { lastError: null, getManifest() { return { version: '1.6.0' }; } };
+        chromeApi.devtools = {
+          network: {
+            onRequestFinished: { addListener(listener) { globalThis.__networkPlusLiveListener = listener; } },
+          },
+          panels: { openResource() {} },
+        };
+        globalThis.chrome = chromeApi;
+      })();`,
+    });
+    try {
+      await waitForLiveNetworkListener(page.cdp);
+      const result = await evaluate(
+        page.cdp,
+        `(async () => {
+          const startedDateTime = new Date(2026, 0, 15, 23, 45).toISOString();
+          for (const [id, time] of [[1, 120], [2, 0]]) {
+            window.__networkPlusLiveListener({
+              startedDateTime,
+              time,
+              request: { method: 'GET', url: 'https://example.test/time/' + id, headers: [] },
+              response: {
+                status: time ? 200 : 304, headers: [],
+                content: { size: 0, mimeType: 'text/plain' },
+              },
+              getContent(callback) { callback('', ''); },
+            });
+          }
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const rowIds = () => Array.from(document.querySelectorAll('#tbody tr[data-row-id]'))
+            .map((row) => row.dataset.rowId);
+          const before = rowIds();
+
+          document.querySelector('#filterBtn').click();
+          const section = Array.from(document.querySelectorAll('#columnFilterPopup .filter-section'))
+            .find((item) => item.querySelector('.filter-section-name')?.textContent === 'Server done');
+          if (!section) throw new Error('Server done filter control is missing.');
+          const [start, end] = section.querySelectorAll('input[type="time"]');
+          if (!start || !end) throw new Error('Server done time inputs are missing.');
+          start.value = '22:00';
+          start.dispatchEvent(new Event('change', { bubbles: true }));
+          end.value = '02:00';
+          end.dispatchEvent(new Event('change', { bubbles: true }));
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return { before, after: rowIds(), bounds: [start.value, end.value] };
+        })()`,
+        true,
+      );
+      expect(result).toEqual({ before: ['1', '2'], after: ['1'], bounds: ['22:00', '02:00'] });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'malformed column regex stays editable and unapplied with announced feedback across filter controls',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: `(() => {
+        const chromeApi = globalThis.chrome || {};
+        chromeApi.storage = {
+          local: { get(_keys, callback) { callback({}); }, set(_value, callback) { if (callback) callback(); } },
+        };
+        chromeApi.runtime = { lastError: null, getManifest() { return { version: '1.6.0' }; } };
+        chromeApi.devtools = {
+          network: {
+            onRequestFinished: { addListener(listener) { globalThis.__networkPlusLiveListener = listener; } },
+          },
+          panels: { openResource() {} },
+        };
+        globalThis.chrome = chromeApi;
+      })();`,
+    });
+    try {
+      const cdp = page.cdp;
+      await waitForLiveNetworkListener(cdp);
+      const initial = await evaluate(
+        cdp,
+        `(async () => {
+          const requests = [
+            ['api.example.test', '/v1/items', 'application/json'],
+            ['static.example.test', '/assets/site.css', 'text/css'],
+            ['api.example.test', '/v1/users', 'application/json'],
+          ];
+          for (const [domain, path, mimeType] of requests) {
+            globalThis.__networkPlusLiveListener({
+              startedDateTime: '2026-01-15T12:00:00.000Z',
+              time: 20,
+              request: { method: 'GET', url: 'https://' + domain + path, headers: [] },
+              response: { status: 200, headers: [], content: { size: 0, mimeType } },
+              getContent(callback) { callback('', ''); },
+            });
+          }
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          document.querySelector('#filterBtn').click();
+
+          const section = (label) => {
+            const match = Array.from(document.querySelectorAll('#columnFilterPopup .filter-section'))
+              .find((item) => item.querySelector('.filter-section-name')?.textContent === label);
+            if (!match) throw new Error(label + ' filter section was not found.');
+            return match;
+          };
+          const controls = (label, conditionIndex = 0) => {
+            const root = section(label);
+            const row = root.querySelectorAll('.filter-condition-row')[conditionIndex] || root;
+            const operator = row.querySelector('.filter-op');
+            const input = row.querySelector('.filter-value');
+            if (!operator || !input) throw new Error(label + ' filter controls were not found.');
+            return { root, row, operator, input };
+          };
+          const set = (label, index, operator, value) => {
+            const fields = controls(label, index);
+            if (operator !== undefined) {
+              fields.operator.focus();
+              fields.operator.value = operator;
+              fields.operator.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            if (value !== undefined) {
+              fields.input.focus();
+              fields.input.value = value;
+              fields.input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          };
+          const rows = () => Array.from(document.querySelectorAll('#tbody tr[data-row-id]'))
+            .map((row) => row.dataset.rowId);
+          const snapshot = (label, index = 0) => {
+            const fields = controls(label, index);
+            const descriptionId = fields.input.getAttribute('aria-describedby');
+            const error = descriptionId ? document.getElementById(descriptionId) : null;
+            return {
+              rows: rows(),
+              header: document.querySelector('#columnFilterPopup .filter-popup-header').textContent,
+              active: fields.root.querySelector('.filter-section-state').textContent,
+              invalid: fields.input.getAttribute('aria-invalid'),
+              description: error?.textContent || '',
+              role: error?.getAttribute('role') || null,
+              errorVisible: !!error && getComputedStyle(error).display !== 'none',
+              focus: document.activeElement === fields.input
+                ? 'input'
+                : document.activeElement === fields.operator ? 'operator' : 'other',
+            };
+          };
+          globalThis.__filterRegression = { section, controls, set, rows, snapshot };
+          const before = rows();
+          set('Type', 0, 'regex', '[');
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return { before, malformed: snapshot('Type') };
+        })()`,
+        true,
+      );
+
+      expect(initial.before).toEqual(['1', '2', '3']);
+      expect(initial.malformed).toMatchObject({
+        rows: ['1', '2', '3'],
+        header: 'Column Filters (0 active)',
+        active: '',
+        invalid: 'true',
+        role: 'status',
+        errorVisible: true,
+        focus: 'input',
+      });
+      expect(initial.malformed.description).toMatch(/^Invalid regular expression:/);
+
+      const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      const typeInput = accessibilityTree.nodes.find(
+        (node) => node.role?.value === 'textbox' && node.name?.value === 'Type filter value',
+      );
+      expect(typeInput?.description?.value).toMatch(/^Invalid regular expression:/);
+      expect(typeInput?.properties?.find((property) => property.name === 'invalid')?.value?.value).toBe('true');
+      const liveMessages = accessibilityTree.nodes
+        .filter((node) => node.role?.value === 'status')
+        .flatMap((node) => (node.childIds || []).map(
+          (id) => accessibilityTree.nodes.find((child) => child.nodeId === id)?.name?.value,
+        ));
+      expect(liveMessages).toContain(initial.malformed.description);
+
+      await pressKey(cdp, 'Tab', 'Tab', 9);
+      const keyboardFocus = await evaluate(
+        cdp,
+        `({
+          popupOpen: document.querySelector('#columnFilterPopup').classList.contains('show'),
+          triggerExpanded: document.querySelector('#filterBtn').getAttribute('aria-expanded'),
+          focusOnBody: document.activeElement === document.body,
+          onErrorMessage: document.activeElement?.classList.contains('filter-regex-error') === true,
+        })`,
+      );
+      expect(keyboardFocus).toEqual({
+        popupOpen: false, triggerExpanded: 'false', focusOnBody: false, onErrorMessage: false,
+      });
+
+      const reopened = await evaluate(
+        cdp,
+        `(() => {
+          document.querySelector('#filterBtn').click();
+          return globalThis.__filterRegression.snapshot('Type');
+        })()`,
+      );
+      expect(reopened).toMatchObject({
+        rows: ['1', '2', '3'], header: 'Column Filters (0 active)',
+        invalid: 'true', role: 'status', errorVisible: true,
+      });
+
+      const corrected = await evaluate(
+        cdp,
+        `(async () => {
+          const filters = globalThis.__filterRegression;
+          const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
+
+          filters.set('Type', 0, undefined, 'json');
+          await settle();
+          const genericValid = filters.snapshot('Type');
+          filters.set('Type', 0, 'contains', 'css');
+          await settle();
+          const genericPlain = filters.snapshot('Type');
+          filters.set('Type', 0, undefined, 'json');
+          await settle();
+
+          filters.set('Domain', 0, 'regex', '[');
+          await settle();
+          const domainInvalid = filters.snapshot('Domain');
+          filters.set('Domain', 0, 'contains');
+          await settle();
+          const domainOperatorChanged = filters.snapshot('Domain');
+          filters.set('Domain', 0, 'regex', '^api[.]example[.]test$');
+          await settle();
+          const domainValid = filters.snapshot('Domain');
+
+          filters.set('Path', 0, undefined, '/v1/');
+          await settle();
+          filters.section('Path').querySelector('.filter-add-btn').click();
+          filters.set('Path', 1, 'regex', '[');
+          await settle();
+          const pathInvalid = filters.snapshot('Path', 1);
+          filters.set('Path', 1, undefined, 'items$');
+          await settle();
+          const pathValid = filters.snapshot('Path', 1);
+          filters.set('Path', 1, undefined, '[');
+          await settle();
+          const remove = filters.controls('Path', 1).row.querySelector('.filter-remove-btn');
+          remove.focus();
+          remove.click();
+          await settle();
+          const pathRemoved = filters.snapshot('Path');
+          const lingeringErrors = Array.from(document.querySelectorAll('#columnFilterPopup .filter-regex-error'))
+            .filter((error) => error.textContent !== '').length;
+          return {
+            genericValid, genericPlain, domainInvalid, domainOperatorChanged, domainValid,
+            pathInvalid, pathValid, pathRemoved, lingeringErrors,
+          };
+        })()`,
+        true,
+      );
+
+      expect(corrected.genericValid).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (1 active)',
+        active: 'Active', invalid: null, description: '', focus: 'input',
+      });
+      expect(corrected.genericPlain).toMatchObject({
+        rows: ['2'], header: 'Column Filters (1 active)', invalid: null, description: '',
+      });
+      expect(corrected.domainInvalid).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (1 active)',
+        active: '', invalid: 'true', role: 'status', errorVisible: true, focus: 'input',
+      });
+      expect(corrected.domainInvalid.description).toMatch(/^Invalid regular expression:/);
+      expect(corrected.domainOperatorChanged).toMatchObject({
+        rows: [], header: 'Column Filters (2 active)', invalid: null, description: '', focus: 'operator',
+      });
+      expect(corrected.domainValid).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (2 active)', invalid: null, description: '',
+      });
+      expect(corrected.pathInvalid).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (3 active)',
+        invalid: 'true', role: 'status', errorVisible: true, focus: 'input',
+      });
+      expect(corrected.pathInvalid.description).toMatch(/^Invalid regular expression:/);
+      expect(corrected.pathValid).toMatchObject({
+        rows: ['1'], header: 'Column Filters (3 active)', invalid: null, description: '',
+      });
+      expect(corrected.pathRemoved).toMatchObject({
+        rows: ['1', '3'], header: 'Column Filters (3 active)',
+        invalid: null, description: '', focus: 'input',
+      });
+      expect(corrected.lingeringErrors).toBe(0);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'malformed deep-search regex stays a draft while valid keywords filter and navigate',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: `(() => {
+        const chromeApi = globalThis.chrome || {};
+        chromeApi.storage = {
+          local: { get(_keys, callback) { callback({}); }, set(_value, callback) { if (callback) callback(); } },
+        };
+        chromeApi.runtime = { lastError: null, getManifest() { return { version: '1.6.0' }; } };
+        chromeApi.devtools = {
+          network: {
+            onRequestFinished: { addListener(listener) { globalThis.__networkPlusLiveListener = listener; } },
+          },
+          panels: { openResource() {} },
+        };
+        globalThis.chrome = chromeApi;
+      })();`,
+    });
+    try {
+      const cdp = page.cdp;
+      await waitForLiveNetworkListener(cdp);
+      const initial = await evaluate(
+        cdp,
+        `(async () => {
+          for (const [host, path] of [
+            ['api.example.test', '/v1/items'],
+            ['static.example.test', '/site.css'],
+            ['api.example.test', '/v1/users'],
+          ]) {
+            globalThis.__networkPlusLiveListener({
+              startedDateTime: '2026-01-15T12:00:00.000Z',
+              time: 20,
+              request: { method: 'GET', url: 'https://' + host + path, headers: [] },
+              response: { status: 200, headers: [], content: { size: 0, mimeType: 'text/plain' } },
+              getContent(callback) { callback('', ''); },
+            });
+          }
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const snapshot = () => {
+            const inputs = Array.from(document.querySelectorAll('.search-keyword-input'));
+            return {
+              rows: Array.from(document.querySelectorAll('#tbody tr[data-row-id]'))
+                .map((row) => row.dataset.rowId),
+              requestCount: document.querySelector('#counter').textContent,
+              requestAnnouncement: document.querySelector('#requestCountStatus').textContent,
+              searchCount: document.querySelector('#searchCount').textContent,
+              searchAnnouncement: document.querySelector('#searchCountStatus').textContent,
+              notice: document.querySelector('#searchPanelNotice').textContent,
+              status: document.querySelector('#statusText').textContent,
+              regexPressed: document.querySelector('#searchOptRegexBtn').getAttribute('aria-pressed'),
+              matchesOnly: document.querySelector('#searchMatchesOnlyToggle').checked,
+              highlighted: document.querySelectorAll('#tbody .search-hl-1').length,
+              focusIndex: inputs.indexOf(document.activeElement),
+              keywords: inputs.map((input) => {
+                const row = input.closest('.search-keyword-row');
+                const descriptionId = input.getAttribute('aria-describedby');
+                const error = descriptionId ? document.getElementById(descriptionId) : null;
+                return {
+                  value: input.value,
+                  invalid: input.getAttribute('aria-invalid'),
+                  descriptionId,
+                  description: error?.textContent || '',
+                  errorRole: error?.getAttribute('role') || null,
+                  errorVisible: !!error && error.getBoundingClientRect().height > 1,
+                  title: input.title,
+                  count: row.querySelector('.search-kw-count').textContent,
+                  nextDisabled: row.querySelector('[data-search-direction="1"]').disabled,
+                  caret: input.selectionStart,
+                };
+              }),
+            };
+          };
+          const type = (index, query, caret = query.length) => {
+            const input = document.querySelectorAll('.search-keyword-input')[index];
+            if (!input) throw new Error('Search keyword ' + index + ' was not found.');
+            input.focus();
+            input.value = query;
+            input.setSelectionRange(caret, caret);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          const settle = (milliseconds = 450) =>
+            new Promise((resolve) => setTimeout(resolve, milliseconds));
+          globalThis.__deepRegex = { snapshot, type, settle };
+
+          const before = snapshot();
+          document.querySelector('#searchToggleBtn').click();
+          document.querySelector('#searchOptRegexBtn').click();
+          const toggle = document.querySelector('#searchMatchesOnlyToggle');
+          toggle.checked = true;
+          toggle.dispatchEvent(new Event('change', { bubbles: true }));
+          type(0, '[');
+          await settle(1350);
+          return { before, invalid: snapshot() };
+        })()`,
+        true,
+      );
+      expect(initial.before.rows).toEqual(['1', '2', '3']);
+      expect(initial.invalid).toMatchObject({
+        rows: ['1', '2', '3'],
+        requestCount: '3 requests',
+        requestAnnouncement: '3 requests',
+        searchCount: '',
+        searchAnnouncement: '',
+        notice: '',
+        status: 'Matches only is on; valid keywords narrow requests',
+        regexPressed: 'true',
+        matchesOnly: true,
+        highlighted: 0,
+        focusIndex: 0,
+        keywords: [{
+          value: '[', invalid: 'true', errorRole: 'status',
+          errorVisible: true, count: '', nextDisabled: true,
+        }],
+      });
+      const invalidKeyword = initial.invalid.keywords[0];
+      expect(invalidKeyword.descriptionId).toMatch(/^search-keyword-error-/);
+      expect(invalidKeyword.description).toMatch(/^Invalid regular expression:/);
+      expect(invalidKeyword.description).not.toMatch(/Invalid regular expression: Invalid regular expression:/);
+      expect(invalidKeyword.title).toBe(invalidKeyword.description);
+
+      const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      const keywordInput = accessibilityTree.nodes.find(
+        (node) => node.role?.value === 'textbox' && node.name?.value === 'Search keyword 1',
+      );
+      expect(keywordInput?.description?.value).toBe(invalidKeyword.description);
+      expect(keywordInput?.properties?.find((property) => property.name === 'invalid')?.value?.value).toBe('true');
+      expect(
+        accessibilityTree.nodes.some(
+          (node) =>
+            node.role?.value === 'status' &&
+            (node.childIds || []).some(
+              (id) => accessibilityTree.nodes.find((child) => child.nodeId === id)?.name?.value === invalidKeyword.description,
+            ),
+        ),
+      ).toBe(true);
+
+      await evaluate(cdp, "document.querySelector('#filterBtn').focus()");
+      await pressKey(cdp, 'f', 'KeyF', 70, 2);
+      const shortcut = await evaluate(cdp, 'globalThis.__deepRegex.snapshot()');
+      expect(shortcut.focusIndex).toBe(0);
+      expect(shortcut.keywords[0]).toMatchObject({ value: '[', invalid: 'true' });
+
+      const mixed = await evaluate(
+        cdp,
+        `(async () => {
+          document.querySelector('#searchAddBtn').click();
+          globalThis.__deepRegex.type(1, 'api[.]example');
+          await globalThis.__deepRegex.settle(1350);
+          return globalThis.__deepRegex.snapshot();
+        })()`,
+        true,
+      );
+      expect(mixed).toMatchObject({
+        rows: ['1', '3'],
+        requestCount: '2 / 3 requests · matches only',
+        requestAnnouncement: 'showing 2 of 3 requests, showing search matches only',
+        searchCount: '2 matches',
+        notice: 'Showing matches only',
+        status: 'Matches only is on; valid keywords narrow requests',
+        focusIndex: 1,
+        keywords: [
+          { value: '[', invalid: 'true', count: '', nextDisabled: true },
+          { value: 'api[.]example', invalid: null, descriptionId: null, count: '0/2', nextDisabled: false },
+        ],
+      });
+      expect(mixed.highlighted).toBeGreaterThan(0);
+
+      await pressKey(cdp, 'Enter', 'Enter', 13);
+      const forward = await evaluate(cdp, `({
+        selected: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+        focusIndex: globalThis.__deepRegex.snapshot().focusIndex,
+        count: document.querySelectorAll('.search-keyword-row')[1].querySelector('.search-kw-count').textContent,
+      })`);
+      expect(forward).toEqual({ selected: '1', focusIndex: 1, count: '1/2' });
+      await pressKey(cdp, 'Enter', 'Enter', 13, 8);
+      const backward = await evaluate(cdp, `({
+        selected: document.querySelector('#tbody tr.selected')?.dataset.rowId || null,
+        focusIndex: globalThis.__deepRegex.snapshot().focusIndex,
+        count: document.querySelectorAll('.search-keyword-row')[1].querySelector('.search-kw-count').textContent,
+      })`);
+      expect(backward).toEqual({ selected: '3', focusIndex: 1, count: '2/2' });
+
+      const corrected = await evaluate(
+        cdp,
+        `(async () => {
+          globalThis.__deepRegex.type(0, 'static[.]example', 7);
+          await globalThis.__deepRegex.settle();
+          return globalThis.__deepRegex.snapshot();
+        })()`,
+        true,
+      );
+      expect(corrected).toMatchObject({
+        rows: ['1', '2', '3'],
+        requestCount: '3 requests · matches only',
+        searchCount: '3 matches',
+        focusIndex: 0,
+        keywords: [
+          { value: 'static[.]example', invalid: null, descriptionId: null, description: '', caret: 7, count: '0/1' },
+          { value: 'api[.]example', invalid: null, count: '2/2' },
+        ],
+      });
+
+      const toggled = await evaluate(
+        cdp,
+        `(async () => {
+          const { type, settle, snapshot } = globalThis.__deepRegex;
+          type(0, '[');
+          type(1, 'api');
+          await settle();
+          const regex = snapshot();
+          document.querySelector('#searchOptRegexBtn').click();
+          const literal = snapshot();
+          document.querySelector('#searchOptRegexBtn').click();
+          const restored = snapshot();
+          document.querySelectorAll('.search-keyword-row')[0].querySelector('.search-remove-btn').click();
+          const removed = snapshot();
+          return { regex, literal, restored, removed };
+        })()`,
+        true,
+      );
+      expect(toggled.regex).toMatchObject({
+        rows: ['1', '3'], searchCount: '2 matches',
+        keywords: [{ invalid: 'true', count: '' }, { value: 'api', invalid: null }],
+      });
+      expect(toggled.literal).toMatchObject({
+        rows: ['1', '3'], searchCount: '2 matches', regexPressed: 'false',
+      });
+      expect(toggled.literal.keywords[0]).toMatchObject({
+        value: '[', invalid: null, descriptionId: null, description: '', count: '0',
+      });
+      expect(toggled.restored).toMatchObject({
+        rows: ['1', '3'], regexPressed: 'true',
+      });
+      expect(toggled.restored.keywords[0]).toMatchObject({
+        value: '[', invalid: 'true', errorRole: 'status',
+      });
+      expect(toggled.removed).toMatchObject({
+        rows: ['1', '3'], searchCount: '2 matches',
+        keywords: [{ value: 'api', invalid: null, descriptionId: null, description: '' }],
+      });
+      expect(toggled.removed.keywords).toHaveLength(1);
+      expect(
+        await evaluate(cdp, "document.querySelectorAll('.search-keyword-error:not(:empty)').length"),
+      ).toBe(0);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'auto-scroll follows live requests after Clear and Undo until the reader scrolls upward',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 480,
+      initScript: `(() => {
+        const chromeApi = globalThis.chrome || {};
+        chromeApi.storage = {
+          local: { get(_keys, callback) { callback({}); }, set(_value, callback) { if (callback) callback(); } },
+        };
+        chromeApi.runtime = { lastError: null, getManifest() { return { version: '1.6.0' }; } };
+        chromeApi.devtools = {
+          network: {
+            onRequestFinished: { addListener(listener) { globalThis.__networkPlusLiveListener = listener; } },
+            onNavigated: { addListener(listener) { globalThis.__networkPlusNavigatedListener = listener; } },
+          },
+          panels: { openResource() {} },
+        };
+        globalThis.chrome = chromeApi;
+      })();`,
+    });
+    try {
+      await waitForLiveNetworkListener(page.cdp);
+      const result = await evaluate(
+        page.cdp,
+        `(async () => {
+          const settle = async () => {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+          };
+          const tableWrap = document.querySelector('#tableWrap');
+          const emitRange = (start, count) => {
+            for (let id = start; id < start + count; id += 1) {
+              globalThis.__networkPlusLiveListener({
+                startedDateTime: new Date(1704067200000 + id).toISOString(),
+                time: 10,
+                request: {
+                  method: 'GET',
+                  url: 'https://' + (id % 2 === 0 ? 'assets' : 'api') + '.example.test/live/' + id,
+                  headers: [],
+                },
+                response: {
+                  status: 200, statusText: 'OK', httpVersion: 'HTTP/2', headers: [],
+                  bodySize: 0, content: { size: 0, mimeType: 'text/plain' },
+                },
+                timings: { wait: 10 },
+                getContent(callback) { callback('', ''); },
+              });
+            }
+          };
+          const snapshot = () => ({
+            rows: document.querySelectorAll('#tbody tr[data-row-id]').length,
+            pressed: document.querySelector('#autoScrollBtn').getAttribute('aria-pressed'),
+            atBottom: tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - 2,
+            scrollTop: tableWrap.scrollTop,
+            undoAvailable: !document.querySelector('#undoClearBtn').hidden,
+            lastRowId: document.querySelector('#tbody tr[data-row-id]:last-child')?.dataset.rowId || null,
+          });
+
+          emitRange(1, 60);
+          await settle();
+          const initial = snapshot();
+          document.querySelector('#clearBtn').click();
+          await settle();
+          const afterClear = snapshot();
+          globalThis.__networkPlusNavigatedListener();
+          emitRange(61, 60);
+          await settle();
+          const afterClearLive = snapshot();
+          document.querySelector('#undoClearBtn').click();
+          await settle();
+          const afterUndo = snapshot();
+          emitRange(121, 10);
+          await settle();
+          const afterUndoLive = snapshot();
+          tableWrap.querySelector('#tbody tr[data-row-id="130"]').dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, clientX: 200, clientY: 200 }),
+          );
+          const onlyAssets = Array.from(document.querySelectorAll('#rowContextMenu .context-menu-item'))
+            .find((item) => item.textContent === 'Only Domain assets.example.test');
+          if (!onlyAssets) throw new Error('The row quick filter for the assets domain was not available.');
+          onlyAssets.click();
+          await settle();
+          const afterFilter = snapshot();
+          emitRange(131, 20);
+          await settle();
+          const afterMatchingLive = snapshot();
+          tableWrap.scrollTop = Math.floor(tableWrap.scrollHeight / 2);
+          await settle();
+          const afterManualScroll = snapshot();
+          emitRange(151, 10);
+          await settle();
+          const afterManualLive = snapshot();
+          return {
+            initial, afterClear, afterClearLive, afterUndo, afterUndoLive,
+            afterFilter, afterMatchingLive, afterManualScroll, afterManualLive,
+          };
+        })()`,
+        true,
+      );
+
+      expect(result.initial).toMatchObject({ rows: 60, pressed: 'true', atBottom: true });
+      expect(result.initial.scrollTop).toBeGreaterThan(0);
+      expect(result.afterClear).toMatchObject({ rows: 0, pressed: 'true', undoAvailable: true });
+      expect(result.afterClearLive).toMatchObject({ rows: 60, pressed: 'true', atBottom: true });
+      expect(result.afterClearLive.scrollTop).toBeGreaterThan(0);
+      expect(result.afterUndo).toMatchObject({ rows: 120, pressed: 'true', atBottom: true });
+      expect(result.afterUndoLive).toMatchObject({ rows: 130, pressed: 'true', atBottom: true });
+      expect(result.afterFilter).toMatchObject({ rows: 65, pressed: 'true', atBottom: true });
+      expect(result.afterMatchingLive).toMatchObject({
+        rows: 75,
+        lastRowId: '150',
+        pressed: 'true',
+        atBottom: true,
+      });
+      expect(result.afterManualScroll).toMatchObject({ pressed: 'false', atBottom: false });
+      expect(result.afterManualLive).toMatchObject({
+        rows: 80,
+        pressed: 'false',
+        atBottom: false,
+        lastRowId: '160',
+        scrollTop: result.afterManualScroll.scrollTop,
+      });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'same-frame live bursts batch retention cleanup and prefetch only retained rows',
   async () => {
     const fixtureDirectory = createInstrumentedPanelFixture();
@@ -5180,7 +5869,7 @@ browserTest(
       // and the grid answers by squeezing Path and dropping the columns that
       // still do not fit rather than growing a scrollbar.
       const paneOpen = await evaluate(cdp, ELASTIC_GRID_MEASURE);
-      expect(paneOpen.wrapClientWidth).toBeLessThan(992);
+      expect(paneOpen.wrapClientWidth).toBeLessThan(1096);
       expectElasticGridInvariants(paneOpen, 'pane open');
       expect(paneOpen).toMatchObject({
         horizontalScroll: false,
@@ -5231,7 +5920,7 @@ browserTest(
       await evaluate(cdp, "document.querySelector('#detailsCloseBtn').click()");
       await settleLayout(cdp);
       const paneClosed = await evaluate(cdp, ELASTIC_GRID_MEASURE);
-      expect(paneClosed.wrapClientWidth).toBeGreaterThan(992);
+      expect(paneClosed.wrapClientWidth).toBeGreaterThan(1096);
       expectElasticGridInvariants(paneClosed, 'pane closed');
       expect(paneClosed).toMatchObject({
         horizontalScroll: false,
@@ -5265,7 +5954,8 @@ browserTest(
         pathAriaValueNow: '270',
         storedPathWidth: 270,
       });
-      expect(afterKeyboard.headerWidths.path).toBe(270 + (paneClosed.wrapClientWidth - 1002));
+      const storedSum = Object.values(afterKeyboard.storedByAria).reduce((sum, width) => sum + width, 0);
+      expect(afterKeyboard.headerWidths.path).toBe(270 + (paneClosed.wrapClientWidth - storedSum));
       expectElasticGridInvariants(afterKeyboard, 'after keyboard resize');
 
       // Path hidden: the surplus moves to the last visible column instead.
@@ -5289,7 +5979,8 @@ browserTest(
         gridWidth: pathHidden.wrapClientWidth,
         pathAriaValueNow: null,
       });
-      expect(pathHidden.headerWidths.clientStart).toBe(104 + (pathHidden.wrapClientWidth - 732));
+      expect(pathHidden.headerIds[pathHidden.headerIds.length - 1]).toBe('serverDone');
+      expect(pathHidden.headerWidths.serverDone).toBeGreaterThan(pathHidden.storedByAria.serverDone);
       // Path hidden by hand is not Path dropped by the wrap: the surplus moves
       // on, the header and the cells still agree, and nothing scrolls.
       expect(pathHidden.firstRowCellIds).toEqual(pathHidden.headerIds);
@@ -5307,7 +5998,8 @@ browserTest(
       const widened = await evaluate(cdp, ELASTIC_GRID_MEASURE);
       expect(widened.wrapClientWidth).toBeGreaterThan(pathHidden.wrapClientWidth);
       expect(widened).toMatchObject({ horizontalScroll: false, gridWidth: widened.wrapClientWidth });
-      expect(widened.headerWidths.clientStart).toBe(104 + (widened.wrapClientWidth - 732));
+      expect(widened.headerIds[widened.headerIds.length - 1]).toBe('serverDone');
+      expect(widened.headerWidths.serverDone).toBeGreaterThan(pathHidden.headerWidths.serverDone);
       expect(widened.firstRowCellIds).toEqual(widened.headerIds);
       expect(widened.headerWidths).toEqual(expectedElasticWidths(widened));
       expect(await evaluate(cdp, 'window.__resizeObserverErrors')).toEqual([]);
@@ -6168,7 +6860,7 @@ const MATCH_GUTTER_MEASURE = `(() => {
 })()`;
 
 browserTest(
-  'the Match gutter takes the v4 width on upgrade, clips its label only at gutter width, and fits two chips',
+  'the Match gutter takes the default width for v3 layouts but keeps a v4 custom width',
   async () => {
     const page = await launchPanelPage({
       executable: browserExecutable,
@@ -6211,10 +6903,10 @@ browserTest(
         ariaLabel: 'Match',
         title: 'Match: search and selection state; Alt+Left/Right Arrow to reorder',
         storedMatchWidth: 36,
-        storedVersion: '4',
+        storedVersion: '5',
       });
 
-      // v4 prefs with a user-kept 64px Match: no reset, label stays visible.
+      // v4 prefs: visibility resets, but a user-kept 64px Match width survives.
       await evaluate(
         cdp,
         `(() => {
@@ -6236,7 +6928,7 @@ browserTest(
         ariaLabel: 'Match',
         title: 'Match: search and selection state; Alt+Left/Right Arrow to reorder',
         storedMatchWidth: 64,
-        storedVersion: '4',
+        storedVersion: '5',
       });
 
       // Factory defaults: the selected row's ✓ chip and one keyword chip both
@@ -6325,9 +7017,8 @@ const DETAILS_HEADER_MEASURE = `(() => {
   };
 })()`;
 
-// The empty tab keeps full-opacity token text plus its marker, so its
-// composited contrast is measured the way a reader sees it: colour and
-// opacity resolved, over the first opaque background behind the button.
+// Read actual label and badge colors over their composited grounds. The
+// tab background is translucent when active; the badge has its own ground.
 // The inspector tabs that carry a count, pinned here as a literal. The
 // marker expectation below is derived from THIS list, never read back from
 // the data-count attribute that draws the marker: an expectation taken from
@@ -6336,8 +7027,12 @@ const DETAILS_HEADER_MEASURE = `(() => {
 // "0" that would read as a count of zero items.
 const COUNTED_INSPECTOR_TABS = ['req-query', 'req-cookies', 'res-cookies'];
 
-const EMPTY_TAB_CONTRAST_MEASURE = `(() => {
+const TAB_SIGNAL_PRESENTATION_MEASURE = `(() => {
   const parse = (value) => value.match(/[\\d.]+/g).map(Number);
+  const composite = (front, back, opacity = 1) => {
+    const alpha = (front[3] ?? 1) * opacity;
+    return front.slice(0, 3).map((channel, index) => channel * alpha + back[index] * (1 - alpha));
+  };
   const luminance = (rgb) =>
     rgb.slice(0, 3).reduce((total, channel, index) => {
       const srgb = channel / 255;
@@ -6349,28 +7044,38 @@ const EMPTY_TAB_CONTRAST_MEASURE = `(() => {
     const darker = Math.min(luminance(a), luminance(b));
     return (lighter + 0.05) / (darker + 0.05);
   };
-  const opaqueBackground = (element) => {
-    let node = element;
-    while (node && node !== document.documentElement) {
-      const colour = parse(getComputedStyle(node).backgroundColor);
-      if (colour.length < 4 || colour[3] > 0) return colour;
-      node = node.parentElement;
-    }
-    return [255, 255, 255, 1];
-  };
-  return Array.from(document.querySelectorAll('.tab-btn.is-empty')).map((button) => {
-    const style = getComputedStyle(button);
-    const background = opaqueBackground(button);
-    const alpha = Number(style.opacity);
-    const foreground = parse(style.color).slice(0, 3).map((channel, index) => channel * alpha + background[index] * (1 - alpha));
-    return {
-      tab: button.dataset.tab,
-      label: button.textContent,
-      counted: button.hasAttribute('data-count'),
-      opacity: style.opacity,
-      marker: getComputedStyle(button, '::after').content,
-      ratio: Number(ratio(foreground, background).toFixed(2)),
-    };
+  return Array.from(document.querySelectorAll('#req-tab-bar,#res-tab-bar')).flatMap((bar) => {
+    const surface = parse(getComputedStyle(bar).backgroundColor);
+    return Array.from(bar.querySelectorAll('.tab-btn')).map((button) => {
+      const style = getComputedStyle(button);
+      const signal = getComputedStyle(button, '::after');
+      const labelGround = composite(parse(style.backgroundColor), surface);
+      const labelInk = composite(parse(style.color), labelGround, Number(style.opacity));
+      const signalGround = composite(parse(signal.backgroundColor), labelGround);
+      const signalInk = composite(parse(signal.color), signalGround, Number(style.opacity) * Number(signal.opacity));
+      return {
+        tab: button.dataset.tab,
+        label: button.textContent,
+        count: button.dataset.count ?? null,
+        counted: button.hasAttribute('data-count'),
+        empty: button.classList.contains('is-empty'),
+        active: button.classList.contains('active'),
+        selected: button.getAttribute('aria-selected'),
+        tabIndex: button.tabIndex,
+        opacity: style.opacity,
+        transitionProperty: style.transitionProperty,
+        labelColor: style.color,
+        labelRatio: Number(ratio(labelInk, labelGround).toFixed(2)),
+        marker: signal.content,
+        markerColor: signal.color,
+        markerRatio: signal.content === 'none' ? null : Number(ratio(signalInk, signalGround).toFixed(2)),
+        markerBackgroundOpaque: (parse(signal.backgroundColor)[3] ?? 1) === 1,
+        markerBorderStyle: signal.borderStyle,
+        markerBorderWidth: signal.borderLeftWidth,
+        markerRadius: signal.borderRadius,
+        markerMargin: signal.marginLeft,
+      };
+    });
   });
 })()`;
 
@@ -6537,7 +7242,7 @@ browserTest(
       // The signal is the marker after the label, never a dimmed label: the
       // old opacity:.55 composited the 12px/600 text below AA on the tab bar.
       // Counted tabs take a 0; Body and Raw count nothing and take an en dash.
-      const emptyTabs = await evaluate(cdp, EMPTY_TAB_CONTRAST_MEASURE);
+      const emptyTabs = (await evaluate(cdp, TAB_SIGNAL_PRESENTATION_MEASURE)).filter((tab) => tab.empty);
       expect(emptyTabs.length).toBeGreaterThan(0);
       // Not vacuous: this state really does hold a counted empty tab, so the
       // "0" branch of the rule below is exercised here. The en-dash branch
@@ -6551,7 +7256,7 @@ browserTest(
         // attribute the panel stamps, and the marker CSS draws from it.
         expect([tab.tab, tab.counted]).toEqual([tab.tab, counted]);
         expect([tab.tab, tab.marker]).toEqual([tab.tab, counted ? '"0"' : '"\u2013"']);
-        expect([tab.tab, tab.ratio >= 4.5]).toEqual([tab.tab, true]);
+        expect([tab.tab, tab.labelRatio >= 4.5, tab.markerRatio >= 4.5]).toEqual([tab.tab, true, true]);
       }
 
       // At the 440px pane minimum the strip wraps. The separator is drawn on
@@ -6966,46 +7671,18 @@ browserTest(
       expect(breakdown.fullText).toBe(injected.adUrl);
       expect(breakdown.fullHasWbr).toBe(true);
 
-      // Request Headers has a toolbar of its own now, and the URL row keeps the
-      // same address twice: once on screen and once inside the hidden reveal.
-      // The search must count what the reader can see. Counting both made every
-      // hit in the row a pair and stepped the reader through an invisible copy
-      // of the text in front of them.
-      const headerSearch = await evaluate(
+      // Headers has no pane search now. Its full URL stays available through
+      // the existing reveal control, and the same captured URL is searchable
+      // in Raw without indexing the hidden second copy in Headers.
+      const headersWithoutSearch = await evaluate(
         cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-headers .pane-search-input');
-          input.value = 'gampad';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelectorAll('#req-headers mark.pane-search-hit').length > 0, 400);
-          const hits = Array.from(document.querySelectorAll('#req-headers mark.pane-search-hit'));
-          return {
-            hits: hits.length,
-            inFull: hits.filter((mark) => mark.closest('.url-breakdown-full')).length,
-            occurrencesInUrl: document.querySelector('#req-headers .url-breakdown-full').textContent.split('gampad')
-              .length - 1,
-            count: document.querySelector('#req-headers .pane-search-count').textContent,
-            placeholder: document.querySelector('#req-headers .pane-search-input').placeholder,
-          };
-        })()`,
-        true,
+        `(() => ({
+          bars: document.querySelectorAll('#req-headers .pane-search-bar').length,
+          hits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
+          fullUrl: document.querySelector('#req-headers .url-breakdown-full').textContent,
+        }))()`,
       );
-      expect(headerSearch.placeholder).toBe('Search in request headers');
-      expect(headerSearch.occurrencesInUrl).toBe(1);
-      expect(headerSearch.hits).toBe(1);
-      expect(headerSearch.inFull).toBe(0);
-      expect(headerSearch.count).toBe('1 / 1');
-      await evaluate(
-        cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-headers .pane-search-input');
-          input.value = '';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelectorAll('#req-headers mark.pane-search-hit').length === 0, 400);
-          return true;
-        })()`,
-        true,
-      );
+      expect(headersWithoutSearch).toEqual({ bars: 0, hits: 0, fullUrl: injected.adUrl });
 
       const revealed = await evaluate(
         cdp,
@@ -7033,84 +7710,45 @@ browserTest(
       // line count lands within a pixel of the bound and flips with the font.
       expect(breakdown.valHeight).toBeLessThan(revealed.fullHeight);
 
-      // A match in the tail of the address is a hit the reader is stepped to
-      // and cannot see: the four-line clip keeps it in layout, so it counts
-      // and navigates, and "Show full URL" beside it opens a DIFFERENT node —
-      // pressing that left the marked run exactly where it was. The reveal
-      // lifts the clip on the address itself. No pixel, line count or height
-      // is pinned: the clip is four lines of whatever face the browser has,
-      // and the claim is where the mark sits relative to the box it is in.
-      const clippedHit = await evaluate(
+      const rawTailSearch = await evaluate(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
-          const address = document.querySelector('#req-headers .url-breakdown-address');
-          const expandedBefore = address.classList.contains('url-breakdown-address--expanded');
-          const clippedBefore = address.scrollHeight > address.clientHeight;
-          const count = () => document.querySelector('#req-headers .pane-search-count').textContent;
-          const input = document.querySelector('#req-headers .pane-search-input');
-          const before = count();
-          // A run inside ONE text node: the address paints each parameter's
-          // name in a span of its own, so 'p30=' straddles two nodes and the
-          // highlighter — which marks inside a text node — never sees it. This
-          // is the last parameter's value, so the match is past the fourth line.
+          document.querySelector('#req-tab-raw').click();
+          const input = document.querySelector('#req-raw .pane-search-input');
           input.value = 'vvv30';
           input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => count() !== before, 400);
-          const mark = document.querySelector('#req-headers .url-breakdown-address mark.pane-search-hit');
-          const markRect = mark ? mark.getBoundingClientRect() : null;
-          const box = address.getBoundingClientRect();
-          return {
-            count: count(),
-            hits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
-            markInAddress: !!mark,
-            expandedBefore,
-            clippedBefore,
-            expandedAfter: address.classList.contains('url-breakdown-address--expanded'),
-            markInsideBox: markRect ? markRect.top >= box.top - 0.5 && markRect.bottom <= box.bottom + 0.5 : null,
+          await waitFor(() => document.querySelector('#req-raw .pane-search-count').textContent === '1 / 1', 400);
+          const result = {
+            count: document.querySelector('#req-raw .pane-search-count').textContent,
+            hits: document.querySelectorAll('#req-raw mark.pane-search-hit').length,
+            headerHits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
           };
+          document.querySelector('#req-tab-headers').click();
+          return result;
         })()`,
         true,
       );
-      // Non-vacuous: the address really was clipped, and really was folded.
-      expect(clippedHit.clippedBefore).toBe(true);
-      expect(clippedHit.expandedBefore).toBe(false);
-      expect(clippedHit.hits).toBe(1);
-      expect(clippedHit.count).toBe('1 / 1');
-      expect(clippedHit.markInAddress).toBe(true);
-      expect(clippedHit.expandedAfter).toBe(true);
-      expect(clippedHit.markInsideBox).toBe(true);
-      await evaluate(
-        cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-headers .pane-search-input');
-          input.value = '';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelectorAll('#req-headers mark.pane-search-hit').length === 0, 400);
-          return true;
-        })()`,
-        true,
-      );
-      // Lifting the clip must not change what the row holds: the address is
-      // still one block of inline spans, so a drag across it carries the URL
-      // verbatim with no newline in it — the thing the single-block address
-      // was built for in the first place.
-      const unfoldedSelection = await evaluate(
+      expect(rawTailSearch).toEqual({ count: '1 / 1', hits: 1, headerHits: 0 });
+
+      // Showing the hidden full URL still gives a copyable, exact address;
+      // searching Raw no longer unfolds or changes the clipped Header row.
+      const revealedSelection = await evaluate(
         cdp,
         `(() => {
           const address = document.querySelector('#req-headers .url-breakdown-address');
+          const full = document.querySelector('#req-headers .url-breakdown-full');
           const selection = window.getSelection();
           selection.removeAllRanges();
           const range = document.createRange();
-          range.selectNodeContents(address);
+          range.selectNodeContents(full);
           selection.addRange(range);
           const text = selection.toString();
           selection.removeAllRanges();
-          return { expanded: address.classList.contains('url-breakdown-address--expanded'), text };
+          return { clipped: address.scrollHeight > address.clientHeight, fullVisible: !full.hidden, text };
         })()`,
       );
-      expect(unfoldedSelection.expanded).toBe(true);
-      expect(unfoldedSelection.text).toBe(injected.adUrl);
-      expect(unfoldedSelection.text).not.toContain('\n');
+      expect(revealedSelection).toEqual({ clipped: true, fullVisible: true, text: injected.adUrl });
+      expect(revealedSelection.text).not.toContain('\n');
 
       const opened = await evaluate(
         cdp,
@@ -7696,10 +8334,10 @@ browserTest(
 );
 // The Query pane, item by item: a value that is an absolute address renders as
 // one, a value that is itself a query string files its pairs under a collapsed
-// disclosure, a comma list may break after its commas, and the pane carries the
-// same toolbar Body and Raw carry. The values arrive already decoded by
-// searchParams, so what is nested inside them is decoded once more — and none
-// of that decoded text may reach the clipboard, which reads the captured URL.
+// disclosure, a comma list may break after its commas, and the copy actions
+// remain above the grid without a search bar. The values arrive already
+// decoded by searchParams, so what is nested inside them is decoded once more
+// — and none of that decoded text may reach a sanitized clipboard copy.
 const QUERY_PANE_KEYWORDS = Array.from({ length: 12 }, (_unused, index) => 'kw' + index).join(',');
 
 const QUERY_PANE_URL =
@@ -7752,16 +8390,24 @@ const QUERY_PANE_INJECT = `(async () => {
   globalThis.__networkPlusLiveListener({
     startedDateTime: new Date(1704067200000).toISOString(),
     time: 40,
-    request: { method: 'GET', url: ${JSON.stringify(QUERY_PANE_URL)}, httpVersion: 'HTTP/2', headers: [] },
+    request: {
+      method: 'GET',
+      url: ${JSON.stringify(QUERY_PANE_URL)},
+      httpVersion: 'HTTP/2',
+      headers: [{ name: 'Cookie', value: 'session=test-session' }],
+    },
     response: {
       status: 200,
       statusText: 'OK',
       httpVersion: 'HTTP/2',
-      headers: [{ name: 'content-type', value: 'text/plain' }],
-      content: { size: 2, mimeType: 'text/plain' },
+      headers: [
+        { name: 'content-type', value: 'text/plain' },
+        { name: 'set-cookie', value: 'session=test-session; Path=/' },
+      ],
+      content: { size: 0, mimeType: 'text/plain' },
     },
     getContent(callback) {
-      callback('ok', '');
+      callback('', '');
     },
   });
   await settle();
@@ -7797,10 +8443,12 @@ const QUERY_PANE_MEASURE = `(() => {
   // nodes still concatenate to the value the parameter holds.
   const tagNodes = Array.from(tags.childNodes);
   return {
-    // The toolbar is the pane's first element child and carries the copy pair.
-    toolbarFirst: pane.firstElementChild.className,
-    copyLabels: Array.from(pane.querySelectorAll('.pane-search-bar .copy-btn')).map((btn) => btn.textContent),
-    strayCopyActions: pane.querySelectorAll(':scope > .copy-actions').length,
+    // The copy pair stays first without a search bar and keeps accessible names.
+    firstElementClass: pane.firstElementChild.className,
+    copyLabels: Array.from(pane.querySelectorAll(':scope > .copy-actions .copy-btn')).map((btn) => btn.textContent),
+    copyNames: Array.from(pane.querySelectorAll(':scope > .copy-actions .copy-btn')).map((btn) => btn.getAttribute('aria-label')),
+    searchBars: pane.querySelectorAll('.pane-search-bar').length,
+    topCopyActions: pane.querySelectorAll(':scope > .copy-actions').length,
     outerKeys: Array.from(grid.querySelectorAll(':scope > .key')).map((key) => key.textContent),
     // Every row of this pane carries the row-end control, and it sits BESIDE
     // the value cell rather than inside it, so no line of a value can run
@@ -7846,30 +8494,22 @@ const QUERY_PANE_MEASURE = `(() => {
   };
 })()`;
 
-const QUERY_PANE_BAND_MEASURE = `(() => {
+const QUERY_PANE_COPY_FIT_MEASURE = `(() => {
   const pane = document.querySelector('#req-query');
-  const bar = pane.querySelector('.pane-search-bar');
-  const rowsOf = (elements) => {
-    const centres = [];
-    for (const element of elements) {
-      const rect = element.getBoundingClientRect();
-      if (!rect.width) continue;
-      const centre = rect.top + rect.height / 2;
-      if (!centres.some((known) => Math.abs(known - centre) < 8)) centres.push(centre);
-    }
-    return centres.length;
-  };
+  const copyActions = pane.querySelector(':scope > .copy-actions');
   return {
     paneWidth: Math.round(document.querySelector('#details').getBoundingClientRect().width),
-    barRows: rowsOf(Array.from(bar.children)),
-    barOverflow: Math.round(bar.scrollWidth - bar.clientWidth),
+    copyOverflow: Math.round(copyActions.scrollWidth - copyActions.clientWidth),
+    copyButtonsVisible: Array.from(copyActions.querySelectorAll('.copy-btn')).every(
+      (button) => button.getClientRects().length > 0 && button.getBoundingClientRect().width > 0,
+    ),
     paneOverflow: Math.round(pane.scrollWidth - pane.clientWidth),
     gridOverflow: Math.round(pane.querySelector(':scope > .kv').scrollWidth - pane.clientWidth),
   };
 })()`;
 
 browserTest(
-  'the Query pane segments URL values, nests query values behind a disclosure, and carries its own toolbar',
+  'the Query pane segments URL values, nests query values and retains copy actions without search',
   async () => {
     const page = await launchPanelPage({
       executable: browserExecutable,
@@ -7884,10 +8524,129 @@ browserTest(
       await settleLayout(cdp);
       const measured = await evaluate(cdp, QUERY_PANE_MEASURE);
 
-      expect(measured.toolbarFirst).toBe('pane-search-bar');
+      expect(measured.firstElementClass).toBe('copy-actions');
       expect(measured.copyLabels).toEqual(['Copy sanitized', 'Copy full...']);
-      expect(measured.strayCopyActions).toBe(0);
+      expect(measured.copyNames).toEqual(measured.copyLabels);
+      expect(measured.topCopyActions).toBe(1);
+      expect(measured.searchBars).toBe(0);
       expect(measured.outerKeys).toEqual(['redirect', 'utm', 'deep', 'tags', 'plain', 'token']);
+
+      const searchPlacement = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          await waitFor(() => !!document.querySelector('#res-body .pane-search-bar'), 400);
+          const searchable = ['req-body', 'req-raw', 'res-body', 'res-raw'];
+          const withoutSearch = ['req-headers', 'req-query', 'req-cookies', 'res-headers', 'res-cookies', 'res-timing'];
+          const bars = Object.fromEntries([...searchable, ...withoutSearch].map(
+            (id) => [id, document.querySelectorAll('#' + id + ' .pane-search-bar').length],
+          ));
+          const requestEmpty = document.querySelector('#req-body .pane-empty').textContent;
+          const responseEmpty = document.querySelector('#res-body pre.code-block').textContent;
+          const requestInput = document.querySelector('#req-body .pane-search-input');
+          const responseInput = document.querySelector('#res-body .pane-search-input');
+          requestInput.value = requestEmpty;
+          responseInput.value = responseEmpty;
+          requestInput.dispatchEvent(new Event('input', { bubbles: true }));
+          responseInput.dispatchEvent(new Event('input', { bubbles: true }));
+          const reqCount = () => document.querySelector('#req-body .pane-search-count').textContent;
+          const resCount = () => document.querySelector('#res-body .pane-search-count').textContent;
+          await waitFor(() => reqCount() === 'No matches' && resCount() === 'No matches', 500);
+          const tabShortcuts = [];
+          for (const [tabId, paneId, modifier] of [
+            ['req-tab-body', 'req-body', 'ctrlKey'],
+            ['req-tab-raw', 'req-raw', 'metaKey'],
+            ['res-tab-body', 'res-body', 'ctrlKey'],
+            ['res-tab-raw', 'res-raw', 'metaKey'],
+          ]) {
+            const tab = document.getElementById(tabId);
+            const input = document.querySelector('#' + paneId + ' .pane-search-input');
+            tab.click();
+            tab.focus();
+            const visible = input.getClientRects().length > 0;
+            tab.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'f', [modifier]: true, bubbles: true, cancelable: true,
+            }));
+            tabShortcuts.push({
+              tab: tabId,
+              visible,
+              focused: document.activeElement === input,
+              globalSearchHidden: document.querySelector('#searchPanel').style.display === 'none',
+            });
+          }
+          document.querySelector('#req-tab-query').click();
+          document.querySelector('#res-tab-headers').click();
+          return {
+            bars,
+            requestEmpty,
+            responseEmpty,
+            requestCount: reqCount(),
+            responseCount: resCount(),
+            requestHits: document.querySelectorAll('#req-body mark.pane-search-hit').length,
+            responseHits: document.querySelectorAll('#res-body mark.pane-search-hit').length,
+            requestNavDisabled: Array.from(document.querySelectorAll('#req-body .pane-search-nav:not(.pane-search-expand)')).every((button) => button.disabled),
+            responseNavDisabled: Array.from(document.querySelectorAll('#res-body .pane-search-nav:not(.pane-search-expand)')).every((button) => button.disabled),
+            cookieRows: [
+              document.querySelectorAll('#req-cookies .cookie-table tbody > tr').length,
+              document.querySelectorAll('#res-cookies .cookie-table tbody > tr').length,
+            ],
+            tabShortcuts,
+          };
+        })()`,
+        true,
+      );
+      expect(searchPlacement).toEqual({
+        bars: {
+          'req-body': 1, 'req-raw': 1, 'res-body': 1, 'res-raw': 1,
+          'req-headers': 0, 'req-query': 0, 'req-cookies': 0,
+          'res-headers': 0, 'res-cookies': 0, 'res-timing': 0,
+        },
+        requestEmpty: 'No request body',
+        responseEmpty: '(no response body)',
+        requestCount: 'No matches',
+        responseCount: 'No matches',
+        requestHits: 0,
+        responseHits: 0,
+        requestNavDisabled: true,
+        responseNavDisabled: true,
+        cookieRows: [1, 1],
+        tabShortcuts: [
+          { tab: 'req-tab-body', visible: true, focused: true, globalSearchHidden: true },
+          { tab: 'req-tab-raw', visible: true, focused: true, globalSearchHidden: true },
+          { tab: 'res-tab-body', visible: true, focused: true, globalSearchHidden: true },
+          { tab: 'res-tab-raw', visible: true, focused: true, globalSearchHidden: true },
+        ],
+      });
+
+      // Ctrl+F from a selected Headers tab or the Query copy pair uses global
+      // request search, not the Body/Raw search in another tab.
+      const shortcut = await evaluate(
+        cdp,
+        `(() => {
+          const headers = document.querySelector('#req-tab-headers');
+          headers.click();
+          headers.focus();
+          headers.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }));
+          const fromHeaders = {
+            focused: document.activeElement.className,
+            globalSearchVisible: document.querySelector('#searchPanel').style.display === 'block',
+          };
+          document.querySelector('#searchToggleBtn').click();
+          document.querySelector('#req-tab-query').click();
+          const button = document.querySelector('#req-query > .copy-actions .copy-btn');
+          button.focus();
+          button.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }));
+          const fromQuery = {
+            focused: document.activeElement.className,
+            globalSearchVisible: document.querySelector('#searchPanel').style.display === 'block',
+          };
+          document.querySelector('#searchToggleBtn').click();
+          return { fromHeaders, fromQuery };
+        })()`,
+      );
+      expect(shortcut).toEqual({
+        fromHeaders: { focused: 'search-keyword-input', globalSearchVisible: true },
+        fromQuery: { focused: 'search-keyword-input', globalSearchVisible: true },
+      });
 
       // The pane where the row-end control matters most had none at all: the
       // items pass a prebuilt node, and a node-valued row has to state its
@@ -7946,29 +8705,6 @@ browserTest(
       expect(opened.keys).toEqual(['utm_source', 'utm_id', 'cid']);
       expect(opened.values).toEqual(['news', '77', 'abc']);
 
-      // The pane's search reads the visible rows, including the nested pairs
-      // the reader just opened, and counts each hit once — the URL row's
-      // hidden copy of the address is the one place a hit is not doubled.
-      const searched = await evaluate(
-        cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-query .pane-search-input');
-          input.value = 'utm_id';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelectorAll('#req-query mark.pane-search-hit').length > 0, 400);
-          return {
-            hits: document.querySelectorAll('#req-query mark.pane-search-hit').length,
-            count: document.querySelector('#req-query .pane-search-count').textContent,
-          };
-        })()`,
-        true,
-      );
-      // Once, in the parameter's own text. The sub-grid is generated from that
-      // same text, so counting it too made every hit a pair and stepped the
-      // reader through a second copy of what is already in front of them.
-      expect(searched.hits).toBe(1);
-      expect(searched.count).toBe('1 / 1');
-
       // The copy reads the captured URL through the sanitizer. Not the decoded
       // text on screen: the sanitized payload redacts every query value, so
       // neither the decoded redirect nor the decoded space may appear in it.
@@ -7976,7 +8712,7 @@ browserTest(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
           const before = globalThis.__networkPlusCopied.length;
-          document.querySelector('#req-query .pane-search-bar .copy-btn').click();
+          document.querySelector('#req-query > .copy-actions .copy-btn').click();
           await waitFor(() => globalThis.__networkPlusCopied.length > before, 100);
           return { text: globalThis.__networkPlusCopied.slice(-1)[0], toast: document.querySelector('#copyToast').textContent };
         })()`,
@@ -7989,6 +8725,44 @@ browserTest(
       expect(copied.text).not.toContain('auth.example.test');
       expect(copied.text).not.toContain('hello');
       expect(copied.text).not.toContain('utm_source');
+
+      // Full URL copy still requires its one-time warning; cancelling cannot
+      // leak a value, and confirming returns the exact captured URL and focus.
+      const fullCopy = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const button = document.querySelector('#req-query > .copy-actions .copy-btn:last-child');
+          const dialog = document.querySelector('#dataSafetyDialog');
+          const before = globalThis.__networkPlusCopied.length;
+          button.click();
+          const warningVisible = dialog.open && !document.querySelector('#dataSafetyWarning').hidden;
+          document.querySelector('#dataSafetyCancelBtn').click();
+          await waitFor(() => !dialog.open && document.activeElement === button, 200);
+          const cancelledCopies = globalThis.__networkPlusCopied.length - before;
+          button.click();
+          const reopened = dialog.open;
+          document.querySelector('#dataSafetyConfirmBtn').click();
+          await waitFor(() => globalThis.__networkPlusCopied.length > before, 300);
+          await waitFor(() => document.activeElement === button, 200);
+          return {
+            warningVisible,
+            cancelledCopies,
+            reopened,
+            confirmedCopies: globalThis.__networkPlusCopied.length - before,
+            copied: globalThis.__networkPlusCopied.slice(-1)[0],
+            focusReturned: document.activeElement === button,
+          };
+        })()`,
+        true,
+      );
+      expect(fullCopy).toEqual({
+        warningVisible: true,
+        cancelledCopies: 0,
+        reopened: true,
+        confirmedCopies: 1,
+        copied: QUERY_PANE_URL,
+        focusReturned: true,
+      });
 
       // And the row-end control on this pane passes the very same gate: every
       // Query value leaves as the redaction marker, whatever the cell renders.
@@ -8072,11 +8846,8 @@ browserTest(
       await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       await settleLayout(cdp);
 
-      // The new toolbar obeys the band every pane toolbar obeys, in both
-      // languages: it never overflows its pane, and it never grows more rows
-      // as the pane gets wider. Stated over a sweep, because the Japanese pane
-      // noun is longer than the English one and CI's fallback fonts are wider
-      // than any local face.
+      // Standalone Query copy controls remain visible and do not overflow
+      // at any pane width in either language, without the former sticky bar.
       for (const language of ['en', 'ja']) {
         if (language !== 'en') {
           await reloadInLanguage(page, language);
@@ -8084,17 +8855,15 @@ browserTest(
           expect(await evaluate(cdp, QUERY_PANE_INJECT, true)).toBeGreaterThan(0);
           await settleLayout(cdp);
         }
-        let previousRows = Infinity;
         for (const width of [400, 460, 520, 600, 700, 820, 900]) {
           await evaluate(cdp, `document.querySelector('#details').style.flexBasis = '${width}px'`);
           await settleLayout(cdp);
-          const band = await evaluate(cdp, QUERY_PANE_BAND_MEASURE);
+          const fit = await evaluate(cdp, QUERY_PANE_COPY_FIT_MEASURE);
           const at = language + '@' + width;
-          expect([at, band.barOverflow <= 0]).toEqual([at, true]);
-          expect([at, band.paneOverflow <= 0]).toEqual([at, true]);
-          expect([at, band.gridOverflow <= 0]).toEqual([at, true]);
-          expect([at, band.barRows <= previousRows]).toEqual([at, true]);
-          previousRows = band.barRows;
+          expect([at, fit.copyOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.copyButtonsVisible]).toEqual([at, true]);
+          expect([at, fit.paneOverflow <= 0]).toEqual([at, true]);
+          expect([at, fit.gridOverflow <= 0]).toEqual([at, true]);
         }
         await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       }
@@ -8678,30 +9447,19 @@ browserTest(
           };
         })()`,
       );
-      // The pane's search reads response data, not the panel's reading of it.
-      // '14m' is the chip's own two-unit wording — the decoded claim row says
-      // '2 h' — so it exists nowhere but in text the panel wrote itself.
-      const chipSearch = await evaluate(
+      // The chip remains readable and both populated Request tabs have no
+      // pane-search controls; neither the summary nor decoded JWT rows are
+      // silently turned into search hits.
+      const headerTabs = await evaluate(
         cdp,
-        `(async () => {${WAIT_FOR_IN_PAGE}
-          const input = document.querySelector('#req-headers .pane-search-input');
-          input.value = '14m';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          await waitFor(() => document.querySelector('#req-headers .pane-search-count').textContent !== '', 400);
-          const result = {
+        `(() => ({
             chipShowsIt: document.querySelector('#req-headers .jwt-chip').textContent.indexOf('14m') !== -1,
-            hits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
-            count: document.querySelector('#req-headers .pane-search-count').textContent,
-          };
-          input.value = '';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          return result;
-        })()`,
-        true,
+            headersBars: document.querySelectorAll('#req-headers .pane-search-bar').length,
+            cookiesBars: document.querySelectorAll('#req-cookies .pane-search-bar').length,
+            headersHits: document.querySelectorAll('#req-headers mark.pane-search-hit').length,
+          }))()`,
       );
-      expect(chipSearch.chipShowsIt).toBe(true);
-      expect(chipSearch.hits).toBe(0);
-      expect(chipSearch.count).toBe('No matches');
+      expect(headerTabs).toEqual({ chipShowsIt: true, headersBars: 0, cookiesBars: 0, headersHits: 0 });
 
       expect(opened).toEqual({
         active: true,
@@ -10344,6 +11102,68 @@ const PANE_EMPTY_MEASURE = (paneId) => `(() => {
     : { text: pane.textContent.slice(0, 40), fontSize: null, color: null, muted: null };
 })()`;
 
+const TAB_SIGNAL_THEMES = [
+  { name: 'system-light', dataTheme: null, systemTheme: 'light' },
+  { name: 'system-dark', dataTheme: null, systemTheme: 'dark' },
+  { name: 'forced-light', dataTheme: 'light', systemTheme: 'dark' },
+  { name: 'forced-dark', dataTheme: 'dark', systemTheme: 'light' },
+];
+
+async function assertInspectorTabPresentation(cdp, phase) {
+  for (const theme of TAB_SIGNAL_THEMES) {
+    await cdp.send('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-color-scheme', value: theme.systemTheme }],
+    });
+    await evaluate(
+      cdp,
+      theme.dataTheme
+        ? `document.documentElement.setAttribute('data-theme', '${theme.dataTheme}')`
+        : "document.documentElement.removeAttribute('data-theme')",
+    );
+    await evaluate(
+      cdp,
+      'new Promise(resolve => requestAnimationFrame(() => setTimeout(() => requestAnimationFrame(resolve), 180)))',
+      true,
+    );
+    const tabs = await evaluate(cdp, TAB_SIGNAL_PRESENTATION_MEASURE);
+    expect([phase, theme.name, tabs.length]).toEqual([phase, theme.name, 10]);
+    expect(tabs.filter((tab) => tab.counted).map((tab) => tab.tab)).toEqual(COUNTED_INSPECTOR_TABS);
+    for (const tab of tabs) {
+      expect({
+        phase, theme: theme.name, tab: tab.tab, opacity: tab.opacity,
+        labelRatio: tab.labelRatio, passes: tab.labelRatio >= 4.5,
+      }).toEqual({
+        phase, theme: theme.name, tab: tab.tab, opacity: '1',
+        labelRatio: tab.labelRatio, passes: true,
+      });
+      expect([phase, theme.name, tab.tab, tab.transitionProperty.split(',').map((value) => value.trim()).includes('color')]).toEqual([
+        phase, theme.name, tab.tab, false,
+      ]);
+      expect([tab.selected, tab.tabIndex]).toEqual([String(tab.active), tab.active ? 0 : -1]);
+      if (!tab.counted && !tab.empty) {
+        expect([phase, theme.name, tab.tab, tab.marker]).toEqual([phase, theme.name, tab.tab, 'none']);
+        continue;
+      }
+      const expectedMarker = tab.counted ? JSON.stringify(tab.count) : '"\u2013"';
+      expect([
+        phase, theme.name, tab.tab, tab.marker, tab.markerRatio >= 4.5,
+        tab.markerBackgroundOpaque, tab.markerBorderStyle, tab.markerBorderWidth,
+        tab.markerRadius, tab.markerMargin,
+      ]).toEqual([
+        phase, theme.name, tab.tab, expectedMarker, true, true,
+        tab.counted ? 'solid' : 'dashed', '1px', '6px', '6px',
+      ]);
+    }
+    const nonzero = tabs.find((tab) => tab.counted && !tab.empty);
+    const zero = tabs.find((tab) => tab.counted && tab.empty);
+    if (nonzero && zero) expect(nonzero.markerColor).not.toBe(zero.markerColor);
+  }
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-color-scheme', value: 'light' }],
+  });
+  await evaluate(cdp, "document.documentElement.removeAttribute('data-theme')");
+}
+
 browserTest(
   'tabs carry counts, mark an empty pane instead of dimming it, and fall back to Headers without losing the picked tab',
   async () => {
@@ -10451,6 +11271,7 @@ browserTest(
       expect(postQuery.fontSize).toBe('12px');
       const postResTabs = await evaluate(cdp, TAB_SIGNAL_MEASURE('res-tab-bar'));
       expect(postResTabs.find((tab) => tab.tab === 'res-cookies')).toMatchObject({ count: '2', empty: false, active: true });
+      await assertInspectorTabPresentation(cdp, 'counted-active');
 
       // The GET row has no cookies: the picked Cookies tabs take the empty
       // marker, Headers shows on both halves, and Query announces its 31
@@ -10483,6 +11304,8 @@ browserTest(
       expect(await evaluate(cdp, "document.querySelector('#req-cookies').classList.contains('active')")).toBe(true);
       await evaluate(cdp, "document.querySelector('#req-tab-headers').click()");
       await evaluate(cdp, "document.querySelector('#req-tab-cookies').click()");
+      await evaluate(cdp, "document.querySelector('#res-tab-cookies').click()");
+      await assertInspectorTabPresentation(cdp, 'empty-active');
 
       // The response half stamps Body and Raw too, once the cached body has
       // landed — until this the bar was given only the cookies count, so an
@@ -10509,6 +11332,7 @@ browserTest(
         marker: '"\u2013"',
       });
       expect(emptyBodyTabs.find((tab) => tab.tab === 'res-raw')).toMatchObject({ marker: 'none' });
+      await assertInspectorTabPresentation(cdp, 'uncounted-empty');
 
       // Back on the POST row the fallback has not overwritten the pick: the
       // Cookies tabs come back on both halves.
@@ -10516,6 +11340,64 @@ browserTest(
       await settleLayout(cdp);
       expect(await evaluate(cdp, "document.querySelector('#req-cookies').classList.contains('active')")).toBe(true);
       expect(await evaluate(cdp, "document.querySelector('#res-cookies').classList.contains('active')")).toBe(true);
+
+      // Badge spacing may make the bar scroll on a narrow panel, but cannot
+      // grow the document or hide a tab reached by keyboard navigation.
+      for (const width of [320, 375, 440, 1280]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width, height: 800, deviceScaleFactor: 1, mobile: false,
+        });
+        await settleLayout(cdp);
+        const frame = await evaluate(
+          cdp,
+          `(() => {
+            const details = document.getElementById('details');
+            return {
+              documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              detailsOverflow: details.scrollWidth - details.clientWidth,
+            };
+          })()`,
+        );
+        expect([width, frame.documentOverflow <= 1, frame.detailsOverflow <= 1]).toEqual([width, true, true]);
+        for (const barId of ['req-tab-bar', 'res-tab-bar']) {
+          await evaluate(cdp, `document.querySelector('#${barId} .tab-btn.active').focus()`);
+          await pressKey(cdp, 'End', 'End', 35);
+          await settleLayout(cdp);
+          const end = await evaluate(
+            cdp,
+            `(() => {
+              const bar = document.getElementById('${barId}');
+              const selected = bar.querySelector('.tab-btn[aria-selected="true"]');
+              const b = bar.getBoundingClientRect();
+              const r = selected.getBoundingClientRect();
+              return {
+                focused: document.activeElement === selected,
+                tab: selected.dataset.tab,
+                visible: r.left >= b.left - 1 && r.right <= b.right + 1,
+                scrollable: bar.scrollWidth > bar.clientWidth,
+                scrollLeft: bar.scrollLeft,
+              };
+            })()`,
+          );
+          expect([width, barId, end.focused, end.tab, end.visible]).toEqual([
+            width, barId, true, barId === 'req-tab-bar' ? 'req-raw' : 'res-raw', true,
+          ]);
+          if (end.scrollable) expect([width, barId, end.scrollLeft > 0]).toEqual([width, barId, true]);
+          await pressKey(cdp, 'Home', 'Home', 36);
+          await pressKey(cdp, 'ArrowRight', 'ArrowRight', 39);
+          const next = await evaluate(
+            cdp,
+            `(() => {
+              const bar = document.getElementById('${barId}');
+              const selected = bar.querySelector('.tab-btn[aria-selected="true"]');
+              return { focused: document.activeElement === selected, tab: selected.dataset.tab };
+            })()`,
+          );
+          expect([width, barId, next.focused, next.tab]).toEqual([
+            width, barId, true, barId === 'req-tab-bar' ? 'req-body' : 'res-body',
+          ]);
+        }
+      }
 
       // Clearing the capture empties the panes and their tab signals, so
       // nothing stale survives into the next recording.
@@ -10615,7 +11497,171 @@ const PANE_TOOLBAR_NARROW_MEASURE = `(() => {
 })()`;
 
 browserTest(
-  'Body and Raw carry one sticky top toolbar that holds search and the copy actions',
+  'Body and Raw pane regex errors are visible, associated with their inputs and recover in both languages',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await waitForLiveNetworkListener(cdp);
+      const observed = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const responseText = '{"result":"needle"}';
+          globalThis.__networkPlusLiveListener({
+            startedDateTime: '2026-01-15T12:00:00.000Z',
+            time: 20,
+            request: {
+              method: 'POST',
+              url: 'https://api.example.test/v1/search',
+              headers: [{ name: 'content-type', value: 'application/json' }],
+              postData: { mimeType: 'application/json', text: '{"query":"needle"}' },
+            },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              headers: [{ name: 'content-type', value: 'application/json' }],
+              content: { size: responseText.length, mimeType: 'application/json' },
+            },
+            getContent(callback) { callback(responseText, ''); },
+          });
+          await waitFor(() => !!document.querySelector('#tbody tr[data-row-id="1"]'), 1200);
+          document.querySelector('#tbody tr[data-row-id="1"]').click();
+          const paneIds = ['req-body', 'req-raw', 'res-body', 'res-raw'];
+          if (!await waitFor(() => paneIds.every((id) =>
+            !!document.querySelector('#' + id + ' .pane-search-input')) &&
+            document.querySelector('#res-raw').textContent.includes('needle'), 1200)) {
+            throw new Error('The captured POST and JSON response did not populate all Body/Raw panes.');
+          }
+          document.querySelector('#searchOptRegexBtn').click();
+          const regexPressed = document.querySelector('#searchOptRegexBtn').getAttribute('aria-pressed');
+          const snapshot = (id) => {
+            const pane = document.getElementById(id);
+            const input = pane.querySelector('.pane-search-input');
+            const descriptionId = input.getAttribute('aria-describedby');
+            const error = descriptionId
+              ? document.getElementById(descriptionId)
+              : pane.querySelector('.pane-search-error');
+            return {
+              count: pane.querySelector('.pane-search-count').textContent,
+              hits: pane.querySelectorAll('mark.pane-search-hit').length,
+              navDisabled: Array.from(pane.querySelectorAll('.pane-search-nav:not(.pane-search-expand)'))
+                .every((button) => button.disabled),
+              invalid: input.getAttribute('aria-invalid'),
+              descriptionId,
+              description: error?.textContent || '',
+              errorRole: error?.getAttribute('role') || null,
+              errorVisible: !!error && error.getBoundingClientRect().height > 1,
+              errorInPane: !!error && error.closest('.tab-pane') === pane,
+              title: input.title,
+              focused: document.activeElement === input,
+            };
+          };
+          const type = async (id, value, ready) => {
+            const input = document.querySelector('#' + id + ' .pane-search-input');
+            input.focus();
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            if (!await waitFor(() => ready(snapshot(id)), 1000)) {
+              throw new Error('Pane search did not update for ' + id + ': ' + value);
+            }
+            return snapshot(id);
+          };
+          const english = {};
+          for (const id of paneIds) {
+            document.querySelector('#' + id.replace('-', '-tab-')).click();
+            const valid = await type(id, 'needle', (state) => state.hits === 1);
+            const invalid = await type(id, '[', (state) =>
+              state.title.startsWith('Invalid regular expression:') && state.hits === 0);
+            const corrected = await type(id, 'needle', (state) =>
+              state.hits === 1 && state.invalid === null);
+            const missing = await type(id, 'absent', (state) => state.count === 'No matches');
+            english[id] = { valid, invalid, corrected, missing };
+          }
+          const language = document.querySelector('#langSelect');
+          language.value = 'ja';
+          language.dispatchEvent(new Event('change', { bubbles: true }));
+          if (!await waitFor(() => document.documentElement.lang === 'ja' &&
+            paneIds.every((id) => !!document.querySelector('#' + id + ' .pane-search-input')), 1200)) {
+            throw new Error('The Japanese Body/Raw panes did not render.');
+          }
+          const japanese = {};
+          for (const id of paneIds) {
+            document.querySelector('#' + id.replace('-', '-tab-')).click();
+            japanese[id] = await type(id, '[', (state) =>
+              state.title.startsWith('正規表現が不正です:') && state.hits === 0);
+          }
+          document.querySelector('#searchOptRegexBtn').click();
+          const literalUpdated = await waitFor(() => paneIds.every((id) =>
+            snapshot(id).invalid === null && snapshot(id).count === '一致なし'), 1000);
+          const literal = Object.fromEntries(paneIds.map((id) => [id, snapshot(id)]));
+          document.querySelector('#searchOptRegexBtn').click();
+          const regexRestored = await waitFor(() => paneIds.every((id) =>
+            snapshot(id).invalid === 'true'), 1000);
+          return { regexPressed, english, japanese, literalUpdated, literal, regexRestored };
+        })()`,
+        true,
+      );
+      expect(observed.regexPressed).toBe('true');
+      const ids = ['req-body', 'req-raw', 'res-body', 'res-raw'];
+      for (const id of ids) {
+        const { valid, invalid, corrected, missing } = observed.english[id];
+        expect(valid).toMatchObject({
+          count: '1 / 1', hits: 1, navDisabled: false, invalid: null, descriptionId: null,
+          description: '', focused: true,
+        });
+        expect(invalid).toMatchObject({
+          count: '', hits: 0, navDisabled: true, invalid: 'true',
+          descriptionId: 'pane-search-error-' + id, errorRole: 'status',
+          errorVisible: true, errorInPane: true, focused: true,
+        });
+        expect(invalid.description).toMatch(/^Invalid regular expression: /);
+        expect(invalid.description).not.toMatch(/Invalid regular expression: Invalid regular expression:/);
+        expect(invalid.title).toBe(invalid.description);
+        expect(corrected).toMatchObject({
+          count: '1 / 1', hits: 1, navDisabled: false, invalid: null, descriptionId: null,
+          description: '', title: '', focused: true,
+        });
+        expect(missing).toMatchObject({
+          count: 'No matches', hits: 0, navDisabled: true, invalid: null, descriptionId: null,
+          description: '', title: '', focused: true,
+        });
+        expect(observed.japanese[id]).toMatchObject({
+          count: '', hits: 0, navDisabled: true, invalid: 'true',
+          descriptionId: 'pane-search-error-' + id, errorRole: 'status',
+          errorVisible: true, errorInPane: true, focused: true,
+        });
+        expect(observed.japanese[id].description).toMatch(/^正規表現が不正です: /);
+        expect(observed.japanese[id].title).toBe(observed.japanese[id].description);
+        expect(observed.literal[id]).toMatchObject({
+          count: '一致なし', hits: 0, navDisabled: true, invalid: null, descriptionId: null,
+          description: '', title: '',
+        });
+      }
+      expect(new Set(ids.map((id) => observed.english[id].invalid.descriptionId)).size).toBe(4);
+      expect(observed.literalUpdated).toBe(true);
+      expect(observed.regexRestored).toBe(true);
+
+      const accessibilityTree = await cdp.send('Accessibility.getFullAXTree');
+      const restoredError = observed.japanese['res-raw'].description;
+      const accessibleInput = accessibilityTree.nodes.find(
+        (node) => node.role?.value === 'textbox' && node.description?.value === restoredError,
+      );
+      expect(accessibleInput?.properties?.find((property) => property.name === 'invalid')?.value?.value)
+        .toBe('true');
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'only Body and Raw carry a sticky search toolbar with copy actions',
   async () => {
     const page = await launchPanelPage({
       executable: browserExecutable,
@@ -10724,7 +11770,60 @@ browserTest(
       expect(scrolled.barTopOffset).toBe(0);
       await evaluate(cdp, "document.querySelector('#req-body').parentElement.scrollTop = 0");
 
-      // Raw on both halves gets the same toolbar.
+      // Raw on both halves gets the same toolbar, even when no Body tab is selected.
+      await evaluate(cdp, "document.querySelector('#req-tab-raw').click()");
+      await settleLayout(cdp);
+      expect(await evaluate(cdp, PANE_TOOLBAR_MEASURE('req-raw'))).toMatchObject({
+        barClass: 'pane-search-bar',
+        position: 'sticky',
+        barTopOffset: 0,
+        copyLabels: ['Copy sanitized', 'Copy full...'],
+        strayCopyActions: 0,
+        contentClass: 'code-block code-raw',
+      });
+      const rawKeyboard = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const pane = document.querySelector('#req-raw');
+          const input = pane.querySelector('.pane-search-input');
+          const count = () => pane.querySelector('.pane-search-count').textContent;
+          input.value = 'query';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => count() === '1 / 2', 400);
+          input.focus();
+          const press = (key, shiftKey = false) =>
+            input.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }));
+          const start = count();
+          press('Enter', true);
+          const previous = count();
+          press('Enter');
+          const wrapped = count();
+          press('Enter');
+          const next = count();
+          press('Escape');
+          return {
+            start,
+            previous,
+            wrapped,
+            next,
+            cleared: {
+              query: input.value,
+              count: count(),
+              hits: pane.querySelectorAll('mark.pane-search-hit').length,
+              focused: document.activeElement === input,
+            },
+          };
+        })()`,
+        true,
+      );
+      expect(rawKeyboard).toEqual({
+        start: '1 / 2',
+        previous: '2 / 2',
+        wrapped: '1 / 2',
+        next: '2 / 2',
+        cleared: { query: '', count: '', hits: 0, focused: true },
+      });
+      await evaluate(cdp, "document.querySelector('#req-tab-body').click()");
       expect(await evaluate(cdp, PANE_TOOLBAR_MEASURE('res-raw'))).toMatchObject({
         barClass: 'pane-search-bar',
         position: 'sticky',
@@ -10970,50 +12069,63 @@ browserTest(
       expect(wrapped.clusterRows).toBe(1);
       expect(wrapped.navGroupWraps).toBe('nowrap');
 
-      // One scrollport carries all five panes of the half, so the inset has to
-      // follow the pane the reader is on rather than the last bar attached.
-      // Headers now owns a toolbar of its own, and at 400px the two bars are
-      // measurably different heights: the Body bar wrapped its copy actions
-      // onto a second row above, and Headers carries no copy actions at all,
-      // so its bar cannot wrap where the same search cluster fit on one row.
-      // That difference is what makes this test discriminate — with one shared
-      // number both panes would agree by accident.
+      // One scrollport carries all the tabs of each half. A wrapped Body bar
+      // must not leave its sticky scroll inset behind on bar-less Headers,
+      // Query or Cookies; returning to Body must restore the measured inset.
       const insetAcrossTabs = await evaluate(
         cdp,
         `(() => {
-          const area = document.querySelector('#res-headers').parentElement;
-          const read = () => getComputedStyle(area).scrollPaddingTop;
-          const barHeight = (paneId) => {
-            const bar = document.querySelector('#' + paneId + ' .pane-search-bar');
-            return bar ? Math.round(bar.getBoundingClientRect().height) : 0;
-          };
+          const resArea = document.querySelector('#res-headers').parentElement;
+          const reqArea = document.querySelector('#req-body').parentElement;
+          const read = (area) => getComputedStyle(area).scrollPaddingTop;
           document.querySelector('#res-tab-headers').click();
-          const headers = read();
-          const headersBar = barHeight('res-headers');
+          const headers = read(resArea);
+          const headersBars = document.querySelectorAll('#res-headers .pane-search-bar').length;
           document.querySelector('#res-tab-body').click();
-          const backOnBody = read();
-          const bodyBar = barHeight('res-body');
+          const backOnBody = read(resArea);
+          const bodyBar = Math.round(document.querySelector('#res-body .pane-search-bar').getBoundingClientRect().height);
+          document.querySelector('#req-tab-body').click();
+          const requestBody = read(reqArea);
+          const requestBodyBar = Math.round(document.querySelector('#req-body .pane-search-bar').getBoundingClientRect().height);
+          const requestWithoutSearch = ['headers', 'query', 'cookies'].map((tab) => {
+            document.querySelector('#req-tab-' + tab).click();
+            return {
+              tab,
+              inset: read(reqArea),
+              bars: document.querySelectorAll('#req-' + tab + ' .pane-search-bar').length,
+            };
+          });
+          document.querySelector('#req-tab-body').click();
           return {
             headers,
-            headersBar,
+            headersBars,
             backOnBody,
             bodyBar,
-            headersCopyButtons: document.querySelectorAll('#res-headers .pane-search-bar .copy-btn').length,
-            sameScrollport: area === document.querySelector('#res-body').parentElement,
+            requestBody,
+            requestBodyBar,
+            requestWithoutSearch,
+            requestBackOnBody: read(reqArea),
+            sameScrollport: resArea === document.querySelector('#res-body').parentElement,
           };
         })()`,
       );
       expect(insetAcrossTabs.sameScrollport).toBe(true);
-      expect(insetAcrossTabs.headersCopyButtons).toBe(0);
-      expect(insetAcrossTabs.headers).toBe(insetAcrossTabs.headersBar + 'px');
+      expect(insetAcrossTabs.headersBars).toBe(0);
+      expect(insetAcrossTabs.headers).toBe('0px');
       expect(insetAcrossTabs.backOnBody).toBe(insetAcrossTabs.bodyBar + 'px');
-      expect(insetAcrossTabs.headersBar).toBeGreaterThan(0);
-      expect(insetAcrossTabs.headersBar).toBeLessThan(insetAcrossTabs.bodyBar);
+      expect(insetAcrossTabs.bodyBar).toBeGreaterThan(0);
+      expect(insetAcrossTabs.requestBody).toBe(insetAcrossTabs.requestBodyBar + 'px');
+      expect(insetAcrossTabs.requestWithoutSearch).toEqual([
+        { tab: 'headers', inset: '0px', bars: 0 },
+        { tab: 'query', inset: '0px', bars: 0 },
+        { tab: 'cookies', inset: '0px', bars: 0 },
+      ]);
+      expect(insetAcrossTabs.requestBackOnBody).toBe(insetAcrossTabs.requestBody);
       await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       await settleLayout(cdp);
 
-      // Rebuilding the toolbars on every selection must not accumulate
-      // observers: attachPaneSearch runs two to four times per row.
+      // Rebuilding the four Body/Raw toolbars on every selection must not
+      // accumulate observers.
       const observersAfterFirst = await evaluate(cdp, 'globalThis.__networkPlusLiveResizeObservers()');
       await evaluate(
         cdp,
@@ -11036,12 +12148,9 @@ browserTest(
       // One per pane that owns a toolbar, plus the details-title observer —
       // never one per render.
       expect(observersAfterMany).toBeLessThanOrEqual(observersAfterFirst);
-      // The ceiling is derived, not remembered: eight panes can own a toolbar
-      // (Request Headers/Query/Cookies/Body/Raw, Response Headers/Body/Raw),
-      // each keeping one observer for the life of the session, plus the
-      // details-title observer. Nine is the whole census; the line above is
-      // what actually says "never one per render".
-      expect(observersAfterMany).toBeLessThanOrEqual(9);
+      // Four pane owners plus the details-title observer: no observers are
+      // constructed for Headers, Query or Cookies.
+      expect(observersAfterMany).toBeLessThanOrEqual(5);
 
       await cdp.send('Emulation.clearDeviceMetricsOverride');
     } finally {
@@ -12779,8 +13888,24 @@ browserTest(
         documentOverflowX: 0,
       });
 
+      // Headers is deliberately bar-less now. Inactive Body/Raw bars keep
+      // sticky styles in the DOM but no layout box; only the captions of
+      // the selected Headers panes can pin to the column.
+      expect(
+        await evaluate(cdp, "document.querySelectorAll('#req-headers .pane-search-bar,#res-headers .pane-search-bar').length"),
+      ).toBe(0);
+      expect(
+        column.stickyDescendants.filter((name) => !name.startsWith('pane-search-bar')),
+      ).toEqual(['inspector-request-toggle', 'inspector-response-toggle']);
+      // Select Raw before measuring a pane toolbar's scroll movement.
+      await evaluate(cdp, "document.querySelector('#req-tab-raw').click()");
+      await settleLayout(cdp);
+      expect(
+        await evaluate(cdp, "document.querySelector('#req-raw .pane-search-bar').getClientRects().length"),
+      ).toBeGreaterThan(0);
       const scrolled = await evaluate(cdp, INSPECTOR_COLUMN_SCROLL_MATRIX);
       expect(scrolled).toHaveLength(5);
+      expect(Object.keys(scrolled[0].barOffsets)).toEqual(['req-raw']);
       for (const position of scrolled) {
         expect({
           fraction: position.fraction,
@@ -12831,22 +13956,12 @@ browserTest(
         measuredBarRides: measuredBarRides > 0,
         measuredTabBarRides: measuredTabBarRides > 0,
       }).toEqual({ measuredTransitions: true, measuredBarRides: true, measuredTabBarRides: true });
-      // Two halves, so the pane toolbar and tab bar of each is what the rides
-      // above are made of — not one bar measured over and over.
+      // The Raw pane supplies the toolbar rides; both halves supply their tab
+      // bars, not one tab bar measured over and over.
       expect(Object.keys(scrolled[0].tabBarOffsets).length).toBeGreaterThanOrEqual(2);
       expect(scrolled[scrolled.length - 1].responseTailReached).toBe(true);
-      // And the layer that sticks to the COLUMN is one per half, and it is the
-      // caption. The pane toolbars are sticky too, but to their own pane's
-      // scrollport, which in the column never scrolls — the ride measured
-      // above is the proof. No tab bar is sticky at all: a third pinned strip
-      // is the peephole the column exists to remove.
-      // The Body pane's bar carries the picker class beside the bar's own; both
-      // are the same pane toolbar, filtered out by exact name.
-      expect(
-        column.stickyDescendants.filter(
-          (name) => name !== 'pane-search-bar' && name !== 'pane-search-bar pane-search-bar--with-view',
-        ),
-      ).toEqual(['inspector-request-toggle', 'inspector-response-toggle']);
+      // Raw's toolbar rides with its own scrollport; no tab bar sticks to the
+      // column and creates a third pinned strip.
 
       // The vertical split is off while the column is on. The divider has no box
       // to click or focus here, so the events are dispatched at it directly —
@@ -13486,6 +14601,200 @@ browserTest(
   TEST_TIMEOUT_MS,
 );
 
+browserTest(
+  'Server done defaults on, migrates v4 layouts, and remains hideable and responsive',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1920, height: 800 });
+    const { cdp } = page;
+    const readColumns = async () => {
+      await settleLayout(cdp);
+      return evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          if (menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+          document.querySelector('#columnsBtn').click();
+          const timing = Object.fromEntries(['clientStart', 'serverDone'].map((id) => {
+            const item = menu.querySelector('[data-column-id="' + id + '"]');
+            if (!item) throw new Error('Missing timing column: ' + id);
+            return [id, {
+              checked: item.getAttribute('aria-checked') === 'true',
+              dimmed: item.classList.contains('column-auto-hidden'),
+            }];
+          }));
+          const pin = menu.querySelector('[data-pin-column-id="serverDone"]');
+          const stored = localStorage.getItem('networkPlus.cols');
+          return {
+            timing,
+            headers: Array.from(document.querySelectorAll('thead th[data-col-id]')).map((th) => th.dataset.colId),
+            urlChecked: menu.querySelector('[data-column-id="url"]').getAttribute('aria-checked') === 'true',
+            pinLabel: pin ? pin.textContent : null,
+            stored: stored ? JSON.parse(stored) : null,
+            version: localStorage.getItem('networkPlus.cols.v'),
+          };
+        })()`,
+      );
+    };
+    const clickColumn = async (id) => {
+      await evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          if (!menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+          const item = menu.querySelector('[data-column-id="' + ${JSON.stringify(id)} + '"]');
+          if (!item) throw new Error('Missing column: ' + ${JSON.stringify(id)});
+          item.click();
+        })()`,
+      );
+    };
+    const clickServerPin = async () => {
+      await evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          if (!menu.classList.contains('show')) document.querySelector('#columnsBtn').click();
+          const pin = menu.querySelector('[data-pin-column-id="serverDone"]');
+          if (!pin) throw new Error('Server done has no Show anyway control.');
+          pin.click();
+        })()`,
+      );
+    };
+    try {
+      await waitForSampleCaptureAction(cdp);
+      const fresh = await readColumns();
+      expect(fresh).toMatchObject({
+        timing: {
+          clientStart: { checked: true, dimmed: false },
+          serverDone: { checked: true, dimmed: false },
+        },
+        stored: null,
+        version: null,
+      });
+      expect(fresh.headers).toEqual(expect.arrayContaining(['clientStart', 'serverDone']));
+
+      await evaluate(
+        cdp,
+        `(() => {
+          localStorage.setItem('networkPlus.cols', JSON.stringify([
+            { id: 'serverDone', visible: false, width: 137 },
+            { id: 'clientStart', visible: false, width: 119 },
+            { id: 'id', visible: true, width: 63 },
+            { id: 'url', visible: true, width: 433 },
+          ]));
+          localStorage.setItem('networkPlus.cols.v', '4');
+        })()`,
+      );
+      await page.navigate();
+      const migrated = await readColumns();
+      expect(migrated.version).toBe('5');
+      expect(migrated.timing).toEqual({
+        clientStart: { checked: true, dimmed: false },
+        serverDone: { checked: true, dimmed: false },
+      });
+      expect(migrated.urlChecked).toBe(false);
+      expect(migrated.stored.filter((column) => ['serverDone', 'clientStart', 'id', 'url'].includes(column.id)))
+        .toEqual([
+          { id: 'serverDone', visible: true, width: 137 },
+          { id: 'clientStart', visible: true, width: 119 },
+          { id: 'id', visible: true, width: 63 },
+          { id: 'url', visible: false, width: 433 },
+        ]);
+      expect(migrated.headers).toEqual(expect.arrayContaining(['clientStart', 'serverDone']));
+
+      await clickColumn('serverDone');
+      await clickColumn('clientStart');
+      const hidden = await readColumns();
+      expect(hidden.timing).toMatchObject({
+        clientStart: { checked: false },
+        serverDone: { checked: false },
+      });
+      expect(hidden.headers).not.toContain('serverDone');
+      expect(hidden.headers).not.toContain('clientStart');
+      await page.navigate();
+      const hiddenAfterReload = await readColumns();
+      expect(hiddenAfterReload.stored).toEqual(hidden.stored);
+      expect(hiddenAfterReload.timing).toMatchObject({
+        clientStart: { checked: false },
+        serverDone: { checked: false },
+      });
+
+      await clickColumn('serverDone');
+      await clickColumn('clientStart');
+      await page.navigate();
+      const shownAfterReload = await readColumns();
+      expect(shownAfterReload.timing).toMatchObject({
+        clientStart: { checked: true },
+        serverDone: { checked: true },
+      });
+      expect(shownAfterReload.headers).toEqual(expect.arrayContaining(['clientStart', 'serverDone']));
+      expect(shownAfterReload.stored.find((column) => column.id === 'serverDone').width).toBe(137);
+
+      await clickColumn('serverDone');
+      await clickColumn('clientStart');
+      await evaluate(
+        cdp,
+        `(() => {
+          const menu = document.querySelector('#columnsMenu');
+          const reset = Array.from(menu.querySelectorAll('.columns-header-action'))
+            .find((button) => button.textContent === 'Reset');
+          if (!reset) throw new Error('Columns Reset action is missing.');
+          reset.click();
+        })()`,
+      );
+      const reset = await readColumns();
+      expect(reset.timing).toMatchObject({
+        clientStart: { checked: true },
+        serverDone: { checked: true },
+      });
+      expect(reset.stored.filter((column) => ['serverDone', 'clientStart'].includes(column.id))).toEqual([
+        { id: 'serverDone', visible: true, width: 104 },
+        { id: 'clientStart', visible: true, width: 104 },
+      ]);
+      expect(reset.stored.map((column) => column.id)).toEqual(migrated.stored.map((column) => column.id));
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 800,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const narrow = await readColumns();
+      expect(narrow.timing).toEqual({
+        clientStart: { checked: true, dimmed: true },
+        serverDone: { checked: true, dimmed: true },
+      });
+      expect(narrow.headers).not.toContain('serverDone');
+      expect(narrow.pinLabel).toBe('Show anyway');
+      await clickServerPin();
+      const pinned = await readColumns();
+      expect(pinned.headers).toContain('serverDone');
+      expect(pinned.timing.serverDone).toEqual({ checked: true, dimmed: false });
+      expect(pinned.pinLabel).toBe('Always shown — undo');
+      await page.navigate();
+      expect((await readColumns()).pinLabel).toBe('Always shown — undo');
+      await clickServerPin();
+      const unpinned = await readColumns();
+      expect(unpinned.headers).not.toContain('serverDone');
+      expect(unpinned.pinLabel).toBe('Show anyway');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1920,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      const wide = await readColumns();
+      expect(wide.headers).toEqual(expect.arrayContaining(['clientStart', 'serverDone']));
+      expect(wide.timing).toMatchObject({
+        clientStart: { checked: true, dimmed: false },
+        serverDone: { checked: true, dimmed: false },
+      });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
 const ROW_STATES_MEASURE = `(() => {
   const describe = (tr) => {
     const style = getComputedStyle(tr);
@@ -14060,7 +15369,7 @@ browserTest(
           '☐ Operation',
           '☐ Header',
           '☑ Client start',
-          '☐ Server done',
+          '☑ Server done',
           '☑ Duration',
           '☐ Waterfall',
           '☑ Type',
@@ -14151,7 +15460,7 @@ browserTest(
           '☐ オペレーション',
           '☐ ヘッダー',
           '☑ クライアント開始',
-          '☐ サーバー完了',
+          '☑ サーバー完了',
           '☑ 所要時間',
           '☐ ウォーターフォール',
           '☑ 種別',

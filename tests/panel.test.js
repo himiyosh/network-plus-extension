@@ -442,6 +442,27 @@ describe('guided local sample capture', () => {
     expect(JSON.stringify(rules)).toBe(snapshot);
   });
 
+  test('does not release malformed regex drafts when navigating sample evidence', () => {
+    const rules = np.deserializeFilterState({
+      type: { op: 'regex', value: '[' },
+      domain: {
+        mode: 'multiText',
+        conditions: [{ op: 'contains', value: 'api.network-plus.test' }, { op: 'regex', value: '[' }],
+      },
+    });
+    const plan = np.planSampleEvidenceNavigation({
+      sampleCaptureActive: true,
+      rows: createNavigationRows(),
+      destination: 'timing',
+      columns: [{ id: 'type' }, { id: 'domain' }],
+      columnFilterRules: rules,
+    });
+
+    expect(plan.blockingFilterIds).toEqual(['domain']);
+    expect(rules.type.value).toBe('[');
+    expect(rules.domain.conditions).toHaveLength(2);
+  });
+
   test('fails closed for missing, ambiguous, inactive, real, imported, or non-reserved targets', () => {
     const rows = createNavigationRows();
     const failedRow = rows.find((row) => row.status === 503);
@@ -2483,6 +2504,145 @@ describe('capture retention helpers', () => {
   });
 });
 
+describe('HAR body-size fidelity', () => {
+  const exportSizes = (row) => {
+    const full = np.buildHarLogFromRows([row]);
+    const sanitized = np.sanitizeHar(full);
+    return [full, sanitized].map((har) => {
+      expect(har.log.entries).toHaveLength(1);
+      const { request, response } = har.log.entries[0];
+      return {
+        request: request.bodySize,
+        response: response.bodySize,
+        content: response.content.size,
+      };
+    });
+  };
+
+  test.each([
+    ['GET/204', 'GET', null],
+    ['empty POST/204', 'POST', { mimeType: 'text/plain', text: '' }],
+  ])('retains captured zero-byte sizes in full and sanitized HAR for %s', (_label, method, postData) => {
+    const captured = {
+      startedDateTime: '2026-01-01T00:00:00.000Z',
+      request: { method, url: 'https://example.test/empty', headers: [], bodySize: 0, postData },
+      response: {
+        status: 204,
+        bodySize: 0,
+        content: { mimeType: 'text/plain', size: 0 },
+      },
+      getContent: (callback) => callback('', ''),
+    };
+    const row = np.buildRowFromRequest(captured, 1);
+    row.responseContent = '';
+
+    expect(exportSizes(row)).toEqual([
+      { request: 0, response: 0, content: 0 },
+      { request: 0, response: 0, content: 0 },
+    ]);
+  });
+
+  test('round-trips imported declared zeros after releasing the source request', () => {
+    const imported = np.normalizeHarEntry({
+      request: { method: 'GET', url: 'https://example.test/import', bodySize: 0 },
+      response: { status: 204, bodySize: 0, content: { mimeType: 'text/plain', size: 0 } },
+    });
+    expect(np.classifyImportedResponseContent(imported).state).toBe('empty');
+    const row = np.buildRowFromRequest(imported, 2);
+    row.responseContent = '';
+    row._reqObj = null;
+
+    expect(exportSizes(row)).toEqual([
+      { request: 0, response: 0, content: 0 },
+      { request: 0, response: 0, content: 0 },
+    ]);
+  });
+
+  test('keeps a declared zero body size when imported response content is unavailable or contradictory', () => {
+    const imported = np.normalizeHarEntry({
+      request: { method: 'POST', url: 'https://example.test/import', bodySize: 0,
+        postData: { mimeType: 'text/plain', text: 'unexpected' } },
+      response: { status: 200, bodySize: 0, content: { mimeType: 'text/plain', size: 7 } },
+    });
+    const availability = np.classifyImportedResponseContent(imported);
+    expect(availability.state).toBe('unavailable');
+    const row = np.buildRowFromRequest(imported, 3);
+    row.responseContentState = availability.state;
+    row.responseContentReason = availability.reason;
+    row._reqObj = null;
+
+    expect(exportSizes(row)).toEqual([
+      { request: 0, response: 0, content: 7 },
+      { request: 0, response: 0, content: 7 },
+    ]);
+    expect(np.buildHarLogFromRows([row]).log.entries[0].response.content).toEqual(
+      expect.objectContaining({ _networkPlus: expect.objectContaining({ status: 'unavailable' }) }),
+    );
+  });
+
+  test.each([
+    ['missing', {}, {}, 0],
+    ['declared unknown', { bodySize: -1, postData: { mimeType: 'text/plain', text: 'data' } },
+      { bodySize: -1, content: { mimeType: 'text/plain', size: 9 } }, 9],
+  ])('does not invent body sizes for %s source metadata', (_label, requestFields, responseFields, contentSize) => {
+    const imported = np.normalizeHarEntry({
+      request: { method: 'POST', url: 'https://example.test/unknown', ...requestFields },
+      response: { status: 200, ...responseFields },
+    });
+    const row = np.buildRowFromRequest(imported, 4);
+    row._reqObj = null;
+
+    expect(exportSizes(row)).toEqual([
+      { request: -1, response: -1, content: contentSize },
+      { request: -1, response: -1, content: contentSize },
+    ]);
+  });
+
+  test('keeps declared positives and existing inferred positives when body sizes are missing', () => {
+    const sources = [
+      { request: { bodySize: 5, postData: { text: 'x' } }, response: { bodySize: 12, content: { size: 12 } } },
+      { request: { postData: { text: 'data' } }, response: { content: { size: 12 } } },
+    ];
+    for (const source of sources) {
+      const row = np.buildRowFromRequest({
+        request: { method: 'POST', url: 'https://example.test/positive', ...source.request },
+        response: { status: 200, ...source.response },
+      }, 5);
+      expect(exportSizes(row)).toEqual([
+        { request: source.request.bodySize ?? source.request.postData.text.length, response: 12, content: 12 },
+        { request: source.request.bodySize ?? source.request.postData.text.length, response: 12, content: 12 },
+      ]);
+    }
+  });
+
+  test('exports measured empty SAZ requests and responses as zero bytes', () => {
+    const encoder = new TextEncoder();
+    const responseBytes = encoder.encode('HTTP/1.1 204 No Content\r\n\r\n');
+    const entry = np.createSazHarEntry(
+      encoder.encode('POST https://example.test/empty HTTP/1.1\r\n\r\n'),
+      responseBytes,
+      '2026-01-01T00:00:00.000Z',
+    );
+    const row = np.buildRowFromRequest(entry, 6);
+    row._reqObj = null;
+
+    expect(exportSizes(row)).toEqual([
+      { request: 0, response: 0, content: 0 },
+      { request: 0, response: 0, content: 0 },
+    ]);
+
+    const utf8Entry = np.createSazHarEntry(
+      encoder.encode('POST https://example.test/utf8 HTTP/1.1\r\n\r\n\u00e9'),
+      responseBytes,
+      '2026-01-01T00:00:00.000Z',
+    );
+    expect(exportSizes(np.buildRowFromRequest(utf8Entry, 7))).toEqual([
+      { request: 2, response: 0, content: 0 },
+      { request: 2, response: 0, content: 0 },
+    ]);
+  });
+});
+
 describe('active column filter helpers', () => {
   test('identifies Waterfall as a visual-only column', () => {
     expect(np.isVisualOnlyColumn('waterfall')).toBe(true);
@@ -2505,6 +2665,35 @@ describe('active column filter helpers', () => {
   test('counts value-less multiText conditions as active', () => {
     expect(np.isRuleActive({ mode: 'multiText', conditions: [{ op: 'empty', value: '' }] })).toBe(true);
     expect(np.isRuleActive({ mode: 'multiText', conditions: [{ op: 'notempty', value: '' }] })).toBe(true);
+  });
+
+  test('keeps malformed regex drafts out of the applied filter count', () => {
+    const malformed = { op: 'regex', value: '[' };
+    expect(np.getFilterRegexError(malformed)).toMatch(/^Invalid regular expression:/);
+    expect(np.getFilterRegexError({ op: 'regex', value: 'a+' })).toBe('');
+    expect(np.getFilterRegexError({ op: 'regex', value: '   ' })).toBe('');
+    expect(np.getFilterRegexError({ op: 'contains', value: '[' })).toBe('');
+    expect(np.getApplicableFilterRule(malformed)).toBeNull();
+    expect(np.isRuleActive(malformed)).toBe(false);
+    expect(np.countActiveColumnFilters({ type: malformed })).toBe(0);
+    expect(np.isRuleActive({ op: 'regex', value: 'a+' })).toBe(true);
+  });
+
+  test('applies valid multiText conditions without mutating an invalid regex draft', () => {
+    const conditions = [
+      { op: 'contains', value: 'api' },
+      { op: 'regex', value: '[' },
+      { op: 'regex', value: '\\.test$' },
+    ];
+    const rule = { mode: 'multiText', conditions };
+    const applicable = np.getApplicableFilterRule(rule);
+    expect(applicable.conditions).toEqual([conditions[0], conditions[2]]);
+    expect(rule.conditions).toEqual(conditions);
+    expect(np.isRuleActive(rule)).toBe(true);
+    expect(np.evaluateFilterRule('api.test', applicable, false)).toBe(true);
+    expect(np.evaluateFilterRule('web.test', applicable, false)).toBe(false);
+    expect(np.isRuleActive({ mode: 'multiText', conditions: [conditions[1]] })).toBe(false);
+    expect(np.countActiveColumnFilters({ domain: { mode: 'multiText', conditions: [conditions[1]] } })).toBe(0);
   });
 
   test('identifies value-less filter operators', () => {
@@ -2542,6 +2731,18 @@ describe('release trust helpers', () => {
     expect(np.hasActiveSearchKeywords([])).toBe(false);
     expect(np.hasActiveSearchKeywords([{ query: '   ' }, null])).toBe(false);
     expect(np.hasActiveSearchKeywords([{ query: 'needle' }])).toBe(true);
+  });
+
+  test('leaves malformed regex keywords as drafts while other valid keywords remain active', () => {
+    const regex = { regex: true, caseSensitive: false, wholeWord: false };
+    const invalid = { query: '[' };
+    const valid = { query: 'api[.]example' };
+    expect(np.isApplicableSearchKeyword(invalid, regex)).toBe(false);
+    expect(np.hasActiveSearchKeywords([invalid], regex)).toBe(false);
+    expect(np.hasActiveSearchKeywords([invalid, valid], regex)).toBe(true);
+    expect(np.isApplicableSearchKeyword(valid, regex)).toBe(true);
+    expect(np.isApplicableSearchKeyword(invalid, { regex: false })).toBe(true);
+    expect(np.isApplicableSearchKeyword(null, regex)).toBe(false);
   });
 
   test('preserves the navigated row when new matches arrive before it', () => {
@@ -2855,6 +3056,64 @@ describe('evaluateFilterRule', () => {
     expect(np.evaluateFilterRule('12:00', rule, false)).toBe(false);
   });
 
+  test('excludes missing and malformed times whenever a time range has a bound', () => {
+    const bounds = [
+      { start: '22:00', end: '02:00' },
+      { start: '09:00', end: '17:30' },
+      { start: '22:00', end: '' },
+      { start: '', end: '02:00' },
+    ];
+    for (const bound of bounds) {
+      const rule = { mode: 'timeRange', ...bound };
+      for (const value of ['', null, undefined, ' ', 'invalid', '25:00', '12:60', '01:30:75']) {
+        expect(np.evaluateFilterRule(value, rule, false)).toBe(false);
+      }
+    }
+    for (const value of ['', null, 'invalid']) {
+      expect(np.evaluateFilterRule(value, { mode: 'timeRange', start: '', end: '' }, false)).toBe(true);
+    }
+  });
+
+  test('keeps valid single-sided, normal, and overnight time bounds inclusive', () => {
+    const normal = { mode: 'timeRange', start: '09:00', end: '17:30' };
+    expect(np.evaluateFilterRule('09:00', normal, false)).toBe(true);
+    expect(np.evaluateFilterRule('17:30', normal, false)).toBe(true);
+    expect(np.evaluateFilterRule('08:59', normal, false)).toBe(false);
+    expect(np.evaluateFilterRule('17:31', normal, false)).toBe(false);
+
+    const from = { mode: 'timeRange', start: '22:00', end: '' };
+    expect(np.evaluateFilterRule('22:00', from, false)).toBe(true);
+    expect(np.evaluateFilterRule('21:59', from, false)).toBe(false);
+    const to = { mode: 'timeRange', start: '', end: '02:00' };
+    expect(np.evaluateFilterRule('02:00', to, false)).toBe(true);
+    expect(np.evaluateFilterRule('02:01', to, false)).toBe(false);
+
+    const overnight = { mode: 'timeRange', start: '22:00', end: '02:00' };
+    expect(np.evaluateFilterRule('23:45:59.123', overnight, false)).toBe(true);
+    expect(np.evaluateFilterRule('01:30:00.000', overnight, false)).toBe(true);
+  });
+
+  test('does not match blank Server done or missing Client start from captured requests', () => {
+    const overnight = { mode: 'timeRange', start: '22:00', end: '02:00' };
+    const request = {
+      startedDateTime: new Date(2026, 0, 15, 23, 45).toISOString(),
+      time: 0,
+      request: { method: 'GET', url: 'https://example.test/zero-duration' },
+      response: { status: 304 },
+    };
+    const row = np.buildRowFromRequest(request, 1);
+    expect(np.getRowFilterValue(row, 'clientStart')).toBe('23:45');
+    expect(np.evaluateFilterRule(np.getRowFilterValue(row, 'clientStart'), overnight, false)).toBe(true);
+    expect(np.getRowFilterValue(row, 'serverDone')).toBe('');
+    expect(np.evaluateFilterRule(np.getRowFilterValue(row, 'serverDone'), overnight, false)).toBe(false);
+
+    for (const startedDateTime of ['', 'not-a-date']) {
+      const missingStart = np.buildRowFromRequest({ ...request, startedDateTime, time: 10 }, 2);
+      expect(np.getRowFilterValue(missingStart, 'clientStart')).toBe(startedDateTime);
+      expect(np.evaluateFilterRule(np.getRowFilterValue(missingStart, 'clientStart'), overnight, false)).toBe(false);
+    }
+  });
+
   test('supports multiText mode with multiple AND conditions', () => {
     const rule = {
       mode: 'multiText',
@@ -3105,6 +3364,8 @@ describe('scale trust helpers', () => {
   test('rejects active search keywords but ignores blank rows', () => {
     expect(eligible(null, 0, [{ query: 'needle' }])).toBe(false);
     expect(eligible(null, 0, [{ query: '   ' }])).toBe(true);
+    expect(np.isIncrementalAppendEligible(null, 0, [{ query: '[' }], 0, { regex: true })).toBe(true);
+    expect(np.isIncrementalAppendEligible(null, 0, [{ query: '[' }, { query: 'api' }], 0, { regex: true })).toBe(false);
   });
 
   test('re-evaluates changed state instead of trusting an earlier decision', () => {
@@ -3310,7 +3571,7 @@ describe('keyboard trust helpers', () => {
   // matrix of wrap widths, not a spot check on one arithmetic constant: the
   // stored widths this reads are free to change, the policy is not.
   describe('auto-hide plans a set that fits the wrap', () => {
-    const WRAP_WIDTHS = [320, 375, 456, 500, 622, 738, 800, 900, 992, 1156, 1280, 1920];
+    const WRAP_WIDTHS = [320, 375, 456, 500, 622, 738, 800, 900, 992, 1096, 1156, 1280, 1920];
     const P1_IDS = ['status', 'method', 'domain', 'path'];
     const defaults = () => np.DEFAULT_COLUMNS.map((column) => ({ ...column }));
     const surviving = (columns, hiddenIds) =>
@@ -3340,7 +3601,7 @@ describe('keyboard trust helpers', () => {
         ['duration', 80, true],
         ['size', 72, true],
         ['clientStart', 104, true],
-        ['serverDone', 104, false],
+        ['serverDone', 104, true],
         ['initiator', 220, false],
         ['url', 420, false],
         ['waterfall', 200, false],
@@ -3372,11 +3633,7 @@ describe('keyboard trust helpers', () => {
     // reads out the whole queue at once, in the order the spec fixes it:
     // P3 Match, Client start, Server done, Type, then P2 ID, Duration, Size.
     test('drops in the specified order inside each tier, not merely tier by tier', () => {
-      // Server done is off by default and is the only P3 entry that would go
-      // unwitnessed, taking a swap of the two middle entries with it.
-      const columns = np.DEFAULT_COLUMNS.map((column) =>
-        column.id === 'serverDone' ? { ...column, visible: true } : { ...column },
-      );
+      const columns = defaults();
       const kept = surviving(columns, np.planAutoHiddenColumns(columns, 150, {}));
       expect(kept.map((column) => column.id)).toEqual(['method', 'status', 'domain', 'path']);
       expect(np.planAutoHiddenColumns(columns, 150, {})).toEqual([
@@ -3415,22 +3672,30 @@ describe('keyboard trust helpers', () => {
         'duration',
         'size',
         'clientStart',
+        'serverDone',
         'initiator',
         'url',
       ]);
       // Every listed P3 column goes while both reader-enabled ones stay: what
       // they asked for outlasts what the defaults chose for them.
-      expect(np.planAutoHiddenColumns(columns, 1300, {})).toEqual(['match', 'clientStart', 'type']);
+      expect(np.planAutoHiddenColumns(columns, 1300, {})).toEqual([
+        'match',
+        'clientStart',
+        'serverDone',
+        'type',
+      ]);
       // Then the rightmost of the two, then the other.
       expect(np.planAutoHiddenColumns(columns, 1100, {})).toEqual([
         'match',
         'clientStart',
+        'serverDone',
         'type',
         'url',
       ]);
       expect(np.planAutoHiddenColumns(columns, 700, {})).toEqual([
         'match',
         'clientStart',
+        'serverDone',
         'type',
         'url',
         'initiator',
@@ -3439,6 +3704,7 @@ describe('keyboard trust helpers', () => {
       expect(np.planAutoHiddenColumns(columns, 150, {})).toEqual([
         'match',
         'clientStart',
+        'serverDone',
         'type',
         'url',
         'initiator',
@@ -3554,6 +3820,9 @@ describe('keyboard trust helpers', () => {
         'match',
         'duration',
       ]);
+      expect(np.planForcedVisibleColumnIds(sorted, [{ query: '[' }], null, { regex: true })).toEqual(['duration']);
+      expect(np.planForcedVisibleColumnIds(sorted, [{ query: '[' }, { query: 'api' }], null, { regex: true }))
+        .toEqual(['match', 'duration']);
       // Sorting BY Match asks for one exemption, not two.
       expect(
         np.planForcedVisibleColumnIds({ colId: 'match', direction: 'asc' }, [{ query: 'demo' }]),
@@ -4384,15 +4653,15 @@ describe('outbound sensitive-data policy', () => {
 
   test('reads HAR creator versions from the extension runtime with a Node-test fallback', () => {
     expect(np.getExtensionVersion({ getManifest: () => ({ version: '9.8.7' }) })).toBe('9.8.7');
-    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.14.0');
-    expect(np.getExtensionVersion(null)).toBe('1.14.0');
+    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.15.0');
+    expect(np.getExtensionVersion(null)).toBe('1.15.0');
   });
 
   test('uses the current extension version for full and sanitized HAR creators', () => {
     const row = makeSensitiveRow();
     const fullHar = np.buildHarLogFromRows([row], new Map([[row, np.buildHarResponseContent(row)]]));
-    expect(fullHar.log.creator.version).toBe('1.14.0');
-    expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.14.0');
+    expect(fullHar.log.creator.version).toBe('1.15.0');
+    expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.15.0');
   });
 });
 
@@ -5541,6 +5810,25 @@ describe('method class tokens', () => {
 });
 
 describe('column layout reset', () => {
+  test('restores both timing columns after manual hiding without changing their order', () => {
+    const columns = np.DEFAULT_COLUMNS.map((column) => ({ ...column }));
+    const clientStart = columns.find((column) => column.id === 'clientStart');
+    const serverDone = columns.find((column) => column.id === 'serverDone');
+    expect([clientStart.visible, serverDone.visible]).toEqual([true, true]);
+    clientStart.visible = false;
+    serverDone.visible = false;
+    clientStart.width = 120;
+    serverDone.width = 140;
+    const order = columns.map((column) => column.id);
+
+    np.applyDefaultColumnLayout(columns, np.DEFAULT_COLUMNS);
+
+    expect(columns.map((column) => column.id)).toEqual(order);
+    expect([clientStart.visible, clientStart.width, serverDone.visible, serverDone.width]).toEqual([
+      true, 104, true, 104,
+    ]);
+  });
+
   test('restores the default visibility and widths while keeping order and labels', () => {
     const columns = [
       { id: 'path', label: 'Path', width: 300, visible: false },
@@ -5967,6 +6255,26 @@ describe('WebSocket frame HAR export', () => {
     const sseRow = { method: 'SSE', startedDateTime: new Date(1000).toISOString() };
     np.ingestWsEvents([{ socketId: 2, kind: 'ws-received', at: 2000, preview: 'data: x' }], wsContext(sseRow));
     expect(sseRow._wsFrames).toBeUndefined();
+  });
+
+  test('live frame previews keep their positive HAR sizes on the host and mirror', () => {
+    const row = np.buildRowFromRequest({
+      request: { method: 'WS', url: 'wss://example.test/socket', postData: { mimeType: 'text/plain', text: '' } },
+      response: { bodySize: 0, content: { size: 0, mimeType: 'websocket', text: '' } },
+    }, 31);
+    row._wsSocketId = 1;
+    np.ingestWsEvents([
+      { kind: 'ws-sent', socketId: 1, at: 1000, preview: 'ping' },
+      { kind: 'ws-received', socketId: 1, at: 2000, preview: 'pong' },
+    ], { getRow: () => row });
+
+    const wire = JSON.parse(JSON.stringify(np.serializeRowForMirror(row)));
+    const viewerRow = np.buildRowFromRequest(np.buildMirrorEntryFromWire(wire), wire.id);
+    for (const exportedRow of [row, viewerRow]) {
+      const entry = np.buildHarLogFromRows([exportedRow]).log.entries[0];
+      expect(entry.request.bodySize).toBe(row.requestPostData.text.length);
+      expect(entry.response.bodySize).toBe(row.size);
+    }
   });
 
   test('export writes Chrome-shaped _webSocketMessages with honest fidelity notes', () => {
@@ -6834,6 +7142,14 @@ describe('planVisibleSearchRows', () => {
     expect(np.planVisibleSearchRows(sorted, new Map(), true, true)).toEqual([]);
   });
 
+  test('keeps captured rows visible when only a malformed regex draft exists', () => {
+    const active = np.hasActiveSearchKeywords([{ query: '[' }], { regex: true });
+    expect(np.planVisibleSearchRows(sorted, new Map(), true, active)).toEqual(sorted);
+    expect(np.planRequestCountSummary({
+      totalCount: 3, shownCount: 3, matchedCount: 0, matchesOnly: true, hasActiveSearch: active,
+    }).text).toBe('3 requests');
+  });
+
   test('is defensive about malformed inputs', () => {
     expect(np.planVisibleSearchRows(null, matched, true, true)).toEqual([]);
     expect(np.planVisibleSearchRows(sorted, null, true, true)).toEqual(sorted);
@@ -7037,6 +7353,26 @@ describe('devtools-session mirror', () => {
     expect(viewerRow.initiator).toEqual(hostRow.initiator);
     expect(viewerRow.domain).toBe(hostRow.domain);
     expect(viewerRow.responseContentState).toBe('not-loaded');
+  });
+
+  test.each([
+    ['empty', 0, 0, 0],
+    ['unknown', -1, -1, 0],
+    ['positive', 5, 12, 12],
+    ['declared zero with content', 0, 0, 7],
+  ])('mirrors %s body sizes without inferring them from display size', (_label, requestSize, responseSize, contentSize) => {
+    const hostRow = np.buildRowFromRequest({
+      request: { method: 'POST', url: 'https://example.test/mirror', bodySize: requestSize },
+      response: { status: 200, bodySize: responseSize, content: { mimeType: 'text/plain', size: contentSize } },
+    }, 8);
+    const wire = JSON.parse(JSON.stringify(np.serializeRowForMirror(hostRow)));
+    const viewerRow = np.buildRowFromRequest(np.buildMirrorEntryFromWire(wire), wire.id);
+    viewerRow._reqObj = null;
+    const entry = np.buildHarLogFromRows([viewerRow]).log.entries[0];
+
+    expect([entry.request.bodySize, entry.response.bodySize, entry.response.content.size]).toEqual([
+      requestSize, responseSize, contentSize,
+    ]);
   });
 
   const createLinkedSessions = ({

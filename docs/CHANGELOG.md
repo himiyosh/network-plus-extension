@@ -4,7 +4,21 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- No changes have been recorded since v1.15.0.
+
+## v1.15.0 - 2026-10-06
+
+- 🔧 **Inspector tab signals** — frame Query and Cookies counts with distinct nonzero and empty colors; mark an uncounted empty Body with a dashed badge.
+- 🐛 **Body/Raw regex errors** — show localized inline feedback linked to each pane input instead of reporting No matches for malformed searches.
+- 🐛 **Deep-search regex** — keep malformed keywords editable but unapplied, preserving valid matches with accessible inline errors.
+- 🔧 **Pane-local search (#35)** — Headers, Query and Cookies lost pane-local search; only Request/Response Body and Raw retain it, even when Body is empty. Query copy remains.
+- 🔧 **Server done by default** — show it beside Client start; v4 visibility resets once, retaining order/width, then manual hide choices persist.
+- 🐛 **Column regex filters** — show accessible inline errors and leave malformed patterns unapplied without hiding captured requests.
+- 🐛 **HAR body sizes** — preserve known zero-byte request and response sizes across capture, imports, mirrors and full or sanitized exports.
+- 📝 **README security** — document static-SVG-only `innerHTML` use and the audited background worker allowed by the manifest validator.
 - 📝 **Store dossiers** — record the published v1.14.0 release, re-downloaded and byte-compared against builds from two timezones.
+- 🐛 **Auto-scroll after Clear** — when already on, bottom-following survives Clear, Undo and mirror resync until a deliberate upward scroll.
+- 🐛 **Overnight Time filters** — exclude missing or invalid request times from active ranges, including zero-duration Server done rows.
 
 ## v1.14.0 - 2026-09-14
 

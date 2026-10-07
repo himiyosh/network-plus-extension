@@ -134,7 +134,8 @@ const _NetworkPlus = (function () {
   const INSPECTOR_SPLIT_KEY = 'networkPlus.inspectorSplit.v1'; // request/response split percent + collapsed half
   const INSPECTOR_HALVES = ['request', 'response'];
   const COL_PREF_VERSION_KEY = 'networkPlus.cols.v';
-  const COL_PREF_VERSION = 4; // Bump when default visibility changes
+  const MATCH_GUTTER_PREF_VERSION = 4;
+  const COL_PREF_VERSION = 5; // Bump when default visibility changes
   const VIEW_PRESET_KEY = 'networkPlus.viewPreset.v1';
   const UNDOCK_HINT_KEY = 'networkPlus.undockHint.v1'; // '1' = mirror tab's undock explainer dismissed for good
   const LEGACY_FILTER_PRESET_KEY = 'networkPlus.filterPresets.v1'; // retired multi-preset store
@@ -178,7 +179,7 @@ const _NetworkPlus = (function () {
    }),
   });
   const TIMING_EVIDENCE_LIMITATION = 'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause on the server.';
-  const TEST_EXTENSION_VERSION_FALLBACK = '1.14.0';
+  const TEST_EXTENSION_VERSION_FALLBACK = '1.15.0';
   const SAFE_SUPPORT_UNKNOWN = 'unknown';
   const SAFE_SUPPORT_OTHER_OS = 'Other/unknown';
   const SAFE_SUPPORT_REVIEW_NOTICE = 'This summary intentionally excludes captured traffic. Review it before posting to a public issue.';
@@ -328,7 +329,7 @@ const _NetworkPlus = (function () {
     { value: 'notempty', label: 'isNotEmpty' },
   ];
 
-  // Visible defaults sum to 992px: Path (the identifying column) is on the
+  // Visible defaults sum to 1096px: Path (the identifying column) is on the
   // first screen at 1280px with the details pane open, and the whole set fits
   // without horizontal scroll once the pane is closed. Match is a 36px state
   // gutter first (a ✓ chip plus one keyword chip fit without clipping).
@@ -345,7 +346,7 @@ const _NetworkPlus = (function () {
     { id: 'duration', label: 'Duration', width: 80, visible: true },
     { id: 'size', label: 'Size', width: 72, visible: true },
     { id: 'clientStart', label: 'Client start', width: 104, visible: true },
-    { id: 'serverDone', label: 'Server done', width: 104, visible: false },
+    { id: 'serverDone', label: 'Server done', width: 104, visible: true },
     { id: 'initiator', label: 'Initiator', width: 220, visible: false },
     { id: 'url', label: 'URL', width: 420, visible: false },
     { id: 'waterfall', label: 'Waterfall', width: 200, visible: false },
@@ -1048,9 +1049,9 @@ const _NetworkPlus = (function () {
   // resizingColId is the column under an active keyboard resize. Dropping it
   // ends the gesture and strands the focus that was stepping its width, which
   // is the opposite of what the re-plan after a keyed step is for.
-  function planForcedVisibleColumnIds(sort, searchKeywords, resizingColId) {
+  function planForcedVisibleColumnIds(sort, searchKeywords, resizingColId, searchOptions) {
     const forcedIds = [];
-    if (hasActiveSearchKeywords(searchKeywords)) forcedIds.push('match');
+    if (hasActiveSearchKeywords(searchKeywords, searchOptions)) forcedIds.push('match');
     const sortColId = sort && sort.direction ? sort.colId : null;
     if (sortColId && !forcedIds.includes(sortColId)) forcedIds.push(sortColId);
     if (resizingColId && !forcedIds.includes(resizingColId)) forcedIds.push(resizingColId);
@@ -1828,7 +1829,7 @@ const _NetworkPlus = (function () {
     for (const column of columns) {
       const colId = column && column.id;
       if (isVisualOnlyColumn(colId)) continue;
-      const rule = colId ? filterRules[colId] : null;
+      const rule = colId ? getApplicableFilterRule(filterRules[colId]) : null;
       if (!rule) continue;
       const value = getRowFilterValue(targetRow, colId);
       const isNumeric = NUMERIC_COLUMNS.includes(colId);
@@ -3171,7 +3172,25 @@ const _NetworkPlus = (function () {
     return op === 'empty' || op === 'notempty';
   }
 
+  function getFilterRegexError(rule) {
+    if (!rule || rule.op !== 'regex' || rule.value == null || !String(rule.value).trim()) return '';
+    const error = compileSearchQuery(String(rule.value), { regex: true }).error;
+    return error && !error.startsWith('Invalid regular expression:')
+      ? 'Invalid regular expression: ' + error
+      : error || '';
+  }
+
+  function getApplicableFilterRule(rule) {
+    if (!rule) return null;
+    if (rule.mode === 'multiText' && Array.isArray(rule.conditions)) {
+      const conditions = rule.conditions.filter((condition) => !getFilterRegexError(condition));
+      return conditions.length === rule.conditions.length ? rule : { ...rule, conditions };
+    }
+    return getFilterRegexError(rule) ? null : rule;
+  }
+
   function isRuleActive(rule) {
+    rule = getApplicableFilterRule(rule);
     if (!rule) return false;
     if (rule.mode === 'methodSet') {
       return rule.include ? HTTP_METHODS.some((method) => rule.include[method] !== true) : false;
@@ -3211,11 +3230,13 @@ const _NetworkPlus = (function () {
     return colId === 'waterfall' || colId === 'match';
   }
 
-  function hasActiveSearchKeywords(searchKeywords) {
-    return (
-      Array.isArray(searchKeywords) &&
-      searchKeywords.some((keyword) => keyword && String(keyword.query || '').trim() !== '')
-    );
+  function isApplicableSearchKeyword(keyword, options) {
+    const query = keyword ? String(keyword.query || '') : '';
+    return !!query.trim() && !(options && options.regex && compileSearchQuery(query, options).error);
+  }
+
+  function hasActiveSearchKeywords(searchKeywords, options) {
+    return Array.isArray(searchKeywords) && searchKeywords.some((keyword) => isApplicableSearchKeyword(keyword, options));
   }
 
   function preserveMatchingRowIndex(previousMatches, previousIndex, nextMatches) {
@@ -3429,10 +3450,10 @@ const _NetworkPlus = (function () {
     return !!resolvedRow && selectedRow === resolvedRow;
   }
 
-  function isIncrementalAppendEligible(sort, activeFilterCount, searchKeywords, renderedActiveFilterCount) {
+  function isIncrementalAppendEligible(sort, activeFilterCount, searchKeywords, renderedActiveFilterCount, searchOptions) {
     const hasNaturalOrder =
       !sort || !sort.colId || !sort.direction || (sort.colId === 'id' && sort.direction === 'asc');
-    const hasActiveSearch = hasActiveSearchKeywords(searchKeywords);
+    const hasActiveSearch = hasActiveSearchKeywords(searchKeywords, searchOptions);
     const synchronizedFilterCount =
       Number.isFinite(renderedActiveFilterCount) ? renderedActiveFilterCount : activeFilterCount;
     return (
@@ -3762,18 +3783,21 @@ const _NetworkPlus = (function () {
       headers: normalizeHarHeaders(response.headers),
       content: normalizedContent,
     };
+    const normalizedRequest = {
+      method: normalizeImportString(request.method),
+      url: normalizeImportString(request.url),
+      httpVersion: normalizeImportString(request.httpVersion),
+      headers: normalizeHarHeaders(request.headers),
+      postData,
+    };
+    const requestBodySize = normalizeImportNumber(request.bodySize, null);
+    if (requestBodySize !== null && requestBodySize >= -1) normalizedRequest.bodySize = requestBodySize;
     const bodySize = normalizeImportNumber(response.bodySize, null);
-    if (bodySize !== null && bodySize >= 0) normalizedResponse.bodySize = bodySize;
+    if (bodySize !== null && bodySize >= -1) normalizedResponse.bodySize = bodySize;
     return {
       startedDateTime: normalizeImportString(entry.startedDateTime),
       time: Math.max(0, normalizeImportNumber(entry.time, 0)),
-      request: {
-        method: normalizeImportString(request.method),
-        url: normalizeImportString(request.url),
-        httpVersion: normalizeImportString(request.httpVersion),
-        headers: normalizeHarHeaders(request.headers),
-        postData,
-      },
+      request: normalizedRequest,
       response: normalizedResponse,
       timings,
       initiator: null,
@@ -4086,6 +4110,7 @@ const _NetworkPlus = (function () {
     const statusText = responseParts.join(' ');
     const mimeType = getNormalizedHeaderValue(server.headers, 'content-type').split(';')[0];
     const bodySize = getUtf8ByteLength(server.body);
+    const requestBodyBoundary = findHttpHeaderBodySplit(clientBytes);
     return {
       startedDateTime,
       time: 0,
@@ -4095,6 +4120,7 @@ const _NetworkPlus = (function () {
         httpVersion,
         headers: client.headers,
         postData: client.body ? { mimeType: getNormalizedHeaderValue(client.headers, 'content-type'), text: client.body } : null,
+        bodySize: requestBodyBoundary >= 0 ? clientBytes.length - requestBodyBoundary - 4 : -1,
       },
       response: {
         status,
@@ -8179,10 +8205,11 @@ const _NetworkPlus = (function () {
           const def = DEFAULT_COLUMNS.find((d) => d.id === sc.id);
           if (def) {
             // If schema version changed, reset visibility to current defaults (keep width/order).
-            // Match alone also takes its default width: it became a chip
-            // gutter in v4, and a v3 64px Match would keep a visible label.
+            // Match takes its default width only for pre-v4 layouts: a v3
+            // 64px Match would keep a visible label, but later visibility
+            // migrations must preserve the person's chosen width.
             const vis = needsVisReset ? def.visible : sc.visible;
-            const width = needsVisReset && def.id === 'match' ? def.width : sc.width;
+            const width = savedVersion < MATCH_GUTTER_PREF_VERSION && def.id === 'match' ? def.width : sc.width;
             ordered.push({ ...def, visible: vis, width });
             used.add(sc.id);
           }
@@ -8524,7 +8551,9 @@ const _NetworkPlus = (function () {
       const start = rule.start || '';
       const end = rule.end || '';
       if (!start && !end) return true;
-      const v = value; // HH:MM format
+      // Filter times use HH:MM, but a display-time fallback uses HH:MM:SS.mmm.
+      if (!/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?$/.test(value)) return false;
+      const v = value;
       if (start <= end) {
         // Normal range: 09:00 - 17:30
         return (!start || v >= start) && (!end || v <= end);
@@ -8591,16 +8620,18 @@ const _NetworkPlus = (function () {
   }
 
   function filterRows() {
+    const filters = [];
+    for (const col of state.columns) {
+      const colId = col.id;
+      if (isVisualOnlyColumn(colId)) continue;
+      const rule = getApplicableFilterRule(state.columnFilterRules[colId]);
+      if (rule) filters.push({ colId, rule, isNumeric: NUMERIC_COLUMNS.indexOf(colId) > -1 });
+    }
     state.filteredRows = state.rows.filter((r) => {
       // Per-column advanced filters
-      for (const col of state.columns) {
-        const colId = col.id;
-        if (isVisualOnlyColumn(colId)) continue;
-        const rule = state.columnFilterRules[colId];
-        if (!rule) continue;
-        const rowValue = getRowFilterValue(r, colId);
-        const isNumeric = NUMERIC_COLUMNS.indexOf(colId) > -1;
-        if (!evaluateFilterRule(rowValue, rule, isNumeric)) return false;
+      for (const filter of filters) {
+        const rowValue = getRowFilterValue(r, filter.colId);
+        if (!evaluateFilterRule(rowValue, filter.rule, filter.isNumeric)) return false;
       }
       return true;
     });
@@ -8800,6 +8831,10 @@ const _NetworkPlus = (function () {
       embeddedContent && typeof embeddedContent.text === 'string' ? embeddedContent.text : null;
     const embeddedResponseEncoding =
       embeddedResponseContent !== null && embeddedContent.encoding === 'base64' ? 'base64' : '';
+    const requestBodySize = req && req.request ? req.request.bodySize : undefined;
+    const responseBodySize = req && req.response ? req.response.bodySize : undefined;
+    const requestPostText = req && req.request && req.request.postData && req.request.postData.text;
+    const contentSize = embeddedContent && embeddedContent.size;
     const r = {
       _reqObj: req,
       method: (req && req.request && req.request.method) || '',
@@ -8810,6 +8845,18 @@ const _NetworkPlus = (function () {
       protocol: req && req.response && req.response.httpVersion ? String(req.response.httpVersion).toUpperCase() : '',
       size:
         Math.max(0, (req && req.response && (req.response.bodySize > 0 ? req.response.bodySize : (req.response.content && req.response.content.size > 0 ? req.response.content.size : 0))) || 0),
+      requestBodySize:
+        Number.isFinite(requestBodySize) && requestBodySize >= 0
+          ? requestBodySize
+          : requestBodySize == null && typeof requestPostText === 'string' && requestPostText.length > 0
+            ? requestPostText.length
+            : -1,
+      responseBodySize:
+        Number.isFinite(responseBodySize) && responseBodySize >= 0
+          ? responseBodySize
+          : responseBodySize == null && Number.isFinite(contentSize) && contentSize > 0
+            ? contentSize
+            : -1,
       clientStart: fmtLocalTime(isoStr),
       serverDone: fmtLocalTime(serverDoneIso),
       clientStartFilter: fmtFilterTime(isoStr),
@@ -8894,13 +8941,14 @@ const _NetworkPlus = (function () {
         url: row.url,
         headers: Array.isArray(row.requestHeaders) ? row.requestHeaders : [],
         postData: row.requestPostData || null,
+        bodySize: row.requestBodySize,
       },
       response: {
         status: row.status,
         statusText: row.statusText,
         httpVersion: row.protocol,
         headers: Array.isArray(row.responseHeaders) ? row.responseHeaders : [],
-        bodySize: row.size,
+        bodySize: Number.isFinite(row.responseBodySize) ? row.responseBodySize : row.size,
         content: { mimeType: row.type, size: row.size },
       },
       timings: row.timings || {},
@@ -8918,6 +8966,7 @@ const _NetworkPlus = (function () {
         url: request.url,
         headers: request.headers,
         postData: request.postData || null,
+        bodySize: request.bodySize,
       },
       response: wire.response && typeof wire.response === 'object' ? wire.response : {},
       timings: wire.timings && typeof wire.timings === 'object' ? wire.timings : {},
@@ -9210,6 +9259,7 @@ const _NetworkPlus = (function () {
           formatWsFrameLine(event),
           WS_DIRECTION_TEXT_LIMIT_CHARS,
         );
+        if (isLiveStreamRow(row)) row.requestBodySize = row.requestPostData.text.length;
         row._wsSentCount = (row._wsSentCount || 0) + 1;
         if (row.method !== 'SSE') {
           const preview = event.preview || '';
@@ -9237,6 +9287,7 @@ const _NetworkPlus = (function () {
         if (event.kind === 'ws-received') {
           row._wsReceivedCount = (row._wsReceivedCount || 0) + 1;
           row.size = (row.size || 0) + (event.preview ? event.preview.length : 0);
+          if (isLiveStreamRow(row)) row.responseBodySize = row.size;
           if (row.method !== 'SSE') {
             const preview = event.preview || '';
             const binary = WS_BINARY_PREVIEW_PATTERN.test(preview);
@@ -11775,6 +11826,30 @@ const _NetworkPlus = (function () {
     return NUMERIC_COLUMNS.indexOf(colId) > -1 ? FILTER_OPERATORS_NUMERIC : FILTER_OPERATORS_STRING;
   }
 
+  let nextFilterRegexErrorId = 0;
+  function createFilterRegexFeedback(opSelect, input, container) {
+    const message = document.createElement('span');
+    message.className = 'filter-regex-error';
+    message.id = 'filter-regex-error-' + ++nextFilterRegexErrorId;
+    message.setAttribute('role', 'status');
+    message.setAttribute('aria-atomic', 'true');
+    container.appendChild(message);
+
+    const update = () => {
+      const error = getFilterRegexError({ op: opSelect.value, value: input.value });
+      if (error) {
+        input.setAttribute('aria-invalid', 'true');
+        input.setAttribute('aria-describedby', message.id);
+      } else {
+        input.removeAttribute('aria-invalid');
+        input.removeAttribute('aria-describedby');
+      }
+      message.textContent = error;
+    };
+    update();
+    return update;
+  }
+
   function createColumnFilterControl(colId, onChange) {
     const wrap = document.createElement('div');
     wrap.className = 'filter-rule';
@@ -12064,6 +12139,10 @@ const _NetworkPlus = (function () {
             state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
             onChange();
             renderConditions();
+            const nextInput = wrap.querySelectorAll('.filter-condition-row .filter-value')[
+              Math.min(idx, conditions.length - 1)
+            ];
+            if (nextInput) nextInput.focus();
           });
 
           opSelect.addEventListener('change', () => {
@@ -12071,17 +12150,20 @@ const _NetworkPlus = (function () {
             updateInputState();
             conditions[idx].value = input.value;
             state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
+            updateRegexFeedback();
             onChange();
           });
           input.addEventListener('input', () => {
             conditions[idx].value = input.value;
             state.columnFilterRules[colId] = { mode: 'multiText', conditions: conditions.slice() };
+            updateRegexFeedback();
             onChange();
           });
 
           row.appendChild(opSelect);
           row.appendChild(input);
           if (conditions.length > 1) row.appendChild(removeBtn);
+          const updateRegexFeedback = createFilterRegexFeedback(opSelect, input, row);
           wrap.appendChild(row);
         });
 
@@ -12133,15 +12215,18 @@ const _NetworkPlus = (function () {
       state.columnFilterRules[colId].op = opSelect.value;
       updateInputState();
       state.columnFilterRules[colId].value = input.value;
+      updateRegexFeedback();
       onChange();
     });
     input.addEventListener('input', () => {
       state.columnFilterRules[colId].value = input.value;
+      updateRegexFeedback();
       onChange();
     });
 
     wrap.appendChild(opSelect);
     wrap.appendChild(input);
+    const updateRegexFeedback = createFilterRegexFeedback(opSelect, input, wrap);
     return wrap;
   }
 
@@ -12844,6 +12929,7 @@ const _NetworkPlus = (function () {
         state.sort,
         state.search.keywords,
         findKeyboardResizeColumnId(typeof document === 'undefined' ? null : document.activeElement),
+        state.search.options,
       ),
       previousHiddenIds,
     });
@@ -13156,7 +13242,7 @@ const _NetworkPlus = (function () {
   // Called from renderBody() so new rows are included in search.
   function refreshSearchMatches() {
     const srch = state.search;
-    const activeKws = srch.keywords.filter((kw) => kw.query && kw.query.trim());
+    const activeKws = srch.keywords.filter((kw) => isApplicableSearchKeyword(kw, srch.options));
     const previousMatches = srch.matches;
     const previousIndex = srch.currentIndex;
     if (activeKws.length === 0) {
@@ -13174,11 +13260,7 @@ const _NetworkPlus = (function () {
     // Build per-keyword match lists while retaining each navigated row when it still matches.
     for (let ki = 0; ki < srch.keywords.length; ki++) {
       const kw = srch.keywords[ki];
-      if (!kw.query || !kw.query.trim()) {
-        srch.perKeyword.set(ki, { matches: [], currentIndex: -1 });
-        continue;
-      }
-      if (srch.options.regex && compileSearchQuery(kw.query, srch.options).error) {
+      if (!isApplicableSearchKeyword(kw, srch.options)) {
         srch.perKeyword.set(ki, { matches: [], currentIndex: -1 });
         continue;
       }
@@ -13472,7 +13554,7 @@ const _NetworkPlus = (function () {
       state.filteredRows,
       state.search.rowColors,
       state.search.matchesOnly,
-      hasActiveSearchKeywords(state.search.keywords),
+      hasActiveSearchKeywords(state.search.keywords, state.search.options),
     ).length;
   }
 
@@ -13483,7 +13565,7 @@ const _NetworkPlus = (function () {
       shownCount: Number.isFinite(visibleRowCount) ? visibleRowCount : countVisibleRows(),
       totalCount: state.rows.length,
       matchedCount: state.search.rowColors.size,
-      hasActiveSearch: hasActiveSearchKeywords(state.search.keywords),
+      hasActiveSearch: hasActiveSearchKeywords(state.search.keywords, state.search.options),
       matchesOnly: state.search.matchesOnly,
       activeFilterCount,
     });
@@ -13519,7 +13601,7 @@ const _NetworkPlus = (function () {
       }
     }
     const srch = state.search;
-    const activeKeywords = srch.keywords.filter((keyword) => keyword.query && keyword.query.trim());
+    const activeKeywords = srch.keywords.filter((keyword) => isApplicableSearchKeyword(keyword, srch.options));
     const countEl = $('#searchCount');
     if (countEl) {
       if (srch.matches.length === 0 && activeKeywords.length > 0) {
@@ -13572,6 +13654,7 @@ const _NetworkPlus = (function () {
         activeFilterCount,
         state.search.keywords,
         state.renderedActiveFilterCount,
+        state.search.options,
       )
     ) {
       return false;
@@ -13681,7 +13764,7 @@ const _NetworkPlus = (function () {
       getSortedRows(state.filteredRows),
       state.search.rowColors,
       state.search.matchesOnly,
-      hasActiveSearchKeywords(state.search.keywords),
+      hasActiveSearchKeywords(state.search.keywords, state.search.options),
     );
     const visibleBytes = rows.reduce((total, row) => total + (row.size || 0), 0);
     updateEmptyState(rows.length);
@@ -14269,19 +14352,14 @@ const _NetworkPlus = (function () {
   // Query text per pane id, so the query survives re-renders and row switches.
   const paneSearchQueries = new Map();
 
-  // The pane name is a noun the toolbar's placeholder, tooltips, accessible
-  // names and copy confirmations all compose sentences around, so it is a
-  // dictionary key rather than an English literal; every en matches the name
-  // the toolbar has always shown.
+  // The pane name is a noun the toolbar's placeholder, tooltips and
+  // accessible names compose sentences around, so it is a dictionary key
+  // rather than an English literal.
   const PANE_SEARCH_LABEL_KEYS = {
     'req-body': 'paneNameRequestBody',
     'req-raw': 'paneNameRawRequest',
-    'req-query': 'paneNameQuery',
-    'req-headers': 'paneNameRequestHeaders',
-    'req-cookies': 'paneNameRequestCookies',
     'res-body': 'paneNameResponseBody',
     'res-raw': 'paneNameRawResponse',
-    'res-headers': 'paneNameResponseHeaders',
   };
 
   function paneSearchLabel(paneId) {
@@ -14374,19 +14452,10 @@ const _NetworkPlus = (function () {
     return { marks, truncated };
   }
 
-  // The folds that keep a hit in layout while hiding it: a folded long string
-  // clipped by -webkit-line-clamp, a clamped value cell, and the URL row's
-  // address, clipped to four lines by the same mechanism. All three have a
-  // box, so offsetParent is NOT null inside them — the reveal's first version
-  // missed the very case its brief named.
-  //
-  // The address is the one a 31-parameter URL hides most of: its search counts
-  // and navigates to a hit 250px below the clipped box's bottom edge, and the
-  // "Show full URL" reveal beside it opens a DIFFERENT node, so pressing it
-  // left the marked run exactly where it was.
+  // Folded text still has a layout box, so offsetParent alone cannot tell
+  // whether a Body search hit is hidden behind a string or value clamp.
   const PANE_SEARCH_FOLD_SELECTOR =
-    '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped,' +
-    ' .url-breakdown-address:not(.url-breakdown-address--expanded)';
+    '.json-tree-str:not(.json-tree-str--expanded), .val-text.val--clamped';
 
   // The pane the mark belongs to, and whether the reader is looking at it.
   // attachPaneSearch runs on all four Body/Raw panes and a stored query
@@ -14448,19 +14517,11 @@ const _NetworkPlus = (function () {
   }
 
   // Open every collapsed <details> ancestor, unfold a long string the hit
-  // sits in, expand a clamped value around it, lift the URL address's own
-  // four-line clip, and press open whatever a reveal toggle still hides, so
-  // the current hit is visible. Only ever called for a hit in the pane the
-  // reader is actually looking at.
+  // sits in, expand a clamped value around it, and press open whatever a
+  // reveal toggle still hides. Only called for a hit in the visible pane.
   function revealPaneSearchHit(mark, pane) {
     const longString = mark.parentElement ? mark.parentElement.closest('.json-tree-str') : null;
     if (longString) setJsonTreeStringExpanded(longString, true);
-    // The address has no toggle of its own — "Show full URL" reveals a
-    // separate copy of the string — so the clip is lifted here instead. The
-    // spans, the <wbr> breaks and the text nodes are untouched, so the address
-    // still reads back as the URL verbatim once it is unfolded.
-    const address = mark.parentElement ? mark.parentElement.closest('.url-breakdown-address') : null;
-    if (address) address.classList.add('url-breakdown-address--expanded');
     let node = mark.parentElement ? mark.parentElement.closest('details') : null;
     while (node) {
       if (!node.open) node.open = true;
@@ -14571,11 +14632,14 @@ const _NetworkPlus = (function () {
   // options.hiddenSource says the pane is showing its body in a form the
   // search cannot walk (the sandboxed HTML frame), so every hit in fullText is
   // a hidden one and options.onExpandHidden is what reveals them.
+  // options.emptyContent keeps the search usable without matching empty-state
+  // prose that was not captured from the network.
   function attachPaneSearch(pane, fullText, options) {
     if (!pane) return;
     const paneId = pane.id;
     const paneLabel = paneSearchLabel(paneId);
     const hiddenSource = !!(options && options.hiddenSource);
+    const emptyContent = !!(options && options.emptyContent);
     // One "expand everything" affordance per pane. Where the JSON tree renders
     // its own Expand / Collapse controls they own the job — the tree's Expand
     // all clicks through the truncation buttons too, so hits inside collapsed
@@ -14594,6 +14658,11 @@ const _NetworkPlus = (function () {
     count.className = 'pane-search-count';
     count.setAttribute('role', 'status');
     count.setAttribute('aria-live', 'polite');
+    const errorMessage = document.createElement('span');
+    errorMessage.className = 'pane-search-error';
+    errorMessage.id = 'pane-search-error-' + paneId;
+    errorMessage.setAttribute('role', 'status');
+    errorMessage.setAttribute('aria-atomic', 'true');
     const prevBtn = document.createElement('button');
     prevBtn.className = 'pane-search-nav';
     prevBtn.textContent = '↑';
@@ -14649,11 +14718,13 @@ const _NetworkPlus = (function () {
       const query = input.value.trim();
       const total = marks.length + (truncated ? '+' : '');
       count.textContent =
-        marks.length > 0
-          ? (currentIndex >= 0 ? currentIndex + 1 + ' / ' : '') + total
-          : query
-            ? uiText('paneSearchNoMatches')
-            : '';
+        errorMessage.textContent
+          ? ''
+          : marks.length > 0
+            ? (currentIndex >= 0 ? currentIndex + 1 + ' / ' : '') + total
+            : query
+              ? uiText('paneSearchNoMatches')
+              : '';
       if (collapsedHits > 0) {
         count.textContent += uiTextFormat('paneSearchCollapsedSuffix', { count: collapsedHits });
       }
@@ -14696,9 +14767,22 @@ const _NetworkPlus = (function () {
       const compiledError = query.trim() && searchOptions.regex
         ? compileSearchQuery(query, searchOptions).error
         : null;
+      const message = compiledError
+        ? uiTextFormat('paneSearchInvalidRegex', {
+            error: compiledError.replace(/^Invalid regular expression:\s*/, ''),
+          })
+        : '';
       input.classList.toggle('pane-search-input-error', !!compiledError);
-      input.title = compiledError ? uiTextFormat('paneSearchInvalidRegex', { error: compiledError }) : '';
-      if (query.trim() && !compiledError) {
+      input.title = message;
+      if (compiledError) {
+        input.setAttribute('aria-invalid', 'true');
+        input.setAttribute('aria-describedby', errorMessage.id);
+      } else {
+        input.removeAttribute('aria-invalid');
+        input.removeAttribute('aria-describedby');
+      }
+      errorMessage.textContent = message;
+      if (query.trim() && !compiledError && !emptyContent) {
         const result = applyPaneSearchHits(pane, query, searchOptions);
         marks = result.marks;
         truncated = result.truncated;
@@ -14775,6 +14859,7 @@ const _NetworkPlus = (function () {
     // under a single band instead of between a copy band and a footer.
     const copyActions = pane.querySelector(':scope > .copy-actions');
     if (copyActions) bar.appendChild(copyActions);
+    bar.appendChild(errorMessage);
     pane.classList.add('pane-search-host');
     pane.insertBefore(bar, pane.firstChild);
     // The bar this pane owns; syncScrollportBarInset reads it back when the
@@ -14782,8 +14867,8 @@ const _NetworkPlus = (function () {
     pane._paneSearchBar = bar;
     if (typeof ResizeObserver === 'function') {
       // One observer per pane for the life of the session, re-pointed at the
-      // new bar: attachPaneSearch runs two to four times per selection, and
-      // an observer per bar accumulated one leak per render.
+      // new bar: attachPaneSearch runs for up to four panes per selection,
+      // and an observer per bar accumulated one leak per render.
       if (!pane._paneBarObserver) {
         // The copy labels are weighed first: dropping them can take a row off
         // the bar, and the inset the scrollport keeps is the height that
@@ -15632,6 +15717,7 @@ const _NetworkPlus = (function () {
     attachPaneSearch(resBodyPane, text, {
       viewToggle: bodyViewToggle,
       hiddenSource: htmlFrameShowing,
+      emptyContent: !displayText,
       onExpandHidden: () => {
         responseBodyViews.html = 'source';
         pickResponseBodyView(row);
@@ -15758,18 +15844,12 @@ const _NetworkPlus = (function () {
         ),
       );
     }
-    // The kv panes get the toolbar the Body and Raw panes have had: a header
-    // list is as long as a body and was the one place a reader could not
-    // search. No `fullText` second argument — nothing here is truncated away,
-    // and arming "Expand all" would press every link button in the pane,
-    // including "open Query", which switches the tab out from under the search.
-    attachPaneSearch(reqHeadersPane);
-
     // Request > Body
     const reqBodyPane = $('#req-body');
     reqBodyPane.textContent = '';
-    if (row.requestPostData && row.requestPostData.text) {
-      const text = row.requestPostData.text;
+    const requestBodyText = row.requestPostData && row.requestPostData.text;
+    if (requestBodyText) {
+      const text = requestBodyText;
       const treeEl = renderJsonTree(text);
       if (treeEl) {
         reqBodyPane.appendChild(treeEl);
@@ -15790,11 +15870,11 @@ const _NetworkPlus = (function () {
           onClick: (button) => requestFullClipboardAction('requestBody', row, '', button, 'paneNameRequestBody'),
         },
       ]);
-      attachPaneSearch(reqBodyPane, text);
     } else {
       renderPaneEmptyMessage(reqBodyPane, uiText('emptyRequestBody'));
     }
-    const hasRequestBody = !!(row.requestPostData && row.requestPostData.text);
+    attachPaneSearch(reqBodyPane, requestBodyText || '', { emptyContent: !requestBodyText });
+    const hasRequestBody = !!requestBodyText;
 
     // Request > Query
     const reqQueryPane = $('#req-query');
@@ -15817,10 +15897,9 @@ const _NetworkPlus = (function () {
           'query',
         ),
       );
-      // The copy pair Body and Raw carry, over the one payload this pane
-      // describes: the URL. Both go through the shared clipboard builder, so
-      // the sanitized copy redacts every query value and the full copy still
-      // needs its confirmation — neither reads the decoded text on screen.
+      // Keep the copy pair above the grid, even without a search bar. Both
+      // actions go through the shared clipboard builder: the sanitized copy
+      // redacts every query value and the full copy needs confirmation.
       addCopyActions(reqQueryPane, [
         {
           label: uiText('menuCopySanitized'),
@@ -15831,7 +15910,6 @@ const _NetworkPlus = (function () {
           onClick: (button) => requestFullClipboardAction('url', row, '', button, 'paneNameQuery'),
         },
       ]);
-      attachPaneSearch(reqQueryPane);
     } else if (hasRequestBody) {
       // A POST with no query string is not missing anything: point at Body.
       const hintMethod = String(row.method || '').trim();
@@ -15859,12 +15937,7 @@ const _NetworkPlus = (function () {
         copyValue: c.value,
       }));
       reqCookiesPane.appendChild(createCookieTable(REQUEST_COOKIE_COLUMNS, requestCookieRows, 'cookie'));
-      attachPaneSearch(reqCookiesPane);
     } else {
-      // The rule for all four new toolbars: a pane rendered as a one-line
-      // empty message keeps none. A search box over "No cookies were sent" has
-      // nothing to search, and it would still cost a resize observer and a
-      // scrollport inset the pane does not need.
       renderPaneEmptyMessage(reqCookiesPane, uiText('emptyRequestCookies'));
     }
 
@@ -15930,8 +16003,6 @@ const _NetworkPlus = (function () {
         ),
       );
     }
-    if (resHeadersPane.querySelector('.kv')) attachPaneSearch(resHeadersPane);
-
     // Response > Body and Raw — populated from the shared response cache
     setResponsePaneMessage(uiText('bodyPaneLoading'));
     cacheResponseContent(row)
@@ -16323,7 +16394,7 @@ const _NetworkPlus = (function () {
       state.filteredRows,
       state.search.rowColors,
       state.search.matchesOnly,
-      hasActiveSearchKeywords(state.search.keywords),
+      hasActiveSearchKeywords(state.search.keywords, state.search.options),
     );
   }
 
@@ -16374,7 +16445,9 @@ const _NetworkPlus = (function () {
           headers: reqHeaders,
           queryString: parseQueryString(url),
           headersSize: -1,
-          bodySize: r.requestPostData && r.requestPostData.text ? r.requestPostData.text.length : -1,
+          bodySize: Number.isFinite(r.requestBodySize)
+            ? r.requestBodySize
+            : r.requestPostData && r.requestPostData.text ? r.requestPostData.text.length : -1,
         },
         response: {
           status: r.status || 0,
@@ -16385,7 +16458,7 @@ const _NetworkPlus = (function () {
           content,
           redirectURL: '',
           headersSize: -1,
-          bodySize: r.size || -1,
+          bodySize: Number.isFinite(r.responseBodySize) ? r.responseBodySize : r.size || -1,
         },
         cache: {},
         timings,
@@ -16778,6 +16851,7 @@ const _NetworkPlus = (function () {
       state.sort = restorePlan.sort;
       state.paused = restorePlan.paused;
       state.autoScroll = restorePlan.autoScroll;
+      updateAutoScrollButton();
       state.sampleCaptureActive = restorePlan.sampleCaptureActive;
       state.sampleCapturePreviousPaused = restorePlan.sampleCapturePreviousPaused;
       state.sampleCapturePreviousColumnFilterRules =
@@ -16814,6 +16888,7 @@ const _NetworkPlus = (function () {
       syncSearchScopeControls();
       toggleSearchPanel(restorePlan.searchPanelVisible, false);
       render();
+      if (state.autoScroll) scrollGridToNewest();
       restoreSearchNavigation(restorePlan);
       updateSearchUI();
       if (restorePlan.comparedRows) {
@@ -16875,6 +16950,7 @@ const _NetworkPlus = (function () {
       updateRetentionStatus();
       clearDetailsPanel();
       const undoAvailable = armClearUndoSnapshot(snapshot);
+      if (state.autoScroll) scrollGridToNewest();
       clearButton.focus({ preventScroll: true });
       const undoMessage = undoAvailable
         ? ' Undo available for ' + CLEAR_UNDO_TIMEOUT_MS / 1000 + ' seconds.'
@@ -17723,7 +17799,9 @@ const _NetworkPlus = (function () {
     };
     tableWrap.addEventListener('scroll', () => {
       const currentScrollTop = tableWrap.scrollTop;
-      if (state.autoScroll && currentScrollTop < previousTableScrollTop) {
+      // Shrinking the grid can clamp its scroll position upward without user input.
+      const previousPositionStillFits = previousTableScrollTop <= tableWrap.scrollHeight - tableWrap.clientHeight;
+      if (state.autoScroll && currentScrollTop < previousTableScrollTop && previousPositionStillFits) {
         state.autoScroll = false;
         updateAutoScrollButton();
       }
@@ -18721,7 +18799,7 @@ const _NetworkPlus = (function () {
       saveSearchPrefs(currentSearchPrefs());
       setStatus(
         state.search.matchesOnly
-          ? 'Showing only requests that match search keywords'
+          ? 'Matches only is on; valid keywords narrow requests'
           : 'Showing all requests with search highlights',
       );
     });
@@ -18730,6 +18808,10 @@ const _NetworkPlus = (function () {
       optionButton.el.addEventListener('click', () => {
         state.search.options[optionButton.key] = !state.search.options[optionButton.key];
         executeSearch();
+        for (const paneId of Object.keys(PANE_SEARCH_LABEL_KEYS)) {
+          const pane = document.getElementById(paneId);
+          if (pane && typeof pane._paneSearchRefresh === 'function') pane._paneSearchRefresh();
+        }
         updateSearchUI();
         saveSearchPrefs(currentSearchPrefs());
         setStatus(
@@ -18862,16 +18944,32 @@ const _NetworkPlus = (function () {
         input.placeholder = 'Enter search keyword...';
         input.value = kw.query;
         input.setAttribute('aria-label', 'Search keyword ' + (i + 1));
-        const keywordRegexError =
-          state.search.options.regex && kw.query.trim()
-            ? compileSearchQuery(kw.query, state.search.options).error
+        const errorMessage = document.createElement('span');
+        errorMessage.className = 'search-keyword-error';
+        errorMessage.id = 'search-keyword-error-' + i;
+        errorMessage.setAttribute('role', 'status');
+        errorMessage.setAttribute('aria-atomic', 'true');
+        const updateKeywordFeedback = () => {
+          const error = state.search.options.regex && input.value.trim()
+            ? compileSearchQuery(input.value, state.search.options).error
             : null;
-        if (keywordRegexError) {
-          input.classList.add('search-keyword-input-error');
-          input.title = 'Invalid regular expression: ' + keywordRegexError;
-        }
+          const message = error
+            ? error.startsWith('Invalid regular expression:') ? error : 'Invalid regular expression: ' + error
+            : '';
+          input.classList.toggle('search-keyword-input-error', !!message);
+          input.title = message;
+          if (message) {
+            input.setAttribute('aria-invalid', 'true');
+            input.setAttribute('aria-describedby', errorMessage.id);
+          } else {
+            input.removeAttribute('aria-invalid');
+            input.removeAttribute('aria-describedby');
+          }
+          errorMessage.textContent = message;
+        };
         input.addEventListener('input', () => {
           state.search.keywords[i].query = input.value;
+          updateKeywordFeedback();
           debouncedSearch();
         });
         input.addEventListener('keydown', (e) => {
@@ -18893,7 +18991,7 @@ const _NetworkPlus = (function () {
         const kwCurIdx = kwData ? kwData.currentIndex : -1;
         const countSpan = document.createElement('span');
         countSpan.className = 'search-kw-count';
-        if (kw.query.trim() && kwMatchCount === 0) {
+        if (isApplicableSearchKeyword(kw, state.search.options) && kwMatchCount === 0) {
           countSpan.textContent = '0';
           countSpan.style.color = 'var(--status-5xx-text)';
         } else if (kwMatchCount > 0) {
@@ -18942,7 +19040,9 @@ const _NetworkPlus = (function () {
           row.appendChild(removeBtn);
         }
 
+        row.appendChild(errorMessage);
         searchRows.appendChild(row);
+        updateKeywordFeedback();
       }
       // Restore focus to the same keyword input
       if (focusedIdx >= 0) {
@@ -18967,13 +19067,6 @@ const _NetworkPlus = (function () {
 
     function executeSearch() {
       const srch = state.search;
-      const activeKws = srch.keywords.filter((kw) => kw.query.trim());
-      if (activeKws.length === 0) {
-        srch.currentIndex = -1;
-        searchCount.textContent = '';
-        renderGridAfterSearchChange();
-        return;
-      }
       // refreshSearchMatches() is called inside renderBody()
       srch.currentIndex = -1; // reset navigation to recalculate after render
       renderGridAfterSearchChange();
@@ -18985,7 +19078,7 @@ const _NetworkPlus = (function () {
 
     function updateSearchUI() {
       const srch = state.search;
-      const activeKws = srch.keywords.filter((kw) => kw.query.trim());
+      const activeKws = srch.keywords.filter((kw) => isApplicableSearchKeyword(kw, srch.options));
       if (srch.matches.length === 0 && activeKws.length > 0) {
         searchCount.textContent = 'No matches';
         searchCount.style.color = 'var(--status-5xx-text)';
@@ -19057,14 +19150,18 @@ const _NetworkPlus = (function () {
 
     searchToggleBtn.addEventListener('click', () => toggleSearchPanel());
 
-    // Ctrl+F toggles the search panel — unless focus is inside a detail pane
-    // that carries its own search bar, which then takes the shortcut.
+    // Ctrl+F opens request search unless focus is inside a Body/Raw pane or
+    // on its selected tab; those focus the pane's own search field.
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        const activePane =
-          document.activeElement && document.activeElement.closest
-            ? document.activeElement.closest('.tab-pane')
+        const focused = document.activeElement;
+        const focusedPane = focused && focused.closest ? focused.closest('.tab-pane') : null;
+        const selectedTab =
+          focused && focused.matches && focused.matches('.tab-btn[aria-selected="true"]')
+            ? focused
             : null;
+        const activePane =
+          focusedPane || (selectedTab ? document.getElementById(selectedTab.getAttribute('aria-controls')) : null);
         const paneSearchInput = activePane ? activePane.querySelector('.pane-search-input') : null;
         e.preventDefault();
         e.stopPropagation();
@@ -19241,7 +19338,7 @@ const _NetworkPlus = (function () {
     const scheduleResponseSearchRefresh = (row) => {
       if (
         !isActiveRetainedRow(row, state.retainedRows, state.activeRows) ||
-        !hasActiveSearchKeywords(state.search.keywords)
+        !hasActiveSearchKeywords(state.search.keywords, state.search.options)
       ) {
         return;
       }
@@ -19249,7 +19346,7 @@ const _NetworkPlus = (function () {
       pendingResponseSearchFrame = true;
       window.requestAnimationFrame(() => {
         pendingResponseSearchFrame = false;
-        if (!hasActiveSearchKeywords(state.search.keywords)) return;
+        if (!hasActiveSearchKeywords(state.search.keywords, state.search.options)) return;
         renderGridAfterSearchChange();
         updateSearchUI();
       });
@@ -19352,6 +19449,7 @@ const _NetworkPlus = (function () {
           countActiveColumnFilters(state.columnFilterRules),
           state.search.keywords,
           state.renderedActiveFilterCount,
+          state.search.options,
         );
         if (!fastPathEligible || !appendIncrementalRows(liveRows)) renderBody();
         if (shouldScrollToBottom && state.autoScroll) {
@@ -19545,6 +19643,7 @@ const _NetworkPlus = (function () {
         for (const row of state.rows) knownRowIds.add(row.id);
         for (const row of pendingLiveRows) knownRowIds.add(row.id);
         render();
+        if (state.autoScroll) scrollGridToNewest();
         updateRetentionStatus();
       };
       const viewerSession = createMirrorViewerSession({
@@ -20496,9 +20595,12 @@ const _NetworkPlus = (function () {
     buildHarResponseContent,
     cacheResponseContent,
     isValuelessFilterOperator,
+    getFilterRegexError,
+    getApplicableFilterRule,
     isRuleActive,
     countActiveColumnFilters,
     isVisualOnlyColumn,
+    isApplicableSearchKeyword,
     hasActiveSearchKeywords,
     compileSearchQuery,
     normalizeSearchPrefs,

@@ -1101,6 +1101,22 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
+      title: 'Server done time picker excludes a zero-duration row across midnight',
+    },
+    {
+      skipped: true,
+      title: 'malformed column regex stays editable and unapplied with announced feedback across filter controls',
+    },
+    {
+      skipped: true,
+      title: 'malformed deep-search regex stays a draft while valid keywords filter and navigate',
+    },
+    {
+      skipped: true,
+      title: 'auto-scroll follows live requests after Clear and Undo until the reader scrolls upward',
+    },
+    {
+      skipped: true,
       title: 'same-frame live bursts batch retention cleanup and prefetch only retained rows',
     },
     {
@@ -1166,8 +1182,7 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
-      title:
-        'the Match gutter takes the v4 width on upgrade, clips its label only at gutter width, and fits two chips',
+      title: 'the Match gutter takes the default width for v3 layouts but keeps a v4 custom width',
     },
     {
       skipped: true,
@@ -1185,7 +1200,7 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title:
-        'the Query pane segments URL values, nests query values behind a disclosure, and carries its own toolbar',
+        'the Query pane segments URL values, nests query values and retains copy actions without search',
     },
     {
       skipped: true,
@@ -1219,7 +1234,11 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
-      title: 'Body and Raw carry one sticky top toolbar that holds search and the copy actions',
+      title: 'Body and Raw pane regex errors are visible, associated with their inputs and recover in both languages',
+    },
+    {
+      skipped: true,
+      title: 'only Body and Raw carry a sticky search toolbar with copy actions',
     },
     {
       skipped: true,
@@ -1266,6 +1285,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title: 'the Columns menu groups its checkboxes under the button and Reset restores the defaults',
+    },
+    {
+      skipped: true,
+      title: 'Server done defaults on, migrates v4 layouts, and remains hideable and responsive',
     },
     {
       skipped: true,

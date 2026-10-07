@@ -94,11 +94,20 @@ profile によっては配布されないファイルがある。存在しない
 
 ### テスト実行の絶対則
 
-実ブラウザ回帰(status-summary-browser / mirror-browser)は `/opt/pw-browsers/chromium` を候補パスとして
-**自動発見する**ため、このリモート環境では素の `npm test` でも実行される(PR #175 で恒久化。それ以前は
-CHROME_BIN 必須で、無いと黙ってスキップされ「ローカル green・CI 赤」が起きた — PR #159 で実証)。
-`CHROME_BIN` を明示すれば常にそれが優先。`set -o pipefail` で `Tests:` 行を読む規律は引き続き必須で、
-スイート数が想定(18)から減っていたらスキップを疑うこと。
+実ブラウザ回帰（`tests/status-summary-browser.test.js` / `tests/mirror-browser.test.js`）は `EDGE_BIN`、
+`CHROME_BIN`、既知のインストール先（リモート環境の `/opt/pw-browsers/chromium` を含む）の順に
+実行可能なブラウザを探す。見つからなければローカルではブラウザテストを skip するが、
+CI（`GITHUB_ACTIONS=true` または `CI` が `false` 以外）では明示的に失敗する。
+ローカルで `npm test` が成功しても、ブラウザテストが skip されたなら実ブラウザ回帰は未検証と扱う。
+
+実行前に `git ls-files 'tests/*.test.js'` と `npx jest --listTests --runInBand` の一覧を照合し、
+その checkout で期待するスイート数を求める（固定値は使わない）。`npm test` の終了コードに加え、
+`Test Suites:` の passed/total が検出数と一致し、`Tests:` の skipped が 0 件で、
+両ブラウザスイートが `PASS` と表示されることを確認する。出力をパイプするときは事前に
+`set -o pipefail` を設定し、`npm test` の失敗を隠さない。
+
+PR のマージ直前に、必須 checks が現在の PR head SHA に対して成功していることを確認する。
+結果が古い（目安 24 時間以上前）場合は同じ head SHA で checks を再実行し、再実行分の成功を確認してからマージする。
 
 ### リリースとストア再申請
 

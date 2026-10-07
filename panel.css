@@ -191,11 +191,13 @@ html[data-theme="light"]{
 /* === Search Panel (collapsible below topbar) === */
 .search-panel{padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface);z-index:3;flex:0 0 auto}
 .search-panel-rows{display:flex;flex-direction:column;gap:4px}
-.search-keyword-row{display:flex;align-items:center;gap:6px;min-width:0}
+.search-keyword-row{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
 .search-color-btn{width:24px;height:24px;border-radius:50%;border:2px solid var(--control-border);cursor:pointer;flex-shrink:0;transition:transform 0.1s,box-shadow 0.1s}
 .search-color-btn:hover{transform:scale(1.15);box-shadow:0 0 0 2px var(--accent)}
 .search-keyword-input{flex:1;min-width:0;min-height:24px;padding:4px 8px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:12px;transition:border-color 0.2s}
 .search-keyword-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
+.search-keyword-error{flex:0 0 100%;box-sizing:border-box;padding-inline-start:30px;font-size:11px;font-weight:600;color:var(--status-5xx-text);overflow-wrap:anywhere}
+.search-keyword-error:empty{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .search-kw-count{font-size:11px;color:var(--text-muted);min-width:36px;text-align:center;white-space:nowrap;flex-shrink:0;font-variant-numeric:tabular-nums}
 .search-kw-nav{min-width:24px;min-height:24px;padding:1px 5px;border:1px solid var(--control-border);border-radius:4px;background:var(--bg);color:var(--fg);cursor:pointer;font-size:9px;line-height:1;transition:background-color 0.15s,border-color 0.15s,color 0.15s;flex-shrink:0;text-align:center}
 .search-kw-nav:hover{background:var(--accent-dim);border-color:var(--accent);color:var(--text-accent)}
@@ -333,18 +335,17 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 
 /* === Tabs === */
 .tab-bar{display:flex;flex-wrap:nowrap;overflow-x:auto;background:var(--surface);border-bottom:1px solid var(--border);gap:0;padding:0;scrollbar-width:thin}
-/* One weight in both states: a bolder active label reflowed the whole row on every activation. */
-.tab-btn{padding:5px 10px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s,color 0.15s;font-weight:600}
+/* One weight avoids reflow; text snaps to its AA-safe state without a low-contrast crossfade. */
+.tab-btn{padding:5px 10px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s;font-weight:600}
 .tab-btn:hover{color:var(--fg);background:var(--hover)}
 .tab-btn.active{color:var(--text-accent);border-bottom-color:var(--accent);background:var(--accent-dim)}
-/* Query / Cookies carry their item count after the label, 0 included; an empty pane keeps its tab clickable. */
-.tab-btn[data-count]::after{content:attr(data-count);margin-left:4px;font-size:11px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}
-/* The empty tab stays clickable, so its label is interactive text: it keeps a
-   full-opacity token colour (opacity:.55 composited below AA in both themes)
-   and carries a marker as the non-colour signal. Body and Raw count nothing,
-   so theirs is an en dash — a 0 there named a count the tab does not have. */
+/* Compact framed signals keep counts separate from tab labels in both themes. */
+.tab-btn[data-count]::after,.tab-btn.is-empty:not([data-count])::after{display:inline-block;box-sizing:border-box;min-width:18px;margin-left:6px;padding:0 4px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--text-muted);font-size:10px;font-weight:700;line-height:14px;text-align:center;font-variant-numeric:tabular-nums}
+.tab-btn[data-count]::after{content:attr(data-count)}
+.tab-btn[data-count]:not(.is-empty)::after{color:var(--text-accent)}
+/* Empty tabs stay clickable at full text opacity; an uncounted pane uses a dashed en dash, not a numeric zero. */
 .tab-btn.is-empty:not(.active){color:var(--text-muted)}
-.tab-btn.is-empty:not([data-count])::after{content:'\2013';margin-left:4px;font-size:11px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.tab-btn.is-empty:not([data-count])::after{content:'\2013';border-style:dashed}
 .pane-empty{margin:0;font-size:12px;color:var(--text-muted)}
 /* scroll-padding only acts on the scrollport itself; on a non-scrolling child it is inert. */
 .tab-content-area{flex:1;overflow:auto;position:relative;scroll-padding-top:var(--pane-bar-height,36px)}
@@ -685,12 +686,9 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .url-breakdown-line{display:block}
 /* The address is one block of inline spans: a block boundary between its parts put a
    newline inside the URL, so a drag-select copied a string no tool would accept. Four
-   lines are clipped, not hidden — the whole text stays selectable and findable. */
+   lines are clipped, not removed: the whole URL remains selectable, and the
+   Show full URL control reveals it beyond the clip. */
 .url-breakdown-address{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
-/* Lifted by the pane search when the hit it is stepping the reader to sits in the
-   clipped region: the count and the navigation reach text the clip hides, and the
-   "Show full URL" control beside this opens a different node entirely. */
-.url-breakdown-address--expanded{display:block;-webkit-line-clamp:unset;overflow:visible}
 .url-breakdown-path,.url-breakdown-query-text{overflow-wrap:anywhere}
 /* Each query parameter is a name and a value, not one run of punctuation: the name
    takes the header-name colour the raw views already use for a field name. */
@@ -1110,6 +1108,8 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .pane-search-input{flex:1 1 160px;min-width:120px;background:var(--content-bg);color:var(--fg);border:1px solid var(--control-border);border-radius:4px;padding:3px 6px;font:inherit;font-size:12px}
 .pane-search-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .pane-search-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--text-muted);white-space:nowrap}
+.pane-search-error{flex:0 0 100%;box-sizing:border-box;font-size:11px;font-weight:600;color:var(--status-5xx-text);overflow-wrap:anywhere}
+.pane-search-error:empty{position:absolute;width:0;height:1px;overflow:hidden;clip-path:inset(50%)}
 .pane-search-nav{flex:none;min-height:22px;background:var(--bg);border:1px solid var(--control-border);color:var(--text-muted);border-radius:4px;cursor:pointer;padding:1px 7px;font-size:11px}
 .pane-search-nav:hover{border-color:var(--accent);color:var(--text-accent)}
 .pane-search-nav:disabled{opacity:.5;cursor:default}
@@ -1184,6 +1184,9 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .filter-rule .filter-value{flex:1 1 140px;width:auto;min-width:120px;border:1px solid var(--control-border);background:var(--bg);color:var(--fg);padding:4px;border-radius:6px;font-size:11px;transition:border-color 0.2s}
 .filter-rule .filter-value:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
 .filter-rule .filter-value:disabled{opacity:.5;cursor:not-allowed}
+.filter-rule .filter-value[aria-invalid="true"]{border-color:var(--status-5xx-text)}
+.filter-regex-error{flex:0 0 100%;font-size:11px;font-weight:600;color:var(--status-5xx-text);overflow-wrap:anywhere}
+.filter-regex-error:empty{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .filter-rule input[type="time"]{width:auto;min-width:90px}
 .filter-rule > label{display:block;font-size:11px;color:var(--text-muted);margin-top:4px;width:100%}
 .filter-rule label input[type="text"]{width:100%;margin-top:2px}
@@ -1200,7 +1203,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 .filter-inline-field .filter-value{flex:1;width:auto}
 .filter-time-input{border:1px solid var(--control-border);background:var(--bg);color:var(--fg);padding:3px 4px;border-radius:6px;font-size:11px}
 .filter-time-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.filter-condition-row{display:flex;gap:4px;align-items:center;width:100%}
+.filter-condition-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center;width:100%}
 .filter-condition-row .filter-op{width:120px;min-width:110px;flex-shrink:0;-webkit-appearance:menulist;appearance:menulist}
 .filter-condition-row .filter-value{flex:1}
 .filter-remove-btn{background:none;border:1px solid var(--control-border);color:var(--text-muted);border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;transition:border-color 0.15s,color 0.15s}
