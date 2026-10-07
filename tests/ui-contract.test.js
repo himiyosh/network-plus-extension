@@ -4117,7 +4117,7 @@ describe('method badge contracts', () => {
   });
 });
 
-describe('compact status signal contracts', () => {
+describe('original grid density and inspector signals', () => {
   test('keeps the v1.15 workbench palette and compact grid dimensions in all theme modes', () => {
     const palette = (theme) =>
       Object.fromEntries(
@@ -4154,12 +4154,7 @@ describe('compact status signal contracts', () => {
     );
   });
 
-  test('frames only exceptional status text with safe DOM without changing row height', () => {
-    expect(js).toContain("c.id === 'status' && text && ['3xx', '4xx', '5xx'].includes(statusClass)");
-    expect(js).toContain("contentHost.className = 'status-badge';");
-    expect(css).toContain(
-      '.status-badge{display:inline-block;padding:0 4px;border:1px solid currentColor;border-radius:4px;background:var(--content-bg);font-size:11px;line-height:16px;',
-    );
+  test('keeps the details status marker and empty icon distinct from the grid', () => {
     expect(css).toContain(
       ".details-summary-status--3xx::before,.details-summary-status--4xx::before,.details-summary-status--5xx::before{content:'';",
     );

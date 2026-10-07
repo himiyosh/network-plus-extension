@@ -572,8 +572,6 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .grid tbody tr.status-3xx .status-cell{color:var(--status-3xx-text);font-weight:700}
 .grid tbody tr.status-4xx .status-cell{color:var(--status-4xx-text);font-weight:700}
 .grid tbody tr.status-5xx .status-cell{color:var(--status-5xx-text);font-weight:700}
-/* Exceptional codes gain a shape without adding height or tinting an entire data cell. */
-.status-badge{display:inline-block;padding:0 4px;border:1px solid currentColor;border-radius:4px;background:var(--content-bg);font-size:11px;line-height:16px;text-align:center;vertical-align:middle}
 
 /* Method colors */
 .grid tbody tr .method-cell{font-weight:700;font-size:11px}

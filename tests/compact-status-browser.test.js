@@ -111,8 +111,8 @@ function measuredSignals() {
   const focusCss = document.defaultView.getComputedStyle(focus);
   return {
     signals: [
-      contrast('tr.status-3xx .status-badge'),
-      contrast('tr.status-5xx .status-badge'),
+      contrast('tr.status-3xx .status-cell'),
+      contrast('tr.status-5xx .status-cell'),
       contrast('tr.status-2xx .status-cell'),
       contrast('.details-summary-status--5xx'),
       contrast('#req-headers .kv .val'),
@@ -139,7 +139,7 @@ function measuredSignals() {
 }
 
 browserTest(
-  'status cues keep the original dense geometry, semantic contrast, and focus from 320 to 1280px',
+  'inspector cues keep the original dense grid, semantic contrast, and focus from 320 to 1280px',
   async () => {
     const page = await launchPanelPage({
       executable,
@@ -189,8 +189,8 @@ browserTest(
           const result = await evaluate(page.cdp, `(${measuredSignals.toString()})()`);
           expect(result.labels).toEqual([
             { status: '200', badge: null },
-            { status: '503', badge: '503' },
-            { status: '304', badge: '304' },
+            { status: '503', badge: null },
+            { status: '304', badge: null },
           ]);
           expect(result.selectedStatus).toBe('503');
           expect(result.selectedCount).toBe(1);
@@ -211,7 +211,6 @@ browserTest(
               expect.objectContaining({ item: expect.objectContaining({ text: expect.any(Number) }) }),
             );
             expect(item.text).toBeGreaterThanOrEqual(4.5);
-            if (item.selector.includes('.status-badge')) expect(item.border).toBeGreaterThanOrEqual(3);
           }
         }
       }

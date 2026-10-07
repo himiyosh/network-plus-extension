@@ -4,7 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- ✨ **Compact status cues** — frame redirects and errors in the grid, mark their inspector summary, and clarify the empty icon without changing density or palette.
+- ✨ **Inspector and empty-state cues** — mark redirects and errors in the details summary and clarify the empty icon without changing grid status cells, density or palette.
 
 ## v1.15.0 - 2026-10-06
 
