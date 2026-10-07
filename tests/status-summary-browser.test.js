@@ -7017,9 +7017,8 @@ const DETAILS_HEADER_MEASURE = `(() => {
   };
 })()`;
 
-// The empty tab keeps full-opacity token text plus its marker, so its
-// composited contrast is measured the way a reader sees it: colour and
-// opacity resolved, over the first opaque background behind the button.
+// Read actual label and badge colors over their composited grounds. The
+// tab background is translucent when active; the badge has its own ground.
 // The inspector tabs that carry a count, pinned here as a literal. The
 // marker expectation below is derived from THIS list, never read back from
 // the data-count attribute that draws the marker: an expectation taken from
@@ -7028,8 +7027,12 @@ const DETAILS_HEADER_MEASURE = `(() => {
 // "0" that would read as a count of zero items.
 const COUNTED_INSPECTOR_TABS = ['req-query', 'req-cookies', 'res-cookies'];
 
-const EMPTY_TAB_CONTRAST_MEASURE = `(() => {
+const TAB_SIGNAL_PRESENTATION_MEASURE = `(() => {
   const parse = (value) => value.match(/[\\d.]+/g).map(Number);
+  const composite = (front, back, opacity = 1) => {
+    const alpha = (front[3] ?? 1) * opacity;
+    return front.slice(0, 3).map((channel, index) => channel * alpha + back[index] * (1 - alpha));
+  };
   const luminance = (rgb) =>
     rgb.slice(0, 3).reduce((total, channel, index) => {
       const srgb = channel / 255;
@@ -7041,28 +7044,38 @@ const EMPTY_TAB_CONTRAST_MEASURE = `(() => {
     const darker = Math.min(luminance(a), luminance(b));
     return (lighter + 0.05) / (darker + 0.05);
   };
-  const opaqueBackground = (element) => {
-    let node = element;
-    while (node && node !== document.documentElement) {
-      const colour = parse(getComputedStyle(node).backgroundColor);
-      if (colour.length < 4 || colour[3] > 0) return colour;
-      node = node.parentElement;
-    }
-    return [255, 255, 255, 1];
-  };
-  return Array.from(document.querySelectorAll('.tab-btn.is-empty')).map((button) => {
-    const style = getComputedStyle(button);
-    const background = opaqueBackground(button);
-    const alpha = Number(style.opacity);
-    const foreground = parse(style.color).slice(0, 3).map((channel, index) => channel * alpha + background[index] * (1 - alpha));
-    return {
-      tab: button.dataset.tab,
-      label: button.textContent,
-      counted: button.hasAttribute('data-count'),
-      opacity: style.opacity,
-      marker: getComputedStyle(button, '::after').content,
-      ratio: Number(ratio(foreground, background).toFixed(2)),
-    };
+  return Array.from(document.querySelectorAll('#req-tab-bar,#res-tab-bar')).flatMap((bar) => {
+    const surface = parse(getComputedStyle(bar).backgroundColor);
+    return Array.from(bar.querySelectorAll('.tab-btn')).map((button) => {
+      const style = getComputedStyle(button);
+      const signal = getComputedStyle(button, '::after');
+      const labelGround = composite(parse(style.backgroundColor), surface);
+      const labelInk = composite(parse(style.color), labelGround, Number(style.opacity));
+      const signalGround = composite(parse(signal.backgroundColor), labelGround);
+      const signalInk = composite(parse(signal.color), signalGround, Number(style.opacity) * Number(signal.opacity));
+      return {
+        tab: button.dataset.tab,
+        label: button.textContent,
+        count: button.dataset.count ?? null,
+        counted: button.hasAttribute('data-count'),
+        empty: button.classList.contains('is-empty'),
+        active: button.classList.contains('active'),
+        selected: button.getAttribute('aria-selected'),
+        tabIndex: button.tabIndex,
+        opacity: style.opacity,
+        transitionProperty: style.transitionProperty,
+        labelColor: style.color,
+        labelRatio: Number(ratio(labelInk, labelGround).toFixed(2)),
+        marker: signal.content,
+        markerColor: signal.color,
+        markerRatio: signal.content === 'none' ? null : Number(ratio(signalInk, signalGround).toFixed(2)),
+        markerBackgroundOpaque: (parse(signal.backgroundColor)[3] ?? 1) === 1,
+        markerBorderStyle: signal.borderStyle,
+        markerBorderWidth: signal.borderLeftWidth,
+        markerRadius: signal.borderRadius,
+        markerMargin: signal.marginLeft,
+      };
+    });
   });
 })()`;
 
@@ -7229,7 +7242,7 @@ browserTest(
       // The signal is the marker after the label, never a dimmed label: the
       // old opacity:.55 composited the 12px/600 text below AA on the tab bar.
       // Counted tabs take a 0; Body and Raw count nothing and take an en dash.
-      const emptyTabs = await evaluate(cdp, EMPTY_TAB_CONTRAST_MEASURE);
+      const emptyTabs = (await evaluate(cdp, TAB_SIGNAL_PRESENTATION_MEASURE)).filter((tab) => tab.empty);
       expect(emptyTabs.length).toBeGreaterThan(0);
       // Not vacuous: this state really does hold a counted empty tab, so the
       // "0" branch of the rule below is exercised here. The en-dash branch
@@ -7243,7 +7256,7 @@ browserTest(
         // attribute the panel stamps, and the marker CSS draws from it.
         expect([tab.tab, tab.counted]).toEqual([tab.tab, counted]);
         expect([tab.tab, tab.marker]).toEqual([tab.tab, counted ? '"0"' : '"\u2013"']);
-        expect([tab.tab, tab.ratio >= 4.5]).toEqual([tab.tab, true]);
+        expect([tab.tab, tab.labelRatio >= 4.5, tab.markerRatio >= 4.5]).toEqual([tab.tab, true, true]);
       }
 
       // At the 440px pane minimum the strip wraps. The separator is drawn on
@@ -11089,6 +11102,68 @@ const PANE_EMPTY_MEASURE = (paneId) => `(() => {
     : { text: pane.textContent.slice(0, 40), fontSize: null, color: null, muted: null };
 })()`;
 
+const TAB_SIGNAL_THEMES = [
+  { name: 'system-light', dataTheme: null, systemTheme: 'light' },
+  { name: 'system-dark', dataTheme: null, systemTheme: 'dark' },
+  { name: 'forced-light', dataTheme: 'light', systemTheme: 'dark' },
+  { name: 'forced-dark', dataTheme: 'dark', systemTheme: 'light' },
+];
+
+async function assertInspectorTabPresentation(cdp, phase) {
+  for (const theme of TAB_SIGNAL_THEMES) {
+    await cdp.send('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-color-scheme', value: theme.systemTheme }],
+    });
+    await evaluate(
+      cdp,
+      theme.dataTheme
+        ? `document.documentElement.setAttribute('data-theme', '${theme.dataTheme}')`
+        : "document.documentElement.removeAttribute('data-theme')",
+    );
+    await evaluate(
+      cdp,
+      'new Promise(resolve => requestAnimationFrame(() => setTimeout(() => requestAnimationFrame(resolve), 180)))',
+      true,
+    );
+    const tabs = await evaluate(cdp, TAB_SIGNAL_PRESENTATION_MEASURE);
+    expect([phase, theme.name, tabs.length]).toEqual([phase, theme.name, 10]);
+    expect(tabs.filter((tab) => tab.counted).map((tab) => tab.tab)).toEqual(COUNTED_INSPECTOR_TABS);
+    for (const tab of tabs) {
+      expect({
+        phase, theme: theme.name, tab: tab.tab, opacity: tab.opacity,
+        labelRatio: tab.labelRatio, passes: tab.labelRatio >= 4.5,
+      }).toEqual({
+        phase, theme: theme.name, tab: tab.tab, opacity: '1',
+        labelRatio: tab.labelRatio, passes: true,
+      });
+      expect([phase, theme.name, tab.tab, tab.transitionProperty.split(',').map((value) => value.trim()).includes('color')]).toEqual([
+        phase, theme.name, tab.tab, false,
+      ]);
+      expect([tab.selected, tab.tabIndex]).toEqual([String(tab.active), tab.active ? 0 : -1]);
+      if (!tab.counted && !tab.empty) {
+        expect([phase, theme.name, tab.tab, tab.marker]).toEqual([phase, theme.name, tab.tab, 'none']);
+        continue;
+      }
+      const expectedMarker = tab.counted ? JSON.stringify(tab.count) : '"\u2013"';
+      expect([
+        phase, theme.name, tab.tab, tab.marker, tab.markerRatio >= 4.5,
+        tab.markerBackgroundOpaque, tab.markerBorderStyle, tab.markerBorderWidth,
+        tab.markerRadius, tab.markerMargin,
+      ]).toEqual([
+        phase, theme.name, tab.tab, expectedMarker, true, true,
+        tab.counted ? 'solid' : 'dashed', '1px', '6px', '6px',
+      ]);
+    }
+    const nonzero = tabs.find((tab) => tab.counted && !tab.empty);
+    const zero = tabs.find((tab) => tab.counted && tab.empty);
+    if (nonzero && zero) expect(nonzero.markerColor).not.toBe(zero.markerColor);
+  }
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-color-scheme', value: 'light' }],
+  });
+  await evaluate(cdp, "document.documentElement.removeAttribute('data-theme')");
+}
+
 browserTest(
   'tabs carry counts, mark an empty pane instead of dimming it, and fall back to Headers without losing the picked tab',
   async () => {
@@ -11196,6 +11271,7 @@ browserTest(
       expect(postQuery.fontSize).toBe('12px');
       const postResTabs = await evaluate(cdp, TAB_SIGNAL_MEASURE('res-tab-bar'));
       expect(postResTabs.find((tab) => tab.tab === 'res-cookies')).toMatchObject({ count: '2', empty: false, active: true });
+      await assertInspectorTabPresentation(cdp, 'counted-active');
 
       // The GET row has no cookies: the picked Cookies tabs take the empty
       // marker, Headers shows on both halves, and Query announces its 31
@@ -11228,6 +11304,8 @@ browserTest(
       expect(await evaluate(cdp, "document.querySelector('#req-cookies').classList.contains('active')")).toBe(true);
       await evaluate(cdp, "document.querySelector('#req-tab-headers').click()");
       await evaluate(cdp, "document.querySelector('#req-tab-cookies').click()");
+      await evaluate(cdp, "document.querySelector('#res-tab-cookies').click()");
+      await assertInspectorTabPresentation(cdp, 'empty-active');
 
       // The response half stamps Body and Raw too, once the cached body has
       // landed — until this the bar was given only the cookies count, so an
@@ -11254,6 +11332,7 @@ browserTest(
         marker: '"\u2013"',
       });
       expect(emptyBodyTabs.find((tab) => tab.tab === 'res-raw')).toMatchObject({ marker: 'none' });
+      await assertInspectorTabPresentation(cdp, 'uncounted-empty');
 
       // Back on the POST row the fallback has not overwritten the pick: the
       // Cookies tabs come back on both halves.
@@ -11261,6 +11340,64 @@ browserTest(
       await settleLayout(cdp);
       expect(await evaluate(cdp, "document.querySelector('#req-cookies').classList.contains('active')")).toBe(true);
       expect(await evaluate(cdp, "document.querySelector('#res-cookies').classList.contains('active')")).toBe(true);
+
+      // Badge spacing may make the bar scroll on a narrow panel, but cannot
+      // grow the document or hide a tab reached by keyboard navigation.
+      for (const width of [320, 375, 440, 1280]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width, height: 800, deviceScaleFactor: 1, mobile: false,
+        });
+        await settleLayout(cdp);
+        const frame = await evaluate(
+          cdp,
+          `(() => {
+            const details = document.getElementById('details');
+            return {
+              documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              detailsOverflow: details.scrollWidth - details.clientWidth,
+            };
+          })()`,
+        );
+        expect([width, frame.documentOverflow <= 1, frame.detailsOverflow <= 1]).toEqual([width, true, true]);
+        for (const barId of ['req-tab-bar', 'res-tab-bar']) {
+          await evaluate(cdp, `document.querySelector('#${barId} .tab-btn.active').focus()`);
+          await pressKey(cdp, 'End', 'End', 35);
+          await settleLayout(cdp);
+          const end = await evaluate(
+            cdp,
+            `(() => {
+              const bar = document.getElementById('${barId}');
+              const selected = bar.querySelector('.tab-btn[aria-selected="true"]');
+              const b = bar.getBoundingClientRect();
+              const r = selected.getBoundingClientRect();
+              return {
+                focused: document.activeElement === selected,
+                tab: selected.dataset.tab,
+                visible: r.left >= b.left - 1 && r.right <= b.right + 1,
+                scrollable: bar.scrollWidth > bar.clientWidth,
+                scrollLeft: bar.scrollLeft,
+              };
+            })()`,
+          );
+          expect([width, barId, end.focused, end.tab, end.visible]).toEqual([
+            width, barId, true, barId === 'req-tab-bar' ? 'req-raw' : 'res-raw', true,
+          ]);
+          if (end.scrollable) expect([width, barId, end.scrollLeft > 0]).toEqual([width, barId, true]);
+          await pressKey(cdp, 'Home', 'Home', 36);
+          await pressKey(cdp, 'ArrowRight', 'ArrowRight', 39);
+          const next = await evaluate(
+            cdp,
+            `(() => {
+              const bar = document.getElementById('${barId}');
+              const selected = bar.querySelector('.tab-btn[aria-selected="true"]');
+              return { focused: document.activeElement === selected, tab: selected.dataset.tab };
+            })()`,
+          );
+          expect([width, barId, next.focused, next.tab]).toEqual([
+            width, barId, true, barId === 'req-tab-bar' ? 'req-body' : 'res-body',
+          ]);
+        }
+      }
 
       // Clearing the capture empties the panes and their tab signals, so
       // nothing stale survives into the next recording.
