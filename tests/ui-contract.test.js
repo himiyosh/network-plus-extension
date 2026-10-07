@@ -383,11 +383,12 @@ describe('accessible theme contract', () => {
     // class-name run cannot cross a brace, so it stays inside one rule.
     expect(css).not.toMatch(/\.tab-btn\.is-empty[^{}]*\{[^}]*opacity/);
     expect(css).toContain('.tab-btn.is-empty:not(.active){color:var(--text-muted)}');
-    // The numeric marker is the counted tabs' own: Body and Raw count nothing,
-    // so an empty one of those takes an en dash instead of a "0" that named a
-    // count the tab never had. Same token, so the same composited ratio.
+    // Counted tabs get a framed badge; an uncounted empty pane keeps its
+    // distinct en dash instead of advertising a zero-item count.
+    expect(css).toContain('.tab-btn[data-count]::after{content:attr(data-count)}');
+    expect(css).toContain('.tab-btn[data-count]:not(.is-empty)::after{color:var(--text-accent)}');
     expect(css).toContain(
-      ".tab-btn.is-empty:not([data-count])::after{content:'\\2013';margin-left:4px;font-size:11px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}",
+      ".tab-btn.is-empty:not([data-count])::after{content:'\\2013';border-style:dashed}",
     );
     expect(js).toContain('if (count !== null && INSPECTOR_COUNTED_TABS.has(tabId)) {');
   });

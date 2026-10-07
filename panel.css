@@ -335,18 +335,17 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 
 /* === Tabs === */
 .tab-bar{display:flex;flex-wrap:nowrap;overflow-x:auto;background:var(--surface);border-bottom:1px solid var(--border);gap:0;padding:0;scrollbar-width:thin}
-/* One weight in both states: a bolder active label reflowed the whole row on every activation. */
-.tab-btn{padding:5px 10px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s,color 0.15s;font-weight:600}
+/* One weight avoids reflow; text snaps to its AA-safe state without a low-contrast crossfade. */
+.tab-btn{padding:5px 10px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:background-color 0.15s,border-color 0.15s;font-weight:600}
 .tab-btn:hover{color:var(--fg);background:var(--hover)}
 .tab-btn.active{color:var(--text-accent);border-bottom-color:var(--accent);background:var(--accent-dim)}
-/* Query / Cookies carry their item count after the label, 0 included; an empty pane keeps its tab clickable. */
-.tab-btn[data-count]::after{content:attr(data-count);margin-left:4px;font-size:11px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}
-/* The empty tab stays clickable, so its label is interactive text: it keeps a
-   full-opacity token colour (opacity:.55 composited below AA in both themes)
-   and carries a marker as the non-colour signal. Body and Raw count nothing,
-   so theirs is an en dash — a 0 there named a count the tab does not have. */
+/* Compact framed signals keep counts separate from tab labels in both themes. */
+.tab-btn[data-count]::after,.tab-btn.is-empty:not([data-count])::after{display:inline-block;box-sizing:border-box;min-width:18px;margin-left:6px;padding:0 4px;border:1px solid var(--control-border);border-radius:6px;background:var(--bg);color:var(--text-muted);font-size:10px;font-weight:700;line-height:14px;text-align:center;font-variant-numeric:tabular-nums}
+.tab-btn[data-count]::after{content:attr(data-count)}
+.tab-btn[data-count]:not(.is-empty)::after{color:var(--text-accent)}
+/* Empty tabs stay clickable at full text opacity; an uncounted pane uses a dashed en dash, not a numeric zero. */
 .tab-btn.is-empty:not(.active){color:var(--text-muted)}
-.tab-btn.is-empty:not([data-count])::after{content:'\2013';margin-left:4px;font-size:11px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.tab-btn.is-empty:not([data-count])::after{content:'\2013';border-style:dashed}
 .pane-empty{margin:0;font-size:12px;color:var(--text-muted)}
 /* scroll-padding only acts on the scrollport itself; on a non-scrolling child it is inert. */
 .tab-content-area{flex:1;overflow:auto;position:relative;scroll-padding-top:var(--pane-bar-height,36px)}

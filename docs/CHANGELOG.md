@@ -8,6 +8,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## v1.15.0 - 2026-10-06
 
+- 🔧 **Inspector tab signals** — frame Query and Cookies counts with distinct nonzero and empty colors; mark an uncounted empty Body with a dashed badge.
 - 🐛 **Body/Raw regex errors** — show localized inline feedback linked to each pane input instead of reporting No matches for malformed searches.
 - 🐛 **Deep-search regex** — keep malformed keywords editable but unapplied, preserving valid matches with accessible inline errors.
 - 🔧 **Pane-local search (#35)** — Headers, Query and Cookies lost pane-local search; only Request/Response Body and Raw retain it, even when Body is empty. Query copy remains.
