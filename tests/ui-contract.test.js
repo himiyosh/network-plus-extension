@@ -70,7 +70,7 @@ const searchColorTokens = [
   'search-purple',
   'search-orange',
 ];
-const nonTextContrastTokens = ['control-border', 'separator'];
+const nonTextContrastTokens = ['control-border', 'separator', 'accent'];
 const SEPARATOR_FOCUS_CASCADE_CONTRACT = 'workbench separator focus cascade';
 const LIVE_COMMIT_BOUNDARIES = [
   {
@@ -325,7 +325,7 @@ describe('accessible theme contract', () => {
     }
   });
 
-  test('keeps control and separator boundaries at WCAG non-text contrast', () => {
+  test('keeps controls, separators and focus indicators at WCAG non-text contrast', () => {
     for (const [themeName, theme] of [
       ['light', light],
       ['system dark', systemDark],
@@ -437,6 +437,14 @@ describe('accessible theme contract', () => {
 });
 
 describe('accessible workbench static contracts', () => {
+  test('native controls and scrollbars track the visible theme', () => {
+    expect(css).toMatch(/\/\* --- Light Theme --- \*\/\s*:root\{\s*color-scheme:light;/);
+    expect(css).toMatch(/@media \(prefers-color-scheme: dark\)\{:root\{\s*color-scheme:dark;/);
+    expect(css).toMatch(/html\[data-theme="dark"\]\{\s*color-scheme:dark;/);
+    expect(css).toMatch(/html\[data-theme="light"\]\{\s*color-scheme:light;/);
+    expect(css).toContain('::-webkit-scrollbar-thumb{background:var(--control-border);border-radius:4px}');
+  });
+
   test('does not use gradient text or thick colored side borders for row states', () => {
     expect(css).not.toMatch(/background-clip\s*:\s*text|-webkit-text-fill-color/i);
     const stateRules = Array.from(
@@ -1441,7 +1449,7 @@ describe('scroll targets clear their sticky furniture', () => {
   test('the grid and the panes inset their scrollport past the sticky element', () => {
     const wrap = css.match(/\.tableWrap\{([^}]*)\}/);
     expect(wrap).not.toBeNull();
-    expect(wrap[1]).toContain('scroll-padding-top:30px');
+    expect(wrap[1]).toContain('scroll-padding-top:34px');
     // scroll-padding acts only on the scrollport; pinning it on .tab-pane
     // froze the very bug it was meant to guard against.
     // The pane toolbar wraps to two rows in a narrow pane, so the inset is a
