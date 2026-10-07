@@ -7277,7 +7277,7 @@ browserTest(
           return {
             rowCount: rows.size,
             overflow: strip.scrollWidth - strip.clientWidth,
-            leadingSeparators: Array.from(rows.values()).map(
+            leadingMarkers: Array.from(rows.values()).map(
               (row) => getComputedStyle(row[0], '::before').content,
             ),
             trailingSeparators: items.map((item) => getComputedStyle(item, '::after').content),
@@ -7293,11 +7293,13 @@ browserTest(
       expect(wrappedStrip.overflow).toBeLessThanOrEqual(0);
       expect(wrappedStrip.firstOfEachRow[0]).toBe('503 Service Unavailable');
       expect(wrappedStrip.firstOfEachRow).toHaveLength(wrappedStrip.rowCount);
-      // Nothing draws a leading separator any more, so no wrapped line can
-      // open on a dangling middot however many lines the face produces; every
-      // item but the last draws a trailing one, so it travels with the item it
-      // follows.
-      expect(wrappedStrip.leadingSeparators).toEqual(new Array(wrappedStrip.rowCount).fill('none'));
+      // The 503 status draws a leading empty-content dot, not a separator.
+      // Later wrapped lines have no leading marker; every item but the last
+      // keeps its trailing middot with the item it follows.
+      expect(wrappedStrip.leadingMarkers).toEqual([
+        '""',
+        ...new Array(wrappedStrip.rowCount - 1).fill('none'),
+      ]);
       expect(wrappedStrip.trailingSeparators).toEqual(['"·"', '"·"', '"·"', '"·"', '"·"', 'none']);
       await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       await settleLayout(cdp);

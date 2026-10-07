@@ -138,12 +138,17 @@ async function connectCdp(webSocketUrl) {
 
   let nextId = 0;
   const pending = new Map();
+  const eventListeners = new Set();
   const rejectPending = (error) => {
     for (const request of pending.values()) request.reject(error);
     pending.clear();
   };
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(String(event.data));
+    if (message.id === undefined) {
+      for (const listener of eventListeners) listener(message);
+      return;
+    }
     const request = pending.get(message.id);
     if (!request) return;
     pending.delete(message.id);
@@ -161,6 +166,10 @@ async function connectCdp(webSocketUrl) {
   });
 
   return {
+    onEvent: (listener) => {
+      eventListeners.add(listener);
+      return () => eventListeners.delete(listener);
+    },
     close: () => {
       if (socket.readyState === WebSocket.CLOSED) return Promise.resolve();
       return new Promise((resolve) => {
@@ -387,6 +396,7 @@ module.exports = {
   stopBrowser,
   removeProfileDirectory,
   startBrowserSession,
+  waitForPanelReady,
   launchPanelPage,
   panelUrlWithQuery,
 };
