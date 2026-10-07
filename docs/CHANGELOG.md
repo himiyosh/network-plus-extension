@@ -4,7 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- No changes have been recorded since v1.15.0.
+- 🔧 **Workbench clarity prototype** — clarify the request grid, inspector, controls, filters and empty states with calmer Light/Dark surfaces and unchanged request behavior.
 
 ## v1.15.0 - 2026-10-06
 
