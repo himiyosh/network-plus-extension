@@ -7227,12 +7227,68 @@ browserTest(
         `(() => ({
           strip: getComputedStyle(document.querySelector('.details-summary-status--5xx')).color,
           grid: getComputedStyle(document.querySelector('#tbody tr.status-5xx .status-cell')).color,
+          indicator: (() => {
+            const status = document.querySelector('.details-summary-status--5xx');
+            const pseudo = getComputedStyle(status, '::before');
+            return {
+              content: pseudo.content,
+              width: pseudo.width,
+              height: pseudo.height,
+              color: pseudo.backgroundColor,
+            };
+          })(),
           badgeBg: getComputedStyle(document.querySelector('.details-title-method')).backgroundColor,
           gridBadgeBg: getComputedStyle(document.querySelector('#tbody tr.method-POST .method-badge')).backgroundColor,
         }))()`,
       );
       expect(colours.strip).toBe(colours.grid);
+      expect(colours.indicator).toEqual({
+        content: '""',
+        width: '5px',
+        height: '5px',
+        color: colours.strip,
+      });
       expect(colours.badgeBg).toBe(colours.gridBadgeBg);
+
+      const requestSwitchReset = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const tab = document.querySelector('#res-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', metaKey: true, bubbles: true, cancelable: true,
+          }));
+          const oldPane = document.querySelector('#res-body');
+          const oldInput = oldPane.querySelector('.pane-search-input');
+          oldInput.value = 'error';
+          oldInput.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => oldPane.querySelectorAll('mark.pane-search-hit').length > 0, 400);
+          Array.from(document.querySelectorAll('#tbody tr[data-row-id]')).find((tr) =>
+            tr.querySelector('.status-cell').textContent.trim().startsWith('200'),
+          ).click();
+          await waitFor(() => document.querySelector('.details-summary-status--2xx'), 400);
+          const newPane = document.querySelector('#res-body');
+          return {
+            hidden: newPane.querySelector('.pane-search-controls').hidden,
+            query: newPane.querySelector('.pane-search-input').value,
+            hits: newPane.querySelectorAll('mark.pane-search-hit').length,
+          };
+        })()`,
+        true,
+      );
+      expect(requestSwitchReset).toEqual({ hidden: true, query: '', hits: 0 });
+      expect(
+        await evaluate(
+          cdp,
+          `getComputedStyle(document.querySelector('.details-summary-status--2xx'), '::before').content`,
+        ),
+      ).toBe('none');
+      await evaluate(
+        cdp,
+        `Array.from(document.querySelectorAll('#tbody tr[data-row-id]')).find((tr) =>
+          tr.querySelector('.status-cell').textContent.trim().startsWith('503'),
+        ).click()`,
+      );
 
       // An empty pane's tab stays clickable, so its label is interactive text.
       // The signal is the marker after the label, never a dimmed label: the
@@ -7293,7 +7349,7 @@ browserTest(
       // open on a dangling middot however many lines the face produces; every
       // item but the last draws a trailing one, so it travels with the item it
       // follows.
-      expect(wrappedStrip.leadingSeparators).toEqual(new Array(wrappedStrip.rowCount).fill('none'));
+      expect(wrappedStrip.leadingSeparators).toEqual(['""', ...new Array(wrappedStrip.rowCount - 1).fill('none')]);
       expect(wrappedStrip.trailingSeparators).toEqual(['"·"', '"·"', '"·"', '"·"', '"·"', 'none']);
       await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       await settleLayout(cdp);
@@ -8540,6 +8596,10 @@ browserTest(
           const responseEmpty = document.querySelector('#res-body .pane-empty').textContent;
           const requestInput = document.querySelector('#req-body .pane-search-input');
           const responseInput = document.querySelector('#res-body .pane-search-input');
+          const initiallyHidden = Object.fromEntries(searchable.map((id) => [
+            id,
+            document.querySelector('#' + id + ' .pane-search-controls').hidden,
+          ]));
           requestInput.value = requestEmpty;
           responseInput.value = responseEmpty;
           requestInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -8558,13 +8618,14 @@ browserTest(
             const input = document.querySelector('#' + paneId + ' .pane-search-input');
             tab.click();
             tab.focus();
-            const visible = input.getClientRects().length > 0;
+            const visibleBefore = input.getClientRects().length > 0;
             tab.dispatchEvent(new KeyboardEvent('keydown', {
               key: 'f', [modifier]: true, bubbles: true, cancelable: true,
             }));
             tabShortcuts.push({
               tab: tabId,
-              visible,
+              visibleBefore,
+              visibleAfter: input.getClientRects().length > 0,
               focused: document.activeElement === input,
               globalSearchHidden: document.querySelector('#searchPanel').style.display === 'none',
             });
@@ -8573,14 +8634,15 @@ browserTest(
           document.querySelector('#res-tab-headers').click();
           return {
             bars,
+            initiallyHidden,
             requestEmpty,
             responseEmpty,
             requestCount: reqCount(),
             responseCount: resCount(),
             requestHits: document.querySelectorAll('#req-body mark.pane-search-hit').length,
             responseHits: document.querySelectorAll('#res-body mark.pane-search-hit').length,
-            requestNavDisabled: Array.from(document.querySelectorAll('#req-body .pane-search-nav:not(.pane-search-expand)')).every((button) => button.disabled),
-            responseNavDisabled: Array.from(document.querySelectorAll('#res-body .pane-search-nav:not(.pane-search-expand)')).every((button) => button.disabled),
+            requestNavDisabled: Array.from(document.querySelectorAll('#req-body .pane-search-nav:not(.pane-search-expand):not(.pane-search-close)')).every((button) => button.disabled),
+            responseNavDisabled: Array.from(document.querySelectorAll('#res-body .pane-search-nav:not(.pane-search-expand):not(.pane-search-close)')).every((button) => button.disabled),
             cookieRows: [
               document.querySelectorAll('#req-cookies .cookie-table tbody > tr').length,
               document.querySelectorAll('#res-cookies .cookie-table tbody > tr').length,
@@ -8596,6 +8658,9 @@ browserTest(
           'req-headers': 0, 'req-query': 0, 'req-cookies': 0,
           'res-headers': 0, 'res-cookies': 0, 'res-timing': 0,
         },
+        initiallyHidden: {
+          'req-body': true, 'req-raw': true, 'res-body': true, 'res-raw': true,
+        },
         requestEmpty: 'No request body',
         responseEmpty: '(no response body)',
         requestCount: 'No matches',
@@ -8606,10 +8671,10 @@ browserTest(
         responseNavDisabled: true,
         cookieRows: [1, 1],
         tabShortcuts: [
-          { tab: 'req-tab-body', visible: true, focused: true, globalSearchHidden: true },
-          { tab: 'req-tab-raw', visible: true, focused: true, globalSearchHidden: true },
-          { tab: 'res-tab-body', visible: true, focused: true, globalSearchHidden: true },
-          { tab: 'res-tab-raw', visible: true, focused: true, globalSearchHidden: true },
+          { tab: 'req-tab-body', visibleBefore: false, visibleAfter: true, focused: true, globalSearchHidden: true },
+          { tab: 'req-tab-raw', visibleBefore: false, visibleAfter: true, focused: true, globalSearchHidden: true },
+          { tab: 'res-tab-body', visibleBefore: false, visibleAfter: true, focused: true, globalSearchHidden: true },
+          { tab: 'res-tab-raw', visibleBefore: false, visibleAfter: true, focused: true, globalSearchHidden: true },
         ],
       });
 
@@ -11614,8 +11679,8 @@ const PANE_TOOLBAR_NARROW_MEASURE = `(() => {
   const copy = bar.querySelector('.copy-actions').getBoundingClientRect();
   const input = bar.querySelector('.pane-search-input').getBoundingClientRect();
   const copyButtons = Array.from(bar.querySelectorAll('.copy-btn'));
-  const navButtons = Array.from(bar.querySelectorAll('.pane-search-nav:not(.pane-search-expand)'));
-  const cluster = Array.from(bar.querySelectorAll('.pane-search-count,.pane-search-nav')).filter(
+  const navButtons = Array.from(bar.querySelectorAll('.pane-search-nav:not(.pane-search-expand):not(.pane-search-close)'));
+  const cluster = Array.from(bar.querySelectorAll('.pane-search-count,.pane-search-nav:not(.pane-search-close)')).filter(
     (element) => !element.hidden && element.getBoundingClientRect().width > 0,
   );
   const rowsOf = (elements) => {
@@ -11712,7 +11777,7 @@ browserTest(
             return {
               count: pane.querySelector('.pane-search-count').textContent,
               hits: pane.querySelectorAll('mark.pane-search-hit').length,
-              navDisabled: Array.from(pane.querySelectorAll('.pane-search-nav:not(.pane-search-expand)'))
+              navDisabled: Array.from(pane.querySelectorAll('.pane-search-nav:not(.pane-search-expand):not(.pane-search-close)'))
                 .every((button) => button.disabled),
               invalid: input.getAttribute('aria-invalid'),
               descriptionId,
@@ -11725,7 +11790,15 @@ browserTest(
             };
           };
           const type = async (id, value, ready) => {
+            const pane = document.getElementById(id);
             const input = document.querySelector('#' + id + ' .pane-search-input');
+            if (pane.querySelector('.pane-search-controls').hidden) {
+              const tab = document.querySelector('#' + id.replace('-', '-tab-'));
+              tab.focus();
+              tab.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+              }));
+            }
             input.focus();
             input.value = value;
             input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -11949,6 +12022,11 @@ browserTest(
         `(async () => {${WAIT_FOR_IN_PAGE}
           const pane = document.querySelector('#req-raw');
           const input = pane.querySelector('.pane-search-input');
+          const tab = document.querySelector('#req-tab-raw');
+          tab.focus();
+          tab.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }),
+          );
           const count = () => pane.querySelector('.pane-search-count').textContent;
           input.value = 'query';
           input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -11964,16 +12042,23 @@ browserTest(
           press('Enter');
           const next = count();
           press('Escape');
+          const cleared = {
+            query: input.value,
+            count: count(),
+            hits: pane.querySelectorAll('mark.pane-search-hit').length,
+            focused: document.activeElement === input,
+            searchVisible: input.getClientRects().length > 0,
+          };
+          press('Escape');
           return {
             start,
             previous,
             wrapped,
             next,
-            cleared: {
-              query: input.value,
-              count: count(),
-              hits: pane.querySelectorAll('mark.pane-search-hit').length,
-              focused: document.activeElement === input,
+            cleared,
+            closed: {
+              hidden: pane.querySelector('.pane-search-controls').hidden,
+              focusedTab: document.activeElement.id,
             },
           };
         })()`,
@@ -11984,7 +12069,8 @@ browserTest(
         previous: '2 / 2',
         wrapped: '1 / 2',
         next: '2 / 2',
-        cleared: { query: '', count: '', hits: 0, focused: true },
+        cleared: { query: '', count: '', hits: 0, focused: true, searchVisible: true },
+        closed: { hidden: true, focusedTab: 'req-tab-raw' },
       });
       await evaluate(cdp, "document.querySelector('#req-tab-body').click()");
       expect(await evaluate(cdp, PANE_TOOLBAR_MEASURE('res-raw'))).toMatchObject({
@@ -12063,6 +12149,11 @@ browserTest(
         `(async () => {${WAIT_FOR_IN_PAGE}
           const count = () => document.querySelector('#req-body .pane-search-count').textContent;
           const input = document.querySelector('#req-body .pane-search-input');
+          const tab = document.querySelector('#req-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+          }));
           const before = count();
           input.value = 'id-139';
           input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -12145,6 +12236,11 @@ browserTest(
       const collapsedHits = await evaluate(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
+          const tab = document.querySelector('#res-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+          }));
           const count = () => document.querySelector('#res-body .pane-search-count').textContent;
           const input = document.querySelector('#res-body .pane-search-input');
           const before = count();
@@ -12348,7 +12444,9 @@ const BODY_VIEW_MEASURE = `(() => {
     return centres.length;
   };
   return {
-    barRows: bar ? rowsOf(Array.from(bar.children)) : null,
+    barRows: bar ? rowsOf(Array.from(bar.querySelectorAll(
+      ':scope > .pane-search-controls > .pane-search-field, :scope > .pane-search-controls > .pane-search-nav-group, :scope > .body-view-toggle, :scope > .copy-actions',
+    ))) : null,
     copyLabelShown: bar ? getComputedStyle(bar.querySelector('.copy-btn-label')).display !== 'none' : null,
     barWithView: bar ? bar.classList.contains('pane-search-bar--with-view') : null,
     bars: pane.querySelectorAll('.pane-search-bar').length,
@@ -12524,6 +12622,11 @@ browserTest(
           await evaluate(
             cdp,
             `(async () => {${WAIT_FOR_IN_PAGE}
+              const tab = document.querySelector('#res-tab-body');
+              tab.focus();
+              tab.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'f', metaKey: true, bubbles: true, cancelable: true,
+              }));
               const input = document.querySelector('#res-body .pane-search-input');
               const count = () => document.querySelector('#res-body .pane-search-count').textContent;
               const before = count();
@@ -12576,10 +12679,12 @@ browserTest(
         // The widest state of this toolbar — search text, a hidden-source hit
         // count, Show in Source and the picker, all beside the copy pair —
         // must fit the pane at every width the panel ships, in both languages.
-        // Back to Rendered first: the stored query re-applies against the
-        // frame, so the count and Show in Source are on screen again. No label
-        // width is pinned: CI's fallback fonts are wider.
+        // Back to Rendered first. English stays on the same request, so its
+        // query re-applies; the Japanese label check deliberately selected
+        // two other requests, so the request-switch reset leaves search empty.
+        // No label width is pinned: CI's fallback fonts are wider.
         await clickView('rendered');
+        await typeQuery('needle-in-the-markup');
         expect(await evaluate(cdp, BODY_VIEW_MEASURE)).toMatchObject({
           contentTag: 'IFRAME',
           expandHidden: false,
@@ -12935,6 +13040,11 @@ browserTest(
       await evaluate(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
+          const tab = document.querySelector('#res-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+          }));
           const count = () => document.querySelector('#res-body .pane-search-count').textContent;
           const input = document.querySelector('#res-body .pane-search-input');
           const before = count();
@@ -13300,9 +13410,9 @@ browserTest(
       expect(clippedHit.toggleExpanded).toBe('true');
 
       // The same query, stored, is re-applied to every Body/Raw pane on the
-      // next render — including the three the reader is not looking at, where
-      // a mark also has offsetParent === null. Revealing there opened nodes
-      // and pressed controls in a pane nobody had on screen.
+      // same-row render — including the three the reader is not looking at,
+      // where a mark also has offsetParent === null. Revealing there opened
+      // nodes and pressed controls in a pane nobody had on screen.
       const hiddenPane = await evaluate(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
@@ -13310,6 +13420,11 @@ browserTest(
             new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 80))));
           const count = () => document.querySelector('#req-body .pane-search-count').textContent;
           const input = document.querySelector('#req-body .pane-search-input');
+          const tab = document.querySelector('#req-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+          }));
           const before = count();
           input.value = 'level';
           input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -13553,7 +13668,9 @@ const PANE_TOOLBAR_BAND_MEASURE = `(() => {
   };
   return {
     paneWidth: Math.round(document.querySelector('#details').getBoundingClientRect().width),
-    barRows: rowsOf(Array.from(bar.children)),
+    barRows: rowsOf(Array.from(bar.querySelectorAll(
+      ':scope > .pane-search-controls > .pane-search-field, :scope > .pane-search-controls > .pane-search-nav-group, :scope > .body-view-toggle, :scope > .copy-actions',
+    ))),
     barHeight: Math.round(bar.getBoundingClientRect().height),
     queryFits: textWidth <= contentWidth,
     queryContentWidth: Math.round(contentWidth),
@@ -13636,6 +13753,11 @@ browserTest(
         await evaluate(
           cdp,
           `(async () => {${WAIT_FOR_IN_PAGE}
+            const tab = document.querySelector('#res-tab-body');
+            tab.focus();
+            tab.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+            }));
             const count = () => document.querySelector('#res-body .pane-search-count').textContent;
             const input = document.querySelector('#res-body .pane-search-input');
             const before = count();
@@ -15338,6 +15460,11 @@ const LOCALIZED_SURFACES_BUILD = `(async () => {${WAIT_FOR_IN_PAGE}
   await settle();
   const bar = document.querySelector('#res-raw .pane-search-bar');
   const input = bar.querySelector('.pane-search-input');
+  const rawTab = document.querySelector('#res-tab-raw');
+  rawTab.focus();
+  rawTab.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+  }));
   // A query with no hits is what makes the count line write its own words.
   const countText = () => text(bar.querySelector('.pane-search-count'));
   const countBefore = countText();
@@ -15464,6 +15591,7 @@ const LOCALIZED_SURFACES_JA_ALLOWED_LATIN = [
   'Network+ for DevTools',
   'Shift+Enter',
   'Enter',
+  'Esc',
   'Request',
   'Response',
   'HAR',
@@ -15493,8 +15621,12 @@ browserTest(
         expandTitle:
           'Some matches are inside collapsed or truncated content. Expand everything to include them.',
         expandLabel: 'Expand collapsed content in the raw response view to reveal all matches',
-        navTitles: ['Previous match (Shift+Enter)', 'Next match (Enter)'],
-        navLabels: ['Previous match in the raw response view', 'Next match in the raw response view'],
+        navTitles: ['Close pane search (Esc)', 'Previous match (Shift+Enter)', 'Next match (Enter)'],
+        navLabels: [
+          'Close search in the raw response view',
+          'Previous match in the raw response view',
+          'Next match in the raw response view',
+        ],
         copyLabels: ['Copy sanitized', 'Copy full...'],
         copyToast: 'Copied sanitized raw response',
       });
@@ -15579,8 +15711,12 @@ browserTest(
         expandTitle:
           '一部の一致は折りたたまれた内容や省略された内容の中にあります。すべて展開すると含まれます。',
         expandLabel: '生レスポンスビューの折りたたまれた内容を展開してすべての一致を表示',
-        navTitles: ['前の一致 (Shift+Enter)', '次の一致 (Enter)'],
-        navLabels: ['生レスポンスビュー内の前の一致', '生レスポンスビュー内の次の一致'],
+        navTitles: ['ペイン内検索を閉じる (Esc)', '前の一致 (Shift+Enter)', '次の一致 (Enter)'],
+        navLabels: [
+          '生レスポンスビュー内の検索を閉じる',
+          '生レスポンスビュー内の前の一致',
+          '生レスポンスビュー内の次の一致',
+        ],
         copyLabels: ['サニタイズ済みをコピー', 'フルでコピー...'],
         copyToast: 'サニタイズ済み生レスポンスをコピーしました',
       });
@@ -15714,8 +15850,9 @@ browserTest(
             ? value.flatMap(flatten)
             : Object.values(value).flatMap(flatten);
       const painted = flatten(observed).filter((value) => value.trim() !== '');
-      // 75 with the Timing pane's 'Total' key, which the panel writes itself.
-      expect(painted.length).toBe(75);
+      // 77 with the Timing pane's 'Total' key and the localized pane-search
+      // close title/name, which the panel writes itself.
+      expect(painted.length).toBe(77);
       for (const value of painted) {
         // No English word may survive the allow-list.
         expect([value, /[A-Za-z]/.test(stripAllowed(value))]).toEqual([value, false]);

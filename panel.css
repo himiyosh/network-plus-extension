@@ -312,6 +312,7 @@ input[type="checkbox"]:not(:disabled){outline:1px solid var(--control-border);ou
 .details-summary-status--3xx{color:var(--status-3xx-text)}
 .details-summary-status--4xx{color:var(--status-4xx-text)}
 .details-summary-status--5xx{color:var(--status-5xx-text)}
+.details-summary-status--3xx::before,.details-summary-status--4xx::before,.details-summary-status--5xx::before{content:'';display:inline-block;width:5px;height:5px;margin-right:6px;border-radius:50%;background:currentColor;vertical-align:middle}
 /* The header chip is a bordered pill; the trailing separator sits on the item before it, outside the pill. */
 .details-summary-chip{padding:0 6px;border:1px solid var(--border);border-radius:999px;background:var(--content-bg);color:var(--fg)}
 /* Before any selection: one line of guidance instead of two empty tab strips. */
@@ -1101,8 +1102,11 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 
 /* === Buttons === */
 .copy-actions{display:flex;justify-content:flex-end;gap:6px;margin-bottom:6px;flex-wrap:wrap}
-/* The pane's one toolbar: search on the left, the copy actions on the right, stuck to the top of the scrolling pane. */
+/* The pane toolbar always keeps copy/view actions available. Search controls join it only in explicit search mode. */
 .pane-search-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-10px -10px 8px;padding:4px 8px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:2}
+.pane-search-controls{display:contents}
+.pane-search-controls[hidden]{display:none}
+.pane-search-field{position:relative;flex:1 1 160px;min-width:120px}
 /* Last in the bar and right-aligned; when even the icon pair will not fit it drops to a second toolbar row instead of overflowing the pane. */
 .pane-search-bar .copy-actions{margin:0 0 0 auto;flex:0 1 auto}
 .pane-search-bar .copy-btn{white-space:nowrap}
@@ -1114,7 +1118,7 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
    typed "BEACONWORD". The basis is still the shrunk width, not the placeholder's:
    a long Japanese placeholder claimed the whole first row when the lines were
    formed and pushed the copy pair onto a second one before a query was typed. */
-.pane-search-input{flex:1 1 160px;min-width:120px;background:var(--content-bg);color:var(--fg);border:1px solid var(--control-border);border-radius:4px;padding:3px 6px;font:inherit;font-size:12px}
+.pane-search-input{width:100%;min-width:0;background:var(--content-bg);color:var(--fg);border:1px solid var(--control-border);border-radius:4px;padding:3px 28px 3px 6px;font:inherit;font-size:12px}
 .pane-search-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .pane-search-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--text-muted);white-space:nowrap}
 .pane-search-error{flex:0 0 100%;box-sizing:border-box;font-size:11px;font-weight:600;color:var(--status-5xx-text);overflow-wrap:anywhere}
@@ -1122,6 +1126,8 @@ kbd{display:inline-block;padding:1px 5px;background:var(--bg);border:1px solid v
 .pane-search-nav{flex:none;min-height:22px;background:var(--bg);border:1px solid var(--control-border);color:var(--text-muted);border-radius:4px;cursor:pointer;padding:1px 7px;font-size:11px}
 .pane-search-nav:hover{border-color:var(--accent);color:var(--text-accent)}
 .pane-search-nav:disabled{opacity:.5;cursor:default}
+.pane-search-close{position:absolute;top:50%;right:2px;min-width:20px;min-height:18px;padding:0 5px;border:0;background:transparent;transform:translateY(-50%);font-size:14px;line-height:18px}
+.pane-search-close:hover{background:var(--hover)}
 .pane-search-expand{color:var(--text-accent);border-color:var(--accent)}
 /* The Body pane's renderer picker (Tree | Text, Rendered | Source), sitting in the same
    toolbar. Sized by its own text and allowed to wrap with the bar: the labels translate,
