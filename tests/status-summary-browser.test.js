@@ -10947,6 +10947,169 @@ browserTest(
   TEST_TIMEOUT_MS * 2,
 );
 
+browserTest(
+  'inspector-led details follow real selected rows, timing evidence, body states and sanitized copy',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1440,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT + CLIPBOARD_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await cdp.send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      await waitForLiveNetworkListener(cdp);
+      const evidence = await evaluate(
+        cdp,
+        `(async () => {
+          const waitFor = async (predicate) => {
+            for (let attempt = 0; attempt < 80; attempt += 1) {
+              if (predicate()) return;
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            throw new Error('Inspector content did not settle for the selected request.');
+          };
+          const cases = [
+            { status: 200, body: '{"record":"first-marker"}', mime: 'application/json', time: 20, timings: { wait: 15, receive: 5 } },
+            { status: 304, body: '', mime: 'text/plain', time: 0, timings: {} },
+            { status: 404, body: '<img src=x onerror=alert(1)>', mime: 'text/plain', time: 36, timings: { wait: -1, receive: 0 } },
+            { status: 503, body: '{"error":"last-marker"}', mime: 'application/json', time: 120, timings: { blocked: 20, wait: 30, receive: 10 } },
+            { status: 0, body: '', mime: 'text/plain', time: -1, timings: { wait: 25 } },
+            { status: 200, body: 'AAECAwQFBgcICQ==', encoding: 'base64', mime: 'application/octet-stream', size: 10, time: 25, timings: { wait: 10, receive: 15 } },
+            { status: 200, body: 'large-marker' + 'x'.repeat(4200), mime: 'text/plain', time: 30, timings: { wait: 30 } },
+          ];
+          cases.forEach((item, index) => {
+            globalThis.__networkPlusLiveListener({
+              startedDateTime: new Date(1704067200000 + index * 1000).toISOString(),
+              time: item.time,
+              request: {
+                method: 'GET',
+                url: 'https://synthetic.example.test/fixture-' + index,
+                httpVersion: 'HTTP/2',
+                headers: [{ name: 'Accept', value: item.mime }],
+              },
+              response: {
+                status: item.status,
+                statusText: String(item.status),
+                httpVersion: 'HTTP/2',
+                headers: [
+                  { name: 'Content-Type', value: item.mime },
+                  { name: 'Authorization', value: 'synthetic-fixture-do-not-copy' },
+                ],
+                bodySize: item.size ?? item.body.length,
+                content: {
+                  size: item.size ?? item.body.length,
+                  mimeType: item.mime,
+                  text: item.body,
+                  encoding: item.encoding,
+                },
+              },
+              timings: item.timings,
+            });
+          });
+          await waitFor(() => document.querySelectorAll('#tbody tr[data-row-id]').length === cases.length);
+          const seen = [];
+          for (let index = 0; index < cases.length; index += 1) {
+            document.querySelector('#tbody tr[data-row-id="' + (index + 1) + '"]').click();
+            await waitFor(() => {
+              const pane = document.querySelector('#res-body');
+              const body = cases[index].body;
+              return document.querySelector('#tbody tr.selected')?.dataset.rowId === String(index + 1) &&
+                pane.querySelector('.response-preview-heading') &&
+                (body === '' ? pane.textContent.includes('(no response body)') :
+                  body.startsWith('AAEC') ? !!pane.querySelector('.hex-dump') :
+                    body.startsWith('large-marker') ? pane.textContent.includes('large-marker') :
+                      pane.textContent.includes(body.replace(/^[^:]+:/, '').replace(/[{}"<>]/g, '').slice(0, 10)));
+            });
+            const overview = document.querySelector('#detailsTimingOverview');
+            seen.push({
+              status: document.querySelector('#tbody tr.selected .status-cell')?.textContent || '',
+              previewHeading: document.querySelector('#res-body .response-preview-heading').textContent,
+              previewText: document.querySelector('#res-body').textContent.slice(0, 150),
+              overviewHidden: overview.hidden,
+              overviewHeading: overview.querySelector('.details-timing-heading span')?.textContent || '',
+              phases: [...overview.querySelectorAll('.details-timing-segment')].map((segment) =>
+                [segment.className, parseFloat(segment.style.width)]),
+              isJsonTree: !!document.querySelector('#res-body .json-tree'),
+              isHexDump: !!document.querySelector('#res-body .hex-dump'),
+              noInjectedImage: !document.querySelector('#res-body img'),
+              largeToggle: !!document.querySelector('#res-body button.link-btn'),
+              emptyCopyButtons: document.querySelectorAll('#res-body .copy-actions .copy-btn').length,
+            });
+          }
+          const failed = document.querySelector('#tbody tr[data-row-id="4"]');
+          failed.click();
+          await waitFor(() => document.querySelector('#res-body').textContent.includes('last-marker'));
+          const header = [...document.querySelectorAll('#res-headers .kv .key')].find((key) => key.textContent === 'Authorization');
+          const copy = header?.nextElementSibling?.nextElementSibling;
+          if (!copy?.classList.contains('kv-copy-btn')) throw new Error('The response header Copy control is missing.');
+          copy.focus();
+          copy.click();
+          await waitFor(() => globalThis.__networkPlusCopied.length > 0);
+          const copyResult = { value: globalThis.__networkPlusCopied.at(-1), visible: getComputedStyle(copy).opacity === '1' };
+          document.querySelector('#filterBtn').click();
+          const filterOpened = document.querySelector('#filterBtn').getAttribute('aria-expanded') === 'true';
+          document.querySelector('#filterBtn').click();
+          const filterClosed = document.querySelector('#filterBtn').getAttribute('aria-expanded') === 'false';
+          const keyboardRow = document.querySelector('#tbody tr[data-row-id="4"]');
+          keyboardRow.focus();
+          keyboardRow.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+          const keyboardSelection = document.querySelector('#tbody tr.selected')?.dataset.rowId;
+          document.querySelector('#clearBtn').click();
+          return {
+            seen,
+            copyResult,
+            filterOpened,
+            filterClosed,
+            keyboardSelection,
+            clearedRows: document.querySelectorAll('#tbody tr[data-row-id]').length,
+            clearedOverview: document.querySelector('#detailsTimingOverview').hidden,
+            emptyHint: !document.querySelector('#inspectorEmptyState').hidden,
+            reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+            rootOverflow: document.documentElement.scrollWidth - innerWidth,
+            rowHeight: document.querySelector('#tbody tr[data-row-id]')?.getBoundingClientRect().height ?? null,
+          };
+        })()`,
+        true,
+      );
+      expect(evidence.seen.map((entry) => entry.status)).toEqual(['200', '304', '404', '503', '0', '200', '200']);
+      expect(evidence.seen.every((entry) => entry.previewHeading === 'Response preview')).toBe(true);
+      expect(evidence.seen[0]).toMatchObject({ overviewHidden: false, isJsonTree: true });
+      expect(evidence.seen[0].phases.map(([className]) => className)).toEqual([
+        'details-timing-segment timing-phase-wait',
+        'details-timing-segment timing-phase-receive',
+      ]);
+      expect(evidence.seen[1]).toMatchObject({ overviewHidden: true, emptyCopyButtons: 0 });
+      expect(evidence.seen[2]).toMatchObject({ overviewHidden: false, noInjectedImage: true });
+      expect(evidence.seen[2].phases[0][0]).toBe('details-timing-segment details-timing-segment--unaccounted');
+      expect(evidence.seen[3].phases.at(-1)).toEqual([
+        'details-timing-segment details-timing-segment--unaccounted',
+        50,
+      ]);
+      expect(evidence.seen[4].overviewHeading).toBe('Reported phases');
+      expect(evidence.seen[5]).toMatchObject({ isHexDump: true, overviewHidden: false });
+      expect(evidence.seen[6]).toMatchObject({ largeToggle: true, overviewHidden: false });
+      expect(evidence.copyResult).toEqual({ value: '[REDACTED]', visible: true });
+      expect(evidence).toMatchObject({
+        filterOpened: true,
+        filterClosed: true,
+        keyboardSelection: '3',
+        clearedRows: 0,
+        clearedOverview: true,
+        emptyHint: true,
+        reducedMotion: true,
+        rootOverflow: 0,
+      });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
 // One row of the invariant table. 'exact' means the header renders the whole
 // truth; 'marked' means it renders less and says so. Anything else is a lie
 // and is returned verbatim so the failure names the width that produced it.

@@ -1760,7 +1760,9 @@ describe('release trust static contracts', () => {
     // the declared type in their headers, and those are exactly the rows that
     // previously fell through to "(no preview available)".
     expect(js).toContain("const bodyMime = guessMimeType(row);");
-    expect(js).toContain("if (encoding === 'base64' && rawContent && /^image\\//i.test(bodyMime))");
+    expect(js).toContain("const hasImagePreview = encoding === 'base64' && !!rawContent && /^image\\//i.test(bodyMime);");
+    expect(js).toContain("if (hasImagePreview) {");
+    expect(js).toContain("'res-body': displayText || hasImagePreview ? 1 : 0,");
   });
 
   test('shows bytes that are not text as a hex dump instead of decoder mojibake', () => {
@@ -3612,7 +3614,7 @@ describe('detail pane search contracts', () => {
     // One reject list, three reasons, all the same shape of bug: a second copy
     // of text already on screen, or text the panel wrote rather than captured.
     expect(js).toContain(
-      "            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details,.image-preview-caption',",
+      "            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details,.image-preview-caption,.response-preview-heading',",
     );
     // .kv-nested is generated from the raw parameter value in the same cell, so
     // 'utm_id' counted '1 / 2' with the second hit inside a closed disclosure.
@@ -3622,8 +3624,9 @@ describe('detail pane search contracts', () => {
     // a query the same row already shows verbatim. .image-preview-caption
     // joined them when the image stage moved into the searchable Body pane:
     // 'image/gif · 1 × 1 px · 42 B' is the panel's reading of the bytes, and
-    // a search for 'gif' counted it beside the hex dump's own bytes.
-    for (const derived of ['.url-breakdown-decoded', '.jwt-details', '.image-preview-caption']) {
+    // a search for 'gif' counted it beside the hex dump's own bytes. The
+    // localized preview heading is UI, not content sent by the server.
+    for (const derived of ['.url-breakdown-decoded', '.jwt-details', '.image-preview-caption', '.response-preview-heading']) {
       expect([derived, js.includes(derived + ',') || js.includes(derived + "'")]).toEqual([derived, true]);
     }
     expect(js).toContain("  const JWT_SEGMENT_CLASSES = [");
@@ -4080,6 +4083,16 @@ describe('method badge contracts', () => {
   const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'ws', 'sse'];
 
   test('every method badge pair meets WCAG AA in every theme state', () => {
+    const overlay = (background, tint) => {
+      const match = tint.match(/^rgba\((\d+),(\d+),(\d+),([\d.]+)\)$/);
+      expect(match).not.toBeNull();
+      const base = hexToRgb(background);
+      const alpha = Number(match[4]);
+      const rgb = base.map((channel, index) =>
+        Math.round(Number(match[index + 1]) * alpha + channel * (1 - alpha)),
+      );
+      return '#' + rgb.map((channel) => channel.toString(16).padStart(2, '0')).join('');
+    };
     for (const [name, theme] of [
       ['light', light],
       ['systemDark', systemDark],
@@ -4087,32 +4100,34 @@ describe('method badge contracts', () => {
       ['forcedLight', forcedLight],
     ]) {
       for (const method of METHODS) {
-        const fg = theme['method-' + method + '-fg'];
-        const bg = theme['method-' + method + '-bg'];
+        const effectiveMethod = method === 'head' ? 'get' : method === 'ws' ? 'sse' : method;
+        const fg = theme['method-' + effectiveMethod + '-fg'];
         expect(fg).toBeDefined();
-        expect(bg).toBeDefined();
-        const ratio = contrastRatio(fg, bg);
-        if (ratio < 4.5) {
-          throw new Error(name + ' method-' + method + ' badge contrast ' + ratio.toFixed(2) + ' < 4.5');
+        // Unfilled method text sits on the grid, a zebra row, or a selected
+        // row. Check the darkest blend in all four theme states.
+        for (const bg of [theme.bg, overlay(theme.bg, theme.stripe), overlay(theme.bg, theme.selected)]) {
+          const ratio = contrastRatio(fg, bg);
+          if (ratio < 4.5) {
+            throw new Error(name + ' method-' + method + ' text contrast ' + ratio.toFixed(2) + ' < 4.5');
+          }
         }
       }
     }
   });
 
-  test('badges color through row method classes so unknown methods stay plain', () => {
+  test('method labels use semantic text without filled pills; unknown methods stay plain', () => {
     for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD', 'WS', 'SSE']) {
-      const lower = method.toLowerCase();
+      const lower = method === 'HEAD' ? 'get' : method === 'WS' ? 'sse' : method.toLowerCase();
       expect(css).toContain(
         '.grid tbody tr.method-' +
           method +
           ' .method-badge{color:var(--method-' +
           lower +
-          '-fg);background:var(--method-' +
-          lower +
-          '-bg)}',
+          '-fg)}',
       );
     }
-    expect(css).toContain('.method-badge{display:inline-block;min-width:34px;');
+    expect(css).toContain('.method-badge{display:inline-block;text-align:left;padding:1px 0;');
+    expect(css).not.toMatch(/\.grid tbody tr\.method-[A-Z]+ \.method-badge\{[^}]*background:/);
     expect(js).toContain("contentHost.className = 'method-badge';");
   });
 });
@@ -4303,7 +4318,7 @@ describe('jwt decode display contracts', () => {
     // The control has a grid track of its own, so no line of the value can run
     // underneath it: absolutely positioned inside the cell, it painted over the
     // tail of the value's first line — the characters about to be copied.
-    expect(css).toContain('.kv{display:grid;grid-template-columns:fit-content(min(220px,40%)) 1fr auto;gap:0;font-size:13px}');
+    expect(css).toContain('.kv{display:grid;grid-template-columns:minmax(104px,32%) minmax(0,1fr) auto;gap:0;font-size:13px}');
     expect(css).toContain('.kv > .val{grid-column:2}');
     expect(css).toContain('.kv > .kv-copy-btn{grid-column:3}');
     expect(css).not.toMatch(/\.kv > \.kv-copy-btn\{[^}]*position:absolute[^}]*\}/);
@@ -4318,8 +4333,9 @@ describe('jwt decode display contracts', () => {
       // focused one, which is every real-browser regression run.
       '.kv > .key:hover + .val + .kv-copy-btn,.kv > .val:hover + .kv-copy-btn,.kv > .kv-copy-btn:hover,.kv > .kv-copy-btn:focus-within{opacity:1;pointer-events:auto}',
     );
-    // The stacked layout under 520px keeps the control beside the value rather
+    // The stacked layout under 360px keeps the control beside the value rather
     // than dropping it to a line of its own, so it costs no extra height.
+    expect(css).toContain('@container (max-width:360px){');
     expect(css).toContain('  .kv{grid-template-columns:minmax(0,1fr) auto;gap:0}');
     expect(css).toContain('  .kv > .kv-copy-btn{grid-column:2}');
     // The row-end control writes one sanitized value and offers no unsanitized

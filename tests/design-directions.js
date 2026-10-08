@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// Reproducible, extension-backed concept captures. Nothing here is loaded by
-// panel.html or shipped to the extension. Usage:
+// Extension-backed concept captures. The original comparison images on PR #42
+// came from its base main commit; a rerun always captures the current checkout.
+// Nothing here is loaded by panel.html or shipped to the extension. Usage:
 // EDGE_BIN=/path/to/edge node tests/design-directions.js --output-dir /path/outside/repo
 const crypto = require('crypto');
 const fs = require('fs');
@@ -59,7 +60,7 @@ async function waitForTarget(host, predicate, description) {
   throw new Error(`Timed out waiting for the real browser ${description} target.`);
 }
 
-async function openExtension(executable) {
+async function openExtension(executable, extensionDirectory = root) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'network-plus-design-'));
   const browser = spawn(
     executable,
@@ -68,8 +69,8 @@ async function openExtension(executable) {
       '--window-size=1600,950',
       '--remote-debugging-port=0',
       `--user-data-dir=${profile}`,
-      `--disable-extensions-except=${root}`,
-      `--load-extension=${root}`,
+      `--disable-extensions-except=${extensionDirectory}`,
+      `--load-extension=${extensionDirectory}`,
       '--auto-open-devtools-for-tabs',
       '--disable-background-networking',
       '--disable-default-apps',
@@ -728,7 +729,7 @@ async function main() {
       JSON.stringify({ browser: executable, extension: session.identity, baseline, captures, failures }, null, 2) + '\n',
     );
     if (failures.length) throw new Error(`Design checks failed:\n${failures.join('\n')}`);
-    console.log('PASS: 12 concept captures and 4 main baselines came from the loaded Edge DevTools extension.');
+    console.log('PASS: 12 concept captures and 4 current-checkout baselines came from the loaded Edge DevTools extension.');
     console.log(`Audit report: ${path.join(output, 'report.json')}`);
   } finally {
     await session.close();
@@ -741,3 +742,12 @@ if (require.main === module) {
     process.exitCode = 1;
   });
 }
+
+module.exports = {
+  activateSample,
+  auditVisiblePanel,
+  capture,
+  inPanel,
+  openExtension,
+  setViewport,
+};

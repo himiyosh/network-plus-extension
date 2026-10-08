@@ -3002,6 +3002,30 @@ const _NetworkPlus = (function () {
     };
   }
 
+  function planInspectorTimingOverview(timings, totalDuration) {
+    const breakdown = planTimingTable(timings, totalDuration);
+    if (!breakdown.phasesReported || breakdown.span <= 0) {
+      return { visible: false, segments: [] };
+    }
+    const reportedTotal =
+      typeof totalDuration === 'number' &&
+      Number.isFinite(totalDuration) &&
+      totalDuration >= 0 &&
+      breakdown.segmentTotal <= totalDuration + 0.001;
+    const segments = breakdown.rows
+      .filter((entry) => entry.available && entry.widthPct > 0)
+      .map((entry) => ({ phase: entry.phase, widthPct: entry.widthPct }));
+    if (breakdown.hasUnaccounted) {
+      segments.push({ phase: 'unaccounted', widthPct: breakdown.unaccountedSharePct });
+    }
+    return {
+      visible: true,
+      labelKey: reportedTotal ? 'detailsTimingOverview' : 'detailsTimingPhaseSum',
+      duration: reportedTotal ? totalDuration : breakdown.segmentTotal,
+      segments,
+    };
+  }
+
   // Two formatters, one defect class between them: a rendered string that says
   // something its datum does not. fmtTime rounds, so a 0.4 ms phase reads
   // '0 ms'; a 0.04% share reads '0.0%'. Under the resolution each formatter
@@ -6828,6 +6852,18 @@ const _NetworkPlus = (function () {
     detailsTimingBreakdownHeading: {
       en: 'Timing Breakdown',
       ja: 'タイミング内訳',
+    },
+    detailsTimingOverview: {
+      en: 'Timing overview',
+      ja: 'タイミング概要',
+    },
+    detailsTimingPhaseSum: {
+      en: 'Reported phases',
+      ja: '報告されたフェーズの合計',
+    },
+    bodyPreviewHeading: {
+      en: 'Response preview',
+      ja: 'レスポンスプレビュー',
     },
     // The last row of that table, written by the panel rather than read from
     // the HAR, so it is the row that has to translate with the heading above
@@ -13976,6 +14012,11 @@ const _NetworkPlus = (function () {
       summary.hidden = true;
       summary.textContent = '';
     }
+    const timingOverview = $('#detailsTimingOverview');
+    if (timingOverview) {
+      timingOverview.hidden = true;
+      timingOverview.textContent = '';
+    }
   }
 
   function getDetailsTitleMeasureContext() {
@@ -14173,6 +14214,40 @@ const _NetworkPlus = (function () {
     }
     strip.hidden = !strip.firstChild;
     return plan;
+  }
+
+  function renderInspectorTimingOverview(row) {
+    const container = $('#detailsTimingOverview');
+    if (!container) return;
+    const plan = planInspectorTimingOverview(row.timings, row.duration);
+    container.textContent = '';
+    container.hidden = !plan.visible;
+    if (!plan.visible) return;
+
+    container.setAttribute('role', 'group');
+    container.setAttribute('aria-label', uiText('detailsTimingOverview'));
+    const heading = document.createElement('div');
+    heading.className = 'details-timing-heading';
+    const label = document.createElement('span');
+    label.textContent = uiText(plan.labelKey);
+    const value = document.createElement('span');
+    value.className = 'details-timing-value';
+    value.textContent = formatTimingDuration(plan.duration);
+    heading.append(label, value);
+    const rail = document.createElement('div');
+    rail.className = 'details-timing-rail';
+    rail.setAttribute('aria-hidden', 'true');
+    for (const segment of plan.segments) {
+      const bar = document.createElement('span');
+      bar.className =
+        'details-timing-segment ' +
+        (segment.phase === 'unaccounted'
+          ? 'details-timing-segment--unaccounted'
+          : 'timing-phase-' + segment.phase);
+      bar.style.width = Math.min(100, Math.max(0, segment.widthPct)).toFixed(2) + '%';
+      rail.appendChild(bar);
+    }
+    container.append(heading, rail);
   }
 
   function parseCookieHeader(headerValue) {
@@ -14405,7 +14480,7 @@ const _NetworkPlus = (function () {
         if (
           parent &&
           parent.closest(
-            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details,.image-preview-caption',
+            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details,.image-preview-caption,.response-preview-heading',
           )
         ) {
           return NodeFilter.FILTER_REJECT;
@@ -15425,9 +15500,21 @@ const _NetworkPlus = (function () {
     return pre;
   }
 
+  function createResponsePreviewHeading() {
+    const heading = document.createElement('strong');
+    heading.className = 'response-preview-heading';
+    heading.textContent = uiText('bodyPreviewHeading');
+    return heading;
+  }
+
   function setResponsePaneMessage(message) {
-    $('#res-body').textContent = message;
-    $('#res-raw').textContent = message;
+    const body = $('#res-body');
+    body.textContent = '';
+    body.appendChild(createResponsePreviewHeading());
+    renderPaneEmptyMessage(body, message);
+    const raw = $('#res-raw');
+    raw.textContent = '';
+    renderPaneEmptyMessage(raw, message);
   }
 
   // Decodes a base64 body to bytes and lays them out as a hex dump. Returns
@@ -15644,19 +15731,23 @@ const _NetworkPlus = (function () {
     // Preview held the first three until they moved here; two tabs showing the
     // same body two ways made the reader pick a tab before reading anything.
     resBodyPane.textContent = '';
+    resBodyPane.appendChild(createResponsePreviewHeading());
     if (binaryDump) resBodyPane.appendChild(buildBinaryBodyNotice(row, binaryDump));
     // The Content-Type header outranks the HAR mime for the renderer decision:
     // it is what the server actually declared, and it is present on rows whose
     // recorded type came back as `x-unknown`.
     const bodyMime = guessMimeType(row);
-    if (encoding === 'base64' && rawContent && /^image\//i.test(bodyMime)) {
+    const hasImagePreview = encoding === 'base64' && !!rawContent && /^image\//i.test(bodyMime);
+    if (hasImagePreview) {
       resBodyPane.appendChild(renderImagePreview(bodyMime, rawContent));
     }
     const isHtmlBody = !binaryDump && isHtmlLikeMime(bodyMime);
     const jsonFormatted = binaryDump || isHtmlBody ? null : formatJsonSafe(displayText);
     let bodyViewToggle = null;
     let htmlFrameShowing = false;
-    if (isHtmlBody) {
+    if (!displayText && !hasImagePreview) {
+      renderPaneEmptyMessage(resBodyPane, uiText('bodyPaneNoResponseBody'));
+    } else if (isHtmlBody) {
       bodyViewToggle = buildBodyViewToggle(
         'html',
         [
@@ -15682,19 +15773,21 @@ const _NetworkPlus = (function () {
       );
       const treeEl = responseBodyViews.json === 'tree' ? renderJsonTree(displayText) : null;
       resBodyPane.appendChild(treeEl || renderJsonHighlighted(jsonFormatted));
-    } else {
+    } else if (displayText) {
       appendBodyTextBlock(resBodyPane, row, displayText, binaryDump);
     }
-    addCopyActions(resBodyPane, [
-      {
-        label: uiText('menuCopySanitized'),
-        onClick: () => copySanitizedAction('responseBody', row, rawContent, uiText('statusCopiedSanitizedResponseBody')),
-      },
-      {
-        label: uiText('paneCopyFull'),
-        onClick: (button) => requestFullClipboardAction('responseBody', row, rawContent, button, 'paneNameResponseBody'),
-      },
-    ]);
+    if (displayText || hasImagePreview) {
+      addCopyActions(resBodyPane, [
+        {
+          label: uiText('menuCopySanitized'),
+          onClick: () => copySanitizedAction('responseBody', row, rawContent, uiText('statusCopiedSanitizedResponseBody')),
+        },
+        {
+          label: uiText('paneCopyFull'),
+          onClick: (button) => requestFullClipboardAction('responseBody', row, rawContent, button, 'paneNameResponseBody'),
+        },
+      ]);
+    }
 
     // Raw tab
     resRawPane.textContent = '';
@@ -15729,7 +15822,7 @@ const _NetworkPlus = (function () {
     // line and the headers whatever the body was, so it is empty only when
     // there is nothing to build it from.
     applyResponseTabSignals({
-      'res-body': displayText ? 1 : 0,
+      'res-body': displayText || hasImagePreview ? 1 : 0,
       'res-raw': rawResPre.textContent ? 1 : 0,
     });
   }
@@ -15796,6 +15889,7 @@ const _NetworkPlus = (function () {
     titleParts.push(row.url || '');
     renderDetailsTitle(row, titleParts);
     const summaryPlan = renderDetailsSummary(row);
+    renderInspectorTimingOverview(row);
 
     // === REQUEST TABS ===
 
@@ -20583,6 +20677,7 @@ const _NetworkPlus = (function () {
     compareRequestTimes,
     calculateTimingSegments,
     planTimingTable,
+    planInspectorTimingOverview,
     formatTimingDuration,
     formatTimingShare,
     getTimingPhaseGuidance,
