@@ -3712,8 +3712,26 @@ describe('search options and preference persistence contracts', () => {
     expect(js).toContain("focused.closest('.tab-pane')");
     expect(js).toContain("focused.matches('.tab-btn[aria-selected=\"true\"]')");
     expect(js).toContain("document.getElementById(selectedTab.getAttribute('aria-controls'))");
-    expect(js).toContain("activePane.querySelector('.pane-search-input')");
-    expect(js).toContain('paneSearchInput.focus();');
+    expect(js).toContain("typeof activePane._paneSearchOpen === 'function'");
+    expect(js).toContain('openPaneSearch(focused);');
+  });
+
+  test('keeps pane search closed and unfocusable until the shortcut opens it', () => {
+    expect(js).toContain("searchState = { open: false, query: '' };");
+    expect(js).toContain("searchControls.className = 'pane-search-controls';");
+    expect(js).toContain('searchControls.hidden = true;');
+    expect(js).toContain("bar.className = 'pane-search-bar';");
+    expect(css).toContain('.pane-search-controls[hidden]{display:none}');
+    expect(js).toContain("closeBtn.title = uiText('paneSearchCloseTitle');");
+    expect(js).toContain("uiTextFormat('paneSearchCloseLabel', { pane: paneLabel })");
+  });
+
+  test('clears pane search state when the selected request changes', () => {
+    expect(js).toContain('function resetPaneSearchModes()');
+    expect(js).toContain('if (row !== previousSelectedRow) resetPaneSearchModes();');
+    expect(js).toContain('paneSearchStates.clear();');
+    expect(js).toContain("searchState.query = '';");
+    expect(js).toContain('clearPaneSearchHits(pane);');
   });
 });
 

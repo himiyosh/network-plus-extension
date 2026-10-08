@@ -7404,6 +7404,14 @@ const _NetworkPlus = (function () {
       en: 'Next match in the {pane} view',
       ja: '{pane}ビュー内の次の一致',
     },
+    paneSearchCloseTitle: {
+      en: 'Close pane search (Esc)',
+      ja: 'ペイン内検索を閉じる (Esc)',
+    },
+    paneSearchCloseLabel: {
+      en: 'Close search in the {pane} view',
+      ja: '{pane}ビュー内の検索を閉じる',
+    },
     paneSearchExpandTitle: {
       en: 'Some matches are inside collapsed or truncated content. Expand everything to include them.',
       ja: '一部の一致は折りたたまれた内容や省略された内容の中にあります。すべて展開すると含まれます。',
@@ -14424,8 +14432,9 @@ const _NetworkPlus = (function () {
   }
 
   // ---- In-pane keyword search (Request/Response Body & Raw views) ----
-  // Query text per pane id, so the query survives re-renders and row switches.
-  const paneSearchQueries = new Map();
+  // Search mode and query text are per pane. Re-rendering the same request
+  // preserves them; selecting another request resets all four panes.
+  const paneSearchStates = new Map();
 
   // The pane name is a noun the toolbar's placeholder, tooltips and
   // accessible names compose sentences around, so it is a dictionary key
@@ -14439,6 +14448,25 @@ const _NetworkPlus = (function () {
 
   function paneSearchLabel(paneId) {
     return uiText(PANE_SEARCH_LABEL_KEYS[paneId] || 'paneNameFallback');
+  }
+
+  function paneSearchState(paneId) {
+    let searchState = paneSearchStates.get(paneId);
+    if (!searchState) {
+      searchState = { open: false, query: '' };
+      paneSearchStates.set(paneId, searchState);
+    }
+    return searchState;
+  }
+
+  function resetPaneSearchModes() {
+    paneSearchStates.clear();
+    for (const paneId of Object.keys(PANE_SEARCH_LABEL_KEYS)) {
+      const pane = document.getElementById(paneId);
+      if (!pane) continue;
+      clearPaneSearchHits(pane);
+      if (typeof pane._paneSearchClose === 'function') pane._paneSearchClose(false);
+    }
   }
 
   function clearPaneSearchHits(pane) {
@@ -14722,8 +14750,14 @@ const _NetworkPlus = (function () {
     // button beside them. The "(+N collapsed)" count still points at them.
     const treeOwnsExpansion = !!pane.querySelector('.json-tree-controls');
 
+    const searchState = paneSearchState(paneId);
     const bar = document.createElement('div');
     bar.className = 'pane-search-bar';
+    const searchControls = document.createElement('div');
+    searchControls.className = 'pane-search-controls';
+    searchControls.hidden = true;
+    const searchField = document.createElement('div');
+    searchField.className = 'pane-search-field';
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'pane-search-input';
@@ -14748,6 +14782,11 @@ const _NetworkPlus = (function () {
     nextBtn.textContent = '↓';
     nextBtn.title = uiText('paneSearchNextTitle');
     nextBtn.setAttribute('aria-label', uiTextFormat('paneSearchNextLabel', { pane: paneLabel }));
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'pane-search-nav pane-search-close';
+    closeBtn.textContent = '×';
+    closeBtn.title = uiText('paneSearchCloseTitle');
+    closeBtn.setAttribute('aria-label', uiTextFormat('paneSearchCloseLabel', { pane: paneLabel }));
     const expandBtn = document.createElement('button');
     expandBtn.className = 'pane-search-nav pane-search-expand';
     // Named for what pressing it does to the matches, not just for where they
@@ -14771,8 +14810,11 @@ const _NetworkPlus = (function () {
     navGroup.appendChild(expandBtn);
     navGroup.appendChild(prevBtn);
     navGroup.appendChild(nextBtn);
-    bar.appendChild(input);
-    bar.appendChild(navGroup);
+    searchField.appendChild(input);
+    searchField.appendChild(closeBtn);
+    searchControls.appendChild(searchField);
+    searchControls.appendChild(navGroup);
+    bar.appendChild(searchControls);
     // The renderer picker belongs to the same band as the search and the copy
     // actions: one toolbar, and nothing between the bar and the content. The
     // class is what the stylesheet keys the picker-bearing bar's own copy-label
@@ -14831,7 +14873,7 @@ const _NetworkPlus = (function () {
     };
 
     const runHighlight = () => {
-      paneSearchQueries.set(paneId, input.value);
+      searchState.query = input.value;
       clearPaneSearchHits(pane);
       marks = [];
       currentIndex = -1;
@@ -14880,7 +14922,9 @@ const _NetworkPlus = (function () {
         updateCount();
       }
     };
-    pane._paneSearchRefresh = runHighlight;
+    pane._paneSearchRefresh = () => {
+      if (searchState.open) runHighlight();
+    };
 
     const navigate = (direction) => {
       const nextIndex = getWrappedMatchIndex(marks.length, currentIndex, direction);
@@ -14900,6 +14944,10 @@ const _NetworkPlus = (function () {
         event.stopPropagation();
         input.value = '';
         runHighlight();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        pane._paneSearchClose(true);
       }
     });
     prevBtn.addEventListener('click', () => navigate('prev'));
@@ -14912,6 +14960,43 @@ const _NetworkPlus = (function () {
       expandPaneTruncations(pane, bar);
       runHighlight();
     });
+
+    let returnFocus = null;
+    const closeSearchMode = (restoreFocus) => {
+      searchState.open = false;
+      searchState.query = '';
+      input.value = '';
+      clearPaneSearchHits(pane);
+      marks = [];
+      currentIndex = -1;
+      truncated = false;
+      collapsedHits = 0;
+      updateCount();
+      searchControls.hidden = true;
+      syncPaneSearchCopyLabels(bar);
+      syncScrollportBarInset(pane.parentElement);
+      if (!restoreFocus) return;
+      const fallbackTab = document.querySelector(
+        '.tab-btn[aria-controls="' + paneId + '"][aria-selected="true"]',
+      );
+      const focusTarget =
+        returnFocus && returnFocus.isConnected && returnFocus.getClientRects().length > 0
+          ? returnFocus
+          : fallbackTab;
+      if (focusTarget) focusTarget.focus();
+    };
+    const openSearchMode = (focusTarget) => {
+      searchState.open = true;
+      returnFocus = focusTarget && focusTarget !== input ? focusTarget : returnFocus;
+      searchControls.hidden = false;
+      syncPaneSearchCopyLabels(bar);
+      syncScrollportBarInset(pane.parentElement);
+      input.focus();
+      input.select();
+    };
+    pane._paneSearchOpen = openSearchMode;
+    pane._paneSearchClose = closeSearchMode;
+    closeBtn.addEventListener('click', () => closeSearchMode(true));
 
     // Expansion buttons ("Show all ...", "Show full cached body ...") replace
     // pane content after render; re-apply the highlights once they finish.
@@ -14959,9 +15044,11 @@ const _NetworkPlus = (function () {
     }
     syncPaneSearchCopyLabels(bar);
     syncScrollportBarInset(pane.parentElement);
-    const storedQuery = paneSearchQueries.get(paneId) || '';
-    if (storedQuery) {
-      input.value = storedQuery;
+    if (searchState.open) {
+      searchControls.hidden = false;
+      input.value = searchState.query;
+    }
+    if (searchState.query) {
       runHighlight();
     } else {
       updateCount();
@@ -15854,6 +15941,7 @@ const _NetworkPlus = (function () {
         return; // Do not update the detail panel for a range selection.
       }
     }
+    if (row !== previousSelectedRow) resetPaneSearchModes();
     // Normal click: update only rows whose primary or multi-selection state changed.
     const affectedRows = [
       previousFocusedRow,
@@ -19256,12 +19344,14 @@ const _NetworkPlus = (function () {
             : null;
         const activePane =
           focusedPane || (selectedTab ? document.getElementById(selectedTab.getAttribute('aria-controls')) : null);
-        const paneSearchInput = activePane ? activePane.querySelector('.pane-search-input') : null;
+        const openPaneSearch =
+          activePane && typeof activePane._paneSearchOpen === 'function'
+            ? activePane._paneSearchOpen
+            : null;
         e.preventDefault();
         e.stopPropagation();
-        if (paneSearchInput) {
-          paneSearchInput.focus();
-          paneSearchInput.select();
+        if (openPaneSearch) {
+          openPaneSearch(focused);
           return;
         }
         toggleSearchPanel(true);

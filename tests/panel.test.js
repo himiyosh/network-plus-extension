@@ -6211,6 +6211,7 @@ describe('details reopen status', () => {
       'paneSearchInputLabel',
       'paneSearchPrevLabel',
       'paneSearchNextLabel',
+      'paneSearchCloseLabel',
       'paneSearchExpandLabel',
       'paneSearchSourceLabel',
     ];
