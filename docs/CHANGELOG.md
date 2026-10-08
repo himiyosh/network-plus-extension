@@ -4,7 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- No changes have been recorded since v1.15.0.
+- 🔧 **Inspector-first workbench** — flatten the toolbar and grid chrome while prioritizing aligned details, live timing evidence, and readable response previews at the same row density.
 
 ## v1.15.0 - 2026-10-06
 

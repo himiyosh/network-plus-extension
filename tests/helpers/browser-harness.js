@@ -138,12 +138,16 @@ async function connectCdp(webSocketUrl) {
 
   let nextId = 0;
   const pending = new Map();
+  const eventListeners = new Map();
   const rejectPending = (error) => {
     for (const request of pending.values()) request.reject(error);
     pending.clear();
   };
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(String(event.data));
+    if (message.method) {
+      for (const listener of eventListeners.get(message.method) || []) listener(message.params);
+    }
     const request = pending.get(message.id);
     if (!request) return;
     pending.delete(message.id);
@@ -161,6 +165,11 @@ async function connectCdp(webSocketUrl) {
   });
 
   return {
+    onEvent: (method, listener) => {
+      if (!eventListeners.has(method)) eventListeners.set(method, new Set());
+      eventListeners.get(method).add(listener);
+      return () => eventListeners.get(method).delete(listener);
+    },
     close: () => {
       if (socket.readyState === WebSocket.CLOSED) return Promise.resolve();
       return new Promise((resolve) => {

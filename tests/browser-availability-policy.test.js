@@ -1225,6 +1225,11 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title:
+        'inspector-led details follow real selected rows, timing evidence, body states and sanitized copy',
+    },
+    {
+      skipped: true,
+      title:
         'the details header is either the whole URL or visibly truncated, at every pane width in both languages',
     },
     {

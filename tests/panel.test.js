@@ -1086,6 +1086,71 @@ describe('planTimingTable', () => {
   });
 });
 
+describe('planInspectorTimingOverview', () => {
+  test.each([
+    [null, NaN],
+    [{}, 120],
+    [{ blocked: -1, dns: -1 }, 120],
+    [{ wait: 0 }, 0],
+    [{ wait: -1, receive: 0 }, 0],
+  ])('hides an overview without measured positive phases for %j', (timings, total) => {
+    expect(np.planInspectorTimingOverview(timings, total)).toEqual({
+      visible: false,
+      segments: [],
+    });
+  });
+
+  test('aligns an exact reported duration with the real phase data', () => {
+    expect(np.planInspectorTimingOverview({ wait: 80, receive: 20 }, 100)).toEqual({
+      visible: true,
+      labelKey: 'detailsTimingOverview',
+      duration: 100,
+      segments: [
+        { phase: 'wait', widthPct: 80 },
+        { phase: 'receive', widthPct: 20 },
+      ],
+    });
+  });
+
+  test('leaves a visible unaccounted remainder rather than attributing missing time', () => {
+    expect(np.planInspectorTimingOverview({ dns: 10, wait: 20 }, 40)).toEqual({
+      visible: true,
+      labelKey: 'detailsTimingOverview',
+      duration: 40,
+      segments: [
+        { phase: 'dns', widthPct: 25 },
+        { phase: 'wait', widthPct: 50 },
+        { phase: 'unaccounted', widthPct: 25 },
+      ],
+    });
+  });
+
+  test('a canceled or incomplete capture never calls the phase sum a reported total', () => {
+    for (const [timings, duration, sum] of [
+      [{ blocked: 30, wait: 50 }, 40, 80],
+      [{ blocked: 30, wait: 50 }, NaN, 80],
+      [{ blocked: -1, wait: 50 }, -1, 50],
+    ]) {
+      const plan = np.planInspectorTimingOverview(timings, duration);
+      expect(plan.visible).toBe(true);
+      expect(plan.labelKey).toBe('detailsTimingPhaseSum');
+      expect(plan.duration).toBe(sum);
+      expect(plan.segments.reduce((value, segment) => value + segment.widthPct, 0)).toBeCloseTo(100);
+    }
+  });
+
+  test('nonzero sub-millisecond evidence remains measurable instead of rounding to zero', () => {
+    const plan = np.planInspectorTimingOverview({ dns: 0.4, wait: 0 }, 0.4);
+    expect(plan).toMatchObject({
+      visible: true,
+      labelKey: 'detailsTimingOverview',
+      duration: 0.4,
+      segments: [{ phase: 'dns', widthPct: 100 }],
+    });
+    expect(np.formatTimingDuration(plan.duration)).toBe('< 1 ms');
+  });
+});
+
 describe('timing table formatters', () => {
   // fmtTime rounds, so a phase that took time can render as '0 ms'. Stated
   // over a matrix rather than at one value: the property is that no non-zero
@@ -5463,9 +5528,13 @@ describe('uiText and display-time reason localization', () => {
     expect(np.uiText('urlBreakdownShowFull')).toBe('Show full URL');
     expect(np.uiText('kvShowAll')).toBe('Show all ({count} chars)');
     expect(np.uiText('timingNoPhasesReported')).toBe('No timing phases were reported for this request.');
+    expect(np.uiText('bodyPreviewHeading')).toBe('Response preview');
+    expect(np.uiText('detailsTimingPhaseSum')).toBe('Reported phases');
     expect(np.uiText('cookieExpiresLiteral')).toBe('Expires: {value}');
     np.applyLanguage('ja');
     expect(np.uiText('timingNoPhasesReported')).toBe('このリクエストではタイミングフェーズが報告されていません。');
+    expect(np.uiText('bodyPreviewHeading')).toBe('レスポンスプレビュー');
+    expect(np.uiText('detailsTimingOverview')).toBe('タイミング概要');
     // A wire token, so it reads the same in both languages, like Max-Age.
     expect(np.uiText('cookieExpiresLiteral')).toBe('Expires: {value}');
     expect(np.uiText('detailsEmptyTitle')).toBe('リクエストを選択してください...');
