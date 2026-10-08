@@ -4532,14 +4532,14 @@ browserTest(
           ['duration', 'Duration'],
           ['size', 'Size'],
         ],
-        // 1280 with the details pane open leaves the same wrap band as 800.
+        // The inspector-first split gives 1280 less grid width than the
+        // stacked 800px layout, so Type yields before Method/Status/Path.
         1280: [
           ['id', 'ID'],
           ['method', 'Method'],
           ['status', 'Status'],
           ['domain', 'Domain'],
           ['path', 'Path'],
-          ['type', 'Type'],
           ['duration', 'Duration'],
           ['size', 'Size'],
         ],
@@ -6559,11 +6559,12 @@ browserTest(
       };
       const arrowAtDefault = await measureSortArrow('duration');
       expectArrowBesideLabel(arrowAtDefault, 'default font, narrow column');
-      // The narrow column is really narrow: the label itself is ellipsised,
-      // which is the case the arrow used to be eaten in.
+      // Sentence-case medium-weight Duration now fits beside the arrow in
+      // its default 80px column; the oversized-font check below still forces
+      // the clipping case without moving the arrow outside the cell.
       expect(['default font, narrow column', arrowAtDefault.labelEllipsised]).toEqual([
         'default font, narrow column',
-        true,
+        false,
       ]);
       await evaluate(
         cdp,
@@ -6705,9 +6706,9 @@ browserTest(
       await settleLayout(cdp);
 
       const wide = await evaluate(cdp, HEADER_FOCUS_MEASURE);
-      expect(wide.headerIds).toContain('clientStart');
-      await evaluate(cdp, "document.querySelector('thead th[data-col-id=\"clientStart\"]').focus(); true");
-      expect((await evaluate(cdp, HEADER_FOCUS_MEASURE)).focus).toBe('th:clientStart');
+      expect(wide.headerIds).toContain('type');
+      await evaluate(cdp, "document.querySelector('thead th[data-col-id=\"type\"]').focus(); true");
+      expect((await evaluate(cdp, HEADER_FOCUS_MEASURE)).focus).toBe('th:type');
 
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 900,
@@ -6718,7 +6719,7 @@ browserTest(
       await settleLayout(cdp);
       const afterDrop = await evaluate(cdp, HEADER_FOCUS_MEASURE);
       // Not vacuous: the column the focus was on really did go.
-      expect(afterDrop.headerIds).not.toContain('clientStart');
+      expect(afterDrop.headerIds).not.toContain('type');
       // Left alone the browser drops focus to <body> and the reader loses
       // their place in the grid entirely.
       expect(afterDrop.focus).not.toBe('BODY');
@@ -6736,7 +6737,7 @@ browserTest(
 browserTest(
   'a keyboard column resize keeps its column until the focus leaves the separator',
   async () => {
-    const page = await launchPanelPage({ executable: browserExecutable, width: 1300, height: 900 });
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1600, height: 900 });
     const { cdp } = page;
     try {
       await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
@@ -8541,7 +8542,7 @@ browserTest(
             (id) => [id, document.querySelectorAll('#' + id + ' .pane-search-bar').length],
           ));
           const requestEmpty = document.querySelector('#req-body .pane-empty').textContent;
-          const responseEmpty = document.querySelector('#res-body pre.code-block').textContent;
+          const responseEmpty = document.querySelector('#res-body .pane-empty').textContent;
           const requestInput = document.querySelector('#req-body .pane-search-input');
           const responseInput = document.querySelector('#res-body .pane-search-input');
           requestInput.value = requestEmpty;
@@ -12189,7 +12190,7 @@ browserTest(
       });
       await settleLayout(cdp);
       const narrow = await evaluate(cdp, PANE_TOOLBAR_NARROW_MEASURE);
-      expect(narrow.detailsWidth).toBe(440);
+      expect(narrow.detailsWidth).toBe(490);
       expect(narrow.expandHidden).toBe(false);
       expect(narrow.flexWrap).toBe('wrap');
       expect(narrow.barOverflow).toBeLessThanOrEqual(0);
@@ -12330,7 +12331,8 @@ const BODY_VIEW_MEASURE = `(() => {
   const pane = document.querySelector('#res-body');
   const bar = pane.querySelector('.pane-search-bar');
   const toggle = bar ? bar.querySelector('.body-view-toggle') : null;
-  const content = bar ? bar.nextElementSibling : null;
+  const previewHeading = bar ? bar.nextElementSibling : null;
+  const content = previewHeading ? previewHeading.nextElementSibling : null;
   const frame = pane.querySelector('iframe');
   const expand = bar ? bar.querySelector('.pane-search-expand') : null;
   const active = document.activeElement;
@@ -12354,6 +12356,7 @@ const BODY_VIEW_MEASURE = `(() => {
     strayCopyActions: pane.querySelectorAll(':scope > .copy-actions').length,
     toggles: pane.querySelectorAll('.body-view-toggle').length,
     toggleInBar: !!toggle,
+    previewHeading: previewHeading?.textContent || '',
     toggleName: toggle ? toggle.getAttribute('aria-label') : null,
     views: Array.from(pane.querySelectorAll('.body-view-btn')).map((button) => [
       button.textContent,
@@ -12466,6 +12469,7 @@ browserTest(
           strayCopyActions: 0,
           toggles: 1,
           toggleInBar: true,
+          previewHeading: 'Response preview',
           contentClass: 'json-tree code-block',
           hasTree: true,
           flatJson: null,
@@ -15492,7 +15496,7 @@ browserTest(
         copyToast: 'Copied sanitized raw response',
       });
       expect(english.details).toEqual({
-        bodyLoading: '(loading...)',
+        bodyLoading: 'Response preview(loading...)',
         requestInfoKeys: ['Method', 'URL'],
         requestHeadersHeading: 'Request Headers',
         responseHeadersHeading: 'Response Headers',
@@ -15578,7 +15582,7 @@ browserTest(
         copyToast: 'サニタイズ済み生レスポンスをコピーしました',
       });
       expect(observed.details).toEqual({
-        bodyLoading: '（読み込み中...）',
+        bodyLoading: 'レスポンスプレビュー（読み込み中...）',
         requestInfoKeys: ['メソッド', 'URL'],
         requestHeadersHeading: 'リクエストヘッダー',
         responseHeadersHeading: 'レスポンスヘッダー',

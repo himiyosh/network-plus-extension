@@ -1362,6 +1362,7 @@ button:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 /* === Reduced motion === */
 @media (prefers-reduced-motion:reduce){
   .search-color-btn,.search-color-swatch,.hl-swatch,.timing-bar-seg,.json-tree-summary::before,.copy-toast,.sample-guide-btn,.sample-exit-btn,.status-details-toggle{transition:none}
+  .topbar button,.details-close-btn,.tab-btn,.resizer,.inspector-divider,.copy-btn,.empty-state-action{transition:none}
   .search-color-btn:hover,.search-color-swatch:hover,.hl-swatch:hover{transform:none}
   .copy-toast,.copy-toast.show{transform:translateX(-50%)}
   .support-steam,.support-otter-pix,.support-otter-lid,.support-heart,.support-sparkle,.support-option,.support-option-badge,.support-option-cta,.brand-otter,.brand-otter-motion,.brand-otter-lid,.brand-otter-glint,.brand-heart-px,.brand-steam,.brand-steam-group,.brand-support-hint{animation:none;transition:none}
