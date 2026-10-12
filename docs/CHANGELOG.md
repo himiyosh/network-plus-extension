@@ -2,6 +2,10 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
+## Unreleased
+
+- No changes have been recorded since v1.16.0.
+
 ## v1.16.0 - 2026-10-12
 
 - 📝 **Store kits** — refresh four synthetic screenshots and pin the reproducible v1.16.0 archive for both store submissions.
