@@ -1,0 +1,222 @@
+/* Dev-only concepts for the real Network+ extension panel; never loaded by panel.html. */
+html[data-design-direction] {
+  --concept-radius: 6px;
+}
+
+html[data-design-direction] .topbar,
+html[data-design-direction] .details-header {
+  background: var(--surface);
+  box-shadow: none;
+}
+html[data-design-direction] .topbar {
+  border-bottom: 1px solid var(--separator);
+}
+html[data-design-direction] .topbar button,
+html[data-design-direction] .details-close-btn,
+html[data-design-direction] .details-summary-chip,
+html[data-design-direction] .code-block {
+  border-radius: var(--concept-radius);
+}
+html[data-design-direction] .topbar button.icon-btn,
+html[data-design-direction] .topbar button.brand {
+  border-color: transparent;
+  background: transparent;
+}
+html[data-design-direction] .topbar button.icon-btn:hover,
+html[data-design-direction] .topbar button.brand:hover {
+  border-color: var(--control-border);
+  background: var(--hover);
+}
+html[data-design-direction] .topbar button.icon-btn:focus-visible,
+html[data-design-direction] .topbar button.brand:focus-visible {
+  border-color: var(--control-border);
+}
+html[data-design-direction] .brand-sub {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+html[data-design-direction] .title-row th {
+  background: var(--bg);
+  border-bottom: 1px solid var(--separator);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+html[data-design-direction] .title-row th.sortable-header:hover,
+html[data-design-direction] .title-row th.sortable-header:focus-visible {
+  background: var(--bg);
+}
+html[data-design-direction] .grid tbody td {
+  border-bottom: 1px solid transparent;
+}
+html[data-design-direction] .grid tbody tr .method-badge,
+html[data-design-direction] .details-title-method {
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+  min-width: 0;
+  font-weight: 600;
+  text-align: left;
+}
+html[data-design-direction] .grid tbody td[data-col-id="time"],
+html[data-design-direction] .grid tbody td[data-col-id="duration"],
+html[data-design-direction] .grid tbody td[data-col-id="size"],
+html[data-design-direction] .grid tbody td[data-col-id="status"],
+html[data-design-direction] .details-summary {
+  font-variant-numeric: tabular-nums;
+}
+html[data-design-direction] .inspector-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+html[data-design-direction] .tab-btn,
+html[data-design-direction] .statusbar {
+  font-size: 12px;
+}
+html[data-design-direction] .details-summary {
+  background: var(--content-bg);
+}
+
+/* A — Quiet, flat workbench: zebra alone separates the 25px request rows. */
+html[data-design-direction="clean"] .grid tbody tr:nth-child(even),
+html[data-design-direction="inspector"] .grid tbody tr:nth-child(even) {
+  background: var(--stripe);
+}
+
+/* B — Give real request/response evidence a clearer reading hierarchy. */
+@media (min-width: 801px) {
+  html[data-design-direction="inspector"] .details {
+    flex-basis: 49%;
+  }
+}
+html[data-design-direction="inspector"] .details-header {
+  background: var(--content-bg);
+}
+html[data-design-direction="inspector"] .inspector-label {
+  padding: 6px 12px;
+  background: var(--bg);
+  color: var(--fg);
+}
+html[data-design-direction="inspector"] .tab-bar {
+  background: var(--bg);
+}
+@container (min-width: 521px) {
+  html[data-design-direction="inspector"] .kv {
+    grid-template-columns: minmax(140px, 32%) minmax(0, 1fr) auto;
+  }
+}
+html[data-design-direction="inspector"] .kv .key {
+  min-width: 0;
+}
+html[data-design-direction="inspector"] .kv .key,
+html[data-design-direction="inspector"] .kv .val,
+html[data-design-direction="inspector"] .kv > .kv-copy-btn {
+  border-bottom-color: var(--border);
+}
+html[data-design-direction="inspector"] .kv > .kv-copy-btn {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+html[data-design-direction="inspector"] .concept-timing {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px 9px;
+  background: var(--content-bg);
+  border-bottom: 1px solid var(--separator);
+}
+html[data-design-direction="inspector"] .concept-timing-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+html[data-design-direction="inspector"] .concept-timing-heading span:last-child {
+  color: var(--text-muted);
+}
+html[data-design-direction="inspector"] .concept-timing-rail {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--border);
+}
+html[data-design-direction="inspector"] #res-body .concept-preview-heading {
+  display: block;
+  padding: 0 0 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+html[data-design-direction="inspector"] #res-body .json-tree {
+  border-color: var(--control-border);
+  background: var(--content-bg);
+}
+html[data-design-direction="inspector"] #res-body .json-tree-controls {
+  margin-bottom: 10px;
+}
+
+/* C — Triage rail: the queue recedes while the selected evidence gets room. */
+@media (min-width: 801px) {
+  html[data-design-direction="triage"] .tableWrap {
+    flex: 0 0 clamp(360px, 29%, 430px);
+  }
+  html[data-design-direction="triage"] .details {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+html[data-design-direction="triage"] .grid tbody tr:nth-child(even) {
+  background: transparent;
+}
+html[data-design-direction="triage"] .grid tbody td {
+  border-bottom: 1px solid var(--border);
+}
+html[data-design-direction="triage"] .tableWrap {
+  background: var(--content-bg);
+}
+html[data-design-direction="triage"] .title-row th {
+  background: var(--content-bg);
+}
+html[data-design-direction="triage"] .title-row th.sortable-header:hover,
+html[data-design-direction="triage"] .title-row th.sortable-header:focus-visible {
+  background: var(--content-bg);
+}
+html[data-design-direction="triage"] #searchToggleBtn {
+  background: var(--content-bg);
+  border-color: var(--control-border);
+  min-width: 128px;
+  justify-content: space-between;
+}
+html[data-design-direction="triage"] #searchToggleBtn::after {
+  content: "⌘F";
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 12px;
+}
+html[data-design-direction="triage"] .details-header {
+  padding: 8px 12px;
+  background: var(--content-bg);
+}
+html[data-design-direction="triage"] .details-summary {
+  padding: 6px 12px;
+}
+html[data-design-direction="triage"] .tab-content-area {
+  padding: 8px 12px;
+}
+@media (max-width: 800px) {
+  html[data-design-direction="triage"] .tableWrap {
+    flex: 0 0 32%;
+    min-height: 120px;
+  }
+  html[data-design-direction="triage"] .details {
+    flex: 1 1 auto;
+  }
+}

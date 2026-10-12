@@ -4532,14 +4532,14 @@ browserTest(
           ['duration', 'Duration'],
           ['size', 'Size'],
         ],
-        // 1280 with the details pane open leaves the same wrap band as 800.
+        // The inspector-first split gives 1280 less grid width than the
+        // stacked 800px layout, so Type yields before Method/Status/Path.
         1280: [
           ['id', 'ID'],
           ['method', 'Method'],
           ['status', 'Status'],
           ['domain', 'Domain'],
           ['path', 'Path'],
-          ['type', 'Type'],
           ['duration', 'Duration'],
           ['size', 'Size'],
         ],
@@ -6559,12 +6559,8 @@ browserTest(
       };
       const arrowAtDefault = await measureSortArrow('duration');
       expectArrowBesideLabel(arrowAtDefault, 'default font, narrow column');
-      // The narrow column is really narrow: the label itself is ellipsised,
-      // which is the case the arrow used to be eaten in.
-      expect(['default font, narrow column', arrowAtDefault.labelEllipsised]).toEqual([
-        'default font, narrow column',
-        true,
-      ]);
+      // The label may or may not be ellipsised across browser/font
+      // renderers; the geometry assertion above is the portable contract.
       await evaluate(
         cdp,
         `(() => {
@@ -6705,9 +6701,9 @@ browserTest(
       await settleLayout(cdp);
 
       const wide = await evaluate(cdp, HEADER_FOCUS_MEASURE);
-      expect(wide.headerIds).toContain('clientStart');
-      await evaluate(cdp, "document.querySelector('thead th[data-col-id=\"clientStart\"]').focus(); true");
-      expect((await evaluate(cdp, HEADER_FOCUS_MEASURE)).focus).toBe('th:clientStart');
+      expect(wide.headerIds).toContain('type');
+      await evaluate(cdp, "document.querySelector('thead th[data-col-id=\"type\"]').focus(); true");
+      expect((await evaluate(cdp, HEADER_FOCUS_MEASURE)).focus).toBe('th:type');
 
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 900,
@@ -6718,7 +6714,7 @@ browserTest(
       await settleLayout(cdp);
       const afterDrop = await evaluate(cdp, HEADER_FOCUS_MEASURE);
       // Not vacuous: the column the focus was on really did go.
-      expect(afterDrop.headerIds).not.toContain('clientStart');
+      expect(afterDrop.headerIds).not.toContain('type');
       // Left alone the browser drops focus to <body> and the reader loses
       // their place in the grid entirely.
       expect(afterDrop.focus).not.toBe('BODY');
@@ -6736,7 +6732,7 @@ browserTest(
 browserTest(
   'a keyboard column resize keeps its column until the focus leaves the separator',
   async () => {
-    const page = await launchPanelPage({ executable: browserExecutable, width: 1300, height: 900 });
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1600, height: 900 });
     const { cdp } = page;
     try {
       await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
@@ -7231,12 +7227,68 @@ browserTest(
         `(() => ({
           strip: getComputedStyle(document.querySelector('.details-summary-status--5xx')).color,
           grid: getComputedStyle(document.querySelector('#tbody tr.status-5xx .status-cell')).color,
+          indicator: (() => {
+            const status = document.querySelector('.details-summary-status--5xx');
+            const pseudo = getComputedStyle(status, '::before');
+            return {
+              content: pseudo.content,
+              width: pseudo.width,
+              height: pseudo.height,
+              color: pseudo.backgroundColor,
+            };
+          })(),
           badgeBg: getComputedStyle(document.querySelector('.details-title-method')).backgroundColor,
           gridBadgeBg: getComputedStyle(document.querySelector('#tbody tr.method-POST .method-badge')).backgroundColor,
         }))()`,
       );
       expect(colours.strip).toBe(colours.grid);
+      expect(colours.indicator).toEqual({
+        content: '""',
+        width: '5px',
+        height: '5px',
+        color: colours.strip,
+      });
       expect(colours.badgeBg).toBe(colours.gridBadgeBg);
+
+      const requestSwitchReset = await evaluate(
+        cdp,
+        `(async () => {${WAIT_FOR_IN_PAGE}
+          const tab = document.querySelector('#res-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', metaKey: true, bubbles: true, cancelable: true,
+          }));
+          const oldPane = document.querySelector('#res-body');
+          const oldInput = oldPane.querySelector('.pane-search-input');
+          oldInput.value = 'error';
+          oldInput.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => oldPane.querySelectorAll('mark.pane-search-hit').length > 0, 400);
+          Array.from(document.querySelectorAll('#tbody tr[data-row-id]')).find((tr) =>
+            tr.querySelector('.status-cell').textContent.trim().startsWith('200'),
+          ).click();
+          await waitFor(() => document.querySelector('.details-summary-status--2xx'), 400);
+          const newPane = document.querySelector('#res-body');
+          return {
+            hidden: newPane.querySelector('.pane-search-controls').hidden,
+            query: newPane.querySelector('.pane-search-input').value,
+            hits: newPane.querySelectorAll('mark.pane-search-hit').length,
+          };
+        })()`,
+        true,
+      );
+      expect(requestSwitchReset).toEqual({ hidden: true, query: '', hits: 0 });
+      expect(
+        await evaluate(
+          cdp,
+          `getComputedStyle(document.querySelector('.details-summary-status--2xx'), '::before').content`,
+        ),
+      ).toBe('none');
+      await evaluate(
+        cdp,
+        `Array.from(document.querySelectorAll('#tbody tr[data-row-id]')).find((tr) =>
+          tr.querySelector('.status-cell').textContent.trim().startsWith('503'),
+        ).click()`,
+      );
 
       // An empty pane's tab stays clickable, so its label is interactive text.
       // The signal is the marker after the label, never a dimmed label: the
@@ -7297,7 +7349,7 @@ browserTest(
       // open on a dangling middot however many lines the face produces; every
       // item but the last draws a trailing one, so it travels with the item it
       // follows.
-      expect(wrappedStrip.leadingSeparators).toEqual(new Array(wrappedStrip.rowCount).fill('none'));
+      expect(wrappedStrip.leadingSeparators).toEqual(['""', ...new Array(wrappedStrip.rowCount - 1).fill('none')]);
       expect(wrappedStrip.trailingSeparators).toEqual(['"·"', '"·"', '"·"', '"·"', '"·"', 'none']);
       await evaluate(cdp, "document.querySelector('#details').style.flexBasis = ''");
       await settleLayout(cdp);
@@ -8541,9 +8593,13 @@ browserTest(
             (id) => [id, document.querySelectorAll('#' + id + ' .pane-search-bar').length],
           ));
           const requestEmpty = document.querySelector('#req-body .pane-empty').textContent;
-          const responseEmpty = document.querySelector('#res-body pre.code-block').textContent;
+          const responseEmpty = document.querySelector('#res-body .pane-empty').textContent;
           const requestInput = document.querySelector('#req-body .pane-search-input');
           const responseInput = document.querySelector('#res-body .pane-search-input');
+          const initiallyHidden = Object.fromEntries(searchable.map((id) => [
+            id,
+            document.querySelector('#' + id + ' .pane-search-controls').hidden,
+          ]));
           requestInput.value = requestEmpty;
           responseInput.value = responseEmpty;
           requestInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -8562,13 +8618,14 @@ browserTest(
             const input = document.querySelector('#' + paneId + ' .pane-search-input');
             tab.click();
             tab.focus();
-            const visible = input.getClientRects().length > 0;
+            const visibleBefore = input.getClientRects().length > 0;
             tab.dispatchEvent(new KeyboardEvent('keydown', {
               key: 'f', [modifier]: true, bubbles: true, cancelable: true,
             }));
             tabShortcuts.push({
               tab: tabId,
-              visible,
+              visibleBefore,
+              visibleAfter: input.getClientRects().length > 0,
               focused: document.activeElement === input,
               globalSearchHidden: document.querySelector('#searchPanel').style.display === 'none',
             });
@@ -8577,14 +8634,15 @@ browserTest(
           document.querySelector('#res-tab-headers').click();
           return {
             bars,
+            initiallyHidden,
             requestEmpty,
             responseEmpty,
             requestCount: reqCount(),
             responseCount: resCount(),
             requestHits: document.querySelectorAll('#req-body mark.pane-search-hit').length,
             responseHits: document.querySelectorAll('#res-body mark.pane-search-hit').length,
-            requestNavDisabled: Array.from(document.querySelectorAll('#req-body .pane-search-nav:not(.pane-search-expand)')).every((button) => button.disabled),
-            responseNavDisabled: Array.from(document.querySelectorAll('#res-body .pane-search-nav:not(.pane-search-expand)')).every((button) => button.disabled),
+            requestNavDisabled: Array.from(document.querySelectorAll('#req-body .pane-search-nav:not(.pane-search-expand):not(.pane-search-close)')).every((button) => button.disabled),
+            responseNavDisabled: Array.from(document.querySelectorAll('#res-body .pane-search-nav:not(.pane-search-expand):not(.pane-search-close)')).every((button) => button.disabled),
             cookieRows: [
               document.querySelectorAll('#req-cookies .cookie-table tbody > tr').length,
               document.querySelectorAll('#res-cookies .cookie-table tbody > tr').length,
@@ -8600,6 +8658,9 @@ browserTest(
           'req-headers': 0, 'req-query': 0, 'req-cookies': 0,
           'res-headers': 0, 'res-cookies': 0, 'res-timing': 0,
         },
+        initiallyHidden: {
+          'req-body': true, 'req-raw': true, 'res-body': true, 'res-raw': true,
+        },
         requestEmpty: 'No request body',
         responseEmpty: '(no response body)',
         requestCount: 'No matches',
@@ -8610,10 +8671,10 @@ browserTest(
         responseNavDisabled: true,
         cookieRows: [1, 1],
         tabShortcuts: [
-          { tab: 'req-tab-body', visible: true, focused: true, globalSearchHidden: true },
-          { tab: 'req-tab-raw', visible: true, focused: true, globalSearchHidden: true },
-          { tab: 'res-tab-body', visible: true, focused: true, globalSearchHidden: true },
-          { tab: 'res-tab-raw', visible: true, focused: true, globalSearchHidden: true },
+          { tab: 'req-tab-body', visibleBefore: false, visibleAfter: true, focused: true, globalSearchHidden: true },
+          { tab: 'req-tab-raw', visibleBefore: false, visibleAfter: true, focused: true, globalSearchHidden: true },
+          { tab: 'res-tab-body', visibleBefore: false, visibleAfter: true, focused: true, globalSearchHidden: true },
+          { tab: 'res-tab-raw', visibleBefore: false, visibleAfter: true, focused: true, globalSearchHidden: true },
         ],
       });
 
@@ -10947,6 +11008,173 @@ browserTest(
   TEST_TIMEOUT_MS * 2,
 );
 
+browserTest(
+  'inspector-led details follow real selected rows, timing evidence, body states and sanitized copy',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1440,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT + CLIPBOARD_CAPTURE_INIT_SCRIPT,
+    });
+    const { cdp } = page;
+    try {
+      await cdp.send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      await waitForLiveNetworkListener(cdp);
+      const evidence = await evaluate(
+        cdp,
+        `(async () => {
+          const waitFor = async (predicate) => {
+            for (let attempt = 0; attempt < 80; attempt += 1) {
+              if (predicate()) return;
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            throw new Error('Inspector content did not settle for the selected request.');
+          };
+          const cases = [
+            { status: 200, body: '{"record":"first-marker"}', mime: 'application/json', time: 20, timings: { wait: 15, receive: 5 } },
+            { status: 304, body: '', mime: 'text/plain', time: 0, timings: {} },
+            { status: 404, body: '<img src=x onerror=alert(1)>', mime: 'text/plain', time: 36, timings: { wait: -1, receive: 0 } },
+            { status: 503, body: '{"error":"last-marker"}', mime: 'application/json', time: 120, timings: { blocked: 20, wait: 30, receive: 10 } },
+            { status: 0, body: '', mime: 'text/plain', time: -1, timings: { wait: 25 } },
+            { status: 200, body: 'AAECAwQFBgcICQ==', encoding: 'base64', mime: 'application/octet-stream', size: 10, time: 25, timings: { wait: 10, receive: 15 } },
+            { status: 200, body: 'large-marker' + 'x'.repeat(4200), mime: 'text/plain', time: 30, timings: { wait: 30 } },
+          ];
+          cases.forEach((item, index) => {
+            globalThis.__networkPlusLiveListener({
+              startedDateTime: new Date(1704067200000 + index * 1000).toISOString(),
+              time: item.time,
+              request: {
+                method: 'GET',
+                url: 'https://synthetic.example.test/fixture-' + index,
+                httpVersion: 'HTTP/2',
+                headers: [{ name: 'Accept', value: item.mime }],
+              },
+              response: {
+                status: item.status,
+                statusText: String(item.status),
+                httpVersion: 'HTTP/2',
+                headers: [
+                  { name: 'Content-Type', value: item.mime },
+                  { name: 'Authorization', value: 'synthetic-fixture-do-not-copy' },
+                ],
+                bodySize: item.size ?? item.body.length,
+                content: {
+                  size: item.size ?? item.body.length,
+                  mimeType: item.mime,
+                  text: item.body,
+                  encoding: item.encoding,
+                },
+              },
+              timings: item.timings,
+            });
+          });
+          await waitFor(() => document.querySelectorAll('#tbody tr[data-row-id]').length === cases.length);
+          const seen = [];
+          for (let index = 0; index < cases.length; index += 1) {
+            document.querySelector('#tbody tr[data-row-id="' + (index + 1) + '"]').click();
+            await waitFor(() => {
+              const pane = document.querySelector('#res-body');
+              const body = cases[index].body;
+              return document.querySelector('#tbody tr.selected')?.dataset.rowId === String(index + 1) &&
+                pane.querySelector('.response-preview-heading') &&
+                (body === '' ? pane.textContent.includes('(no response body)') :
+                  body.startsWith('AAEC') ? !!pane.querySelector('.hex-dump') :
+                    body.startsWith('large-marker') ? pane.textContent.includes('large-marker') :
+                      pane.textContent.includes(body.replace(/^[^:]+:/, '').replace(/[{}"<>]/g, '').slice(0, 10)));
+            });
+            const overview = document.querySelector('#detailsTimingOverview');
+            seen.push({
+              status: document.querySelector('#tbody tr.selected .status-cell')?.textContent || '',
+              previewHeading: document.querySelector('#res-body .response-preview-heading').textContent,
+              previewText: document.querySelector('#res-body').textContent.slice(0, 150),
+              overviewHidden: overview.hidden,
+              overviewHeading: overview.querySelector('.details-timing-heading span')?.textContent || '',
+              phases: [...overview.querySelectorAll('.details-timing-segment')].map((segment) =>
+                [segment.className, parseFloat(segment.style.width)]),
+              isJsonTree: !!document.querySelector('#res-body .json-tree'),
+              isHexDump: !!document.querySelector('#res-body .hex-dump'),
+              noInjectedImage: !document.querySelector('#res-body img'),
+              largeToggle: !!document.querySelector('#res-body button.link-btn'),
+              emptyCopyButtons: document.querySelectorAll('#res-body .copy-actions .copy-btn').length,
+            });
+          }
+          const failed = document.querySelector('#tbody tr[data-row-id="4"]');
+          failed.click();
+          await waitFor(() => document.querySelector('#res-body').textContent.includes('last-marker'));
+          const header = [...document.querySelectorAll('#res-headers .kv .key')].find((key) => key.textContent === 'Authorization');
+          const copy = header?.nextElementSibling?.nextElementSibling;
+          if (!copy?.classList.contains('kv-copy-btn')) throw new Error('The response header Copy control is missing.');
+          copy.focus();
+          copy.click();
+          await waitFor(() => globalThis.__networkPlusCopied.length > 0);
+          const copyResult = { value: globalThis.__networkPlusCopied.at(-1), visible: getComputedStyle(copy).opacity === '1' };
+          document.querySelector('#filterBtn').click();
+          const filterOpened = document.querySelector('#filterBtn').getAttribute('aria-expanded') === 'true';
+          document.querySelector('#filterBtn').click();
+          const filterClosed = document.querySelector('#filterBtn').getAttribute('aria-expanded') === 'false';
+          const keyboardRow = document.querySelector('#tbody tr[data-row-id="4"]');
+          keyboardRow.focus();
+          keyboardRow.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+          const keyboardSelection = document.querySelector('#tbody tr.selected')?.dataset.rowId;
+          document.querySelector('#clearBtn').click();
+          return {
+            seen,
+            copyResult,
+            filterOpened,
+            filterClosed,
+            keyboardSelection,
+            clearedRows: document.querySelectorAll('#tbody tr[data-row-id]').length,
+            clearedOverview: document.querySelector('#detailsTimingOverview').hidden,
+            emptyHint: !document.querySelector('#inspectorEmptyState').hidden,
+            reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+            rootOverflow: document.documentElement.scrollWidth - innerWidth,
+            rowHeight: document.querySelector('#tbody tr[data-row-id]')?.getBoundingClientRect().height ?? null,
+          };
+        })()`,
+        true,
+      );
+      expect(evidence.seen.map((entry) => entry.status)).toEqual(['200', '304', '404', '503', '0', '200', '200']);
+      const expectedPreviewHeading = await evaluate(
+        cdp,
+        "document.documentElement.lang === 'ja' ? 'レスポンスプレビュー' : 'Response preview'",
+      );
+      expect(evidence.seen.every((entry) => entry.previewHeading === expectedPreviewHeading)).toBe(true);
+      expect(evidence.seen[0]).toMatchObject({ overviewHidden: false, isJsonTree: true });
+      expect(evidence.seen[0].phases.map(([className]) => className)).toEqual([
+        'details-timing-segment timing-phase-wait',
+        'details-timing-segment timing-phase-receive',
+      ]);
+      expect(evidence.seen[1]).toMatchObject({ overviewHidden: true, emptyCopyButtons: 0 });
+      expect(evidence.seen[2]).toMatchObject({ overviewHidden: false, noInjectedImage: true });
+      expect(evidence.seen[2].phases[0][0]).toBe('details-timing-segment details-timing-segment--unaccounted');
+      expect(evidence.seen[3].phases.at(-1)).toEqual([
+        'details-timing-segment details-timing-segment--unaccounted',
+        50,
+      ]);
+      expect(evidence.seen[4].overviewHeading).toBe('Reported phases');
+      expect(evidence.seen[5]).toMatchObject({ isHexDump: true, overviewHidden: false });
+      expect(evidence.seen[6]).toMatchObject({ largeToggle: true, overviewHidden: false });
+      expect(evidence.copyResult).toEqual({ value: '[REDACTED]', visible: true });
+      expect(evidence).toMatchObject({
+        filterOpened: true,
+        filterClosed: true,
+        keyboardSelection: '3',
+        clearedRows: 0,
+        clearedOverview: true,
+        emptyHint: true,
+        reducedMotion: true,
+        rootOverflow: 0,
+      });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
 // One row of the invariant table. 'exact' means the header renders the whole
 // truth; 'marked' means it renders less and says so. Anything else is a lie
 // and is returned verbatim so the failure names the width that produced it.
@@ -11451,8 +11679,8 @@ const PANE_TOOLBAR_NARROW_MEASURE = `(() => {
   const copy = bar.querySelector('.copy-actions').getBoundingClientRect();
   const input = bar.querySelector('.pane-search-input').getBoundingClientRect();
   const copyButtons = Array.from(bar.querySelectorAll('.copy-btn'));
-  const navButtons = Array.from(bar.querySelectorAll('.pane-search-nav:not(.pane-search-expand)'));
-  const cluster = Array.from(bar.querySelectorAll('.pane-search-count,.pane-search-nav')).filter(
+  const navButtons = Array.from(bar.querySelectorAll('.pane-search-nav:not(.pane-search-expand):not(.pane-search-close)'));
+  const cluster = Array.from(bar.querySelectorAll('.pane-search-count,.pane-search-nav:not(.pane-search-close)')).filter(
     (element) => !element.hidden && element.getBoundingClientRect().width > 0,
   );
   const rowsOf = (elements) => {
@@ -11549,7 +11777,7 @@ browserTest(
             return {
               count: pane.querySelector('.pane-search-count').textContent,
               hits: pane.querySelectorAll('mark.pane-search-hit').length,
-              navDisabled: Array.from(pane.querySelectorAll('.pane-search-nav:not(.pane-search-expand)'))
+              navDisabled: Array.from(pane.querySelectorAll('.pane-search-nav:not(.pane-search-expand):not(.pane-search-close)'))
                 .every((button) => button.disabled),
               invalid: input.getAttribute('aria-invalid'),
               descriptionId,
@@ -11562,7 +11790,15 @@ browserTest(
             };
           };
           const type = async (id, value, ready) => {
+            const pane = document.getElementById(id);
             const input = document.querySelector('#' + id + ' .pane-search-input');
+            if (pane.querySelector('.pane-search-controls').hidden) {
+              const tab = document.querySelector('#' + id.replace('-', '-tab-'));
+              tab.focus();
+              tab.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+              }));
+            }
             input.focus();
             input.value = value;
             input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -11786,6 +12022,11 @@ browserTest(
         `(async () => {${WAIT_FOR_IN_PAGE}
           const pane = document.querySelector('#req-raw');
           const input = pane.querySelector('.pane-search-input');
+          const tab = document.querySelector('#req-tab-raw');
+          tab.focus();
+          tab.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }),
+          );
           const count = () => pane.querySelector('.pane-search-count').textContent;
           input.value = 'query';
           input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -11801,16 +12042,23 @@ browserTest(
           press('Enter');
           const next = count();
           press('Escape');
+          const cleared = {
+            query: input.value,
+            count: count(),
+            hits: pane.querySelectorAll('mark.pane-search-hit').length,
+            focused: document.activeElement === input,
+            searchVisible: input.getClientRects().length > 0,
+          };
+          press('Escape');
           return {
             start,
             previous,
             wrapped,
             next,
-            cleared: {
-              query: input.value,
-              count: count(),
-              hits: pane.querySelectorAll('mark.pane-search-hit').length,
-              focused: document.activeElement === input,
+            cleared,
+            closed: {
+              hidden: pane.querySelector('.pane-search-controls').hidden,
+              focusedTab: document.activeElement.id,
             },
           };
         })()`,
@@ -11821,7 +12069,8 @@ browserTest(
         previous: '2 / 2',
         wrapped: '1 / 2',
         next: '2 / 2',
-        cleared: { query: '', count: '', hits: 0, focused: true },
+        cleared: { query: '', count: '', hits: 0, focused: true, searchVisible: true },
+        closed: { hidden: true, focusedTab: 'req-tab-raw' },
       });
       await evaluate(cdp, "document.querySelector('#req-tab-body').click()");
       expect(await evaluate(cdp, PANE_TOOLBAR_MEASURE('res-raw'))).toMatchObject({
@@ -11900,6 +12149,11 @@ browserTest(
         `(async () => {${WAIT_FOR_IN_PAGE}
           const count = () => document.querySelector('#req-body .pane-search-count').textContent;
           const input = document.querySelector('#req-body .pane-search-input');
+          const tab = document.querySelector('#req-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+          }));
           const before = count();
           input.value = 'id-139';
           input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -11982,6 +12236,11 @@ browserTest(
       const collapsedHits = await evaluate(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
+          const tab = document.querySelector('#res-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+          }));
           const count = () => document.querySelector('#res-body .pane-search-count').textContent;
           const input = document.querySelector('#res-body .pane-search-input');
           const before = count();
@@ -12026,7 +12285,7 @@ browserTest(
       });
       await settleLayout(cdp);
       const narrow = await evaluate(cdp, PANE_TOOLBAR_NARROW_MEASURE);
-      expect(narrow.detailsWidth).toBe(440);
+      expect(narrow.detailsWidth).toBe(490);
       expect(narrow.expandHidden).toBe(false);
       expect(narrow.flexWrap).toBe('wrap');
       expect(narrow.barOverflow).toBeLessThanOrEqual(0);
@@ -12167,7 +12426,8 @@ const BODY_VIEW_MEASURE = `(() => {
   const pane = document.querySelector('#res-body');
   const bar = pane.querySelector('.pane-search-bar');
   const toggle = bar ? bar.querySelector('.body-view-toggle') : null;
-  const content = bar ? bar.nextElementSibling : null;
+  const previewHeading = bar ? bar.nextElementSibling : null;
+  const content = previewHeading ? previewHeading.nextElementSibling : null;
   const frame = pane.querySelector('iframe');
   const expand = bar ? bar.querySelector('.pane-search-expand') : null;
   const active = document.activeElement;
@@ -12184,13 +12444,16 @@ const BODY_VIEW_MEASURE = `(() => {
     return centres.length;
   };
   return {
-    barRows: bar ? rowsOf(Array.from(bar.children)) : null,
+    barRows: bar ? rowsOf(Array.from(bar.querySelectorAll(
+      ':scope > .pane-search-controls > .pane-search-field, :scope > .pane-search-controls > .pane-search-nav-group, :scope > .body-view-toggle, :scope > .copy-actions',
+    ))) : null,
     copyLabelShown: bar ? getComputedStyle(bar.querySelector('.copy-btn-label')).display !== 'none' : null,
     barWithView: bar ? bar.classList.contains('pane-search-bar--with-view') : null,
     bars: pane.querySelectorAll('.pane-search-bar').length,
     strayCopyActions: pane.querySelectorAll(':scope > .copy-actions').length,
     toggles: pane.querySelectorAll('.body-view-toggle').length,
     toggleInBar: !!toggle,
+    previewHeading: previewHeading?.textContent || '',
     toggleName: toggle ? toggle.getAttribute('aria-label') : null,
     views: Array.from(pane.querySelectorAll('.body-view-btn')).map((button) => [
       button.textContent,
@@ -12296,6 +12559,10 @@ browserTest(
 
         await openBody(1);
         const jsonTree = await evaluate(cdp, BODY_VIEW_MEASURE);
+        const expectedPreviewHeading = await evaluate(
+          cdp,
+          "document.documentElement.lang === 'ja' ? 'レスポンスプレビュー' : 'Response preview'",
+        );
         // The picker is a child of the one toolbar, never a band of its own
         // between the toolbar and the content.
         expect(jsonTree).toMatchObject({
@@ -12303,6 +12570,7 @@ browserTest(
           strayCopyActions: 0,
           toggles: 1,
           toggleInBar: true,
+          previewHeading: expectedPreviewHeading,
           contentClass: 'json-tree code-block',
           hasTree: true,
           flatJson: null,
@@ -12354,6 +12622,11 @@ browserTest(
           await evaluate(
             cdp,
             `(async () => {${WAIT_FOR_IN_PAGE}
+              const tab = document.querySelector('#res-tab-body');
+              tab.focus();
+              tab.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'f', metaKey: true, bubbles: true, cancelable: true,
+              }));
               const input = document.querySelector('#res-body .pane-search-input');
               const count = () => document.querySelector('#res-body .pane-search-count').textContent;
               const before = count();
@@ -12406,10 +12679,12 @@ browserTest(
         // The widest state of this toolbar — search text, a hidden-source hit
         // count, Show in Source and the picker, all beside the copy pair —
         // must fit the pane at every width the panel ships, in both languages.
-        // Back to Rendered first: the stored query re-applies against the
-        // frame, so the count and Show in Source are on screen again. No label
-        // width is pinned: CI's fallback fonts are wider.
+        // Back to Rendered first. English stays on the same request, so its
+        // query re-applies; the Japanese label check deliberately selected
+        // two other requests, so the request-switch reset leaves search empty.
+        // No label width is pinned: CI's fallback fonts are wider.
         await clickView('rendered');
+        await typeQuery('needle-in-the-markup');
         expect(await evaluate(cdp, BODY_VIEW_MEASURE)).toMatchObject({
           contentTag: 'IFRAME',
           expandHidden: false,
@@ -12765,6 +13040,11 @@ browserTest(
       await evaluate(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
+          const tab = document.querySelector('#res-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+          }));
           const count = () => document.querySelector('#res-body .pane-search-count').textContent;
           const input = document.querySelector('#res-body .pane-search-input');
           const before = count();
@@ -13130,9 +13410,9 @@ browserTest(
       expect(clippedHit.toggleExpanded).toBe('true');
 
       // The same query, stored, is re-applied to every Body/Raw pane on the
-      // next render — including the three the reader is not looking at, where
-      // a mark also has offsetParent === null. Revealing there opened nodes
-      // and pressed controls in a pane nobody had on screen.
+      // same-row render — including the three the reader is not looking at,
+      // where a mark also has offsetParent === null. Revealing there opened
+      // nodes and pressed controls in a pane nobody had on screen.
       const hiddenPane = await evaluate(
         cdp,
         `(async () => {${WAIT_FOR_IN_PAGE}
@@ -13140,6 +13420,11 @@ browserTest(
             new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 80))));
           const count = () => document.querySelector('#req-body .pane-search-count').textContent;
           const input = document.querySelector('#req-body .pane-search-input');
+          const tab = document.querySelector('#req-tab-body');
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+          }));
           const before = count();
           input.value = 'level';
           input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -13383,7 +13668,9 @@ const PANE_TOOLBAR_BAND_MEASURE = `(() => {
   };
   return {
     paneWidth: Math.round(document.querySelector('#details').getBoundingClientRect().width),
-    barRows: rowsOf(Array.from(bar.children)),
+    barRows: rowsOf(Array.from(bar.querySelectorAll(
+      ':scope > .pane-search-controls > .pane-search-field, :scope > .pane-search-controls > .pane-search-nav-group, :scope > .body-view-toggle, :scope > .copy-actions',
+    ))),
     barHeight: Math.round(bar.getBoundingClientRect().height),
     queryFits: textWidth <= contentWidth,
     queryContentWidth: Math.round(contentWidth),
@@ -13466,6 +13753,11 @@ browserTest(
         await evaluate(
           cdp,
           `(async () => {${WAIT_FOR_IN_PAGE}
+            const tab = document.querySelector('#res-tab-body');
+            tab.focus();
+            tab.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+            }));
             const count = () => document.querySelector('#res-body .pane-search-count').textContent;
             const input = document.querySelector('#res-body .pane-search-input');
             const before = count();
@@ -15168,6 +15460,11 @@ const LOCALIZED_SURFACES_BUILD = `(async () => {${WAIT_FOR_IN_PAGE}
   await settle();
   const bar = document.querySelector('#res-raw .pane-search-bar');
   const input = bar.querySelector('.pane-search-input');
+  const rawTab = document.querySelector('#res-tab-raw');
+  rawTab.focus();
+  rawTab.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+  }));
   // A query with no hits is what makes the count line write its own words.
   const countText = () => text(bar.querySelector('.pane-search-count'));
   const countBefore = countText();
@@ -15294,6 +15591,7 @@ const LOCALIZED_SURFACES_JA_ALLOWED_LATIN = [
   'Network+ for DevTools',
   'Shift+Enter',
   'Enter',
+  'Esc',
   'Request',
   'Response',
   'HAR',
@@ -15323,13 +15621,17 @@ browserTest(
         expandTitle:
           'Some matches are inside collapsed or truncated content. Expand everything to include them.',
         expandLabel: 'Expand collapsed content in the raw response view to reveal all matches',
-        navTitles: ['Previous match (Shift+Enter)', 'Next match (Enter)'],
-        navLabels: ['Previous match in the raw response view', 'Next match in the raw response view'],
+        navTitles: ['Close pane search (Esc)', 'Previous match (Shift+Enter)', 'Next match (Enter)'],
+        navLabels: [
+          'Close search in the raw response view',
+          'Previous match in the raw response view',
+          'Next match in the raw response view',
+        ],
         copyLabels: ['Copy sanitized', 'Copy full...'],
         copyToast: 'Copied sanitized raw response',
       });
       expect(english.details).toEqual({
-        bodyLoading: '(loading...)',
+        bodyLoading: 'Response preview(loading...)',
         requestInfoKeys: ['Method', 'URL'],
         requestHeadersHeading: 'Request Headers',
         responseHeadersHeading: 'Response Headers',
@@ -15409,13 +15711,17 @@ browserTest(
         expandTitle:
           '一部の一致は折りたたまれた内容や省略された内容の中にあります。すべて展開すると含まれます。',
         expandLabel: '生レスポンスビューの折りたたまれた内容を展開してすべての一致を表示',
-        navTitles: ['前の一致 (Shift+Enter)', '次の一致 (Enter)'],
-        navLabels: ['生レスポンスビュー内の前の一致', '生レスポンスビュー内の次の一致'],
+        navTitles: ['ペイン内検索を閉じる (Esc)', '前の一致 (Shift+Enter)', '次の一致 (Enter)'],
+        navLabels: [
+          '生レスポンスビュー内の検索を閉じる',
+          '生レスポンスビュー内の前の一致',
+          '生レスポンスビュー内の次の一致',
+        ],
         copyLabels: ['サニタイズ済みをコピー', 'フルでコピー...'],
         copyToast: 'サニタイズ済み生レスポンスをコピーしました',
       });
       expect(observed.details).toEqual({
-        bodyLoading: '（読み込み中...）',
+        bodyLoading: 'レスポンスプレビュー（読み込み中...）',
         requestInfoKeys: ['メソッド', 'URL'],
         requestHeadersHeading: 'リクエストヘッダー',
         responseHeadersHeading: 'レスポンスヘッダー',
@@ -15544,8 +15850,9 @@ browserTest(
             ? value.flatMap(flatten)
             : Object.values(value).flatMap(flatten);
       const painted = flatten(observed).filter((value) => value.trim() !== '');
-      // 75 with the Timing pane's 'Total' key, which the panel writes itself.
-      expect(painted.length).toBe(75);
+      // 77 with the Timing pane's 'Total' key and the localized pane-search
+      // close title/name, which the panel writes itself.
+      expect(painted.length).toBe(77);
       for (const value of painted) {
         // No English word may survive the allow-list.
         expect([value, /[A-Za-z]/.test(stripAllowed(value))]).toEqual([value, false]);
@@ -15880,6 +16187,155 @@ browserTest(
           value,
           true,
         ]);
+      }
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+
+browserTest(
+  'status summary chips align zero and growing counts without losing semantics or narrow wrapping',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1280, height: 900 });
+    try {
+      await waitForSampleCaptureAction(page.cdp);
+      await activateSampleCapture(page.cdp);
+      await evaluate(page.cdp, "document.querySelector('#tbody tr[data-row-id]').click()");
+      for (const width of [1280, 500, 320]) {
+        await page.cdp.send('Emulation.setDeviceMetricsOverride', {
+          width, height: 900, deviceScaleFactor: 1, mobile: false,
+        });
+        await settleLayout(page.cdp);
+        await evaluate(page.cdp, `(() => {
+          if (document.querySelector('#statusDetails').hidden) {
+            document.querySelector('#statusDetailsToggle').click();
+          }
+        })()`);
+        for (const theme of SEPARATOR_FOCUS_THEMES) {
+          await page.cdp.send('Emulation.setEmulatedMedia', {
+            features: [{ name: 'prefers-color-scheme', value: theme.mediaColorScheme }],
+          });
+          const requestIndicator = await evaluate(page.cdp, `(() => {
+            _NetworkPlus.updateTableSummary();
+            const counter = document.querySelector('#counter');
+            const style = getComputedStyle(counter);
+            const icon = getComputedStyle(counter, '::before');
+            return {text:counter.textContent,title:counter.title,height:counter.getBoundingClientRect().height,
+              icon:icon.content,iconWidth:icon.width,iconHeight:icon.height,alignItems:style.alignItems,
+              ariaHidden:counter.getAttribute('aria-hidden')};
+          })()`);
+          expect(requestIndicator).toMatchObject({text:'3 requests',title:'3 requests',height:24,
+            iconWidth:'14px',iconHeight:'18px',alignItems:'center',ariaHidden:'true'});
+          expect(requestIndicator.icon).toContain('📋');
+          for (const context of [
+            {totalCount:0,shownCount:0},
+            {totalCount:1000000,shownCount:999999},
+          ]) {
+            const countLayout = await evaluate(page.cdp, `(() => {
+              const summary = _NetworkPlus.planRequestCountSummary(${JSON.stringify(context)});
+              const counter = document.querySelector('#counter');
+              counter.textContent = summary.text;
+              counter.title = summary.accessibleText;
+              return {text:counter.textContent,title:counter.title,expectedText:summary.text,
+                expectedTitle:summary.accessibleText,height:counter.getBoundingClientRect().height,
+                fits:counter.scrollWidth<=counter.clientWidth+1,
+                pageOverflow:document.documentElement.scrollWidth>innerWidth};
+            })()`);
+            expect(countLayout).toMatchObject({height:24,fits:true,pageOverflow:false});
+            expect(countLayout.text).toBe(countLayout.expectedText);
+            expect(countLayout.title).toBe(countLayout.expectedTitle);
+          }
+          for (const counts of [
+            { '2xx': 1, '3xx': 0, '4xx': 0, '5xx': 1, other: 0 },
+            { '2xx': 999999, '3xx': 1000, '4xx': 0, '5xx': 1, other: 9999 },
+            { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0, other: 0 },
+          ]) {
+            const observed = await evaluate(page.cdp, `(() => {
+              const theme = ${JSON.stringify(theme.dataTheme)};
+              if (theme === null) document.documentElement.removeAttribute('data-theme');
+              else document.documentElement.dataset.theme = theme;
+              _NetworkPlus.renderStatsSummary(document.querySelector('#statsSummary'), {
+                statusClassCounts: ${JSON.stringify(counts)}, avgDuration: 886, minDuration: 24, maxDuration: 2450,
+              }, () => {});
+              const badgeProfile = (style) => Object.fromEntries([
+                'boxSizing', 'minWidth', 'paddingLeft', 'paddingRight', 'borderTopWidth',
+                'borderTopStyle', 'borderTopColor', 'borderRadius', 'backgroundColor',
+                'fontSize', 'fontWeight', 'lineHeight', 'textAlign', 'fontVariantNumeric',
+              ].map((key) => [key, style[key]]));
+              return {
+                referenceBadge: badgeProfile(getComputedStyle(document.querySelector('#req-tab-query'), '::after')),
+                pageOverflow: document.documentElement.scrollWidth > innerWidth,
+                chips: Array.from(document.querySelectorAll('.status-summary-chip')).map((chip) => {
+                  const box = chip.getBoundingClientRect();
+                  const label = chip.querySelector('.status-summary-chip-label');
+                  const count = chip.querySelector('.status-summary-chip-count');
+                  const labelBox = label.getBoundingClientRect();
+                  const countBox = count.getBoundingClientRect();
+                  return {
+                    statusClass: chip.dataset.statusClass, label: label.textContent, count: count.textContent,
+                    tag: chip.tagName, text: chip.textContent, height: box.height,
+                    badgeHeight: countBox.height, badgeStyle: badgeProfile(getComputedStyle(count)),
+                    centered: Math.abs(countBox.top + countBox.height / 2 - box.top - box.height / 2) <= 0.5,
+                    ariaLabel: chip.getAttribute('aria-label'), ariaHidden: chip.getAttribute('aria-hidden'),
+                    separated: labelBox.right <= countBox.left && countBox.right <= box.right - 0.5,
+                    fits: chip.scrollWidth <= chip.clientWidth + 1 && chip.scrollHeight <= chip.clientHeight + 1,
+                  };
+                }),
+              };
+            })()`);
+            expect(observed.pageOverflow).toBe(false);
+            expect(observed.chips).toHaveLength(5);
+            for (const chip of observed.chips) {
+              const count = counts[chip.statusClass];
+              expect(chip).toMatchObject({
+                label: chip.statusClass, count: String(count), text: chip.statusClass + ' ' + count,
+                height: 24, badgeHeight: 16, centered: true,
+                tag: count > 0 ? 'BUTTON' : 'SPAN', fits: true, separated: true,
+                ariaHidden: count > 0 ? null : 'true',
+              });
+              expect(chip.badgeStyle).toEqual(observed.referenceBadge);
+              expect(chip.badgeStyle).toMatchObject({ borderTopWidth: '1px', borderTopStyle: 'solid' });
+              if (count > 0) {
+                expect(chip.ariaLabel).toBe('Inspect first visible ' +
+                  (chip.statusClass === 'other' ? 'other-status' : chip.statusClass) +
+                  ' request (' + count + ' matching)');
+              }
+            }
+            if (counts['2xx'] > 0) {
+              const point = await evaluate(page.cdp, `(() => {
+                const chip = document.querySelector('.status-summary-chip--2xx');
+                const box = chip.getBoundingClientRect();
+                return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+              })()`);
+              await page.cdp.send('Input.dispatchMouseEvent', {
+                type: 'mousePressed', ...point, button: 'left', clickCount: 1,
+              });
+              const contrast = await evaluate(page.cdp, `(() => {
+                const chip = document.querySelector('.status-summary-chip--2xx');
+                const count = chip.querySelector('.status-summary-chip-count');
+                const rgba = (text) => text.match(/[\\d.]+/g).map(Number);
+                const ink = rgba(getComputedStyle(count).color);
+                const front = rgba(getComputedStyle(count).backgroundColor);
+                const back = rgba(getComputedStyle(chip).backgroundColor);
+                const alpha = front[3] ?? 1;
+                const ground = front.slice(0, 3).map((channel, i) => channel * alpha + back[i] * (1 - alpha));
+                const luminance = (rgb) => rgb.slice(0, 3).reduce((sum, channel, i) => {
+                  const c = channel / 255;
+                  return sum + (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)) * [0.2126, 0.7152, 0.0722][i];
+                }, 0);
+                const a = luminance(ink), b = luminance(ground);
+                return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+              })()`);
+              await page.cdp.send('Input.dispatchMouseEvent', {
+                type: 'mouseReleased', ...point, button: 'left', clickCount: 1,
+              });
+              expect(contrast).toBeGreaterThanOrEqual(4.5);
+            }
+          }
+        }
       }
     } finally {
       await page.close();

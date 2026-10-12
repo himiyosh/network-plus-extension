@@ -179,7 +179,7 @@ const _NetworkPlus = (function () {
    }),
   });
   const TIMING_EVIDENCE_LIMITATION = 'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause on the server.';
-  const TEST_EXTENSION_VERSION_FALLBACK = '1.15.0';
+  const TEST_EXTENSION_VERSION_FALLBACK = '1.16.0';
   const SAFE_SUPPORT_UNKNOWN = 'unknown';
   const SAFE_SUPPORT_OTHER_OS = 'Other/unknown';
   const SAFE_SUPPORT_REVIEW_NOTICE = 'This summary intentionally excludes captured traffic. Review it before posting to a public issue.';
@@ -3002,6 +3002,30 @@ const _NetworkPlus = (function () {
     };
   }
 
+  function planInspectorTimingOverview(timings, totalDuration) {
+    const breakdown = planTimingTable(timings, totalDuration);
+    if (!breakdown.phasesReported || breakdown.span <= 0) {
+      return { visible: false, segments: [] };
+    }
+    const reportedTotal =
+      typeof totalDuration === 'number' &&
+      Number.isFinite(totalDuration) &&
+      totalDuration >= 0 &&
+      breakdown.segmentTotal <= totalDuration + 0.001;
+    const segments = breakdown.rows
+      .filter((entry) => entry.available && entry.widthPct > 0)
+      .map((entry) => ({ phase: entry.phase, widthPct: entry.widthPct }));
+    if (breakdown.hasUnaccounted) {
+      segments.push({ phase: 'unaccounted', widthPct: breakdown.unaccountedSharePct });
+    }
+    return {
+      visible: true,
+      labelKey: reportedTotal ? 'detailsTimingOverview' : 'detailsTimingPhaseSum',
+      duration: reportedTotal ? totalDuration : breakdown.segmentTotal,
+      segments,
+    };
+  }
+
   // Two formatters, one defect class between them: a rendered string that says
   // something its datum does not. fmtTime rounds, so a 0.4 ms phase reads
   // '0 ms'; a 0.04% share reads '0.0%'. Under the resolution each formatter
@@ -4620,11 +4644,11 @@ const _NetworkPlus = (function () {
   function diffQueryParams(paramsA, paramsB) {
     const safeA = Array.isArray(paramsA) ? paramsA : [];
     const safeB = Array.isArray(paramsB) ? paramsB : [];
-    // Build multimap: name.toLowerCase() -> [{name, value}]
+    // Query names are case-sensitive; pair repeated exact names in occurrence order.
     const makeMultimap = (arr) => {
       const m = new Map();
       for (const p of arr) {
-        const key = (p && typeof p.name === 'string' ? p.name : '').toLowerCase();
+        const key = p && typeof p.name === 'string' ? p.name : '';
         if (!m.has(key)) m.set(key, []);
         m.get(key).push({ name: p.name || '', value: typeof p.value === 'string' ? p.value : '' });
       }
@@ -6829,6 +6853,18 @@ const _NetworkPlus = (function () {
       en: 'Timing Breakdown',
       ja: 'タイミング内訳',
     },
+    detailsTimingOverview: {
+      en: 'Timing overview',
+      ja: 'タイミング概要',
+    },
+    detailsTimingPhaseSum: {
+      en: 'Reported phases',
+      ja: '報告されたフェーズの合計',
+    },
+    bodyPreviewHeading: {
+      en: 'Response preview',
+      ja: 'レスポンスプレビュー',
+    },
     // The last row of that table, written by the panel rather than read from
     // the HAR, so it is the row that has to translate with the heading above
     // it.
@@ -7367,6 +7403,14 @@ const _NetworkPlus = (function () {
     paneSearchNextLabel: {
       en: 'Next match in the {pane} view',
       ja: '{pane}ビュー内の次の一致',
+    },
+    paneSearchCloseTitle: {
+      en: 'Close pane search (Esc)',
+      ja: 'ペイン内検索を閉じる (Esc)',
+    },
+    paneSearchCloseLabel: {
+      en: 'Close search in the {pane} view',
+      ja: '{pane}ビュー内の検索を閉じる',
     },
     paneSearchExpandTitle: {
       en: 'Some matches are inside collapsed or truncated content. Expand everything to include them.',
@@ -11347,6 +11391,14 @@ const _NetworkPlus = (function () {
         if (typeof handler === 'function') handler(statusClass);
       });
     }
+    const label = document.createElement('span');
+    label.className = 'status-summary-chip-label';
+    label.textContent = statusClass;
+    const count = document.createElement('span');
+    count.className = 'status-summary-chip-count';
+    chip.appendChild(label);
+    chip.appendChild(document.createTextNode(' '));
+    chip.appendChild(count);
     return chip;
   }
 
@@ -11369,7 +11421,7 @@ const _NetworkPlus = (function () {
       'status-summary-chip status-summary-chip--' +
       indicator.statusClass +
       (canInspect ? ' status-summary-chip--action' : ' status-summary-chip--empty');
-    chip.textContent = indicator.text;
+    chip.querySelector('.status-summary-chip-count').textContent = String(indicator.count);
     if (canInspect) {
       const statusClassLabel =
         indicator.statusClass === 'other' ? 'other-status' : indicator.statusClass;
@@ -13571,7 +13623,10 @@ const _NetworkPlus = (function () {
     });
     const requestCountText = summary.text;
     const counter = $('#counter');
-    if (counter) counter.textContent = requestCountText;
+    if (counter) {
+      counter.textContent = requestCountText;
+      counter.title = summary.accessibleText;
+    }
     queueRequestCountAnnouncement(summary.accessibleText);
     const filterButton = $('#filterBtn');
     if (filterButton) {
@@ -13976,6 +14031,11 @@ const _NetworkPlus = (function () {
       summary.hidden = true;
       summary.textContent = '';
     }
+    const timingOverview = $('#detailsTimingOverview');
+    if (timingOverview) {
+      timingOverview.hidden = true;
+      timingOverview.textContent = '';
+    }
   }
 
   function getDetailsTitleMeasureContext() {
@@ -14175,6 +14235,40 @@ const _NetworkPlus = (function () {
     return plan;
   }
 
+  function renderInspectorTimingOverview(row) {
+    const container = $('#detailsTimingOverview');
+    if (!container) return;
+    const plan = planInspectorTimingOverview(row.timings, row.duration);
+    container.textContent = '';
+    container.hidden = !plan.visible;
+    if (!plan.visible) return;
+
+    container.setAttribute('role', 'group');
+    container.setAttribute('aria-label', uiText('detailsTimingOverview'));
+    const heading = document.createElement('div');
+    heading.className = 'details-timing-heading';
+    const label = document.createElement('span');
+    label.textContent = uiText(plan.labelKey);
+    const value = document.createElement('span');
+    value.className = 'details-timing-value';
+    value.textContent = formatTimingDuration(plan.duration);
+    heading.append(label, value);
+    const rail = document.createElement('div');
+    rail.className = 'details-timing-rail';
+    rail.setAttribute('aria-hidden', 'true');
+    for (const segment of plan.segments) {
+      const bar = document.createElement('span');
+      bar.className =
+        'details-timing-segment ' +
+        (segment.phase === 'unaccounted'
+          ? 'details-timing-segment--unaccounted'
+          : 'timing-phase-' + segment.phase);
+      bar.style.width = Math.min(100, Math.max(0, segment.widthPct)).toFixed(2) + '%';
+      rail.appendChild(bar);
+    }
+    container.append(heading, rail);
+  }
+
   function parseCookieHeader(headerValue) {
     if (!headerValue) return [];
     return headerValue.split(';').map((part) => {
@@ -14349,8 +14443,9 @@ const _NetworkPlus = (function () {
   }
 
   // ---- In-pane keyword search (Request/Response Body & Raw views) ----
-  // Query text per pane id, so the query survives re-renders and row switches.
-  const paneSearchQueries = new Map();
+  // Search mode and query text are per pane. Re-rendering the same request
+  // preserves them; selecting another request resets all four panes.
+  const paneSearchStates = new Map();
 
   // The pane name is a noun the toolbar's placeholder, tooltips and
   // accessible names compose sentences around, so it is a dictionary key
@@ -14364,6 +14459,25 @@ const _NetworkPlus = (function () {
 
   function paneSearchLabel(paneId) {
     return uiText(PANE_SEARCH_LABEL_KEYS[paneId] || 'paneNameFallback');
+  }
+
+  function paneSearchState(paneId) {
+    let searchState = paneSearchStates.get(paneId);
+    if (!searchState) {
+      searchState = { open: false, query: '' };
+      paneSearchStates.set(paneId, searchState);
+    }
+    return searchState;
+  }
+
+  function resetPaneSearchModes() {
+    paneSearchStates.clear();
+    for (const paneId of Object.keys(PANE_SEARCH_LABEL_KEYS)) {
+      const pane = document.getElementById(paneId);
+      if (!pane) continue;
+      clearPaneSearchHits(pane);
+      if (typeof pane._paneSearchClose === 'function') pane._paneSearchClose(false);
+    }
   }
 
   function clearPaneSearchHits(pane) {
@@ -14405,7 +14519,7 @@ const _NetworkPlus = (function () {
         if (
           parent &&
           parent.closest(
-            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details,.image-preview-caption',
+            '.pane-search-bar,button,.json-tree-preview,.url-breakdown-full,.url-breakdown-decoded,.kv-nested,.jwt-chip,.jwt-details,.image-preview-caption,.response-preview-heading',
           )
         ) {
           return NodeFilter.FILTER_REJECT;
@@ -14647,8 +14761,14 @@ const _NetworkPlus = (function () {
     // button beside them. The "(+N collapsed)" count still points at them.
     const treeOwnsExpansion = !!pane.querySelector('.json-tree-controls');
 
+    const searchState = paneSearchState(paneId);
     const bar = document.createElement('div');
     bar.className = 'pane-search-bar';
+    const searchControls = document.createElement('div');
+    searchControls.className = 'pane-search-controls';
+    searchControls.hidden = true;
+    const searchField = document.createElement('div');
+    searchField.className = 'pane-search-field';
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'pane-search-input';
@@ -14673,6 +14793,11 @@ const _NetworkPlus = (function () {
     nextBtn.textContent = '↓';
     nextBtn.title = uiText('paneSearchNextTitle');
     nextBtn.setAttribute('aria-label', uiTextFormat('paneSearchNextLabel', { pane: paneLabel }));
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'pane-search-nav pane-search-close';
+    closeBtn.textContent = '×';
+    closeBtn.title = uiText('paneSearchCloseTitle');
+    closeBtn.setAttribute('aria-label', uiTextFormat('paneSearchCloseLabel', { pane: paneLabel }));
     const expandBtn = document.createElement('button');
     expandBtn.className = 'pane-search-nav pane-search-expand';
     // Named for what pressing it does to the matches, not just for where they
@@ -14696,8 +14821,11 @@ const _NetworkPlus = (function () {
     navGroup.appendChild(expandBtn);
     navGroup.appendChild(prevBtn);
     navGroup.appendChild(nextBtn);
-    bar.appendChild(input);
-    bar.appendChild(navGroup);
+    searchField.appendChild(input);
+    searchField.appendChild(closeBtn);
+    searchControls.appendChild(searchField);
+    searchControls.appendChild(navGroup);
+    bar.appendChild(searchControls);
     // The renderer picker belongs to the same band as the search and the copy
     // actions: one toolbar, and nothing between the bar and the content. The
     // class is what the stylesheet keys the picker-bearing bar's own copy-label
@@ -14756,7 +14884,7 @@ const _NetworkPlus = (function () {
     };
 
     const runHighlight = () => {
-      paneSearchQueries.set(paneId, input.value);
+      searchState.query = input.value;
       clearPaneSearchHits(pane);
       marks = [];
       currentIndex = -1;
@@ -14805,7 +14933,9 @@ const _NetworkPlus = (function () {
         updateCount();
       }
     };
-    pane._paneSearchRefresh = runHighlight;
+    pane._paneSearchRefresh = () => {
+      if (searchState.open) runHighlight();
+    };
 
     const navigate = (direction) => {
       const nextIndex = getWrappedMatchIndex(marks.length, currentIndex, direction);
@@ -14825,6 +14955,10 @@ const _NetworkPlus = (function () {
         event.stopPropagation();
         input.value = '';
         runHighlight();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        pane._paneSearchClose(true);
       }
     });
     prevBtn.addEventListener('click', () => navigate('prev'));
@@ -14837,6 +14971,43 @@ const _NetworkPlus = (function () {
       expandPaneTruncations(pane, bar);
       runHighlight();
     });
+
+    let returnFocus = null;
+    const closeSearchMode = (restoreFocus) => {
+      searchState.open = false;
+      searchState.query = '';
+      input.value = '';
+      clearPaneSearchHits(pane);
+      marks = [];
+      currentIndex = -1;
+      truncated = false;
+      collapsedHits = 0;
+      updateCount();
+      searchControls.hidden = true;
+      syncPaneSearchCopyLabels(bar);
+      syncScrollportBarInset(pane.parentElement);
+      if (!restoreFocus) return;
+      const fallbackTab = document.querySelector(
+        '.tab-btn[aria-controls="' + paneId + '"][aria-selected="true"]',
+      );
+      const focusTarget =
+        returnFocus && returnFocus.isConnected && returnFocus.getClientRects().length > 0
+          ? returnFocus
+          : fallbackTab;
+      if (focusTarget) focusTarget.focus();
+    };
+    const openSearchMode = (focusTarget) => {
+      searchState.open = true;
+      returnFocus = focusTarget && focusTarget !== input ? focusTarget : returnFocus;
+      searchControls.hidden = false;
+      syncPaneSearchCopyLabels(bar);
+      syncScrollportBarInset(pane.parentElement);
+      input.focus();
+      input.select();
+    };
+    pane._paneSearchOpen = openSearchMode;
+    pane._paneSearchClose = closeSearchMode;
+    closeBtn.addEventListener('click', () => closeSearchMode(true));
 
     // Expansion buttons ("Show all ...", "Show full cached body ...") replace
     // pane content after render; re-apply the highlights once they finish.
@@ -14884,9 +15055,11 @@ const _NetworkPlus = (function () {
     }
     syncPaneSearchCopyLabels(bar);
     syncScrollportBarInset(pane.parentElement);
-    const storedQuery = paneSearchQueries.get(paneId) || '';
-    if (storedQuery) {
-      input.value = storedQuery;
+    if (searchState.open) {
+      searchControls.hidden = false;
+      input.value = searchState.query;
+    }
+    if (searchState.query) {
       runHighlight();
     } else {
       updateCount();
@@ -15425,9 +15598,21 @@ const _NetworkPlus = (function () {
     return pre;
   }
 
+  function createResponsePreviewHeading() {
+    const heading = document.createElement('strong');
+    heading.className = 'response-preview-heading';
+    heading.textContent = uiText('bodyPreviewHeading');
+    return heading;
+  }
+
   function setResponsePaneMessage(message) {
-    $('#res-body').textContent = message;
-    $('#res-raw').textContent = message;
+    const body = $('#res-body');
+    body.textContent = '';
+    body.appendChild(createResponsePreviewHeading());
+    renderPaneEmptyMessage(body, message);
+    const raw = $('#res-raw');
+    raw.textContent = '';
+    renderPaneEmptyMessage(raw, message);
   }
 
   // Decodes a base64 body to bytes and lays them out as a hex dump. Returns
@@ -15644,19 +15829,23 @@ const _NetworkPlus = (function () {
     // Preview held the first three until they moved here; two tabs showing the
     // same body two ways made the reader pick a tab before reading anything.
     resBodyPane.textContent = '';
+    resBodyPane.appendChild(createResponsePreviewHeading());
     if (binaryDump) resBodyPane.appendChild(buildBinaryBodyNotice(row, binaryDump));
     // The Content-Type header outranks the HAR mime for the renderer decision:
     // it is what the server actually declared, and it is present on rows whose
     // recorded type came back as `x-unknown`.
     const bodyMime = guessMimeType(row);
-    if (encoding === 'base64' && rawContent && /^image\//i.test(bodyMime)) {
+    const hasImagePreview = encoding === 'base64' && !!rawContent && /^image\//i.test(bodyMime);
+    if (hasImagePreview) {
       resBodyPane.appendChild(renderImagePreview(bodyMime, rawContent));
     }
     const isHtmlBody = !binaryDump && isHtmlLikeMime(bodyMime);
     const jsonFormatted = binaryDump || isHtmlBody ? null : formatJsonSafe(displayText);
     let bodyViewToggle = null;
     let htmlFrameShowing = false;
-    if (isHtmlBody) {
+    if (!displayText && !hasImagePreview) {
+      renderPaneEmptyMessage(resBodyPane, uiText('bodyPaneNoResponseBody'));
+    } else if (isHtmlBody) {
       bodyViewToggle = buildBodyViewToggle(
         'html',
         [
@@ -15682,19 +15871,21 @@ const _NetworkPlus = (function () {
       );
       const treeEl = responseBodyViews.json === 'tree' ? renderJsonTree(displayText) : null;
       resBodyPane.appendChild(treeEl || renderJsonHighlighted(jsonFormatted));
-    } else {
+    } else if (displayText) {
       appendBodyTextBlock(resBodyPane, row, displayText, binaryDump);
     }
-    addCopyActions(resBodyPane, [
-      {
-        label: uiText('menuCopySanitized'),
-        onClick: () => copySanitizedAction('responseBody', row, rawContent, uiText('statusCopiedSanitizedResponseBody')),
-      },
-      {
-        label: uiText('paneCopyFull'),
-        onClick: (button) => requestFullClipboardAction('responseBody', row, rawContent, button, 'paneNameResponseBody'),
-      },
-    ]);
+    if (displayText || hasImagePreview) {
+      addCopyActions(resBodyPane, [
+        {
+          label: uiText('menuCopySanitized'),
+          onClick: () => copySanitizedAction('responseBody', row, rawContent, uiText('statusCopiedSanitizedResponseBody')),
+        },
+        {
+          label: uiText('paneCopyFull'),
+          onClick: (button) => requestFullClipboardAction('responseBody', row, rawContent, button, 'paneNameResponseBody'),
+        },
+      ]);
+    }
 
     // Raw tab
     resRawPane.textContent = '';
@@ -15729,7 +15920,7 @@ const _NetworkPlus = (function () {
     // line and the headers whatever the body was, so it is empty only when
     // there is nothing to build it from.
     applyResponseTabSignals({
-      'res-body': displayText ? 1 : 0,
+      'res-body': displayText || hasImagePreview ? 1 : 0,
       'res-raw': rawResPre.textContent ? 1 : 0,
     });
   }
@@ -15761,6 +15952,7 @@ const _NetworkPlus = (function () {
         return; // Do not update the detail panel for a range selection.
       }
     }
+    if (row !== previousSelectedRow) resetPaneSearchModes();
     // Normal click: update only rows whose primary or multi-selection state changed.
     const affectedRows = [
       previousFocusedRow,
@@ -15796,6 +15988,7 @@ const _NetworkPlus = (function () {
     titleParts.push(row.url || '');
     renderDetailsTitle(row, titleParts);
     const summaryPlan = renderDetailsSummary(row);
+    renderInspectorTimingOverview(row);
 
     // === REQUEST TABS ===
 
@@ -19162,12 +19355,14 @@ const _NetworkPlus = (function () {
             : null;
         const activePane =
           focusedPane || (selectedTab ? document.getElementById(selectedTab.getAttribute('aria-controls')) : null);
-        const paneSearchInput = activePane ? activePane.querySelector('.pane-search-input') : null;
+        const openPaneSearch =
+          activePane && typeof activePane._paneSearchOpen === 'function'
+            ? activePane._paneSearchOpen
+            : null;
         e.preventDefault();
         e.stopPropagation();
-        if (paneSearchInput) {
-          paneSearchInput.focus();
-          paneSearchInput.select();
+        if (openPaneSearch) {
+          openPaneSearch(focused);
           return;
         }
         toggleSearchPanel(true);
@@ -20583,6 +20778,7 @@ const _NetworkPlus = (function () {
     compareRequestTimes,
     calculateTimingSegments,
     planTimingTable,
+    planInspectorTimingOverview,
     formatTimingDuration,
     formatTimingShare,
     getTimingPhaseGuidance,

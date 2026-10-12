@@ -1086,6 +1086,71 @@ describe('planTimingTable', () => {
   });
 });
 
+describe('planInspectorTimingOverview', () => {
+  test.each([
+    [null, NaN],
+    [{}, 120],
+    [{ blocked: -1, dns: -1 }, 120],
+    [{ wait: 0 }, 0],
+    [{ wait: -1, receive: 0 }, 0],
+  ])('hides an overview without measured positive phases for %j', (timings, total) => {
+    expect(np.planInspectorTimingOverview(timings, total)).toEqual({
+      visible: false,
+      segments: [],
+    });
+  });
+
+  test('aligns an exact reported duration with the real phase data', () => {
+    expect(np.planInspectorTimingOverview({ wait: 80, receive: 20 }, 100)).toEqual({
+      visible: true,
+      labelKey: 'detailsTimingOverview',
+      duration: 100,
+      segments: [
+        { phase: 'wait', widthPct: 80 },
+        { phase: 'receive', widthPct: 20 },
+      ],
+    });
+  });
+
+  test('leaves a visible unaccounted remainder rather than attributing missing time', () => {
+    expect(np.planInspectorTimingOverview({ dns: 10, wait: 20 }, 40)).toEqual({
+      visible: true,
+      labelKey: 'detailsTimingOverview',
+      duration: 40,
+      segments: [
+        { phase: 'dns', widthPct: 25 },
+        { phase: 'wait', widthPct: 50 },
+        { phase: 'unaccounted', widthPct: 25 },
+      ],
+    });
+  });
+
+  test('a canceled or incomplete capture never calls the phase sum a reported total', () => {
+    for (const [timings, duration, sum] of [
+      [{ blocked: 30, wait: 50 }, 40, 80],
+      [{ blocked: 30, wait: 50 }, NaN, 80],
+      [{ blocked: -1, wait: 50 }, -1, 50],
+    ]) {
+      const plan = np.planInspectorTimingOverview(timings, duration);
+      expect(plan.visible).toBe(true);
+      expect(plan.labelKey).toBe('detailsTimingPhaseSum');
+      expect(plan.duration).toBe(sum);
+      expect(plan.segments.reduce((value, segment) => value + segment.widthPct, 0)).toBeCloseTo(100);
+    }
+  });
+
+  test('nonzero sub-millisecond evidence remains measurable instead of rounding to zero', () => {
+    const plan = np.planInspectorTimingOverview({ dns: 0.4, wait: 0 }, 0.4);
+    expect(plan).toMatchObject({
+      visible: true,
+      labelKey: 'detailsTimingOverview',
+      duration: 0.4,
+      segments: [{ phase: 'dns', widthPct: 100 }],
+    });
+    expect(np.formatTimingDuration(plan.duration)).toBe('< 1 ms');
+  });
+});
+
 describe('timing table formatters', () => {
   // fmtTime rounds, so a phase that took time can render as '0 ms'. Stated
   // over a matrix rather than at one value: the property is that no non-zero
@@ -4653,15 +4718,15 @@ describe('outbound sensitive-data policy', () => {
 
   test('reads HAR creator versions from the extension runtime with a Node-test fallback', () => {
     expect(np.getExtensionVersion({ getManifest: () => ({ version: '9.8.7' }) })).toBe('9.8.7');
-    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.15.0');
-    expect(np.getExtensionVersion(null)).toBe('1.15.0');
+    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.16.0');
+    expect(np.getExtensionVersion(null)).toBe('1.16.0');
   });
 
   test('uses the current extension version for full and sanitized HAR creators', () => {
     const row = makeSensitiveRow();
     const fullHar = np.buildHarLogFromRows([row], new Map([[row, np.buildHarResponseContent(row)]]));
-    expect(fullHar.log.creator.version).toBe('1.15.0');
-    expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.15.0');
+    expect(fullHar.log.creator.version).toBe('1.16.0');
+    expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.16.0');
   });
 });
 
@@ -5463,9 +5528,13 @@ describe('uiText and display-time reason localization', () => {
     expect(np.uiText('urlBreakdownShowFull')).toBe('Show full URL');
     expect(np.uiText('kvShowAll')).toBe('Show all ({count} chars)');
     expect(np.uiText('timingNoPhasesReported')).toBe('No timing phases were reported for this request.');
+    expect(np.uiText('bodyPreviewHeading')).toBe('Response preview');
+    expect(np.uiText('detailsTimingPhaseSum')).toBe('Reported phases');
     expect(np.uiText('cookieExpiresLiteral')).toBe('Expires: {value}');
     np.applyLanguage('ja');
     expect(np.uiText('timingNoPhasesReported')).toBe('このリクエストではタイミングフェーズが報告されていません。');
+    expect(np.uiText('bodyPreviewHeading')).toBe('レスポンスプレビュー');
+    expect(np.uiText('detailsTimingOverview')).toBe('タイミング概要');
     // A wire token, so it reads the same in both languages, like Max-Age.
     expect(np.uiText('cookieExpiresLiteral')).toBe('Expires: {value}');
     expect(np.uiText('detailsEmptyTitle')).toBe('リクエストを選択してください...');
@@ -6142,6 +6211,7 @@ describe('details reopen status', () => {
       'paneSearchInputLabel',
       'paneSearchPrevLabel',
       'paneSearchNextLabel',
+      'paneSearchCloseLabel',
       'paneSearchExpandLabel',
       'paneSearchSourceLabel',
     ];
@@ -6916,6 +6986,61 @@ describe('diffQueryParams', () => {
     const byValue = result.map((r) => ({ va: r.valueA, vb: r.valueB, s: r.state }));
     expect(byValue).toContainEqual({ va: 'a', vb: 'a', s: 'match' });
     expect(byValue).toContainEqual({ va: 'b', vb: 'c', s: 'changed' });
+  });
+
+  test('keeps case-distinct query names separate while header names remain case-insensitive', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'ID', value: '1' }],
+      [{ name: 'id', value: '1' }],
+    );
+    expect(result).toHaveLength(2);
+    expect(result).toEqual(expect.arrayContaining([
+      { name: 'ID', valueA: '1', valueB: null, state: 'only-a' },
+      { name: 'id', valueA: null, valueB: '1', state: 'only-b' },
+    ]));
+    expect(np.diffHeaders(
+      [{ name: 'X-Trace', value: '1' }],
+      [{ name: 'x-trace', value: '1' }],
+    )).toEqual([{ name: 'X-Trace', valueA: '1', valueB: '1', state: 'match' }]);
+  });
+
+  test('matches case-distinct query keys by their exact names regardless of order', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'ID', value: '1' }, { name: 'id', value: '2' }],
+      [{ name: 'id', value: '2' }, { name: 'ID', value: '1' }],
+    );
+    expect(result).toHaveLength(2);
+    expect(result).toEqual(expect.arrayContaining([
+      { name: 'ID', valueA: '1', valueB: '1', state: 'match' },
+      { name: 'id', valueA: '2', valueB: '2', state: 'match' },
+    ]));
+  });
+
+  test('reports values swapped between case-distinct query keys as changes', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'ID', value: '1' }, { name: 'id', value: '2' }],
+      [{ name: 'id', value: '1' }, { name: 'ID', value: '2' }],
+    );
+    expect(result).toHaveLength(2);
+    expect(result).toEqual(expect.arrayContaining([
+      { name: 'ID', valueA: '1', valueB: '2', state: 'changed' },
+      { name: 'id', valueA: '2', valueB: '1', state: 'changed' },
+    ]));
+  });
+
+  test('pairs repeated exact query names independently of interleaved case-distinct names', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'tag', value: 'a' }, { name: 'Tag', value: 'upper' }, { name: 'tag', value: 'b' }],
+      [{ name: 'Tag', value: 'upper' }, { name: 'tag', value: 'a' }, { name: 'tag', value: 'c' }],
+    );
+    expect(result).toHaveLength(3);
+    expect(result.filter((entry) => entry.name === 'tag')).toEqual([
+      { name: 'tag', valueA: 'a', valueB: 'a', state: 'match' },
+      { name: 'tag', valueA: 'b', valueB: 'c', state: 'changed' },
+    ]);
+    expect(result.find((entry) => entry.name === 'Tag')).toEqual(
+      { name: 'Tag', valueA: 'upper', valueB: 'upper', state: 'match' },
+    );
   });
 
   test('XSS: values with HTML metacharacters are returned as-is', () => {

@@ -125,7 +125,7 @@ already diagnosing a live problem.
 **Key Characteristics:**
 
 - Restrained neutral surfaces with one signal accent
-- Compact controls and stable, high-density geometry
+- Compact controls and stable, high-density geometry with a details-first reading order
 - Explicit keyboard focus, selection, recording, and filtering states
 - Monospaced evidence views inside a familiar system-sans workbench
 - System, Dark, and Light behavior treated as one design contract
@@ -196,11 +196,11 @@ navigation, and general labels remain system sans.
 ## Elevation
 
 The workbench is flat by default. Borders and tonal surface changes define structure; shallow ambient shadows appear only
-where a toolbar, popup, menu, or toast must sit above live data.
+where a popup, menu, or toast must sit above live data.
 
 ### Shadow Vocabulary
 
-- **Docked Control** (`0 1px 3px rgba(0,0,0,0.06)` light): Separates the sticky toolbar without making it float.
+- **Persistent Toolbar:** Flat Workbench Surface, separated by a single high-contrast rule rather than a gradient or shadow.
 - **Transient Surface** (`0 4px 12px rgba(0,0,0,0.1)` light): Menus, filter panels, and short-lived overlays.
 - **Dark Transient Surface** (`0 4px 12px rgba(0,0,0,0.4)` dark): Keeps overlays distinct on dark surfaces.
 
@@ -214,8 +214,8 @@ changes remain unmistakable.
 
 ### Buttons
 
-- **Shape:** Compact rounded rectangle (`8px`) with a `32px` minimum height in the toolbar.
-- **Primary:** Neutral canvas at rest; Signal Indigo is reserved for active or selected state.
+- **Shape:** Compact rounded rectangle (`6px`) with a `32px` minimum height in the toolbar.
+- **Primary:** Neutral canvas at rest; icon and brand actions use a ghost treatment. Signal Indigo is reserved for active or selected state.
 - **Hover / Focus:** Border and text shift to Signal Indigo; keyboard focus uses a visible `2px` outline.
 - **Destructive:** Neutral at rest, Error Red only on hover, focus, or confirmed destructive state.
 - **Disabled:** Reduced opacity with the pointer affordance removed.
@@ -234,10 +234,17 @@ changes remain unmistakable.
 
 ### Request Grid
 
-- **Header:** Sticky, opaque, uppercase label row with tabular alignment.
-- **Rows:** Compact `5px 8px` cells, ellipsis for long values, semantic status and method text.
+- **Header:** Sticky, opaque, sentence-case medium-weight labels on the grid background with a one-pixel high-contrast rule; remains 29px tall.
+- **Rows:** Compact ~25px cells with subtle zebra shading only, ellipsis for long values, unchanged semantic status text, and quietly colored unfilled method labels. Size and time figures align with tabular numerals.
 - **Selection:** Background, focus, and ARIA state work together; color is never the only cue.
 - **Empty capture focus:** When no requests have been captured, headers and column resizers leave sequential Tab order so the local sample action is reached directly; filtered-empty and populated grids keep their normal keyboard controls.
+
+### Request Inspector
+
+- **Details-first split:** The inspector takes approximately half of a wide panel and most of the stacked panel, while the request grid remains scrollable.
+- **Request / Response:** Both keep their real collapsible sections and tabs. Key/value rows share one aligned key track, with sanitized row Copy controls reachable by hover and keyboard.
+- **Timing:** A compact overview uses the same normalized HAR phases as the detailed Timing table. It appears only when phases were reported with a positive span, includes unaccounted duration, and labels a phase sum rather than presenting it as a reported total.
+- **Response Body:** A localized preview heading accompanies the existing safe JSON/text/HTML/image/binary renderers and explicit loading, empty, or retrieval-error messages. No preview interprets absent bytes as successful content.
 
 ### Transient Surfaces
 

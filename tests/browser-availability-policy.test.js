@@ -1225,6 +1225,11 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title:
+        'inspector-led details follow real selected rows, timing evidence, body states and sanitized copy',
+    },
+    {
+      skipped: true,
+      title:
         'the details header is either the whole URL or visibly truncated, at every pane width in both languages',
     },
     {
@@ -1305,6 +1310,10 @@ test('retains the local-only skip when no browser executable is discoverable', (
     {
       skipped: true,
       title: 'the status bar, comparison pane, search colours and main divider speak one language',
+    },
+    {
+      skipped: true,
+      title: 'status summary chips align zero and growing counts without losing semantics or narrow wrapping',
     },
   ]);
 });

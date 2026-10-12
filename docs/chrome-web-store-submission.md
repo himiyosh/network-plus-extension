@@ -1,6 +1,6 @@
 # Chrome Web Store submission dossier (en-US)
 
-Last reviewed: 2026-08-19
+Last reviewed: 2026-10-12
 
 ## Submission status and evidence boundary
 
@@ -8,20 +8,20 @@ This dossier is a repository-local recommendation for a future Chrome Web Store 
 
 ### Upload artifact
 
-- **Release:** `v1.15.0` (candidate; not yet published)
-- **ZIP:** `network-plus-extension-1.15.0.zip`
-- **Size:** `299699 bytes`
-- **SHA-256:** `04ace491e1a2d8f02f3144d5350da8c10e39780eb910893f97c78a3eeafeaa26`
-- **Download after publication:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.15.0/network-plus-extension-1.15.0.zip
+- **Release:** `v1.16.0` (candidate; not yet published)
+- **ZIP:** `network-plus-extension-1.16.0.zip`
+- **Size:** `301505 bytes`
+- **SHA-256:** `f93f4d9a2afd1e0437d8a1dcf94a8e6816e9a5aedca376e237e129e37cb48dad`
+- **Download after publication:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.16.0/network-plus-extension-1.16.0.zip
 
-The ZIP was built from the reviewed commit by `TZ=UTC npm run extension:package`; a second local build reproduced the same bytes, size and digest. Archive entries carry fixed timestamps normalized in local time, so `npm run extension:package` at tag `v1.15.0` reproduces the same bytes from any timezone. The publishing workflow refuses to create a release whose archive does not match this digest. Public observation of the v1.15.0 release is a post-merge step and is not claimed here; the download route above is a future target, not a verified public asset. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
+The ZIP was built from the reviewed commit by `TZ=UTC npm run extension:package`; a second local build reproduced the same bytes, size and digest. Archive entries carry fixed timestamps normalized in local time, so `npm run extension:package` at tag `v1.16.0` reproduces the same bytes from any timezone. The publishing workflow refuses to create a release whose archive does not match this digest. Public observation of the v1.16.0 release is a post-merge step and is not claimed here; the download route above is a future target, not a verified public asset. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
 
 ### Observed repository facts
 
-- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.15.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
+- `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.16.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The package guard allows only the eleven audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift. The one background service worker it admits has a single audited job: minimizing the undocked DevTools window when the pop-out tab opens, through the permissionless chrome.windows API, reading no tab URLs or page data.
-- The same runtime uses Chromium extension APIs without an Edge-only code path. Chrome 151 loaded the manifest without extension errors, all 98 real-browser regression scenarios passed, and the Network+ DevTools panel was confirmed manually.
-- The `v1.15.0` archive built from the reviewed commit is the current repository-backed candidate upload source, pending a GitHub release and post-merge asset verification. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
+- The same runtime uses Chromium extension APIs without an Edge-only code path. Historical pre-v1.16.0 verification used Chrome 151: it loaded the manifest without extension errors, all 98 real-browser regression scenarios passed, and the Network+ DevTools panel was confirmed manually. This is not a new manual verification of the candidate release.
+- The `v1.16.0` archive built from the reviewed commit is the current repository-backed candidate upload source, pending a GitHub release and post-merge asset verification. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
 
 ## Developer account prerequisites
 
@@ -150,9 +150,9 @@ No account, credentials, subscription, remote service, or live customer traffic 
 
 The sections above describe a first submission. When a Chrome Web Store item already exists for this extension, the work is a package update against that item: the account prerequisites are already satisfied and no new item is created.
 
-- The `manifest.json` version must be strictly higher than the version the store currently carries. v1.15.0 satisfies this against v1.14.0, and the release workflow refuses to publish a version that already has a GitHub release, so a version cannot be silently reused.
-- After publication, upload `network-plus-extension-1.15.0.zip` obtained from the trusted release route as a new package on the existing item, and compare the complete 64-character SHA-256 recorded above against the downloaded file before submitting.
-- Re-check the listing text, screenshots, and privacy answers against this dossier. The listing is not versioned in the dashboard, so a stale screenshot or description stays live until it is replaced; the four 1280 x 800 screenshots in `docs/store-assets/` were re-captured for the previous release because the details pane changed and are unchanged for this cut. The live detailed description was still the first-submission text until that release replaced it with the block above, so compare the live text with this dossier every release rather than only when the dossier changes. The image swap itself is scripted: `npm run store:pages -- chrome` compares each listing image with `docs/store-assets/`, replaces only the ones that differ, and saves a draft, submitting nothing. It runs on the operator's machine, not in CI. The slot-by-slot procedure below remains the fallback when a console changes shape under it.
+- The `manifest.json` version must be strictly higher than the version the store currently carries. v1.16.0 is higher than v1.15.0; the operator must still confirm the current store version before upload, and the release workflow refuses to publish a version that already has a GitHub release, so a version cannot be silently reused.
+- After publication, upload `network-plus-extension-1.16.0.zip` obtained from the trusted release route as a new package on the existing item, and compare the complete 64-character SHA-256 recorded above against the downloaded file before submitting.
+- Re-check the listing text, screenshots, and privacy answers against this dossier. The listing is not versioned in the dashboard, so a stale screenshot or description stays live until it is replaced; the four 1280 x 800 screenshots in `docs/store-assets/` were re-captured for this v1.16.0 cut to reflect the adopted Inspector-first layout, status-summary badges, and request count indicator. Compare the live detailed description with this dossier every release, since portal text remains unchanged until separately edited. The image swap itself is scripted: `npm run store:pages -- chrome` compares each listing image with `docs/store-assets/`, replaces only the ones that differ, and saves a draft, submitting nothing. It runs on the operator's machine, not in CI. The slot-by-slot procedure below remains the fallback when a console changes shape under it.
 - An update is a fresh review. Distribution and visibility settings carry over from the existing item unless the operator changes them, and the previously reviewed package stays live until the new one is approved.
 - Field labels and the navigation path for package updates must be confirmed in the live dashboard, which can change independently of this repository.
 
