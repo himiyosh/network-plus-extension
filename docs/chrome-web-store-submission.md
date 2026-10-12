@@ -8,20 +8,20 @@ This dossier is a repository-local recommendation for a future Chrome Web Store 
 
 ### Upload artifact
 
-- **Release:** `v1.16.0` (candidate; not yet published)
+- **Release:** `v1.16.0` (published 2026-10-12)
 - **ZIP:** `network-plus-extension-1.16.0.zip`
 - **Size:** `301505 bytes`
 - **SHA-256:** `f93f4d9a2afd1e0437d8a1dcf94a8e6816e9a5aedca376e237e129e37cb48dad`
-- **Download after publication:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.16.0/network-plus-extension-1.16.0.zip
+- **Verified download:** https://github.com/himiyosh/network-plus-extension/releases/download/v1.16.0/network-plus-extension-1.16.0.zip
 
-The ZIP was built from the reviewed commit by `TZ=UTC npm run extension:package`; a second local build reproduced the same bytes, size and digest. Archive entries carry fixed timestamps normalized in local time, so `npm run extension:package` at tag `v1.16.0` reproduces the same bytes from any timezone. The publishing workflow refuses to create a release whose archive does not match this digest. Public observation of the v1.16.0 release is a post-merge step and is not claimed here; the download route above is a future target, not a verified public asset. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
+The public `v1.16.0` GitHub release and ZIP were publicly observable and re-downloaded on 2026-10-12. The fresh download matched the size and digest above and was byte-identical to a fresh `TZ=UTC npm run extension:package` build from published commit `891d9fb17692f8f4e66faa1268c197675a376880`. The publishing workflow verified the same archive digest. This establishes the GitHub upload source, not store acceptance, review, or distribution. The digest is safe to publish and is useful for integrity checking, but it is not a publisher signature: an operator must still obtain the ZIP from the trusted release route and compare the complete 64-character value before upload.
 
 ### Observed repository facts
 
 - `manifest.json` identifies a Manifest V3 DevTools extension named `Network+ for DevTools`, version `1.16.0`, with one permission (`storage`), packaged 16, 48, and 128 pixel PNG icons, and the extension-page CSP `script-src 'self'; object-src 'self'`.
 - The package guard allows only the eleven audited runtime files and rejects remote resources, inline scripts, unexpected privileged manifest surfaces, and permission drift. The one background service worker it admits has a single audited job: minimizing the undocked DevTools window when the pop-out tab opens, through the permissionless chrome.windows API, reading no tab URLs or page data.
 - The same runtime uses Chromium extension APIs without an Edge-only code path. Historical pre-v1.16.0 verification used Chrome 151: it loaded the manifest without extension errors, all 98 real-browser regression scenarios passed, and the Network+ DevTools panel was confirmed manually. This is not a new manual verification of the candidate release.
-- The `v1.16.0` archive built from the reviewed commit is the current repository-backed candidate upload source, pending a GitHub release and post-merge asset verification. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
+- The published `v1.16.0` archive is the current repository-backed upload source, freshly downloaded and byte-verified as recorded above. Repository evidence does not establish any Chrome Web Store account, item ID, listing URL, review result, or publication state.
 
 ## Developer account prerequisites
 
