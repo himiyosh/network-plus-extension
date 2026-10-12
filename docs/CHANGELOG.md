@@ -4,7 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
-- No changes have been recorded since v1.16.0.
+- 📝 **Release evidence** — record the published v1.16.0 ZIP, freshly downloaded and byte-compared with a reviewed UTC build.
 
 ## v1.16.0 - 2026-10-12
 
