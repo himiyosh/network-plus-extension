@@ -179,7 +179,7 @@ const _NetworkPlus = (function () {
    }),
   });
   const TIMING_EVIDENCE_LIMITATION = 'Browser-observed timing phases help locate reported delay. They do not prove packet loss, cabling or RF faults, or a definitive root cause on the server.';
-  const TEST_EXTENSION_VERSION_FALLBACK = '1.15.0';
+  const TEST_EXTENSION_VERSION_FALLBACK = '1.16.0';
   const SAFE_SUPPORT_UNKNOWN = 'unknown';
   const SAFE_SUPPORT_OTHER_OS = 'Other/unknown';
   const SAFE_SUPPORT_REVIEW_NOTICE = 'This summary intentionally excludes captured traffic. Review it before posting to a public issue.';
@@ -4644,11 +4644,11 @@ const _NetworkPlus = (function () {
   function diffQueryParams(paramsA, paramsB) {
     const safeA = Array.isArray(paramsA) ? paramsA : [];
     const safeB = Array.isArray(paramsB) ? paramsB : [];
-    // Build multimap: name.toLowerCase() -> [{name, value}]
+    // Query names are case-sensitive; pair repeated exact names in occurrence order.
     const makeMultimap = (arr) => {
       const m = new Map();
       for (const p of arr) {
-        const key = (p && typeof p.name === 'string' ? p.name : '').toLowerCase();
+        const key = p && typeof p.name === 'string' ? p.name : '';
         if (!m.has(key)) m.set(key, []);
         m.get(key).push({ name: p.name || '', value: typeof p.value === 'string' ? p.value : '' });
       }
@@ -11391,6 +11391,14 @@ const _NetworkPlus = (function () {
         if (typeof handler === 'function') handler(statusClass);
       });
     }
+    const label = document.createElement('span');
+    label.className = 'status-summary-chip-label';
+    label.textContent = statusClass;
+    const count = document.createElement('span');
+    count.className = 'status-summary-chip-count';
+    chip.appendChild(label);
+    chip.appendChild(document.createTextNode(' '));
+    chip.appendChild(count);
     return chip;
   }
 
@@ -11413,7 +11421,7 @@ const _NetworkPlus = (function () {
       'status-summary-chip status-summary-chip--' +
       indicator.statusClass +
       (canInspect ? ' status-summary-chip--action' : ' status-summary-chip--empty');
-    chip.textContent = indicator.text;
+    chip.querySelector('.status-summary-chip-count').textContent = String(indicator.count);
     if (canInspect) {
       const statusClassLabel =
         indicator.statusClass === 'other' ? 'other-status' : indicator.statusClass;
@@ -13615,7 +13623,10 @@ const _NetworkPlus = (function () {
     });
     const requestCountText = summary.text;
     const counter = $('#counter');
-    if (counter) counter.textContent = requestCountText;
+    if (counter) {
+      counter.textContent = requestCountText;
+      counter.title = summary.accessibleText;
+    }
     queueRequestCountAnnouncement(summary.accessibleText);
     const filterButton = $('#filterBtn');
     if (filterButton) {

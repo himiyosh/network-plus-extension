@@ -2,8 +2,13 @@
 
 All notable changes to Network+ for DevTools. Versions follow [Semantic Versioning](https://semver.org/); `version` is bumped once per release rather than per commit. Published builds are listed under [GitHub Releases](https://github.com/himiyosh/network-plus-extension/releases).
 
-## Unreleased
+## v1.16.0 - 2026-10-12
 
+- 📝 **Store kits** — refresh four synthetic screenshots and pin the reproducible v1.16.0 archive for both store submissions.
+- 🐛 **Query comparison** — keep case-distinct parameter names separate while pairing repeated exact names in order.
+- 🐛 **Language setting** — name its selector from the existing translated heading while retaining separate help text.
+- 🔧 **Request count indicator** — frame the request total with the existing list icon, aligned spacing, and a full count tooltip.
+- 🐛 **Status summary chips** — align active and zero-count indicators and reuse framed Query/Cookies badges for class counts.
 - ✨ **Inspector status indicator** — add a 5px semantic-color dot before 3xx, 4xx, and 5xx response status text in the details summary.
 - 🔧 **Pane search mode** — show Body and Raw search controls only after Ctrl/Cmd+F, with localized close and predictable reset behavior.
 - 🔧 **Inspector-first workbench** — flatten the toolbar and grid chrome while prioritizing aligned details, live timing evidence, and readable response previews at the same row density.

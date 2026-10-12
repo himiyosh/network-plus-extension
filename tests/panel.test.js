@@ -4718,15 +4718,15 @@ describe('outbound sensitive-data policy', () => {
 
   test('reads HAR creator versions from the extension runtime with a Node-test fallback', () => {
     expect(np.getExtensionVersion({ getManifest: () => ({ version: '9.8.7' }) })).toBe('9.8.7');
-    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.15.0');
-    expect(np.getExtensionVersion(null)).toBe('1.15.0');
+    expect(np.getExtensionVersion({ getManifest: () => { throw new Error('runtime-failed'); } })).toBe('1.16.0');
+    expect(np.getExtensionVersion(null)).toBe('1.16.0');
   });
 
   test('uses the current extension version for full and sanitized HAR creators', () => {
     const row = makeSensitiveRow();
     const fullHar = np.buildHarLogFromRows([row], new Map([[row, np.buildHarResponseContent(row)]]));
-    expect(fullHar.log.creator.version).toBe('1.15.0');
-    expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.15.0');
+    expect(fullHar.log.creator.version).toBe('1.16.0');
+    expect(np.sanitizeHar(fullHar).log.creator.version).toBe('1.16.0');
   });
 });
 
@@ -6986,6 +6986,61 @@ describe('diffQueryParams', () => {
     const byValue = result.map((r) => ({ va: r.valueA, vb: r.valueB, s: r.state }));
     expect(byValue).toContainEqual({ va: 'a', vb: 'a', s: 'match' });
     expect(byValue).toContainEqual({ va: 'b', vb: 'c', s: 'changed' });
+  });
+
+  test('keeps case-distinct query names separate while header names remain case-insensitive', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'ID', value: '1' }],
+      [{ name: 'id', value: '1' }],
+    );
+    expect(result).toHaveLength(2);
+    expect(result).toEqual(expect.arrayContaining([
+      { name: 'ID', valueA: '1', valueB: null, state: 'only-a' },
+      { name: 'id', valueA: null, valueB: '1', state: 'only-b' },
+    ]));
+    expect(np.diffHeaders(
+      [{ name: 'X-Trace', value: '1' }],
+      [{ name: 'x-trace', value: '1' }],
+    )).toEqual([{ name: 'X-Trace', valueA: '1', valueB: '1', state: 'match' }]);
+  });
+
+  test('matches case-distinct query keys by their exact names regardless of order', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'ID', value: '1' }, { name: 'id', value: '2' }],
+      [{ name: 'id', value: '2' }, { name: 'ID', value: '1' }],
+    );
+    expect(result).toHaveLength(2);
+    expect(result).toEqual(expect.arrayContaining([
+      { name: 'ID', valueA: '1', valueB: '1', state: 'match' },
+      { name: 'id', valueA: '2', valueB: '2', state: 'match' },
+    ]));
+  });
+
+  test('reports values swapped between case-distinct query keys as changes', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'ID', value: '1' }, { name: 'id', value: '2' }],
+      [{ name: 'id', value: '1' }, { name: 'ID', value: '2' }],
+    );
+    expect(result).toHaveLength(2);
+    expect(result).toEqual(expect.arrayContaining([
+      { name: 'ID', valueA: '1', valueB: '2', state: 'changed' },
+      { name: 'id', valueA: '2', valueB: '1', state: 'changed' },
+    ]));
+  });
+
+  test('pairs repeated exact query names independently of interleaved case-distinct names', () => {
+    const result = np.diffQueryParams(
+      [{ name: 'tag', value: 'a' }, { name: 'Tag', value: 'upper' }, { name: 'tag', value: 'b' }],
+      [{ name: 'Tag', value: 'upper' }, { name: 'tag', value: 'a' }, { name: 'tag', value: 'c' }],
+    );
+    expect(result).toHaveLength(3);
+    expect(result.filter((entry) => entry.name === 'tag')).toEqual([
+      { name: 'tag', valueA: 'a', valueB: 'a', state: 'match' },
+      { name: 'tag', valueA: 'b', valueB: 'c', state: 'changed' },
+    ]);
+    expect(result.find((entry) => entry.name === 'Tag')).toEqual(
+      { name: 'Tag', valueA: 'upper', valueB: 'upper', state: 'match' },
+    );
   });
 
   test('XSS: values with HTML metacharacters are returned as-is', () => {

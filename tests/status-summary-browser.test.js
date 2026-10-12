@@ -16194,3 +16194,152 @@ browserTest(
   },
   TEST_TIMEOUT_MS,
 );
+
+
+browserTest(
+  'status summary chips align zero and growing counts without losing semantics or narrow wrapping',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, width: 1280, height: 900 });
+    try {
+      await waitForSampleCaptureAction(page.cdp);
+      await activateSampleCapture(page.cdp);
+      await evaluate(page.cdp, "document.querySelector('#tbody tr[data-row-id]').click()");
+      for (const width of [1280, 500, 320]) {
+        await page.cdp.send('Emulation.setDeviceMetricsOverride', {
+          width, height: 900, deviceScaleFactor: 1, mobile: false,
+        });
+        await settleLayout(page.cdp);
+        await evaluate(page.cdp, `(() => {
+          if (document.querySelector('#statusDetails').hidden) {
+            document.querySelector('#statusDetailsToggle').click();
+          }
+        })()`);
+        for (const theme of SEPARATOR_FOCUS_THEMES) {
+          await page.cdp.send('Emulation.setEmulatedMedia', {
+            features: [{ name: 'prefers-color-scheme', value: theme.mediaColorScheme }],
+          });
+          const requestIndicator = await evaluate(page.cdp, `(() => {
+            _NetworkPlus.updateTableSummary();
+            const counter = document.querySelector('#counter');
+            const style = getComputedStyle(counter);
+            const icon = getComputedStyle(counter, '::before');
+            return {text:counter.textContent,title:counter.title,height:counter.getBoundingClientRect().height,
+              icon:icon.content,iconWidth:icon.width,iconHeight:icon.height,alignItems:style.alignItems,
+              ariaHidden:counter.getAttribute('aria-hidden')};
+          })()`);
+          expect(requestIndicator).toMatchObject({text:'3 requests',title:'3 requests',height:24,
+            iconWidth:'14px',iconHeight:'18px',alignItems:'center',ariaHidden:'true'});
+          expect(requestIndicator.icon).toContain('📋');
+          for (const context of [
+            {totalCount:0,shownCount:0},
+            {totalCount:1000000,shownCount:999999},
+          ]) {
+            const countLayout = await evaluate(page.cdp, `(() => {
+              const summary = _NetworkPlus.planRequestCountSummary(${JSON.stringify(context)});
+              const counter = document.querySelector('#counter');
+              counter.textContent = summary.text;
+              counter.title = summary.accessibleText;
+              return {text:counter.textContent,title:counter.title,expectedText:summary.text,
+                expectedTitle:summary.accessibleText,height:counter.getBoundingClientRect().height,
+                fits:counter.scrollWidth<=counter.clientWidth+1,
+                pageOverflow:document.documentElement.scrollWidth>innerWidth};
+            })()`);
+            expect(countLayout).toMatchObject({height:24,fits:true,pageOverflow:false});
+            expect(countLayout.text).toBe(countLayout.expectedText);
+            expect(countLayout.title).toBe(countLayout.expectedTitle);
+          }
+          for (const counts of [
+            { '2xx': 1, '3xx': 0, '4xx': 0, '5xx': 1, other: 0 },
+            { '2xx': 999999, '3xx': 1000, '4xx': 0, '5xx': 1, other: 9999 },
+            { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0, other: 0 },
+          ]) {
+            const observed = await evaluate(page.cdp, `(() => {
+              const theme = ${JSON.stringify(theme.dataTheme)};
+              if (theme === null) document.documentElement.removeAttribute('data-theme');
+              else document.documentElement.dataset.theme = theme;
+              _NetworkPlus.renderStatsSummary(document.querySelector('#statsSummary'), {
+                statusClassCounts: ${JSON.stringify(counts)}, avgDuration: 886, minDuration: 24, maxDuration: 2450,
+              }, () => {});
+              const badgeProfile = (style) => Object.fromEntries([
+                'boxSizing', 'minWidth', 'paddingLeft', 'paddingRight', 'borderTopWidth',
+                'borderTopStyle', 'borderTopColor', 'borderRadius', 'backgroundColor',
+                'fontSize', 'fontWeight', 'lineHeight', 'textAlign', 'fontVariantNumeric',
+              ].map((key) => [key, style[key]]));
+              return {
+                referenceBadge: badgeProfile(getComputedStyle(document.querySelector('#req-tab-query'), '::after')),
+                pageOverflow: document.documentElement.scrollWidth > innerWidth,
+                chips: Array.from(document.querySelectorAll('.status-summary-chip')).map((chip) => {
+                  const box = chip.getBoundingClientRect();
+                  const label = chip.querySelector('.status-summary-chip-label');
+                  const count = chip.querySelector('.status-summary-chip-count');
+                  const labelBox = label.getBoundingClientRect();
+                  const countBox = count.getBoundingClientRect();
+                  return {
+                    statusClass: chip.dataset.statusClass, label: label.textContent, count: count.textContent,
+                    tag: chip.tagName, text: chip.textContent, height: box.height,
+                    badgeHeight: countBox.height, badgeStyle: badgeProfile(getComputedStyle(count)),
+                    centered: Math.abs(countBox.top + countBox.height / 2 - box.top - box.height / 2) <= 0.5,
+                    ariaLabel: chip.getAttribute('aria-label'), ariaHidden: chip.getAttribute('aria-hidden'),
+                    separated: labelBox.right <= countBox.left && countBox.right <= box.right - 0.5,
+                    fits: chip.scrollWidth <= chip.clientWidth + 1 && chip.scrollHeight <= chip.clientHeight + 1,
+                  };
+                }),
+              };
+            })()`);
+            expect(observed.pageOverflow).toBe(false);
+            expect(observed.chips).toHaveLength(5);
+            for (const chip of observed.chips) {
+              const count = counts[chip.statusClass];
+              expect(chip).toMatchObject({
+                label: chip.statusClass, count: String(count), text: chip.statusClass + ' ' + count,
+                height: 24, badgeHeight: 16, centered: true,
+                tag: count > 0 ? 'BUTTON' : 'SPAN', fits: true, separated: true,
+                ariaHidden: count > 0 ? null : 'true',
+              });
+              expect(chip.badgeStyle).toEqual(observed.referenceBadge);
+              expect(chip.badgeStyle).toMatchObject({ borderTopWidth: '1px', borderTopStyle: 'solid' });
+              if (count > 0) {
+                expect(chip.ariaLabel).toBe('Inspect first visible ' +
+                  (chip.statusClass === 'other' ? 'other-status' : chip.statusClass) +
+                  ' request (' + count + ' matching)');
+              }
+            }
+            if (counts['2xx'] > 0) {
+              const point = await evaluate(page.cdp, `(() => {
+                const chip = document.querySelector('.status-summary-chip--2xx');
+                const box = chip.getBoundingClientRect();
+                return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+              })()`);
+              await page.cdp.send('Input.dispatchMouseEvent', {
+                type: 'mousePressed', ...point, button: 'left', clickCount: 1,
+              });
+              const contrast = await evaluate(page.cdp, `(() => {
+                const chip = document.querySelector('.status-summary-chip--2xx');
+                const count = chip.querySelector('.status-summary-chip-count');
+                const rgba = (text) => text.match(/[\\d.]+/g).map(Number);
+                const ink = rgba(getComputedStyle(count).color);
+                const front = rgba(getComputedStyle(count).backgroundColor);
+                const back = rgba(getComputedStyle(chip).backgroundColor);
+                const alpha = front[3] ?? 1;
+                const ground = front.slice(0, 3).map((channel, i) => channel * alpha + back[i] * (1 - alpha));
+                const luminance = (rgb) => rgb.slice(0, 3).reduce((sum, channel, i) => {
+                  const c = channel / 255;
+                  return sum + (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)) * [0.2126, 0.7152, 0.0722][i];
+                }, 0);
+                const a = luminance(ink), b = luminance(ground);
+                return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+              })()`);
+              await page.cdp.send('Input.dispatchMouseEvent', {
+                type: 'mouseReleased', ...point, button: 'left', clickCount: 1,
+              });
+              expect(contrast).toBeGreaterThanOrEqual(4.5);
+            }
+          }
+        }
+      }
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);

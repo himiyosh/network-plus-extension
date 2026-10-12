@@ -815,6 +815,8 @@ describe('guided sample capture static contracts', () => {
       /\.status-summary-duration\{[^}]*min-width:0[^}]*overflow-wrap:anywhere/,
     );
     expect(css).toMatch(/#counter\{[^}]*white-space:normal/);
+    expect(css).toMatch(/#counter\{[^}]*align-items:center[^}]*min-height:24px/);
+    expect(css).toContain("#counter::before{content:'📋'");
     expect(js).toContain('const restoreEmptyStateFocus = isFocusInsideEmptyState();');
     expect(js).toContain('restoreFocusAfterEmptyStateChange(restoreEmptyStateFocus);');
     expect(js).toContain("const target = (tbody && tbody.querySelector('tr[tabindex=\"0\"]')) || $('#filterBtn');");
@@ -1553,6 +1555,14 @@ describe('translation coverage', () => {
 });
 
 describe('settings and language contracts', () => {
+  test('Language control names itself from its translated heading and retains separate help', () => {
+    const select = html.match(/<select\b[^>]*id="langSelect"[^>]*>/)[0];
+    expect(select).toMatch(/aria-labelledby="langSectionTitle"/);
+    expect(select).toMatch(/aria-describedby="langHelp"/);
+    expect(Array.from(html.matchAll(/\bid="langSectionTitle"/g))).toHaveLength(1);
+    expect(html).toMatch(/<h3[^>]*id="langSectionTitle"[^>]*data-i18n="settingsLanguageSection"[^>]*>[^<]+<\/h3>/);
+  });
+
   test('the Settings dialog gathers language, theme, and retention with instant-apply selects', () => {
     expect(html).toMatch(/id="langSelect"[^>]*aria-describedby="langHelp"/);
     expect(html).toContain('<option value="ja">日本語</option>');
@@ -2514,7 +2524,8 @@ describe('waterfall and stats topology', () => {
     expect(css).toContain(
       '.status-summary-chip--empty{border-color:var(--control-border);color:var(--text-muted);font-weight:600}',
     );
-    expect(css).toContain('.status-summary-chip--action{min-height:24px;cursor:pointer');
+    expect(css).toMatch(/\.status-summary-chip\{[^}]*min-height:24px/);
+    expect(css).toContain('.status-summary-chip--action{cursor:pointer');
     expect(css).toContain(
       '.status-summary-chip--action:active{border-color:var(--accent);background:var(--accent-fill);color:var(--on-accent)}',
     );

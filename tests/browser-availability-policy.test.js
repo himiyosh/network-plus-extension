@@ -1311,5 +1311,9 @@ test('retains the local-only skip when no browser executable is discoverable', (
       skipped: true,
       title: 'the status bar, comparison pane, search colours and main divider speak one language',
     },
+    {
+      skipped: true,
+      title: 'status summary chips align zero and growing counts without losing semantics or narrow wrapping',
+    },
   ]);
 });
