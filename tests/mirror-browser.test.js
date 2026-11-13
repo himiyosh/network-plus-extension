@@ -732,6 +732,67 @@ browserTest(
 );
 
 browserTest(
+  'Body and Raw search keep dense match plans bounded and report only actual overflow',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, initScript: HOST_STUB });
+    try {
+      const result = await evaluate(page.cdp, `(async () => {
+        const file = document.querySelector('#importFile');
+        const body = 'x'.repeat(2000) + 'Y'.repeat(200000);
+        const har = ${MINI_HAR};
+        har.log.entries[0].response.content.text = body;
+        const files = new DataTransfer();
+        files.items.add(new File([JSON.stringify(har)], 'dense.har'));
+        file.files = files.files;
+        file.dispatchEvent(new Event('change'));
+        const waitFor = async (predicate) => {
+          for (let i = 0; i < 160; i++) {
+            if (predicate()) return;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          throw new Error('The dense pane search fixture timed out');
+        };
+        await waitFor(() => document.querySelector('#tbody tr[data-row-id]'));
+        document.querySelector('#tbody tr[data-row-id]').click();
+        const search = async (name, query) => {
+          const pane = document.querySelector('#res-' + name);
+          const tab = document.querySelector('#res-tab-' + name);
+          tab.click();
+          tab.focus();
+          tab.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }));
+          const input = pane.querySelector('.pane-search-input');
+          const count = pane.querySelector('.pane-search-count');
+          const before = count.textContent;
+          input.value = query;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await waitFor(() => count.textContent !== before);
+          return { count: count.textContent, marks: pane.querySelectorAll('mark.pane-search-hit').length };
+        };
+        await waitFor(() => document.querySelector('#res-body .pane-search-input'));
+        const hidden = await search('body', 'Y');
+        const rawDense = await search('raw', 'Y');
+        const raw = document.querySelector('#res-raw .code-raw');
+        const rawTextIntact = raw.textContent.endsWith(body);
+        // The extra text node holds no further match. Exactly 1,500 is not overflow.
+        raw.textContent = '';
+        raw.append(document.createTextNode('x'.repeat(1500)), document.createElement('br'), document.createTextNode('tail'));
+        const rawExact = await search('raw', 'x');
+        return { hidden, rawDense, rawExact, rawTextIntact };
+      })()`, true);
+      expect(result).toEqual({
+        hidden: { count: 'No matches (+200000 collapsed)', marks: 0 },
+        rawDense: { count: '1 / 1500+', marks: 1500 },
+        rawExact: { count: '1 / 1500', marks: 1500 },
+        rawTextIntact: true,
+      });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'a HAR above both old source limits imports locally and over the mirror',
   async () => {
     const size = 65 * 1024 * 1024;

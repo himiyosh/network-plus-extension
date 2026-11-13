@@ -3054,6 +3054,36 @@ describe('multi-keyword highlight planning', () => {
   });
 });
 
+describe('bounded pane search', () => {
+  test('keeps only the first 1,500 matches and one overflow marker in the range plan', () => {
+    const source = 'x'.repeat(1024 * 1024);
+    const ranges = np.planPaneSearchRanges(source, 'x', {}, 1500);
+    expect(ranges).toHaveLength(1501);
+    expect(ranges[0]).toEqual({ start: 0, end: 1 });
+    expect(ranges.at(-1)).toEqual({ start: 1500, end: 1501 });
+    expect(np.countPaneSearchHits(source, 'x', {})).toBe(source.length);
+    expect(np.planPaneSearchRanges(source.slice(0, 1500), 'x', {}, 1500)).toHaveLength(1500);
+    expect(np.planPaneSearchRanges('end', 'x', {}, 0)).toEqual([]);
+    expect(np.planPaneSearchRanges('end x', 'x', {}, 0)).toEqual([{ start: 4, end: 5 }]);
+  });
+
+  test.each([
+    ['aaaAA', 'aa', {}],
+    ['id ids hid ID', 'id', { wholeWord: true }],
+    ['ab+ Ab+ x', 'ab+', { caseSensitive: true }],
+    ['🌍x🌍', '🌍', {}],
+    ['axa', 'x*', { regex: true }],
+    ['foo xfoo xfoo', '(?<=x)foo', { regex: true }],
+    ['aaa', '(?=a)', { regex: true }],
+    ['a', '[', { regex: true }],
+  ])('matches the single-keyword planner for %j and %j', (source, query, options) => {
+    const expected = np.planKeywordHighlights(source, [{ query }], options).map(({ start, end }) => ({ start, end }));
+    expect(np.planPaneSearchRanges(source, query, options, 0)).toEqual(expected.slice(0, 1));
+    expect(np.countPaneSearchHits(source, query, options)).toBe(expected.length);
+    expect(np.planPaneSearchRanges(source, query, options, 1500)).toEqual(expected);
+  });
+});
+
 describe('debounce', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
