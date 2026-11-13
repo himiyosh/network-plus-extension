@@ -8015,6 +8015,30 @@ const _NetworkPlus = (function () {
       en: 'Response Bodies',
       ja: 'レスポンスボディ',
     },
+    compareBodyEmpty: {
+      en: '(empty body)',
+      ja: '（本文は空です）',
+    },
+    compareBodyMissing: {
+      en: '(no body)',
+      ja: '（本文なし）',
+    },
+    compareBodyOmitted: {
+      en: '(body omitted — exceeded the 1 MiB per-body retention limit)',
+      ja: '（本文を省略しました。本文1件あたりの保持上限 1 MiB を超えています）',
+    },
+    compareBodyEvicted: {
+      en: '(body evicted from the 32 MiB cache — re-select the request to retry)',
+      ja: '（32 MiB のキャッシュから本文が削除されました。再取得するにはリクエストを選び直してください）',
+    },
+    compareBodyUnavailable: {
+      en: '(body not available)',
+      ja: '（本文を取得できません）',
+    },
+    compareBodyTruncated: {
+      en: '(showing {shown} of {total} chars — view full body in the detail panel)',
+      ja: '（{total} 文字のうち {shown} 文字を表示。全文は詳細パネルで確認できます）',
+    },
     // The main workbench divider announces itself in the inspector divider's
     // frame (inspectorHalfPercentValue) with its own noun, so the two
     // separators beside each other read alike in either language.
@@ -8408,15 +8432,8 @@ const _NetworkPlus = (function () {
   // the reader clicked another row. Repaint the open pane from the same
   // renderer the selection uses: the picked tab survives because the counts
   // are unchanged, and a pane search and the panes' scroll offsets restart.
-  // A comparison owns the pane instead of a single request, so renderRowDetails
-  // would paint one request over the two-request diff. It is repainted from its
-  // own renderer instead: Tier 2 left that standing because the panel's chrome
-  // (its close control, its section headings) was written in English rather
-  // than read from UI_TEXT, and re-running it would not have been a language
-  // switch. Those strings translate now, so it is. What the diff tables paint
-  // inside a section — the 'Name' column, the A/B fallback headers, the
-  // body-state notices — is still English in both languages, and repainting
-  // leaves it exactly where it was.
+  // Repaint an open comparison with its own renderer so its controls,
+  // section headings and body notices follow the selected language.
   // A pane the reader closed stays closed: closeDetailsPanel hides the
   // pane but leaves state.selectedRow standing (the row keeps its selection,
   // and a click on it reopens the pane), so gating on the selection alone
@@ -16794,20 +16811,17 @@ const _NetworkPlus = (function () {
       if (bodyDesc.stateLabel === 'truncated') {
         const truncNotice = document.createElement('p');
         truncNotice.className = 'diff-body-notice diff-body-notice--truncated';
-        truncNotice.textContent = '(showing ' + bodyDesc.text.length.toLocaleString() + ' of ' + bodyDesc.totalLength.toLocaleString() + ' chars — view full body in the detail panel)';
+        truncNotice.textContent = uiTextFormat('compareBodyTruncated', {
+          shown: bodyDesc.text.length.toLocaleString(activeLanguage),
+          total: bodyDesc.totalLength.toLocaleString(activeLanguage),
+        });
         content.appendChild(truncNotice);
       }
     } else {
       const notice = document.createElement('p');
       notice.className = 'diff-body-notice diff-body-notice--' + bodyDesc.stateLabel;
-      const labels = {
-        empty: '(empty body)',
-        missing: '(no body)',
-        omitted: '(body omitted — exceeded the 1 MiB per-body retention limit)',
-        evicted: '(body evicted from the 32 MiB cache — re-select the request to retry)',
-        unavailable: '(body not available)',
-      };
-      notice.textContent = labels[bodyDesc.stateLabel] || '(body not available)';
+      const labelKey = 'compareBody' + bodyDesc.stateLabel[0].toUpperCase() + bodyDesc.stateLabel.slice(1);
+      notice.textContent = uiText(labelKey) || uiText('compareBodyUnavailable');
       content.appendChild(notice);
     }
 
