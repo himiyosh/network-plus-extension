@@ -1,0 +1,126 @@
+{
+  "lockVersion": 2,
+  "platforms": {
+    "codex": {
+      "repository": "himiyosh/agentic-rules",
+      "ref": "a0248b7a876de1ddaa21fea5569b08ed7d94fe0f",
+      "commit": "a0248b7a876de1ddaa21fea5569b08ed7d94fe0f",
+      "bundleVersion": "0.10.0",
+      "manifestSha256": "ca454fa909d0296dcb4d42830ac1889362e513438503d0cf0081106c25f882a8",
+      "platform": "codex",
+      "profiles": [
+        "codex-improvement"
+      ],
+      "assets": [
+        {
+          "id": "codex-requirements-reviewer",
+          "source": ".codex/agents/requirements_reviewer.toml",
+          "target": ".codex/agents/requirements_reviewer.toml",
+          "sha256": "bba5396ed1fae2df58d4a8e59c6e3a3c37f831111cf502cb520c1cdd929136fd"
+        },
+        {
+          "id": "codex-design-architect",
+          "source": ".codex/agents/design_architect.toml",
+          "target": ".codex/agents/design_architect.toml",
+          "sha256": "12714b13c76424c597e08ba592d5eae67e66be83b4ae1e53a0688285a8ad6528"
+        },
+        {
+          "id": "codex-implementation-worker",
+          "source": ".codex/agents/implementation_worker.toml",
+          "target": ".codex/agents/implementation_worker.toml",
+          "sha256": "3e57e5f9416a8314ffaa9e9a88574d405efd3672ef884c76b36bf3f0af151caf"
+        },
+        {
+          "id": "codex-code-reviewer",
+          "source": ".codex/agents/code_reviewer.toml",
+          "target": ".codex/agents/code_reviewer.toml",
+          "sha256": "30f92591e9fd8a98cf26ff33d4f96c30e060b727ab48b4c097c3182e20780cde"
+        },
+        {
+          "id": "codex-ux-reviewer",
+          "source": ".codex/agents/ux_reviewer.toml",
+          "target": ".codex/agents/ux_reviewer.toml",
+          "sha256": "cce7bab1ff366e90e21479ae0636e329c61a92af202a6b127100a80e8ee531f8"
+        },
+        {
+          "id": "codex-qa-reviewer",
+          "source": ".codex/agents/qa_reviewer.toml",
+          "target": ".codex/agents/qa_reviewer.toml",
+          "sha256": "af95e6a0addf1e082ec871457f35eb99353926b081720e9a10afc42b6678ec0e"
+        },
+        {
+          "id": "codex-reliability-reviewer",
+          "source": ".codex/agents/reliability_reviewer.toml",
+          "target": ".codex/agents/reliability_reviewer.toml",
+          "sha256": "c6e0e6292c5ba94bdea17b15a157de23c8bc502a4660ad4677533cda23395f26"
+        },
+        {
+          "id": "codex-security-reviewer",
+          "source": ".codex/agents/security_reviewer.toml",
+          "target": ".codex/agents/security_reviewer.toml",
+          "sha256": "6003b63b80209c2a82304b06d9f6c9ac8d1669a15d8a7663f905c8933d64ee0c"
+        },
+        {
+          "id": "codex-release-reviewer",
+          "source": ".codex/agents/release_reviewer.toml",
+          "target": ".codex/agents/release_reviewer.toml",
+          "sha256": "e0a257679356d8acfe749d6667b02d50887ee81768ac203959ef020ecae00fe7"
+        },
+        {
+          "id": "codex-improvement-hooks",
+          "source": ".codex/hooks.json",
+          "target": ".codex/hooks.json",
+          "sha256": "68ea8d220e48dae8089703f686d7cf8820ee7763064665ba13f363c384f54e5f"
+        },
+        {
+          "id": "codex-improvement-harness-script",
+          "source": ".codex/hooks/codex_harness.py",
+          "target": ".codex/hooks/codex_harness.py",
+          "sha256": "209bc0bf2c8b4419e6e519a22538bebb2066c571e6869df0b6c316e10682a6e2"
+        },
+        {
+          "id": "codex-improvement-harness-guide",
+          "source": "docs/codex-improvement-harness.md",
+          "target": ".claude/knowledge/agentic-rules/docs/codex-improvement-harness.md",
+          "sha256": "834738f13f30f7f6f5bc697b6937e2211c73cd085fb69a1b78fbc3feafcf2949"
+        },
+        {
+          "id": "codex-agentic-core",
+          "source": "agentic-core.instructions.md",
+          "target": ".claude/rules/agentic-core.md",
+          "sha256": "164e0ee2d686886501b2ae122c3ea6ec3412047ce7a7c7ada256a0cd69b9e67e"
+        },
+        {
+          "id": "codex-agentic-engineering",
+          "source": "agentic-engineering-rules.md",
+          "target": ".claude/knowledge/agentic-rules/agentic-engineering-rules.md",
+          "sha256": "6741e35a8e383d9c8361d7f72d165208325ffd1c9fb619c4b16d1717e10cf3a0"
+        },
+        {
+          "id": "codex-agent-persona",
+          "source": "agent-persona-rules.md",
+          "target": ".claude/knowledge/agentic-rules/agent-persona-rules.md",
+          "sha256": "1ac6278dc2ae7008cd09b44139b2e618377875c9b7cc7374bcbb0bbb896dc481"
+        },
+        {
+          "id": "codex-agentic-knowledge",
+          "source": "agentic-knowledge-system-rules.md",
+          "target": ".claude/knowledge/agentic-rules/agentic-knowledge-system-rules.md",
+          "sha256": "dc7e960b3f1b923b7fcef28955bb0e522d634b8c89c198ae071910cd621ce1b9"
+        },
+        {
+          "id": "codex-loop-graph",
+          "source": "loop-graph-engineering.instructions.md",
+          "target": ".claude/knowledge/agentic-rules/loop-graph-engineering.instructions.md",
+          "sha256": "2da6383cae4bdd8cb05b4793fedb73c9589354b0880abae4ce5f7421c191ba80"
+        },
+        {
+          "id": "codex-agentic-lifecycle-observations",
+          "source": "docs/agentic-lifecycle-observations.md",
+          "target": ".claude/knowledge/agentic-rules/docs/agentic-lifecycle-observations.md",
+          "sha256": "fd7f01072bd4d34e6979fe108496f4f51937477d2e03df371893579faf161405"
+        }
+      ]
+    }
+  }
+}

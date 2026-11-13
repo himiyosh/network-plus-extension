@@ -1,0 +1,1 @@
+../../rules/agentic-core.md

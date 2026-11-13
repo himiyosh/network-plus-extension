@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "concise-changelog",
+      "rule": "Keep each Unreleased item on one line, English and at most 200 code points; details belong in commit/PR.",
+      "source": "CLAUDE.md#changelog-の書き方",
+      "scope": "User-facing changes",
+      "status": "active"
+    },
+    {
+      "id": "complete-browser-gates",
+      "rule": "Derive expected suites from Git/Jest; require zero skipped tests and actual status-summary-browser and mirror-browser PASS.",
+      "source": "https://github.com/himiyosh/network-plus-extension/pull/28; CLAUDE.md#テスト実行の絶対則",
+      "scope": "Validation",
+      "status": "active"
+    },
+    {
+      "id": "pane-regex-feedback",
+      "rule": "Distinguish malformed regex from zero matches using localized inline feedback and input ARIA associations in all four Body/Raw panes.",
+      "source": "https://github.com/himiyosh/network-plus-extension/pull/37",
+      "scope": "Body/Raw search",
+      "status": "active"
+    },
+    {
+      "id": "inspector-density-safety",
+      "rule": "Preserve inspector-led layout, grid density, keyboard behavior, safe rendering and existing permissions; do not adopt open design drafts wholesale.",
+      "source": "https://github.com/himiyosh/network-plus-extension/pull/42; docs/DESIGN.md",
+      "scope": "UI and data rendering",
+      "status": "active"
+    },
+    {
+      "id": "pane-search-disclosure",
+      "rule": "Reveal Body/Raw search only on Ctrl/Cmd+F; preserve copy/view actions, two-stage Escape, close focus restoration, and reset on request selection.",
+      "source": "https://github.com/himiyosh/network-plus-extension/pull/43",
+      "scope": "Body/Raw search",
+      "status": "active"
+    },
+    {
+      "id": "compact-inspector-tabs",
+      "rule": "Retain dense keyboard-accessible inspector tabs and compact count badges with theme contrast; author evidence is synthetic and version-scoped.",
+      "source": "https://github.com/himiyosh/network-plus-extension/pull/39#issuecomment-6032170089; docs/DESIGN.md",
+      "scope": "Inspector tabs and visual evidence",
+      "status": "active"
+    }
+  ]
+}

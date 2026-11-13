@@ -1,0 +1,44 @@
+{
+  "description": "Project improvement context and bounded evidence checks. Review and trust in Codex before use.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy,subprocess,sys; root=subprocess.run(['git','rev-parse','--show-toplevel'],check=True,capture_output=True,text=True).stdout.rstrip('\\r\\n'); p=pathlib.Path(root)/'.codex/hooks/codex_harness.py'; sys.argv=[str(p),'hook']; runpy.run_path(str(p),run_name='__main__')\"",
+            "commandWindows": "py -3 -c \"import pathlib,runpy,subprocess,sys; root=subprocess.run(['git','rev-parse','--show-toplevel'],check=True,capture_output=True,text=True).stdout.rstrip('\\r\\n'); p=pathlib.Path(root)/'.codex/hooks/codex_harness.py'; sys.argv=[str(p),'hook']; runpy.run_path(str(p),run_name='__main__')\"",
+            "timeout": 15,
+            "statusMessage": "Checking improvement evidence"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy,subprocess,sys; root=subprocess.run(['git','rev-parse','--show-toplevel'],check=True,capture_output=True,text=True).stdout.rstrip('\\r\\n'); p=pathlib.Path(root)/'.codex/hooks/codex_harness.py'; sys.argv=[str(p),'hook']; runpy.run_path(str(p),run_name='__main__')\"",
+            "commandWindows": "py -3 -c \"import pathlib,runpy,subprocess,sys; root=subprocess.run(['git','rev-parse','--show-toplevel'],check=True,capture_output=True,text=True).stdout.rstrip('\\r\\n'); p=pathlib.Path(root)/'.codex/hooks/codex_harness.py'; sys.argv=[str(p),'hook']; runpy.run_path(str(p),run_name='__main__')\"",
+            "timeout": 15,
+            "statusMessage": "Checking improvement evidence"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy,subprocess,sys; root=subprocess.run(['git','rev-parse','--show-toplevel'],check=True,capture_output=True,text=True).stdout.rstrip('\\r\\n'); p=pathlib.Path(root)/'.codex/hooks/codex_harness.py'; sys.argv=[str(p),'hook']; runpy.run_path(str(p),run_name='__main__')\"",
+            "commandWindows": "py -3 -c \"import pathlib,runpy,subprocess,sys; root=subprocess.run(['git','rev-parse','--show-toplevel'],check=True,capture_output=True,text=True).stdout.rstrip('\\r\\n'); p=pathlib.Path(root)/'.codex/hooks/codex_harness.py'; sys.argv=[str(p),'hook']; runpy.run_path(str(p),run_name='__main__')\"",
+            "timeout": 15,
+            "statusMessage": "Checking improvement evidence"
+          }
+        ]
+      }
+    ]
+  }
+}

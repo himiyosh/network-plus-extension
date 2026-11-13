@@ -4,6 +4,8 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🐛 **Pane search reset** — clear invalid-regex feedback when closing Body or Raw search, including its accessible error state.
+
 - 📝 **Release evidence** — record the published v1.16.0 ZIP, freshly downloaded and byte-compared with a reviewed UTC build.
 
 ## v1.16.0 - 2026-10-12
