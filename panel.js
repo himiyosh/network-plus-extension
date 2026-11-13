@@ -3164,7 +3164,7 @@ const _NetworkPlus = (function () {
 
   // Byte count of a base64 payload without materialising it.
   function base64ByteLength(base64) {
-    const clean = typeof base64 === 'string' ? base64.replace(/[\r\n=]+/g, '') : '';
+    const clean = typeof base64 === 'string' ? base64.replace(/[\t\n\f\r =]+/g, '') : '';
     return Math.floor((clean.length * 3) / 4);
   }
 

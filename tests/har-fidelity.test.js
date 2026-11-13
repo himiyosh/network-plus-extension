@@ -76,7 +76,7 @@ describe('HAR round-trip fidelity', () => {
   });
 
   test.each([
-    ['日本🌍', '', 10], ['AAEC/w==', 'base64', 4], ['', '', 0],
+    ['日本🌍', '', 10], ['AAEC/w==', 'base64', 4], ['AA\tEC/ w==\f', 'base64', 4], ['', '', 0],
   ])('infers missing request sizes from payload bytes for %s (%s)', (text, encoding, size) => {
     const row = importRow({
       request: { postData: { mimeType: 'text/plain', text, encoding } },
@@ -85,6 +85,7 @@ describe('HAR round-trip fidelity', () => {
     for (const candidate of [row, mirrorRow(row)]) {
       const entry = exported(candidate);
       expect([entry.request.bodySize, entry.response.bodySize, entry.response.content.size]).toEqual([size, -1, -1]);
+      expect(entry.request.postData).toMatchObject({ text, ...(encoding ? { encoding } : {}) });
       expect(candidate.size).toBe(row.size);
     }
     const legacy = exported({ method: 'POST', url: 'https://fidelity.test/', requestPostData: { text, encoding }, size: 0 });
