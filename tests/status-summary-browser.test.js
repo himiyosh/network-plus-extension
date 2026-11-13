@@ -16356,6 +16356,122 @@ const followupComparisonSwitchBuild = (toLanguage) => `(async () => {
 })()`;
 
 browserTest(
+  'comparison body notices follow language changes while captured text stays literal',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      query: '?view=offline',
+      initScript: "localStorage.setItem('networkPlus.lang', 'en');",
+    });
+    const requestText = '<img src=x onerror=window.__bodyExecuted=true> request (no body) 日本 $&';
+    const responseText = '<svg onload=window.__bodyExecuted=true>response (empty body) 日本</svg>';
+    try {
+      await evaluate(page.cdp, `(() => {
+        const postData = (text) => ({ mimeType: 'text/plain', text });
+        const content = (text) => ({ mimeType: 'text/plain', text, size: text.length });
+        const bodies = [
+          [null, { mimeType: 'text/plain' }],
+          [postData(''), content('')],
+          [postData(${JSON.stringify(requestText)}), content(${JSON.stringify(responseText)})],
+          [postData('q'.repeat(2001)), content('r'.repeat(2001))],
+          [postData('retained request'), content('x'.repeat(1100000))],
+        ];
+        const entries = bodies.map(([requestBody, responseBody], index) => ({
+          startedDateTime: new Date(1700000000000 + index).toISOString(), time: 1,
+          request: { method: 'POST', url: 'https://synthetic.invalid/comparison/' + index, headers: [], postData: requestBody },
+          response: { status: 200, headers: [], content: responseBody }, timings: {},
+        }));
+        const files = new DataTransfer();
+        files.items.add(new File([JSON.stringify({ log: { entries } })], 'comparison.har'));
+        const input = document.querySelector('#importFile');
+        input.files = files.files; input.dispatchEvent(new Event('change'));
+        return true;
+      })()`);
+      const deadline = Date.now() + 15000;
+      let imported = false;
+      while (Date.now() < deadline) {
+        imported = await evaluate(page.cdp, "document.querySelectorAll('#tbody tr[data-row-id]').length === 5 && !document.querySelector('#importBtn').disabled");
+        if (imported) break;
+        await delay(25);
+      }
+      expect(imported).toBe(true);
+      await evaluate(page.cdp, `(() => {
+        window.__comparePair = (first, second) => {
+          const row = (index) => document.querySelectorAll('#tbody tr[data-row-id]')[index];
+          row(first).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          for (const index of [first, second]) {
+            row(index).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true, metaKey: true }));
+          }
+          row(first).querySelector('[data-col-id="path"]').dispatchEvent(new MouseEvent('contextmenu', {
+            bubbles: true, clientX: 60, clientY: 100,
+          }));
+          const label = document.documentElement.lang === 'ja' ? '選択した 2 件のリクエストを比較' : 'Compare 2 selected requests';
+          const action = Array.from(document.querySelectorAll('.context-menu-item')).find((item) => item.textContent === label);
+          if (!action) throw new Error('Comparison fixture could not open the two-row comparison.');
+          action.click();
+        };
+        window.__comparisonBodies = () => {
+          const panel = document.querySelector('#comparePanel');
+          return {
+            open: !panel.hidden,
+            blocks: Array.from(panel.querySelectorAll('.diff-body-block')).map((block) => ({
+              notice: block.querySelector('.diff-body-notice')?.textContent || null,
+              text: block.querySelector('.diff-body-pre')?.textContent ?? null,
+            })),
+            injectedElements: panel.querySelectorAll('.diff-body-content img,.diff-body-content svg').length,
+            executed: window.__bodyExecuted === true,
+          };
+        };
+        return true;
+      })()`);
+      const measure = async (language, pair) => evaluate(page.cdp, `(async () => {
+        ${pair ? `window.__comparePair(${pair[0]}, ${pair[1]});` : ''}
+        const select = document.querySelector('#langSelect');
+        select.value = ${JSON.stringify(language)};
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        return window.__comparisonBodies();
+      })()`, true);
+      for (const [pair, kind] of [[[0, 1], 'absent'], [[2, 3], 'text'], [[0, 4], 'omitted']]) {
+        for (const [index, language] of ['en', 'ja', 'en'].entries()) {
+          const observed = await measure(language, index === 0 ? pair : null);
+          expect(observed.open).toBe(true);
+          expect(observed.injectedElements).toBe(0);
+          expect(observed.executed).toBe(false);
+          expect(observed.blocks).toHaveLength(4);
+          const [requestA, requestB, responseA, responseB] = observed.blocks;
+          if (kind === 'absent') {
+            expect(requestA).toEqual({ notice: language === 'ja' ? '（本文なし）' : '(no body)', text: null });
+            expect(requestB).toEqual({ notice: language === 'ja' ? '（本文は空です）' : '(empty body)', text: null });
+            expect(responseA.notice.startsWith(language === 'ja' ? '（本文を取得できません' : '(body not available')).toBe(true);
+            expect(responseA.text).toBeNull();
+            expect(responseB).toEqual(requestB);
+          } else if (kind === 'text') {
+            expect(requestA).toEqual({ notice: null, text: requestText });
+            expect(responseA).toEqual({ notice: null, text: responseText });
+            for (const [block, character] of [[requestB, 'q'], [responseB, 'r']]) {
+              expect(block.text).toBe(character.repeat(2000));
+              expect(block.notice).toBe(language === 'ja'
+                ? '（2,001 文字のうち 2,000 文字を表示。全文は詳細パネルで確認できます）'
+                : '(showing 2,000 of 2,001 chars — view full body in the detail panel)');
+            }
+          } else {
+            expect(responseB.notice).toBe(language === 'ja'
+              ? '（本文を省略しました。本文1件あたりの保持上限 1 MiB を超えています）'
+              : '(body omitted — exceeded the 1 MiB per-body retention limit)');
+            expect(responseB.text).toBeNull();
+            expect(requestB).toEqual({ notice: null, text: 'retained request' });
+          }
+        }
+      }
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'the status bar, comparison pane, search colours and main divider speak one language',
   async () => {
     const page = await launchPanelPage({
