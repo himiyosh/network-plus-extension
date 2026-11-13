@@ -732,6 +732,62 @@ browserTest(
 );
 
 browserTest(
+  'HAR and SAZ import status follows the chosen language and preserves both counts',
+  async () => {
+    const host = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: HOST_STUB + `localStorage.setItem('networkPlus.retention.v1', '{"requestLimit":100,"unlimited":false}');`,
+    });
+    try {
+      await evaluate(host.cdp, `(() => {
+        const count = 101;
+        const har = ${MINI_HAR};
+        har.log.entries = Array.from({ length: count }, () => har.log.entries[0]);
+        const sessions = {};
+        for (let id = 1; id <= count; id++) {
+          sessions['raw/' + id + '_c.txt'] = new TextEncoder().encode('GET /saved HTTP/1.1\\r\\nHost: example.test\\r\\n\\r\\n');
+          sessions['raw/' + id + '_s.txt'] = new TextEncoder().encode('HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\n\\r\\nok');
+        }
+        window.__syntheticImports = {
+          HAR: new File([JSON.stringify(har)], 'test.HAR'),
+          SAZ: new File([fflate.zipSync(sessions)], 'test.SAZ'),
+        };
+        return true;
+      })()`);
+      const readStatus = "document.querySelector('#statusText').textContent";
+      const finished = "document.querySelector('#importBtn').getAttribute('aria-busy') === 'false'";
+      for (const format of ['HAR', 'SAZ']) {
+        for (const language of ['en', 'ja']) {
+          const progress = await evaluate(host.cdp, `(() => {
+            const select = document.querySelector('#langSelect');
+            select.value = ${JSON.stringify(language)};
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            const input = document.querySelector('#importFile');
+            const transfer = new DataTransfer();
+            transfer.items.add(window.__syntheticImports[${JSON.stringify(format)}]);
+            input.files = transfer.files;
+            input.dispatchEvent(new Event('change'));
+            return ${readStatus};
+          })()`);
+          const result = await waitForImportResult(host.cdp, `${finished} && ${readStatus}`);
+          expect({ progress, result }).toEqual(language === 'en' ? {
+            progress: `Importing ${format}...`,
+            result: `Imported 101 requests from ${format}; retained 100`,
+          } : {
+            progress: `${format} をインポートしています...`,
+            result: `${format} からリクエストを 101 件読み込み、100 件を保持しました。`,
+          });
+          expect(await evaluate(host.cdp, "document.querySelectorAll('#tbody tr[data-row-id]').length")).toBe(100);
+        }
+      }
+    } finally {
+      await host.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'a HAR above both old source limits imports locally and over the mirror',
   async () => {
     const size = 65 * 1024 * 1024;
