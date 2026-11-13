@@ -2487,7 +2487,8 @@ const _NetworkPlus = (function () {
     const mimeType = postData.mimeType || getHeaderContentType(requestHeaders);
     const body = sanitizeBody(postData.text, mimeType, postData.encoding, options);
     let summary = body.summary;
-    const value = { mimeType: String(mimeType || ''), text: body.text };
+    const value = { mimeType: String(mimeType || '') };
+    if (!Array.isArray(postData.params) || Object.prototype.hasOwnProperty.call(postData, 'text')) value.text = body.text;
     if (Array.isArray(postData.params)) {
       const params = sanitizeNamedValues(postData.params);
       value.params = params.value;
@@ -3163,8 +3164,13 @@ const _NetworkPlus = (function () {
 
   // Byte count of a base64 payload without materialising it.
   function base64ByteLength(base64) {
-    const clean = typeof base64 === 'string' ? base64.replace(/[\r\n=]+/g, '') : '';
+    const clean = typeof base64 === 'string' ? base64.replace(/[\t\n\f\r =]+/g, '') : '';
     return Math.floor((clean.length * 3) / 4);
+  }
+
+  function getHarPayloadByteLength(payload) {
+    if (!payload || typeof payload.text !== 'string') return -1;
+    return payload.encoding === 'base64' ? base64ByteLength(payload.text) : getUtf8ByteLength(payload.text);
   }
 
   function buildHarResponseContent(row, responsePayload) {
@@ -3177,9 +3183,12 @@ const _NetworkPlus = (function () {
         : null
     );
     const content = {
-      size: row && row.size ? row.size : 0,
+      size: row && Number.isFinite(row.responseContentSize)
+        ? row.responseContentSize
+        : row && row.size ? row.size : 0,
       mimeType: guessMimeType(row || {}),
     };
+    if (row && Number.isFinite(row.responseCompression)) content.compression = row.responseCompression;
     if (payload) {
       content.text = payload.content;
       if (payload.encoding === 'base64') content.encoding = 'base64';
@@ -3993,6 +4002,28 @@ const _NetworkPlus = (function () {
     return count;
   }
 
+  function normalizeHarPostData(postData) {
+    if (!isRecord(postData)) return null;
+    const normalized = {
+      mimeType: normalizeImportString(postData.mimeType),
+      encoding: postData.encoding === 'base64' ? 'base64' : '',
+    };
+    if (Object.prototype.hasOwnProperty.call(postData, 'text')) {
+      normalized.text = normalizeImportString(postData.text);
+    }
+    if (Array.isArray(postData.params)) {
+      normalized.params = postData.params.map((param) => {
+        const source = isRecord(param) ? param : {};
+        const result = { name: normalizeImportString(source.name) };
+        for (const field of ['value', 'fileName', 'contentType', 'comment']) {
+          if (Object.prototype.hasOwnProperty.call(source, field)) result[field] = normalizeImportString(source[field]);
+        }
+        return result;
+      });
+    }
+    return normalized;
+  }
+
   function normalizeHarEntry(entry) {
     if (!isRecord(entry) || !isRecord(entry.request) || !isRecord(entry.response)) {
       throw createImportError('HAR entries must contain request and response objects.');
@@ -4000,16 +4031,12 @@ const _NetworkPlus = (function () {
     const request = entry.request;
     const response = entry.response;
     const content = isRecord(response.content) ? response.content : {};
-    const postData = isRecord(request.postData)
-      ? {
-        mimeType: normalizeImportString(request.postData.mimeType),
-        text: normalizeImportString(request.postData.text),
-        encoding: request.postData.encoding === 'base64' ? 'base64' : '',
-      }
-      : null;
+    const postData = normalizeHarPostData(request.postData);
     const normalizedContent = { mimeType: normalizeImportString(content.mimeType) };
     const contentSize = normalizeImportNumber(content.size, null);
-    if (contentSize !== null && contentSize >= 0) normalizedContent.size = contentSize;
+    if (contentSize !== null && contentSize >= -1) normalizedContent.size = contentSize;
+    const compression = normalizeImportNumber(content.compression, null);
+    if (compression !== null) normalizedContent.compression = compression;
     if (typeof content.text === 'string') normalizedContent.text = content.text;
     if (content.encoding === 'base64') normalizedContent.encoding = 'base64';
     if (isRecord(content._networkPlus)) {
@@ -9128,8 +9155,15 @@ const _NetworkPlus = (function () {
       embeddedResponseContent !== null && embeddedContent.encoding === 'base64' ? 'base64' : '';
     const requestBodySize = req && req.request ? req.request.bodySize : undefined;
     const responseBodySize = req && req.response ? req.response.bodySize : undefined;
-    const requestPostText = req && req.request && req.request.postData && req.request.postData.text;
+    const requestPostData = req && req.request && req.request.postData;
     const contentSize = embeddedContent && embeddedContent.size;
+    // The grid's transfer-size fallback is not the decoded content size.
+    // Keep source metadata after imported request objects are released.
+    const responseContentSize = Number.isFinite(contentSize) && contentSize >= -1 ? contentSize : -1;
+    const responseCompression = embeddedContent && Number.isFinite(embeddedContent.compression)
+      ? embeddedContent.compression : null;
+    const inferredResponseBodySize = responseCompression === null || responseCompression === 0
+      ? responseContentSize : -1;
     const r = {
       _reqObj: req,
       method: (req && req.request && req.request.method) || '',
@@ -9143,15 +9177,17 @@ const _NetworkPlus = (function () {
       requestBodySize:
         Number.isFinite(requestBodySize) && requestBodySize >= 0
           ? requestBodySize
-          : requestBodySize == null && typeof requestPostText === 'string' && requestPostText.length > 0
-            ? requestPostText.length
+          : requestBodySize == null
+            ? getHarPayloadByteLength(requestPostData)
             : -1,
       responseBodySize:
         Number.isFinite(responseBodySize) && responseBodySize >= 0
           ? responseBodySize
-          : responseBodySize == null && Number.isFinite(contentSize) && contentSize > 0
-            ? contentSize
+          : responseBodySize == null && inferredResponseBodySize >= 0
+            ? inferredResponseBodySize
             : -1,
+      responseContentSize,
+      responseCompression,
       clientStart: fmtLocalTime(isoStr),
       serverDone: fmtLocalTime(serverDoneIso),
       clientStartFilter: fmtFilterTime(isoStr),
@@ -9248,7 +9284,11 @@ const _NetworkPlus = (function () {
         httpVersion: row.protocol,
         headers: Array.isArray(row.responseHeaders) ? row.responseHeaders : [],
         bodySize: Number.isFinite(row.responseBodySize) ? row.responseBodySize : row.size,
-        content: { mimeType: row.type, size: row.size },
+        content: {
+          mimeType: row.type,
+          size: Number.isFinite(row.responseContentSize) ? row.responseContentSize : row.size,
+          ...(Number.isFinite(row.responseCompression) ? { compression: row.responseCompression } : {}),
+        },
       },
       timings: row.timings || {},
     };
@@ -9586,7 +9626,10 @@ const _NetworkPlus = (function () {
         if (event.kind === 'ws-received') {
           row._wsReceivedCount = (row._wsReceivedCount || 0) + 1;
           row.size = (row.size || 0) + (event.preview ? event.preview.length : 0);
-          if (isLiveStreamRow(row)) row.responseBodySize = row.size;
+          if (isLiveStreamRow(row)) {
+            row.responseBodySize = row.size;
+            row.responseContentSize = row.size;
+          }
           if (row.method !== 'SSE') {
             const preview = event.preview || '';
             const binary = WS_BINARY_PREVIEW_PATTERN.test(preview);
@@ -9636,6 +9679,14 @@ const _NetworkPlus = (function () {
     let chars = 256 + (wireRow.request.url ? wireRow.request.url.length : 0);
     const postData = wireRow.request.postData;
     if (postData && typeof postData.text === 'string') chars += postData.text.length;
+    if (postData && Array.isArray(postData.params)) {
+      for (const param of postData.params) {
+        chars += 64;
+        for (const key of ['name', 'value', 'fileName', 'contentType', 'comment']) {
+          if (param && typeof param[key] === 'string') chars += param[key].length;
+        }
+      }
+    }
     for (const header of wireRow.request.headers) {
       chars += (header.name ? header.name.length : 0) + (header.value ? header.value.length : 0) + 8;
     }
@@ -17059,9 +17110,8 @@ const _NetworkPlus = (function () {
       const httpVersion = r.protocol || 'HTTP/2';
       const reqHeaders = toHarHeaders(r.requestHeaders);
       const resHeaders = toHarHeaders(r.responseHeaders);
-      const postData = r.requestPostData
-        ? { mimeType: r.requestPostData.mimeType || '', text: r.requestPostData.text || '' }
-        : null;
+      const postData = normalizeHarPostData(r.requestPostData);
+      if (postData && !postData.encoding) delete postData.encoding;
       // [U1] Preserve response body text and its transfer encoding in HAR.
       const content = responseContents && responseContents.has(r)
         ? responseContents.get(r)
@@ -17085,7 +17135,7 @@ const _NetworkPlus = (function () {
           headersSize: -1,
           bodySize: Number.isFinite(r.requestBodySize)
             ? r.requestBodySize
-            : r.requestPostData && r.requestPostData.text ? r.requestPostData.text.length : -1,
+            : getHarPayloadByteLength(r.requestPostData),
         },
         response: {
           status: r.status || 0,
@@ -17096,7 +17146,7 @@ const _NetworkPlus = (function () {
           content,
           redirectURL: '',
           headersSize: -1,
-          bodySize: Number.isFinite(r.responseBodySize) ? r.responseBodySize : r.size || -1,
+          bodySize: Number.isFinite(r.responseBodySize) ? r.responseBodySize : Number.isFinite(r.size) ? r.size : -1,
         },
         cache: {},
         timings,
