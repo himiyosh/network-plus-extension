@@ -9339,8 +9339,9 @@ const _NetworkPlus = (function () {
       });
       const nativeSend = socket.send.bind(socket);
       socket.send = function (data) {
+        const result = nativeSend(data);
         record({ kind: 'ws-sent', socketId, preview: preview(data) });
-        return nativeSend(data);
+        return result;
       };
       socket.addEventListener('open', function () {
         record({ kind: 'ws-open', socketId });
