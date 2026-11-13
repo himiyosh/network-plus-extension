@@ -11775,6 +11775,10 @@ browserTest(
               ? document.getElementById(descriptionId)
               : pane.querySelector('.pane-search-error');
             return {
+              query: input.value,
+              hidden: pane.querySelector('.pane-search-controls').hidden,
+              errorClass: input.classList.contains('pane-search-input-error'),
+              focusedTab: document.activeElement?.id || '',
               count: pane.querySelector('.pane-search-count').textContent,
               hits: pane.querySelectorAll('mark.pane-search-hit').length,
               navDisabled: Array.from(pane.querySelectorAll('.pane-search-nav:not(.pane-search-expand):not(.pane-search-close)'))
@@ -11813,10 +11817,39 @@ browserTest(
             const valid = await type(id, 'needle', (state) => state.hits === 1);
             const invalid = await type(id, '[', (state) =>
               state.title.startsWith('Invalid regular expression:') && state.hits === 0);
+            const pane = document.getElementById(id);
+            const input = pane.querySelector('.pane-search-input');
+            const tab = document.querySelector('#' + id.replace('-', '-tab-'));
+            const open = () => {
+              tab.focus();
+              tab.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'f', ctrlKey: true, bubbles: true, cancelable: true,
+              }));
+            };
+            pane.querySelector('.pane-search-close').click();
+            const closed = snapshot(id);
+            open();
+            const reopened = snapshot(id);
             const corrected = await type(id, 'needle', (state) =>
               state.hits === 1 && state.invalid === null);
+            await type(id, '[', (state) => state.invalid === 'true');
+            const escape = () => input.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Escape', bubbles: true, cancelable: true,
+            }));
+            escape();
+            const escapeCleared = snapshot(id);
+            escape();
+            const escapeClosed = snapshot(id);
+            open();
+            // Close while an invalid query is still waiting on the debounce.
+            input.value = '[';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            pane.querySelector('.pane-search-close').click();
+            // Deliberately cross the 150ms debounce to detect stale callbacks.
+            await new Promise((resolve) => setTimeout(resolve, 220));
+            const delayedClosed = snapshot(id);
             const missing = await type(id, 'absent', (state) => state.count === 'No matches');
-            english[id] = { valid, invalid, corrected, missing };
+            english[id] = { valid, invalid, closed, reopened, corrected, escapeCleared, escapeClosed, delayedClosed, missing };
           }
           const language = document.querySelector('#langSelect');
           language.value = 'ja';
@@ -11845,7 +11878,17 @@ browserTest(
       expect(observed.regexPressed).toBe('true');
       const ids = ['req-body', 'req-raw', 'res-body', 'res-raw'];
       for (const id of ids) {
-        const { valid, invalid, corrected, missing } = observed.english[id];
+        const { valid, invalid, closed, reopened, corrected, escapeCleared, escapeClosed, delayedClosed, missing } = observed.english[id];
+        const cleared = {
+          query: '', count: '', hits: 0, navDisabled: true, invalid: null,
+          descriptionId: null, description: '', title: '', errorClass: false, errorVisible: false,
+        };
+        for (const state of [closed, escapeClosed, delayedClosed]) {
+          expect(state).toMatchObject({ ...cleared, hidden: true, focusedTab: id.replace('-', '-tab-') });
+        }
+        for (const state of [reopened, escapeCleared]) {
+          expect(state).toMatchObject({ ...cleared, hidden: false, focused: true });
+        }
         expect(valid).toMatchObject({
           count: '1 / 1', hits: 1, navDisabled: false, invalid: null, descriptionId: null,
           description: '', focused: true,
@@ -13654,8 +13697,11 @@ const PANE_TOOLBAR_BAND_MEASURE = `(() => {
   // An <input> reports scrollWidth === clientWidth until it is scrolled, so
   // "does the typed query fit" is measured in the field's own font instead.
   const textWidth = context.measureText(input.value).width;
-  const contentWidth =
-    input.clientWidth - parseFloat(inputStyle.paddingLeft) - parseFloat(inputStyle.paddingRight);
+  // Input clientWidth can already exclude inline padding (CSSWG #13502).
+  // Measure the rendered content box so padding is subtracted exactly once.
+  const contentWidth = input.getBoundingClientRect().width
+    - parseFloat(inputStyle.borderLeftWidth) - parseFloat(inputStyle.borderRightWidth)
+    - parseFloat(inputStyle.paddingLeft) - parseFloat(inputStyle.paddingRight);
   const rowsOf = (elements) => {
     const centres = [];
     for (const element of elements) {

@@ -33,7 +33,7 @@ bundle が生成する `.agents/` 以下の Codex 用ミラーは使わない。
 | 実装方針、検証、ブランチ運用、依存、Web スタックの判断に迷った時 | `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` |
 | 応答スタイル、自己改善、エンコーディング、MCP の扱いを確認する時 | `.claude/knowledge/agentic-rules/agent-persona-rules.md` |
 | 出典付き調査、RAG、ナレッジ検索エージェントを設計・実装する時 | `.claude/knowledge/agentic-rules/agentic-knowledge-system-rules.md` |
-| bounded loop、graph/DAG workflow、checkpoint、HITL を設計する時 | `.claude/loop-graph-engineering.instructions.md` |
+| bounded loop、graph/DAG workflow、checkpoint、HITL を設計する時 | `.claude/knowledge/agentic-rules/loop-graph-engineering.instructions.md` |
 
 profile によっては配布されないファイルがある。存在しないパスは無視し、不足を推測で補わない。
 
@@ -43,9 +43,17 @@ profile によっては配布されないファイルがある。存在しない
 
 このプロジェクトだけに効く絶対制約をここに書く。上の共通ルールと重複する一般論は書かない。
 
-- 導入元 ref: `v0.6.1` (`5792d8bb3ea23d3812e10c5b7f4ced214ac73753`)
-- 導入 profile: `core`（platform: `claude-code`）
-- ローカル逸脱: `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` §6.10 から、レビューコメント marker・レビュアー session UUID・repository variables による merge ゲート手続きの bullet 3 件を削除している（#129 で本リポジトリでは廃止済み。merge 可否は branch protection と通常の CI quality gates で判定する）。bundle 更新時は再取得後に同じ削除を再適用すること。
+- 導入元 ref: `a0248b7a876de1ddaa21fea5569b08ed7d94fe0f`（bundle `0.10.0`、上流 PR #31 draft の固定版。正式リリースではない）
+- 導入 profile: `codex-improvement` の手動統合。共通正本は `.claude/knowledge/agentic-rules/`、core は `.claude/rules/agentic-core.md`。配布版との対応と差分は `docs/agentic-harness.md`。
+- ローカル逸脱: `.claude/knowledge/agentic-rules/agentic-engineering-rules.md` §6.10 から、レビューコメント marker・レビュアー session UUID・repository variables による merge ゲート手続きの bullet 3 件を削除している（#129 で本リポジトリでは廃止済み。merge 可否は branch protection と通常の CI quality gates で判定する）。今回の固定版では上流でも削除済みのため追加差分はない。更新時も再導入しないこと。
+
+### 両クライアント共通の改善手順
+
+- 主セッションが唯一の統括。専門9役だけを `.codex/agents/*.toml` と `.claude/agents/*.md` で発見する。Claude の Markdown は Codex TOML 内の役割契約への薄い参照であり、統括エージェントを別途起動しない。
+- 改善開始時に `docs/agent-feedback.json` の有効指摘を全件読み、[共通ハーネス手順](.claude/knowledge/agentic-rules/docs/codex-improvement-harness.md) に従う。主セッションが受入条件、全9観点の適用性、関連担当、最終検収を持つ。
+- 実装前に共通Pythonの `init` → report の計画記入 → `plan` を行う。全有効指摘を受入条件または理由付き対象外へ対応させ、実証拠を `record` → `check` → `finish` で検収する。未確認や古い証拠は合格にしない。
+- ネイティブフックは通常の信頼確認後に実発火を確認する。利用できない場合は同じCLIで検証し、自動発火とは区別する。設定・承認・モデルを変更して通さない。
+- 導入、更新、指摘の追加・置換、制約の記録方法は [プロジェクト接続手順](docs/agentic-harness.md) を参照する。
 
 ### PR マージは承認依頼なしで進めてよい
 

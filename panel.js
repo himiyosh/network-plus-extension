@@ -14977,12 +14977,7 @@ const _NetworkPlus = (function () {
       searchState.open = false;
       searchState.query = '';
       input.value = '';
-      clearPaneSearchHits(pane);
-      marks = [];
-      currentIndex = -1;
-      truncated = false;
-      collapsedHits = 0;
-      updateCount();
+      runHighlight();
       searchControls.hidden = true;
       syncPaneSearchCopyLabels(bar);
       syncScrollportBarInset(pane.parentElement);
