@@ -1327,7 +1327,7 @@ describe('capture retention static contracts', () => {
     expect(js).not.toContain("document.querySelector('tr[data-row-id=\"' + row.id");
   });
 
-  test('keeps imports atomic, bounded, and single-flight', () => {
+  test('keeps imports atomic and single-flight with bounded SAZ extraction', () => {
     expect(html).toMatch(/id="importBtn"[^>]*aria-busy="false"/);
     expect(js).toContain('const commitStagedImport = (stagedImport) => {');
     expect(js).toContain('const stagedImport =');
@@ -1336,7 +1336,7 @@ describe('capture retention static contracts', () => {
     expect(js).toContain('importBtn.disabled = busy;');
     expect(js).toContain("importBtn.setAttribute('aria-busy', busy ? 'true' : 'false');");
     expect(js).toContain('importFile.value = \'\';');
-    expect(js).toContain('MAX_IMPORT_SOURCE_BYTES = 32 * 1024 * 1024');
+    expect(js).toContain('MAX_SAZ_SOURCE_BYTES = 32 * 1024 * 1024');
     expect(js).toContain('MAX_SAZ_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024');
     expect(js).toContain('MAX_SAZ_CONCURRENT_EXTRACTIONS = 4');
     expect(js).not.toContain("console.error('Failed to parse SAZ pair'");
@@ -3850,7 +3850,7 @@ describe('devtools-session mirror contracts', () => {
     // An adopted tab that reloads gets fresh probe attempts.
     expect(js).toContain('mirrorProbeAttemptsLeft = MIRROR_ADOPT_PROBE_ATTEMPTS;\n            startMirrorReconnect();');
     // Commands time out instead of hanging their affordance, with a budget
-    // that respects a legitimate 64 MiB import decode.
+    // for import decoding, parsing and rendering.
     expect(js).toContain('const MIRROR_COMMAND_TIMEOUT_MS = 30 * 1000;');
     expect(js).toContain('const MIRROR_IMPORT_RESULT_TIMEOUT_MS = 120 * 1000;');
     expect(js).toContain("'The DevTools session did not answer in time; the command may still have applied.'");

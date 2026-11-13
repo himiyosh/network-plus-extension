@@ -179,6 +179,16 @@ const sendSnapshot = (cdp, rows, control) =>
     })()`,
   );
 
+const waitForImportResult = async (cdp, condition) => {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const result = await evaluate(cdp, condition);
+    if (result) return result;
+    await delay(25);
+  }
+  return null;
+};
+
 const lastViewerCommand = (cdp) =>
   evaluate(cdp, "window.__sentToHost.filter((m) => m.type === 'command').at(-1) || null");
 
@@ -350,6 +360,12 @@ browserTest(
       expect(importParts.begin.fileName).toBe('transfer.har');
       expect(importParts.end).toBe(true);
       expect(Buffer.from(importParts.data, 'base64').toString('utf8')).toBe(MINI_HAR);
+
+      await evaluate(page.cdp, `window.__send({
+        type: 'command-result',
+        commandId: ${importParts.begin.commandId},
+        ok: true,
+      }); true`);
 
       // The docked report raises the undock explainer exactly once per load,
       // and "Don't show this again" persists across a reload.
@@ -591,6 +607,101 @@ browserTest(
       );
     } finally {
       await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'a HAR above both old source limits imports locally and over the mirror',
+  async () => {
+    const size = 65 * 1024 * 1024;
+    const host = await launchPanelPage({ executable: browserExecutable, initScript: HOST_STUB });
+    try {
+      const local = await evaluate(
+        host.cdp,
+        `(() => {
+          window.__pickHar = (content) => {
+            const file = new File([content, ' '.repeat(${size})], 'large.har');
+            const input = document.getElementById('importFile');
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+            input.dispatchEvent(new Event('change'));
+            return file.size;
+          };
+          return window.__pickHar(${JSON.stringify(MINI_HAR)});
+        })()`,
+      );
+      expect(local).toBeGreaterThan(size);
+      const importStatus = "document.getElementById('statusText').textContent";
+      expect(await waitForImportResult(host.cdp, `${importStatus}.includes('Imported 1 requests from HAR') && ${importStatus}`))
+        .toContain('retained 1');
+      await evaluate(host.cdp, `window.__pickHar('{broken'); true`);
+      expect(await waitForImportResult(host.cdp, `${importStatus}.includes('HAR is not valid JSON') && ${importStatus}`))
+        .toContain('HAR is not valid JSON');
+      expect(await evaluate(host.cdp, "document.querySelector('#tbody tr').textContent")).toContain('imported.example.test');
+      expect(await evaluate(host.cdp, "document.getElementById('importBtn').disabled")).toBe(false);
+
+      await evaluate(host.cdp, `(() => {
+        const send = window.__hostPortListener;
+        const header = ${JSON.stringify(MINI_HAR.replace('imported.example.test', 'mirror-large.example.test'))};
+        const commandId = 31;
+        send({ type: 'import-begin', commandId, fileName: 'mirror-large.har', size: header.length + ${size} });
+        send({ type: 'import-chunk', commandId, data: btoa(header) });
+        const chunk = 384 * 1024;
+        const padding = btoa(' '.repeat(chunk));
+        for (let offset = 0; offset < ${size}; offset += chunk) {
+          const length = Math.min(chunk, ${size} - offset);
+          send({ type: 'import-chunk', commandId, data: length === chunk ? padding : btoa(' '.repeat(length)) });
+        }
+        send({ type: 'import-end', commandId });
+        return true;
+      })()`);
+      expect(await waitForImportResult(host.cdp, "window.__fromHost.find((msg) => msg.type === 'command-result' && msg.commandId === 31)"))
+        .toMatchObject({ ok: true });
+      expect(await evaluate(host.cdp, "document.querySelector('#tbody tr').textContent")).toContain('mirror-large.example.test');
+    } finally {
+      await host.close();
+    }
+
+    const viewer = await launchPanelPage({
+      executable: browserExecutable,
+      query: '?view=window&src=7',
+      initScript: VIEWER_STUB,
+    });
+    try {
+      await attachScriptedHostPort(viewer.cdp);
+      const declared = await evaluate(viewer.cdp, `(() => {
+        const input = document.getElementById('viewerImportFile');
+        const dt = new DataTransfer();
+        const file = new File([${JSON.stringify(MINI_HAR)}, ' '.repeat(${size})], 'large.har');
+        dt.items.add(file);
+        input.files = dt.files;
+        input.dispatchEvent(new Event('change'));
+        return file.size;
+      })()`);
+      const sent = await waitForImportResult(viewer.cdp, `(() => {
+        const messages = window.__sentToHost;
+        const end = messages.find((m) => m.type === 'import-end');
+        if (!end) return null;
+        const begin = messages.find((m) => m.type === 'import-begin');
+        const chunks = messages.filter((m) => m.type === 'import-chunk');
+        const decodedBytes = chunks.reduce((sum, { data }) =>
+          sum + data.length * 3 / 4 - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0), 0);
+        return {
+          commandId: end.commandId,
+          declared: begin.size,
+          decodedBytes,
+          bounded: chunks.every(({ data }) => data.length <= 512 * 1024),
+          busy: document.getElementById('importBtn').disabled,
+        };
+      })()`);
+      expect(sent).toMatchObject({ declared, decodedBytes: declared, bounded: true, busy: true });
+      await evaluate(viewer.cdp, `window.__send({ type: 'command-result', commandId: ${sent.commandId}, ok: true }); true`);
+      expect(await evaluate(viewer.cdp, "document.getElementById('importBtn').disabled")).toBe(false);
+    } finally {
+      await viewer.close();
     }
   },
   TEST_TIMEOUT_MS,

@@ -2272,12 +2272,14 @@ describe('capture retention helpers', () => {
     expect(np.getImportFormat('capture.HAR')).toBe('har');
     expect(np.getImportFormat('capture.saz')).toBe('saz');
     expect(np.getImportFormat('capture.zip')).toBe('');
-    expect(np.validateImportSource('capture.har', np.MAX_IMPORT_SOURCE_BYTES)).toEqual({
-      format: 'har',
+    for (const size of [np.MAX_SAZ_SOURCE_BYTES + 1, 65 * 1024 * 1024, Number.MAX_SAFE_INTEGER]) {
+      expect(np.validateImportSource('capture.HAR', size)).toEqual({ format: 'har', error: '' });
+    }
+    expect(np.validateImportSource('capture.saz', np.MAX_SAZ_SOURCE_BYTES)).toEqual({
+      format: 'saz',
       error: '',
     });
-    expect(np.validateImportSource('capture.har', np.MAX_IMPORT_SOURCE_BYTES + 1).error).toContain('32 MiB');
-    expect(np.validateImportSource('capture.har', Number.MAX_SAFE_INTEGER).error).toContain('32 MiB');
+    expect(np.validateImportSource('capture.saz', np.MAX_SAZ_SOURCE_BYTES + 1).error).toContain('32 MiB');
     expect(np.validateImportSource('capture.har', NaN).error).toContain('unavailable');
     expect(np.validateImportSource('capture.txt', 1).error).toContain('HAR and SAZ');
   });
@@ -8603,8 +8605,8 @@ describe('mirror remote control (command channel + import transfer)', () => {
         }),
       receiveImportFile:
         (options && options.receiveImportFile) ||
-        ((fileName, bytes, done) => {
-          imports.push({ fileName, bytes: Array.from(bytes) });
+        ((fileName, parts, done) => {
+          imports.push({ fileName, bytes: parts.flatMap((part) => Array.from(part)) });
           done('');
         }),
     });
@@ -8696,25 +8698,34 @@ describe('mirror remote control (command channel + import transfer)', () => {
     expect(Array.from(np.base64ToBytes(np.bytesToBase64(bytes)))).toEqual(Array.from(bytes));
   });
 
-  test('oversized transfers and interrupted transfers fail with reasons', () => {
-    // The oversize begin and the orphan end both produce command-result
-    // errors on the wire instead of being dropped.
+  test('SAZ source limits and incomplete or invalid mirror transfers fail with reasons', () => {
     const wire = [];
+    const receiveImportFile = jest.fn();
     const host = np.createMirrorHostSession({
       postMessage: (message) => wire.push(message),
       getRows: () => [],
       isPaused: () => false,
       fetchBodyForRow: () => Promise.reject(new Error('unused')),
-      receiveImportFile: (fileName, bytes, done) => done(''),
+      receiveImportFile,
     });
-    host.handleMessage({ type: 'import-begin', commandId: 1, fileName: 'big.har', size: np.MIRROR_IMPORT_MAX_BYTES + 1 });
+    host.handleMessage({ type: 'import-begin', commandId: 1, fileName: 'big.saz', size: np.MAX_SAZ_SOURCE_BYTES + 1 });
     host.handleMessage({ type: 'import-end', commandId: 2 });
-    const results = wire.filter((message) => message.type === 'command-result');
-    expect(results).toHaveLength(2);
-    expect(results[0].ok).toBe(false);
-    expect(results[0].error).toContain('64 MiB');
-    expect(results[1].ok).toBe(false);
-    expect(results[1].error).toBe('The import transfer was interrupted.');
+    host.handleMessage({ type: 'import-begin', commandId: 3, fileName: 'large.har', size: 65 * 1024 * 1024 });
+    host.handleMessage({ type: 'import-chunk', commandId: 3, data: 'YQ==' });
+    host.handleMessage({ type: 'import-end', commandId: 3 });
+    host.handleMessage({ type: 'import-begin', commandId: 4, fileName: 'invalid.har', size: 1 });
+    host.handleMessage({ type: 'import-chunk', commandId: 4, data: '  ' });
+    host.handleMessage({ type: 'import-begin', commandId: 5, fileName: 'invalid.har', size: -1 });
+    expect(wire.filter((message) => message.type === 'command-result').map(({ commandId, ok, error }) =>
+      [commandId, ok, error],
+    )).toEqual([
+      [1, false, expect.stringContaining('32 MiB')],
+      [2, false, 'The import transfer was interrupted.'],
+      [3, false, 'The transfer ended before its declared size was received.'],
+      [4, false, 'The transferred file could not be decoded.'],
+      [5, false, 'Import file size is unavailable.'],
+    ]);
+    expect(receiveImportFile).not.toHaveBeenCalled();
   });
 
   test('a disconnect fails pending commands as well as pending bodies', () => {
