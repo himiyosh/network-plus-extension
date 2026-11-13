@@ -4,6 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const vm = require('node:vm');
 
 const np = require('../panel.js');
 
@@ -7982,6 +7983,46 @@ describe('websocket capture pieces', () => {
     // Self-contained: nothing from panel scope may leak into the page code.
     expect(source).not.toContain('state.');
     expect(source).not.toContain('chrome.');
+  });
+
+  test('records a WebSocket send only after the native call returns', () => {
+    const rejected = new DOMException('Socket is connecting', 'InvalidStateError');
+    const nativeResult = Symbol('native result');
+    let sentBeforeNativeReturn;
+    const send = jest.fn(function (data) {
+      if (data === 'too early') throw rejected;
+      sentBeforeNativeReturn = window.__networkPlusWS__.drain();
+      return nativeResult;
+    });
+    class SyntheticWebSocket {
+      constructor() {
+        this.send = send;
+      }
+      addEventListener() {}
+    }
+    const window = { WebSocket: SyntheticWebSocket };
+    expect(vm.runInNewContext(np.buildWsWrapperSource(), { window })).toBe('installed');
+    const socket = new window.WebSocket('wss://example.test/stream');
+    expect(window.__networkPlusWS__.drain()).toEqual([
+      expect.objectContaining({ kind: 'ws-open-attempt', socketId: 1 }),
+    ]);
+
+    let thrown;
+    try {
+      socket.send('too early');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(rejected);
+    expect(window.__networkPlusWS__.drain()).toEqual([]);
+
+    expect(socket.send('accepted')).toBe(nativeResult);
+    expect(sentBeforeNativeReturn).toEqual([]);
+    expect(send.mock.calls).toEqual([['too early'], ['accepted']]);
+    expect(send.mock.contexts).toEqual([socket, socket]);
+    expect(window.__networkPlusWS__.drain()).toEqual([
+      expect.objectContaining({ kind: 'ws-sent', socketId: 1, preview: 'accepted' }),
+    ]);
   });
 
   test('frame lines carry direction arrows and bounded text trims from the front', () => {
