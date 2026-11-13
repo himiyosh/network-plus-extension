@@ -5581,15 +5581,25 @@ const _NetworkPlus = (function () {
     }
   }
 
-  function queueRetentionSummary(action) {
-    const retention = state.retention;
-    queueRetentionAnnouncement(
-      action +
+  function formatRetentionSummary(action, retention, source) {
+    if (source === 'import') {
+      return uiTextFormat('importRetentionSummary', {
+        action: localizeImportRetentionAction(action),
+        evictedRequests: retention.evictedRequests,
+        omittedBodies: retention.omittedBodies,
+        evictedBodies: retention.evictedBodies,
+        truncatedBodies: retention.truncatedBodies,
+      });
+    }
+    return action +
         '. Totals: ' + retention.evictedRequests + ' requests evicted, ' +
         retention.omittedBodies + ' bodies omitted, ' +
         retention.evictedBodies + ' cached bodies evicted, and ' +
-        retention.truncatedBodies + ' previews truncated.',
-    );
+        retention.truncatedBodies + ' previews truncated.';
+  }
+
+  function queueRetentionSummary(action, source) {
+    queueRetentionAnnouncement(formatRetentionSummary(action, state.retention, source));
   }
 
   function releaseResponseContent(row, nextState, countEviction) {
@@ -5618,7 +5628,7 @@ const _NetworkPlus = (function () {
       if (!row._responseOmissionCounted) {
         row._responseOmissionCounted = true;
         state.retention.omittedBodies += 1;
-        queueRetentionSummary('Response body omitted by the 1 MiB retention limit');
+        queueRetentionSummary('Response body omitted by the 1 MiB retention limit', row._captureSource);
       }
       updateRetentionStatus();
       throw new Error('Response body omitted for request ' + row.id + ': ' + row.responseContentReason);
@@ -5635,7 +5645,7 @@ const _NetworkPlus = (function () {
       if (state.onResponseContentChanged) state.onResponseContentChanged(oldestRow);
     }
     if (evictedBodyCount > 0) {
-      queueRetentionSummary(evictedBodyCount + ' cached response bodies evicted by the 32 MiB cache limit');
+      queueRetentionSummary(evictedBodyCount + ' cached response bodies evicted by the 32 MiB cache limit', row._captureSource);
     }
     releaseResponseContent(row, 'loading', false);
     row.responseContent = payload.content;
@@ -5843,7 +5853,7 @@ const _NetworkPlus = (function () {
     state.nextId += skippedCount;
     state.retention.evictedRequests += skippedCount;
     updateRetentionStatus();
-    queueRetentionSummary(skippedCount + ' imported requests skipped by the retention limit');
+    queueRetentionSummary(skippedCount + ' imported requests skipped by the retention limit', 'import');
   }
 
   function clearStoredRows() {
@@ -8245,9 +8255,193 @@ const _NetworkPlus = (function () {
       en: 'A new DevTools session connected; the table now mirrors it from the start.',
       ja: '新しい DevTools セッションに接続しました。テーブルは最初からそのセッションをミラーします。',
     },
+    importReasonUnsupportedFile: {
+      en: 'Only HAR and SAZ files are supported.',
+      ja: 'HAR ファイルと SAZ ファイルのみ対応しています。',
+    },
+    importReasonUnknownSize: {
+      en: 'Import file size is unavailable.',
+      ja: 'インポートするファイルのサイズを取得できません。',
+    },
+    importReasonSazSourceLimit: {
+      en: 'SAZ file exceeds the 32 MiB source limit.',
+      ja: 'SAZ ファイルが 32 MiB のサイズ上限を超えています。',
+    },
+    importReasonHarEntriesMissing: {
+      en: 'HAR must contain a log.entries array.',
+      ja: 'HAR には log.entries 配列が必要です。',
+    },
+    importReasonHarEntryInvalid: {
+      en: 'HAR entries must contain request and response objects.',
+      ja: 'HAR の各エントリーには request オブジェクトと response オブジェクトが必要です。',
+    },
+    importReasonHarJsonInvalid: {
+      en: 'HAR is not valid JSON.',
+      ja: 'HAR の JSON 形式が正しくありません。',
+    },
+    importReasonHarEntryTooLarge: {
+      en: 'A HAR entry is too large to parse.',
+      ja: 'HAR のエントリーが大きすぎるため解析できません。',
+    },
+    importReasonHarDuplicateLog: {
+      en: 'HAR contains duplicate log properties.',
+      ja: 'HAR に重複した log プロパティがあります。',
+    },
+    importReasonHarDuplicateEntries: {
+      en: 'HAR contains duplicate log.entries properties.',
+      ja: 'HAR に重複した log.entries プロパティがあります。',
+    },
+    importReasonBusy: {
+      en: 'Another import is already in progress.',
+      ja: '別のインポートが進行中です。',
+    },
+    importReasonSelectedFileFailed: {
+      en: 'The selected file could not be imported.',
+      ja: '選択したファイルをインポートできませんでした。',
+    },
+    importReasonSazEntryCount: {
+      en: 'SAZ archive exceeds the 20,000-entry limit.',
+      ja: 'SAZ アーカイブがエントリー数の上限 20,000 件を超えています。',
+    },
+    importReasonSazEntrySizeInvalid: {
+      en: 'SAZ entry size metadata is invalid.',
+      ja: 'SAZ エントリーのサイズ情報が正しくありません。',
+    },
+    importReasonSazEntrySizeLimit: {
+      en: 'SAZ entry exceeds the 4 MiB uncompressed limit.',
+      ja: 'SAZ エントリーが展開後のサイズ上限 4 MiB を超えています。',
+    },
+    importReasonSazTotalSizeLimit: {
+      en: 'SAZ archive exceeds the 64 MiB total uncompressed limit.',
+      ja: 'SAZ アーカイブが展開後の合計サイズ上限 64 MiB を超えています。',
+    },
+    importReasonSazDecompressionUnavailable: {
+      en: 'SAZ decompression support is unavailable.',
+      ja: 'SAZ の展開機能を利用できません。',
+    },
+    importReasonSazSourceInvalid: {
+      en: 'SAZ source data is invalid.',
+      ja: 'SAZ の元データが正しくありません。',
+    },
+    importReasonSazExtractionFailed: {
+      en: 'SAZ extraction failed.',
+      ja: 'SAZ の展開に失敗しました。',
+    },
+    importReasonSazMalformed: {
+      en: 'SAZ archive is malformed.',
+      ja: 'SAZ アーカイブの形式が正しくありません。',
+    },
+    importReasonSazCompressionUnsupported: {
+      en: 'SAZ payload uses an unsupported compression method.',
+      ja: 'SAZ のデータに未対応の圧縮方式が使われています。',
+    },
+    importReasonSazHttpInvalid: {
+      en: 'SAZ HTTP payload is invalid.',
+      ja: 'SAZ の HTTP データが正しくありません。',
+    },
+    importReasonSazStartLineMissing: {
+      en: 'SAZ HTTP start line is missing.',
+      ja: 'SAZ の HTTP 開始行がありません。',
+    },
+    importReasonSazRequestLineInvalid: {
+      en: 'SAZ request start line is invalid.',
+      ja: 'SAZ のリクエスト開始行が正しくありません。',
+    },
+    importReasonSazResponseLineInvalid: {
+      en: 'SAZ response start line is invalid.',
+      ja: 'SAZ のレスポンス開始行が正しくありません。',
+    },
+    importReasonSazSessionsMissing: {
+      en: 'SAZ contains no complete HTTP sessions.',
+      ja: 'SAZ に完全な HTTP セッションがありません。',
+    },
+    importReasonTransferSuperseded: {
+      en: 'The import transfer was superseded by a newer one.',
+      ja: '新しいインポート転送が始まったため、前の転送を終了しました。',
+    },
+    importReasonReloadViews: {
+      en: 'Reload both Network+ views to stream this HAR.',
+      ja: 'この HAR をストリーム転送するには、両方の Network+ 画面を再読み込みしてください。',
+    },
+    importReasonTransferCancelled: {
+      en: 'The import transfer was cancelled.',
+      ja: 'インポート転送をキャンセルしました。',
+    },
+    importReasonChunkOutOfOrder: {
+      en: 'The import transfer sent a chunk out of order.',
+      ja: 'インポート転送のデータが順序どおりに届きませんでした。',
+    },
+    importReasonTransferDecodeFailed: {
+      en: 'The transferred file could not be decoded.',
+      ja: '転送されたファイルをデコードできませんでした。',
+    },
+    importReasonTransferSizeExceeded: {
+      en: 'The transfer exceeded its declared size and was refused.',
+      ja: '転送量が申告されたサイズを超えたため、転送を拒否しました。',
+    },
+    importReasonTransferInterrupted: {
+      en: 'The import transfer was interrupted.',
+      ja: 'インポート転送が中断されました。',
+    },
+    importReasonTransferIncomplete: {
+      en: 'The transfer ended before its declared size was received.',
+      ja: '申告されたサイズのデータを受信する前に転送が終了しました。',
+    },
+    importReasonTransferEndOutOfOrder: {
+      en: 'The import transfer ended out of order.',
+      ja: 'インポート転送が正しい順序で終了しませんでした。',
+    },
+    importReasonTransferredFileFailed: {
+      en: 'The transferred file could not be imported.',
+      ja: '転送されたファイルをインポートできませんでした。',
+    },
+    importReasonMirrorImportDisabled: {
+      en: 'This DevTools session does not accept mirror imports.',
+      ja: 'この DevTools セッションはミラー画面からのインポートを受け付けていません。',
+    },
+    importReasonImportUnavailable: {
+      en: 'Import is not available in this DevTools session.',
+      ja: 'この DevTools セッションではインポートを利用できません。',
+    },
+    importReasonCommandRejected: {
+      en: 'The DevTools session rejected the command.',
+      ja: 'DevTools セッションが操作を拒否しました。',
+    },
+    importReasonSessionTimeout: {
+      en: 'The DevTools session did not answer in time; the command may still have applied.',
+      ja: 'DevTools セッションからの応答が時間内に届きませんでした。操作は適用済みの可能性があります。',
+    },
+    importReasonSessionDisconnectedBeforeResponse: {
+      en: 'The DevTools session disconnected before the response content arrived.',
+      ja: 'レスポンス内容が届く前に DevTools セッションの接続が切れました。',
+    },
+    importReasonSessionDisconnected: {
+      en: 'The DevTools session is disconnected, so response content cannot be retrieved.',
+      ja: 'DevTools セッションの接続が切れているため、レスポンス内容を取得できません。',
+    },
+    importRetentionBodyOmitted: {
+      en: 'Response body omitted by the 1 MiB retention limit',
+      ja: '1 MiB の保持上限によりレスポンスボディを省略しました',
+    },
+    importRetentionCacheEvicted: {
+      en: '{count} cached response bodies evicted by the 32 MiB cache limit',
+      ja: '32 MiB のキャッシュ上限によりレスポンスボディを {count} 件削除しました',
+    },
+    importRetentionRequestsSkipped: {
+      en: '{count} imported requests skipped by the retention limit',
+      ja: '保持上限によりインポートしたリクエストを {count} 件スキップしました',
+    },
+    importRetentionBodiesOmitted: {
+      en: '{omitted} response bodies omitted, {evicted} evicted during import',
+      ja: 'インポート中にレスポンスボディを {omitted} 件省略し、{evicted} 件をキャッシュから削除しました',
+    },
+    importRetentionSummary: {
+      en: '{action}. Totals: {evictedRequests} requests evicted, {omittedBodies} bodies omitted, {evictedBodies} cached bodies evicted, and {truncatedBodies} previews truncated.',
+      ja: '{action}。合計: リクエスト削除 {evictedRequests} 件、ボディ省略 {omittedBodies} 件、キャッシュ済みボディ削除 {evictedBodies} 件、プレビュー省略 {truncatedBodies} 件。',
+    },
     statusImportFailed: {
       en: 'Import failed: {reason}',
-      ja: 'インポートに失敗しました: {reason}',
+      ja: 'インポートに失敗しました：{reason}',
     },
     statusImportUnreadable: {
       en: 'Import failed: the selected file could not be read.',
@@ -8326,6 +8520,34 @@ const _NetworkPlus = (function () {
   function localizeBodyReason(reason) {
     const key = LOCALIZED_REASON_KEYS.get(reason);
     return key ? uiText(key) : reason;
+  }
+
+  // Error messages remain canonical in logs, results and mirror messages.
+  // Translate only exact, application-owned reasons at the import display boundary.
+  const LOCALIZED_IMPORT_REASON_KEYS = new Map(
+    Object.entries(UI_TEXT)
+      .filter(([key]) => key.startsWith('importReason'))
+      .map(([key, entry]) => [entry.en, key]),
+  );
+
+  function localizeImportReason(reason) {
+    const key = LOCALIZED_IMPORT_REASON_KEYS.get(reason);
+    return key ? uiText(key) : reason;
+  }
+
+  function formatImportFailure(reason) {
+    return uiTextFormat('statusImportFailed', { reason: localizeImportReason(reason) });
+  }
+
+  function localizeImportRetentionAction(action) {
+    if (action === UI_TEXT.importRetentionBodyOmitted.en) return uiText('importRetentionBodyOmitted');
+    const cached = /^(\d+) cached response bodies evicted by the 32 MiB cache limit$/.exec(action);
+    if (cached) return uiTextFormat('importRetentionCacheEvicted', { count: cached[1] });
+    const skipped = /^(\d+) imported requests skipped by the retention limit$/.exec(action);
+    if (skipped) return uiTextFormat('importRetentionRequestsSkipped', { count: skipped[1] });
+    const staged = /^(\d+) response bodies omitted, (\d+) evicted during import$/.exec(action);
+    if (staged) return uiTextFormat('importRetentionBodiesOmitted', { omitted: staged[1], evicted: staged[2] });
+    return action;
   }
 
   function localizeTimingLimitation(limitation) {
@@ -19970,7 +20192,7 @@ const _NetworkPlus = (function () {
           state.retention.omittedBodies += stagedOmissions;
           state.retention.evictedBodies += stagedEvictions;
           updateRetentionStatus();
-          queueRetentionSummary(stagedOmissions + ' response bodies omitted, ' + stagedEvictions + ' evicted during import');
+          queueRetentionSummary(stagedOmissions + ' response bodies omitted, ' + stagedEvictions + ' evicted during import', 'import');
         }
         renderBody();
         return retainedRows.length;
@@ -20002,7 +20224,7 @@ const _NetworkPlus = (function () {
         } catch (error) {
           const message =
             error && error.name === 'ImportError' ? error.message : 'The selected file could not be imported.';
-          setStatus(uiTextFormat('statusImportFailed', { reason: message }));
+          setStatus(formatImportFailure(message));
           console.error('Network+ import failed: ' + message);
           return message;
         } finally {
@@ -20677,14 +20899,14 @@ const _NetworkPlus = (function () {
         if (!file || viewerImportInProgress) return;
         const { error } = validateImportSource(file.name, file.size);
         if (error) {
-          setStatus(uiTextFormat('statusImportFailed', { reason: error }));
+          setStatus(formatImportFailure(error));
           return;
         }
         setViewerImportBusy(true);
         setStatus(uiTextFormat('statusSendingImportToDevtools', { file: file.name }));
         const reportImportResult = (error) => {
           setViewerImportBusy(false);
-          setStatus(error ? uiTextFormat('statusImportFailed', { reason: error.message }) : uiText('statusImportFinished'));
+          setStatus(error ? formatImportFailure(error.message) : uiText('statusImportFinished'));
         };
         if (getImportFormat(file.name) === 'har' && file.size > MAX_SAZ_SOURCE_BYTES) {
           await viewerSession.sendHarStream(file, reportImportResult);
@@ -20704,7 +20926,7 @@ const _NetworkPlus = (function () {
           setViewerImportBusy(false);
           setStatus(
             error && error.message
-              ? uiTextFormat('statusImportFailed', { reason: error.message })
+              ? formatImportFailure(error.message)
               : uiText('statusImportNotConnectedFailure'),
           );
         }
@@ -21683,6 +21905,10 @@ const _NetworkPlus = (function () {
     buildRawResponseText,
     planInspectorTabActivation,
     localizeBodyReason,
+    localizeImportReason,
+    localizeImportRetentionAction,
+    formatImportFailure,
+    formatRetentionSummary,
     localizeTimingLimitation,
     markUnfetchedRowsForNavigation,
     planSelectedExportRows,
