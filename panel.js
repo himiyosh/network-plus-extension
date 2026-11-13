@@ -8150,6 +8150,14 @@ const _NetworkPlus = (function () {
       en: 'Recording...',
       ja: '記録中...',
     },
+    statusImportInProgress: {
+      en: 'Importing {format}...',
+      ja: '{format} をインポートしています...',
+    },
+    statusImportSummary: {
+      en: 'Imported {total} requests from {format}; retained {retained}',
+      ja: '{format} からリクエストを {total} 件読み込み、{retained} 件を保持しました。',
+    },
     statusImportFinished: {
       en: 'Import finished in the DevTools session; the table resyncs momentarily.',
       ja: 'DevTools セッションでインポートが完了しました。まもなくテーブルが再同期します。',
@@ -19989,15 +19997,17 @@ const _NetworkPlus = (function () {
         setImportBusy(true);
         try {
           if (sourceValidation.error) throw createImportError(sourceValidation.error);
-          setStatus(`Importing ${sourceValidation.format.toUpperCase()}...`);
+          setStatus(uiTextFormat('statusImportInProgress', { format: sourceValidation.format.toUpperCase() }));
           const stagedImport =
             sourceValidation.format === 'har'
               ? await stageHarImport(file)
               : await stageSazImport(file);
           const retainedCount = commitStagedImport(stagedImport);
-          setStatus(
-            `Imported ${stagedImport.totalCount} requests from ${stagedImport.format}; retained ${retainedCount}`,
-          );
+          setStatus(uiTextFormat('statusImportSummary', {
+            format: stagedImport.format,
+            total: stagedImport.totalCount,
+            retained: retainedCount,
+          }));
           return '';
         } catch (error) {
           const message =
