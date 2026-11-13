@@ -8707,6 +8707,279 @@ describe('sse capture pieces', () => {
   });
 });
 
+describe('mirror WebSocket export protocol', () => {
+  const textFrame = (index = 0) => ({ type: index % 2 ? 'receive' : 'send', time: 1755750000 + index / 1000, opcode: 1, data: 'frame-' + index });
+  const connect = (capability = true) => {
+    const sent = [];
+    const snapshots = [];
+    const viewer = np.createMirrorViewerSession({
+      postMessage: (message) => sent.push(message),
+      appendWireRow: () => {},
+      applyWireSnapshot: (rows, options) => snapshots.push({ rows, options }),
+      getLocalCount: () => 1,
+      getLocalMaxId: () => 7,
+    });
+    viewer.handleMessage({ type: 'snapshot-start', generation: 1, session: 'host-a', total: 1, webSocketExport: capability });
+    viewer.handleMessage({ type: 'snapshot-rows', generation: 1, rows: [{ id: 7, webSocket: true }] });
+    viewer.handleMessage({ type: 'snapshot-end', generation: 1 });
+    return { viewer, sent, snapshots };
+  };
+  const request = (pair, includeFrames = true, session = 'host-a') => {
+    const done = jest.fn();
+    pair.viewer.requestWebSocketExport(7, session, includeFrames, done);
+    return { done, message: pair.sent.find((message) => message.type === 'ws-export-request') };
+  };
+  const result = (requestMessage, overrides = {}) => ({
+    type: 'ws-export-result',
+    requestId: requestMessage.requestId,
+    viewer: requestMessage.viewer,
+    rowId: requestMessage.rowId,
+    session: requestMessage.session,
+    ok: true,
+    count: 1,
+    droppedFrames: 0,
+    binaryFramesWithoutPayload: 0,
+    offset: 0,
+    frames: [textFrame()],
+    complete: true,
+    ...overrides,
+  });
+
+  test('transfers ordered full frames only after an explicit request, independently of response bodies', () => {
+    const pair = connect();
+    expect(pair.snapshots[0].options.session).toBe('host-a');
+    expect(pair.sent).toEqual([]);
+    const { done, message } = request(pair);
+    expect(message).toMatchObject({ type: 'ws-export-request', rowId: 7, session: 'host-a', includeFrames: true });
+    expect(typeof message.viewer).toBe('string');
+    const frames = Array.from({ length: 65 }, (_unused, index) => textFrame(index));
+    frames[64] = { type: 'receive', time: 1755750000.064, opcode: 2 };
+    pair.viewer.handleMessage(result(message, { count: 65, droppedFrames: 4, binaryFramesWithoutPayload: 1, frames: frames.slice(0, 64), complete: false }));
+    expect(done).not.toHaveBeenCalled();
+    pair.viewer.handleMessage(result(message, { count: 65, droppedFrames: 4, binaryFramesWithoutPayload: 1, offset: 64, frames: frames.slice(64) }));
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledWith(null, { count: 65, droppedFrames: 4, binaryFramesWithoutPayload: 1, frames });
+    expect(pair.sent.filter((message) => message.type === 'body-request')).toEqual([]);
+  });
+
+  test('metadata-only export receives counts without requesting or retaining frame payloads', () => {
+    const pair = connect();
+    const { done, message } = request(pair, false);
+    expect(message.includeFrames).toBe(false);
+    const reply = result(message, { count: 80, droppedFrames: 9, binaryFramesWithoutPayload: 3 });
+    delete reply.frames;
+    pair.viewer.handleMessage(reply);
+    expect(done).toHaveBeenCalledWith(null, { count: 80, droppedFrames: 9, binaryFramesWithoutPayload: 3 });
+    expect(done.mock.calls[0][1].frames).toBeUndefined();
+  });
+
+  test.each([false, undefined])('older host capability %s fails immediately without a request', (capability) => {
+    const pair = connect(false);
+    if (capability === undefined) {
+      pair.viewer.handleMessage({ type: 'snapshot-start', generation: 2, session: 'host-old', total: 0 });
+      pair.viewer.handleMessage({ type: 'snapshot-end', generation: 2 });
+    }
+    const { done } = request(pair, true, capability === undefined ? 'host-old' : 'host-a');
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(pair.sent).toEqual([]);
+  });
+
+  test('a stale row session fails before any new peer is asked for its reused row ID', () => {
+    const pair = connect();
+    const { done } = request(pair, true, 'old-host');
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(pair.sent).toEqual([]);
+  });
+
+  test('other viewer and unknown request replies cannot settle the pending export', () => {
+    const pair = connect();
+    const { done, message } = request(pair);
+    pair.viewer.handleMessage(result(message, { viewer: 'another-viewer' }));
+    pair.viewer.handleMessage(result(message, { viewer: undefined }));
+    pair.viewer.handleMessage(result(message, { requestId: message.requestId + 1 }));
+    expect(done).not.toHaveBeenCalled();
+    pair.viewer.handleMessage(result(message));
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toBeNull();
+  });
+
+  test.each([
+    ['session', { session: 'other-host' }],
+    ['row', { rowId: 8 }],
+  ])('a reply for another %s cannot settle the pending export', (_label, identity) => {
+    const pair = connect();
+    const { done, message } = request(pair);
+    pair.viewer.handleMessage(result(message, identity));
+    expect(done).not.toHaveBeenCalled();
+    pair.viewer.handleMessage(result(message));
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toBeNull();
+  });
+
+  test.each([
+    ['missing success flag', { ok: undefined }],
+    ['host failure', { ok: false, error: 'The captured request is gone.' }],
+    ['count beyond retained cap', { count: 1001 }],
+    ['fractional count', { count: 1.5 }],
+    ['negative dropped count', { droppedFrames: -1 }],
+    ['unsafe dropped count', { droppedFrames: Number.MAX_SAFE_INTEGER + 1 }],
+    ['binary count greater than total', { binaryFramesWithoutPayload: 2 }],
+    ['nonzero first offset', { offset: 1 }],
+    ['oversized chunk', { count: 65, frames: Array.from({ length: 65 }, (_unused, index) => textFrame(index)) }],
+    ['missing full frames', { frames: undefined }],
+    ['premature completion', { count: 2 }],
+    ['total reached without completion', { complete: false }],
+    ['empty unfinished chunk', { frames: [], complete: false }],
+    ['completion flag missing', { complete: undefined }],
+    ['frame has unsupported direction', { frames: [{ ...textFrame(), type: 'other' }] }],
+    ['frame has nonfinite time', { frames: [{ ...textFrame(), time: NaN }] }],
+    ['frame has unsupported opcode', { frames: [{ ...textFrame(), opcode: 3 }] }],
+    ['text frame has nonstring data', { frames: [{ ...textFrame(), data: { secret: 'value' } }] }],
+    ['text frame exceeds preview limit', { frames: [{ ...textFrame(), data: 'x'.repeat(2049) }] }],
+    ['binary frame contains raw payload', { binaryFramesWithoutPayload: 1, frames: [{ ...textFrame(), opcode: 2, data: 'secret' }] }],
+  ])('rejects malformed full result: %s', (_label, overrides) => {
+    const pair = connect();
+    const { done, message } = request(pair);
+    pair.viewer.handleMessage(result(message, overrides));
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(done.mock.calls[0][1]).toBeFalsy();
+    pair.viewer.handleMessage(result(message));
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ['unexpected frames', { frames: [textFrame()] }],
+    ['nonzero offset', { offset: 1, frames: undefined }],
+    ['incomplete metadata', { complete: false, frames: undefined }],
+  ])('rejects malformed metadata-only result: %s', (_label, overrides) => {
+    const pair = connect();
+    const { done, message } = request(pair, false);
+    pair.viewer.handleMessage(result(message, overrides));
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(done.mock.calls[0][1]).toBeFalsy();
+  });
+
+  test.each([
+    ['repeated offset', { offset: 0 }],
+    ['changed total', { count: 66 }],
+    ['changed dropped count', { droppedFrames: 1 }],
+    ['changed binary count', { binaryFramesWithoutPayload: 1 }],
+  ])('rejects inconsistent later chunk: %s', (_label, overrides) => {
+    const pair = connect();
+    const { done, message } = request(pair);
+    pair.viewer.handleMessage(result(message, { count: 65, frames: Array.from({ length: 64 }, (_unused, index) => textFrame(index)), complete: false }));
+    pair.viewer.handleMessage(result(message, { count: 65, offset: 64, frames: [textFrame(64)], ...overrides }));
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+
+  test('accepts the exact retained cap in bounded chunks and the exact text-preview boundary', () => {
+    const pair = connect();
+    const { done, message } = request(pair);
+    const frames = Array.from({ length: 1000 }, (_unused, index) => textFrame(index));
+    frames[0].data = '\u0000'.repeat(2048);
+    for (let offset = 0; offset < frames.length; offset += 64) {
+      pair.viewer.handleMessage(result(message, { count: 1000, offset, frames: frames.slice(offset, offset + 64), complete: offset + 64 >= frames.length }));
+    }
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledWith(null, { count: 1000, droppedFrames: 0, binaryFramesWithoutPayload: 0, frames });
+  });
+
+  test('accepts a known empty conversation without confusing it with unsupported transport', () => {
+    const pair = connect();
+    const { done, message } = request(pair);
+    pair.viewer.handleMessage(result(message, { count: 0, frames: [] }));
+    expect(done).toHaveBeenCalledWith(null, { count: 0, droppedFrames: 0, binaryFramesWithoutPayload: 0, frames: [] });
+  });
+
+  test('disconnect fails pending exports once and ignores a late success', () => {
+    const pair = connect();
+    const { done, message } = request(pair);
+    pair.viewer.failPendingBodyRequests('The DevTools session disconnected.');
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toBeInstanceOf(Error);
+    pair.viewer.handleMessage(result(message));
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  test('a replaced host session cannot complete an export for the previous table', () => {
+    const pair = connect();
+    const { done, message } = request(pair);
+    pair.viewer.handleMessage({ type: 'snapshot-start', generation: 2, session: 'host-b', total: 1, webSocketExport: true });
+    pair.viewer.handleMessage({ type: 'snapshot-rows', generation: 2, rows: [{ id: 7, webSocket: true }] });
+    pair.viewer.handleMessage({ type: 'snapshot-end', generation: 2 });
+    pair.viewer.handleMessage(result(message));
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+
+  test('timeout releases the callback and ignores delayed chunks', () => {
+    jest.useFakeTimers();
+    try {
+      const pair = connect();
+      const { done, message } = request(pair);
+      jest.runOnlyPendingTimers();
+      expect(done).toHaveBeenCalledTimes(1);
+      expect(done.mock.calls[0][0]).toBeInstanceOf(Error);
+      pair.viewer.handleMessage(result(message));
+      expect(done).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test.each(['WS', 'GET'])('host serves %s frame records on demand without requiring a response body', (method) => {
+    const sent = [];
+    const fetchBodyForRow = jest.fn(() => Promise.reject(new Error('response body evicted')));
+    const row = {
+      id: 7, method, url: 'wss://synthetic.invalid/socket',
+      responseContentState: 'evicted', responseContentReason: 'Response body evicted.',
+      _wsFramesDropped: 2,
+      _wsFrames: Array.from({ length: 65 }, (_unused, index) => ({
+        type: index % 2 ? 'receive' : 'send', time: 1234 + index,
+        binary: index === 64,
+        data: index === 0 ? '\u0000'.repeat(4096) : 'private-frame-' + index,
+      })),
+    };
+    const host = np.createMirrorHostSession({
+      postMessage: (message) => sent.push(message),
+      getRows: () => [row],
+      isPaused: () => false,
+      fetchBodyForRow,
+    });
+    host.handleMessage({ type: 'hello', protocolVersion: np.MIRROR_PROTOCOL_VERSION });
+    const start = sent.find((message) => message.type === 'snapshot-start');
+    expect(start.webSocketExport).toBe(true);
+    const wireRow = sent.find((message) => message.type === 'snapshot-rows').rows[0];
+    expect(wireRow.webSocket).toBe(true);
+    expect(JSON.stringify(sent)).not.toContain('private-frame');
+    expect(wireRow._wsFrames).toBeUndefined();
+    expect(wireRow._webSocketMessages).toBeUndefined();
+
+    const base = { type: 'ws-export-request', rowId: 7, session: start.session, viewer: 'test-viewer' };
+    host.handleMessage({ ...base, requestId: 1, includeFrames: false });
+    const metadata = sent.filter((message) => message.type === 'ws-export-result');
+    expect(metadata).toHaveLength(1);
+    expect(metadata[0]).toMatchObject({ count: 65, droppedFrames: 2, binaryFramesWithoutPayload: 1, offset: 0, complete: true });
+    expect(metadata[0].frames).toBeUndefined();
+
+    host.handleMessage({ ...base, requestId: 2, includeFrames: true });
+    const chunks = sent.filter((message) => message.type === 'ws-export-result' && message.requestId === 2);
+    expect(chunks.map((chunk) => [chunk.offset, chunk.frames.length, chunk.complete])).toEqual([[0, 64, false], [64, 1, true]]);
+    for (const chunk of chunks) {
+      expect(chunk).toMatchObject({ rowId: 7, session: start.session, viewer: 'test-viewer', count: 65, droppedFrames: 2, binaryFramesWithoutPayload: 1 });
+      expect(Buffer.byteLength(JSON.stringify(chunk), 'utf8')).toBeLessThan(2 * 1024 * 1024);
+    }
+    expect(chunks[0].frames[0]).toEqual({ type: 'send', time: 1.234, opcode: 1, data: '\u0000'.repeat(2048) });
+    expect(chunks[1].frames[0]).toEqual({ type: 'send', time: 1.298, opcode: 2 });
+    expect(fetchBodyForRow).not.toHaveBeenCalled();
+  });
+});
+
 describe('mirror remote control (command channel + import transfer)', () => {
   const link = (options) => {
     const executed = [];

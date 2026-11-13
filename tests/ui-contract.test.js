@@ -4169,16 +4169,18 @@ describe('method badge contracts', () => {
 describe('stream capture contracts (WebSocket + SSE)', () => {
   test('WS conversations round-trip through HAR with honest losses and sanitized omission', () => {
     expect(js).toContain('function recordWsFrame(row, frame) {');
-    expect(js).toContain('entry._webSocketMessages = r._wsFrames.map((frame) => {');
+    expect(js).toContain('frames: r._wsFrames.map(toHarWebSocketMessage),');
+    expect(js).toContain('entry._webSocketMessages = webSocket.frames;');
     // Chrome-shaped output: epoch seconds, opcode 1 text, opcode 2 binary
     // without data, fidelity losses declared on the entry.
     expect(js).toContain('time: Number.isFinite(frame.time) ? frame.time / 1000 : 0,');
-    expect(js).toContain('if (!frame.binary) message.data = frame.data;');
-    expect(js).toContain('binaryFramesWithoutPayload: binaryFrames,');
+    expect(js).toContain("if (!frame.binary) message.data = String(frame.data ?? '').slice(0, WS_FRAME_PREVIEW_CHARS);");
+    expect(js).toContain('binaryFramesWithoutPayload: webSocket.binaryFramesWithoutPayload,');
     // SSE rows never get the WebSocket-entry key.
     expect(js).toContain("if (row.method !== 'SSE') {");
     // Sanitized output stays allowlist-built and marks the omission.
-    expect(js).toContain('webSocketFramesOmitted: entry._webSocketMessages.length,');
+    expect(js).toContain('Number.isSafeInteger(webSocketFramesOmitted) && webSocketFramesOmitted > 0');
+    expect(js).toContain('webSocketFramesOmitted: webSocket.count');
   });
 
   test('capture is an explicit statusbar opt-in that names its own limits', () => {
