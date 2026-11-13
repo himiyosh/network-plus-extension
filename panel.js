@@ -65,7 +65,7 @@ const _NetworkPlus = (function () {
   const MAX_REQUEST_RETENTION_LIMIT = 100000;
   const MAX_RESPONSE_BODY_BYTES = 1024 * 1024;
   const MAX_RESPONSE_CACHE_BYTES = 32 * 1024 * 1024;
-  const MAX_IMPORT_SOURCE_BYTES = 32 * 1024 * 1024;
+  const MAX_SAZ_SOURCE_BYTES = 32 * 1024 * 1024;
   const MAX_SAZ_ARCHIVE_ENTRIES = 20000;
   const MAX_SAZ_ENTRY_BYTES = 4 * 1024 * 1024;
   const MAX_SAZ_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
@@ -3722,8 +3722,8 @@ const _NetworkPlus = (function () {
     if (!Number.isSafeInteger(sourceBytes) || sourceBytes < 0) {
       return { format, error: 'Import file size is unavailable.' };
     }
-    if (sourceBytes > MAX_IMPORT_SOURCE_BYTES) {
-      return { format, error: 'Import file exceeds the 32 MiB source limit.' };
+    if (format === 'saz' && sourceBytes > MAX_SAZ_SOURCE_BYTES) {
+      return { format, error: 'SAZ file exceeds the 32 MiB source limit.' };
     }
     return { format, error: '' };
   }
@@ -7995,10 +7995,6 @@ const _NetworkPlus = (function () {
       en: 'Import failed: {reason}',
       ja: 'インポートに失敗しました: {reason}',
     },
-    statusImportTooLarge: {
-      en: 'Import failed: the file exceeds the 64 MiB mirror transfer limit.',
-      ja: 'インポートに失敗しました: ファイルがミラー転送の上限 64 MiB を超えています。',
-    },
     statusImportUnreadable: {
       en: 'Import failed: the selected file could not be read.',
       ja: 'インポートに失敗しました: 選択したファイルを読み取れませんでした。',
@@ -8952,14 +8948,12 @@ const _NetworkPlus = (function () {
   const MIRROR_SNAPSHOT_CHUNK_LIMIT_CHARS = 2 * 1024 * 1024;
   const MIRROR_SYNC_INTERVAL_MS = 1000;
   const MIRROR_RECONNECT_INTERVAL_MS = 1500;
-  // Import files travel the port as base64 chunks; the byte cap keeps one
-  // transferred archive from dwarfing what the host itself would accept.
-  const MIRROR_IMPORT_MAX_BYTES = 64 * 1024 * 1024;
+  // Encode independent, three-byte-aligned chunks so large imports never
+  // require one base64 string for the entire file.
   const MIRROR_IMPORT_CHUNK_CHARS = 512 * 1024;
-  // Commands answer or fail — a host that is gone without a disconnect (or
-  // drops a result) must not strand a tab affordance forever. The import
-  // budget is generous because a 64 MiB decode + parse on a busy host is
-  // legitimate work, not a hang.
+  const MIRROR_IMPORT_CHUNK_BYTES = (MIRROR_IMPORT_CHUNK_CHARS / 4) * 3;
+  // Commands answer or fail if the host drops the result. Imports get more
+  // time because the host also decodes, parses and renders the capture.
   const MIRROR_COMMAND_TIMEOUT_MS = 30 * 1000;
   const MIRROR_IMPORT_RESULT_TIMEOUT_MS = 120 * 1000;
   // How many reconnect ticks the host spends probing for a mirror tab that
@@ -9502,12 +9496,9 @@ const _NetworkPlus = (function () {
         return;
       }
       if (message.type === 'import-begin') {
-        if (!Number.isFinite(message.size) || message.size > MIRROR_IMPORT_MAX_BYTES) {
-          sendCommandResult(
-            message.commandId,
-            'The file exceeds the ' + MIRROR_IMPORT_MAX_BYTES / (1024 * 1024) + ' MiB mirror transfer limit.',
-            message.viewer,
-          );
+        const { error } = validateImportSource(message.fileName, message.size);
+        if (error) {
+          sendCommandResult(message.commandId, error, message.viewer);
           return;
         }
         // One transfer per viewer: a tab that restarts an import must not
@@ -9523,27 +9514,35 @@ const _NetworkPlus = (function () {
         importTransfers.set(transferKey(message), {
           commandId: message.commandId,
           viewer: message.viewer,
-          fileName: String(message.fileName || 'import.har'),
+          fileName: message.fileName,
+          size: message.size,
           parts: [],
-          receivedChars: 0,
-          // base64 of the declared byte size, plus one padding quantum —
-          // the declared-size check is a fiction unless accumulation
-          // enforces it too.
-          maxChars: Math.ceil(message.size / 3) * 4 + 4,
+          receivedBytes: 0,
         });
         return;
       }
       if (message.type === 'import-chunk') {
         const transfer = importTransfers.get(transferKey(message));
         if (!transfer) return;
-        const data = String(message.data || '');
-        transfer.receivedChars += data.length;
-        if (transfer.receivedChars > transfer.maxChars) {
+        let bytes;
+        try {
+          if (typeof message.data !== 'string' || !message.data || message.data.length > MIRROR_IMPORT_CHUNK_CHARS) {
+            throw new Error('Invalid transfer chunk.');
+          }
+          bytes = base64ToBytes(message.data);
+          if (bytes.length === 0) throw new Error('Empty transfer chunk.');
+        } catch (_error) {
+          importTransfers.delete(transferKey(message));
+          sendCommandResult(message.commandId, 'The transferred file could not be decoded.', message.viewer);
+          return;
+        }
+        if (bytes.length > transfer.size - transfer.receivedBytes) {
           importTransfers.delete(transferKey(message));
           sendCommandResult(message.commandId, 'The transfer exceeded its declared size and was refused.', message.viewer);
           return;
         }
-        transfer.parts.push(data);
+        transfer.receivedBytes += bytes.length;
+        transfer.parts.push(bytes);
         return;
       }
       if (message.type === 'import-end') {
@@ -9553,18 +9552,15 @@ const _NetworkPlus = (function () {
           sendCommandResult(message.commandId, 'The import transfer was interrupted.', message.viewer);
           return;
         }
-        let bytes;
-        try {
-          bytes = base64ToBytes(transfer.parts.join(''));
-        } catch (_error) {
-          sendCommandResult(message.commandId, 'The transferred file could not be decoded.', message.viewer);
+        if (transfer.receivedBytes !== transfer.size) {
+          sendCommandResult(message.commandId, 'The transfer ended before its declared size was received.', message.viewer);
           return;
         }
         if (typeof receiveImportFile !== 'function') {
           sendCommandResult(message.commandId, 'This DevTools session does not accept mirror imports.', message.viewer);
           return;
         }
-        receiveImportFile(transfer.fileName, bytes, (error) => {
+        receiveImportFile(transfer.fileName, transfer.parts, (error) => {
           sendCommandResult(message.commandId, error, message.viewer);
           sendSync();
         });
@@ -9576,7 +9572,7 @@ const _NetworkPlus = (function () {
       handleMessage,
       pushRow: (row) => postMessage({ type: 'row', session: sessionToken, row: serializeRowForMirror(row) }),
       // A viewer that disconnects mid-transfer would otherwise leave its
-      // accumulated chunks (up to the full cap) parked in this map forever.
+      // accumulated chunks parked in this map forever.
       dropImportTransfers: () => importTransfers.clear(),
     };
   }
@@ -9668,13 +9664,12 @@ const _NetworkPlus = (function () {
       const commandId = trackCommand(callback, MIRROR_IMPORT_RESULT_TIMEOUT_MS);
       try {
         postMessage({ type: 'import-begin', commandId, viewer: viewerNonce, fileName, size: bytes.length });
-        const base64 = bytesToBase64(bytes);
-        for (let index = 0; index < base64.length; index += MIRROR_IMPORT_CHUNK_CHARS) {
+        for (let index = 0; index < bytes.length; index += MIRROR_IMPORT_CHUNK_BYTES) {
           postMessage({
             type: 'import-chunk',
             commandId,
             viewer: viewerNonce,
-            data: base64.slice(index, index + MIRROR_IMPORT_CHUNK_CHARS),
+            data: bytesToBase64(bytes.subarray(index, index + MIRROR_IMPORT_CHUNK_BYTES)),
           });
         }
         postMessage({ type: 'import-end', commandId, viewer: viewerNonce });
@@ -19936,6 +19931,13 @@ const _NetworkPlus = (function () {
       viewerImportInput.id = 'viewerImportFile';
       viewerImportInput.hidden = true;
       document.body.appendChild(viewerImportInput);
+      let viewerImportInProgress = false;
+      const setViewerImportBusy = (busy) => {
+        viewerImportInProgress = busy;
+        viewerImportInput.disabled = busy;
+        importBtn.disabled = busy;
+        importBtn.setAttribute('aria-busy', busy ? 'true' : 'false');
+      };
       const viewerControlCommands = {
         pauseBtn: () => sendViewerCommand('pause-toggle', {}, 'Pause/resume'),
         clearBtn: () => sendViewerCommand('clear', {}, 'Clear'),
@@ -19984,21 +19986,25 @@ const _NetworkPlus = (function () {
       viewerImportInput.addEventListener('change', async () => {
         const file = viewerImportInput.files && viewerImportInput.files[0];
         viewerImportInput.value = '';
-        if (!file) return;
-        if (file.size > MIRROR_IMPORT_MAX_BYTES) {
-          setStatus(uiText('statusImportTooLarge'));
+        if (!file || viewerImportInProgress) return;
+        const { error } = validateImportSource(file.name, file.size);
+        if (error) {
+          setStatus(uiTextFormat('statusImportFailed', { reason: error }));
           return;
         }
+        setViewerImportBusy(true);
         setStatus(uiTextFormat('statusSendingImportToDevtools', { file: file.name }));
         let importBytes;
         try {
           importBytes = new Uint8Array(await file.arrayBuffer());
         } catch (_error) {
+          setViewerImportBusy(false);
           setStatus(uiText('statusImportUnreadable'));
           return;
         }
         try {
           viewerSession.sendImportFile(file.name, importBytes, (error) => {
+            setViewerImportBusy(false);
             setStatus(
               error
                 ? uiTextFormat('statusImportFailed', { reason: error.message })
@@ -20006,6 +20012,7 @@ const _NetworkPlus = (function () {
             );
           });
         } catch (error) {
+          setViewerImportBusy(false);
           setStatus(
             error && error.message
               ? uiTextFormat('statusImportFailed', { reason: error.message })
@@ -20202,13 +20209,13 @@ const _NetworkPlus = (function () {
             done(error && error.message ? error.message : 'The command failed in the DevTools session.');
           }
         },
-        receiveImportFile: (fileName, bytes, done) => {
+        receiveImportFile: (fileName, parts, done) => {
           if (typeof importCapturedFile !== 'function') {
             done('Import is not available in this DevTools session.');
             return;
           }
           Promise.resolve()
-            .then(() => importCapturedFile(new File([bytes], fileName)))
+            .then(() => importCapturedFile(new File(parts, fileName)))
             .then(
               (importError) => done(importError || ''),
               (error) => done(error && error.message ? error.message : 'The transferred file could not be imported.'),
@@ -20854,7 +20861,7 @@ const _NetworkPlus = (function () {
     AUTOMATIC_RESPONSE_PREFETCH_QUEUE_COMPACT_THRESHOLD,
     MAX_RESPONSE_BODY_BYTES,
     MAX_RESPONSE_CACHE_BYTES,
-    MAX_IMPORT_SOURCE_BYTES,
+    MAX_SAZ_SOURCE_BYTES,
     MAX_SAZ_ARCHIVE_ENTRIES,
     MAX_SAZ_ENTRY_BYTES,
     MAX_SAZ_TOTAL_UNCOMPRESSED_BYTES,
@@ -20997,7 +21004,6 @@ const _NetworkPlus = (function () {
     MIRROR_PROTOCOL_VERSION,
     MIRROR_PORT_PREFIX,
     MIRROR_SNAPSHOT_CHUNK_SIZE,
-    MIRROR_IMPORT_MAX_BYTES,
     MIRROR_IMPORT_CHUNK_CHARS,
     MIRROR_COMMAND_TIMEOUT_MS,
     MIRROR_IMPORT_RESULT_TIMEOUT_MS,

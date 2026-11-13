@@ -4,6 +4,8 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🔧 **HAR import** — remove fixed file size limits in DevTools and the pop-out mirror.
+
 - 🐛 **Pane search reset** — clear invalid-regex feedback when closing Body or Raw search, including its accessible error state.
 
 - 📝 **Release evidence** — record the published v1.16.0 ZIP, freshly downloaded and byte-compared with a reviewed UTC build.

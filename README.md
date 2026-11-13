@@ -245,8 +245,8 @@ Edge / Chrome DevTools
 |---|---|
 | Request rows | unlimited by default · capped 100–100,000 when Unlimited is turned off in Settings |
 | Response body | 1 MiB per body · 32 MiB across the shared cache |
-| Import file | 32 MiB per file |
-| SAZ archive | 20,000 entries · 4 MiB per expanded entry · 64 MiB expanded in total |
+| HAR file | No fixed file size limit · import capacity depends on browser memory |
+| SAZ archive | 32 MiB per file · 20,000 entries · 4 MiB per expanded entry · 64 MiB expanded in total |
 
 The status bar continuously shows body cache usage, with the active retention policy and the cumulative row-eviction, body-omission, body-eviction, and preview-omission counts in its tooltip; the retention limit itself is set from the 🎛️ Settings dialog. See [docs/architecture.md](docs/architecture.md) for the rendering pipeline, eviction rules, import validation, and UI stability rules.
 

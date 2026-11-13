@@ -44,7 +44,7 @@ These are limits on request rows, import staging, and the shared response-body c
 
 - The 🪟 button opens `panel.html?view=window&src=<tabId>` as a normal browser tab. The DevTools panel (host) connects to it over a `chrome.runtime` port named `networkplus-mirror:<tabId>`; the tab (viewer) only listens.
 - Protocol v2: rows stream as they are captured, a one-second sync heartbeat carries row count, max id, and a control payload (paused, retention, undo availability, stream-capture state, minimize outcome); any count/id mismatch makes the viewer request a full chunked snapshot. Response bodies travel only on demand.
-- The viewer's toolbar is a remote control: a document-level capture listener turns its buttons into commands (pause, clear, undo, retention, stream toggle, resend), import files travel as bounded base64 chunks (64 MiB cap, declared-size enforced during accumulation), and the host executes every command through its own controls so guards and undo snapshots behave like local clicks. Commands time out (30 s; import results 120 s) rather than hanging.
+- The viewer's toolbar is a remote control: a document-level capture listener turns its buttons into commands (pause, clear, undo, retention, stream toggle, resend), import files travel as bounded base64 chunks (each chunk is decoded separately, and the final byte count must match the declared size), and the host executes every command through its own controls so guards and undo snapshots behave like local clicks. Commands time out (30 s; import results 120 s) rather than hanging.
 - A mirror tab that outlives its DevTools session is adopted back: the reopened host briefly probes the port at startup and a surviving tab resyncs instead of stranding; clicking 🪟 while adopted points at the existing tab. Theme and language changes propagate live between both pages via `chrome.storage.onChanged`.
 - The background worker's only job is asking `chrome.windows` (permissionless) to minimize an undocked DevTools window when the pop-out opens; a docked session stays put and the viewer explains the one-time undock in a dialog.
 
@@ -56,7 +56,7 @@ These are limits on request rows, import staging, and the shared response-body c
 
 ## Import validation
 
-- Import accepts `.har` and Fiddler SAZ (`.saz`) only. Input files are limited to 32 MiB; SAZ archives to 20,000 entries, 4 MiB per expanded entry, and 64 MiB expanded in total.
+- Import accepts `.har` and Fiddler SAZ (`.saz`) only. HAR has no fixed file size limit in DevTools or the mirror. HAR parsing reads the file into memory and depends on browser resources. SAZ archives are limited to 32 MiB per file, 20,000 entries, 4 MiB per expanded entry, and 64 MiB expanded in total.
 - SAZ treats only `raw/<number>_[csm].(txt|xml)` as a candidate, and an HTTP session requires a complete `_c.txt` and `_s.txt` pair.
 - HAR validates the `log.entries` array and every request and response object, normalizing strings, headers, and post data into safe types. In bounded mode, only the final retained range is turned into row objects.
 - SAZ uses fflate streaming inflation, which is compatible with the extension CSP, yielding to the event loop every 16 KiB input chunk and at most every 4 entries. Limits are checked per entry, and only complete retained sessions become rows.
