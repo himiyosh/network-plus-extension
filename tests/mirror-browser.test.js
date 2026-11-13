@@ -205,6 +205,237 @@ const answerCommand = (cdp, commandId, control) =>
   );
 
 browserTest(
+  'pop-out HAR exports preserve current WebSocket frames, omissions and reconnect identity',
+  async () => {
+    const host = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: HOST_STUB + `
+        window.__wsEvents = [];
+        const originalEval = chrome.devtools.inspectedWindow.eval;
+        chrome.devtools.inspectedWindow.eval = (source, cb) => {
+          if (source === 'window.__networkPlusWS__ ? window.__networkPlusWS__.drain() : []') {
+            cb(window.__wsEvents.splice(0), undefined);
+          } else if (source === 'window.__networkPlusSSE__ ? window.__networkPlusSSE__.drain() : []') {
+            cb([], undefined);
+          } else originalEval(source, cb);
+        };
+        // Runtime ports clone messages rather than keeping references to rows.
+        const pushHostMessage = window.__fromHost.push.bind(window.__fromHost);
+        window.__fromHost.push = (message) => pushHostMessage(JSON.parse(JSON.stringify(message)));
+      `,
+    });
+    let viewer;
+    const traffic = [];
+    try {
+      await evaluate(host.cdp, `(() => {
+        const har = ${MINI_HAR};
+        const entry = har.log.entries[0];
+        entry.request.url = 'wss://synthetic.invalid/imported';
+        entry.response.status = 101;
+        entry.response.content = { mimeType: 'websocket', size: 0, text: '' };
+        entry._webSocketMessages = Array.from({ length: 1002 }, (_, index) => ({
+          type: index % 2 ? 'receive' : 'send', time: 1700000000 + index / 1000,
+          opcode: index === 1 ? 2 : 1, data: index === 1 ? 'AP8=' : 'private-frame-' + index,
+        }));
+        const files = new DataTransfer();
+        files.items.add(new File([JSON.stringify(har)], 'websocket.har'));
+        const input = document.querySelector('#importFile');
+        input.files = files.files; input.dispatchEvent(new Event('change'));
+        return true;
+      })()`);
+      expect(await waitForImportResult(host.cdp, "document.querySelectorAll('#tbody tr[data-row-id]').length === 1"))
+        .toBe(true);
+      viewer = await launchPanelPage({
+        executable: browserExecutable, query: '?view=window&src=7', initScript: VIEWER_STUB,
+      });
+      await attachScriptedHostPort(viewer.cdp);
+      const relay = async () => {
+        const toHost = await evaluate(viewer.cdp, 'window.__sentToHost.splice(0)');
+        if (toHost.length) {
+          traffic.push(...toHost.map((message) => ({ direction: 'to-host', ...message })));
+          await evaluate(host.cdp, `(() => {
+            for (const message of ${JSON.stringify(toHost)}) window.__hostPortListener(message);
+            return true;
+          })()`);
+        }
+        const toViewer = await evaluate(host.cdp, 'window.__fromHost.splice(0)');
+        if (toViewer.length) {
+          traffic.push(...toViewer.map((message) => ({ direction: 'to-viewer', ...message })));
+          await evaluate(viewer.cdp, `(() => {
+            for (const message of ${JSON.stringify(toViewer)}) window.__send(message);
+            return true;
+          })()`);
+        }
+      };
+      const waitWithRelay = async (page, expression) => {
+        const deadline = Date.now() + 15000;
+        while (Date.now() < deadline) {
+          await relay();
+          const result = await evaluate(page.cdp, expression);
+          if (result) return result;
+          await delay(25);
+        }
+        throw new Error('The WebSocket mirror fixture did not reach: ' + expression);
+      };
+      expect(await waitWithRelay(viewer, "document.querySelectorAll('#tbody tr[data-row-id]').length === 1"))
+        .toBe(true);
+      for (const page of [host, viewer]) {
+        await evaluate(page.cdp, `(() => {
+          window.__harExports = [];
+          URL.createObjectURL = (blob) => { window.__harExports.push(blob); return 'blob:synthetic-websocket-har'; };
+          HTMLAnchorElement.prototype.click = () => {};
+          return true;
+        })()`);
+      }
+      const exportHar = async (page, mode) => {
+        const index = await evaluate(page.cdp, `(() => {
+          const index = window.__harExports.length;
+          document.querySelector('#exportHarBtn').click();
+          document.querySelector(${JSON.stringify(mode === 'full' ? '#dataSafetyFullBtn' : '#dataSafetySanitizedBtn')}).click();
+          ${mode === 'full' ? "document.querySelector('#dataSafetyConfirmBtn').click();" : ''}
+          return index;
+        })()`);
+        await waitWithRelay(page, `window.__harExports.length === ${index + 1} && !document.querySelector('#exportHarBtn').disabled`);
+        return evaluate(page.cdp, `window.__harExports[${index}].text().then(JSON.parse)`, true);
+      };
+
+      const hostImported = (await exportHar(host, 'full')).log.entries[0];
+      const viewerImported = (await exportHar(viewer, 'full')).log.entries[0];
+      expect(hostImported._webSocketMessages).toHaveLength(1000);
+      expect(viewerImported.request.method).toBe('GET');
+      expect(viewerImported._webSocketMessages).toEqual(hostImported._webSocketMessages);
+      expect(viewerImported._networkPlus.webSocketExport).toEqual({
+        droppedFrames: 2, binaryFramesWithoutPayload: 1, textPreviewLimit: 2048,
+      });
+      expect(viewerImported._webSocketMessages[0]).toEqual({ type: 'send', time: 1700000000, opcode: 1, data: 'private-frame-0' });
+      expect(viewerImported._webSocketMessages[1]).toEqual({ type: 'receive', time: 1700000000.001, opcode: 2 });
+      const sanitizedStart = traffic.length;
+      const sanitized = (await exportHar(viewer, 'sanitized')).log.entries[0];
+      expect(sanitized._webSocketMessages).toBeUndefined();
+      expect(sanitized._networkPlus.webSocketFramesOmitted).toBe(1000);
+      expect(JSON.stringify(sanitized)).not.toMatch(/private-frame-|AP8=/);
+      const sanitizedTraffic = traffic.slice(sanitizedStart);
+      expect(sanitizedTraffic.filter((message) => message.type === 'ws-export-result')).toEqual([
+        expect.objectContaining({ count: 1000, complete: true }),
+      ]);
+      expect(sanitizedTraffic.some((message) => 'frames' in message || message.type === 'body-request')).toBe(false);
+
+      await evaluate(host.cdp, `(() => {
+        document.querySelector('#pauseBtn').click();
+        window.__wsEvents.push(
+          { socketId: 9, kind: 'ws-open-attempt', at: 1700000010000, url: 'wss://synthetic.invalid/live' },
+          { socketId: 9, kind: 'ws-open', at: 1700000010001 },
+        );
+        document.querySelector('#wsCaptureBtn').click();
+        return true;
+      })()`);
+      await waitWithRelay(viewer, "document.querySelectorAll('#tbody tr[data-row-id]').length === 2");
+      const liveEntry = (har) => har.log.entries.find((entry) => entry.request.url.endsWith('/live'));
+      const emptyLive = liveEntry(await exportHar(viewer, 'full'));
+      expect(emptyLive._webSocketMessages).toBeUndefined();
+      expect(emptyLive._networkPlus?.webSocketExport).toBeUndefined();
+      await evaluate(host.cdp, `window.__wsEvents.push(
+        { socketId: 9, kind: 'ws-sent', at: 1700000010002, preview: 'live-send' },
+        { socketId: 9, kind: 'ws-received', at: 1700000010003, preview: 'live-first' },
+      ); true`);
+      await waitWithRelay(host, 'window.__wsEvents.length === 0');
+      const firstLive = liveEntry(await exportHar(viewer, 'full'));
+      expect(firstLive._webSocketMessages.map(({ data }) => data)).toEqual(['live-send', 'live-first']);
+      await evaluate(host.cdp, `window.__wsEvents.push({ socketId: 9, kind: 'ws-received', at: 1700000010004, preview: 'live-later' }); true`);
+      await waitWithRelay(host, 'window.__wsEvents.length === 0');
+      const laterLive = liveEntry(await exportHar(viewer, 'full'));
+      expect(laterLive._webSocketMessages).toEqual([
+        { type: 'send', time: 1700000010.002, opcode: 1, data: 'live-send' },
+        { type: 'receive', time: 1700000010.003, opcode: 1, data: 'live-first' },
+        { type: 'receive', time: 1700000010.004, opcode: 1, data: 'live-later' },
+      ]);
+
+      // A same-session reconnect supplies the same IDs and transcripts again.
+      await evaluate(viewer.cdp, 'window.__hostListeners.disconnect.forEach((fn) => fn()); true');
+      await attachScriptedHostPort(viewer.cdp);
+      await relay();
+      const reconnected = await exportHar(viewer, 'full');
+      expect(reconnected.log.entries).toHaveLength(2);
+      expect(liveEntry(reconnected)._webSocketMessages).toEqual(laterLive._webSocketMessages);
+      expect(liveEntry(reconnected).request.postData).toEqual(laterLive.request.postData);
+      expect(reconnected.log.entries[0]._webSocketMessages).toEqual(hostImported._webSocketMessages);
+      const requests = traffic.filter((message) => message.type === 'ws-export-request');
+      expect(requests.some((message) => message.includeFrames === false)).toBe(true);
+      expect(requests.some((message) => message.includeFrames === true)).toBe(true);
+    } finally {
+      if (viewer) await viewer.close();
+      await host.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'legacy pop-out HAR exports mark unavailable frames and sanitize form-labelled transcripts',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable, query: '?view=window&src=7', initScript: VIEWER_STUB,
+    });
+    try {
+      await attachScriptedHostPort(page.cdp);
+      const row = wireRow(1);
+      row.request.url = 'https://synthetic.invalid/legacy';
+      row.request.postData = { mimeType: 'application/x-www-form-urlencoded', text: 'legacy-private-request=value' };
+      row.response.status = 101;
+      row.response.headers = [{ name: 'Upgrade', value: 'websocket' }];
+      row.response.content.mimeType = 'application/x-www-form-urlencoded';
+      // Older hosts send the existing protocol without the WS export capability.
+      await sendSnapshot(page.cdp, [row], syncControl());
+      expect(await waitForImportResult(page.cdp, "document.querySelectorAll('#tbody tr[data-row-id]').length === 1"))
+        .toBe(true);
+      await evaluate(page.cdp, `(() => {
+        window.__harExports = [];
+        URL.createObjectURL = (blob) => { window.__harExports.push(blob); return 'blob:synthetic-legacy-har'; };
+        HTMLAnchorElement.prototype.click = () => {};
+        const messages = window.__sentToHost;
+        const push = messages.push.bind(messages);
+        messages.push = (message) => {
+          const length = push(message);
+          if (message.type === 'body-request') queueMicrotask(() => window.__send({
+            type: 'body-result', requestId: message.requestId, viewer: message.viewer,
+            ok: true, content: 'legacy-private-response=value', encoding: '',
+          }));
+          return length;
+        };
+        return true;
+      })()`);
+      const exportHar = async (mode) => {
+        const index = await evaluate(page.cdp, `(() => {
+          const index = window.__harExports.length;
+          document.querySelector('#exportHarBtn').click();
+          document.querySelector(${JSON.stringify(mode === 'full' ? '#dataSafetyFullBtn' : '#dataSafetySanitizedBtn')}).click();
+          ${mode === 'full' ? "document.querySelector('#dataSafetyConfirmBtn').click();" : ''}
+          return index;
+        })()`);
+        expect(await waitForImportResult(page.cdp, `window.__harExports.length === ${index + 1} && !document.querySelector('#exportHarBtn').disabled`))
+          .toBe(true);
+        return evaluate(page.cdp, `window.__harExports[${index}].text().then(JSON.parse)`, true);
+      };
+      const full = (await exportHar('full')).log.entries[0];
+      expect(full._webSocketMessages).toBeUndefined();
+      expect(full).toMatchObject({ _networkPlus: { webSocketExport: { mirrorFramesUnavailable: true } } });
+      expect(full.request.postData.text).toBe('legacy-private-request=value');
+      expect(full.response.content.text).toBe('legacy-private-response=value');
+      const sanitized = (await exportHar('sanitized')).log.entries[0];
+      expect(sanitized._webSocketMessages).toBeUndefined();
+      expect(sanitized.request.postData._networkPlus.status).toBe('omitted');
+      expect(sanitized.response.content._networkPlus.status).toBe('omitted');
+      expect(JSON.stringify(sanitized)).not.toMatch(/legacy-private-request|legacy-private-response/);
+      expect(await evaluate(page.cdp, "window.__sentToHost.some((message) => message.type === 'ws-export-request')"))
+        .toBe(false);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'pending mirror rows update in place through pushes and snapshots without reopening closed details',
   async () => {
     const page = await launchPanelPage({

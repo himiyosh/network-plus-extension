@@ -2480,15 +2480,19 @@ const _NetworkPlus = (function () {
     return match ? String(match.value || '') : '';
   }
 
-  function sanitizeRequestPostData(postData, requestHeaders, options) {
+  const WEB_SOCKET_BODY_OMISSION_REASON = 'WebSocket transcripts are available only in confirmed full output.';
+
+  function sanitizeRequestPostData(postData, requestHeaders, options, omitWebSocketBody) {
     if (!postData || typeof postData !== 'object') {
       return { value: null, summary: createSanitizationSummary() };
     }
     const mimeType = postData.mimeType || getHeaderContentType(requestHeaders);
-    const body = sanitizeBody(postData.text, mimeType, postData.encoding, options);
+    const body = omitWebSocketBody && (postData.text || Array.isArray(postData.params))
+      ? omittedBody(WEB_SOCKET_BODY_OMISSION_REASON, false)
+      : sanitizeBody(postData.text, mimeType, postData.encoding, options);
     let summary = body.summary;
     const value = { mimeType: String(mimeType || ''), text: body.text };
-    if (Array.isArray(postData.params)) {
+    if (!omitWebSocketBody && Array.isArray(postData.params)) {
       const params = sanitizeNamedValues(postData.params);
       value.params = params.value;
       summary = mergeSanitizationSummaries(summary, params.summary);
@@ -2497,7 +2501,7 @@ const _NetworkPlus = (function () {
     return { value, summary };
   }
 
-  function sanitizeResponseContent(content, responseHeaders, options) {
+  function sanitizeResponseContent(content, responseHeaders, options, omitWebSocketBody) {
     const source = content && typeof content === 'object' ? content : {};
     const mimeType = source.mimeType || getHeaderContentType(responseHeaders);
     const value = {
@@ -2505,6 +2509,11 @@ const _NetworkPlus = (function () {
       mimeType: String(mimeType || 'application/octet-stream'),
     };
     if (Number.isFinite(source.compression)) value.compression = source.compression;
+    if (omitWebSocketBody && source.text !== '') {
+      const body = omittedBody(WEB_SOCKET_BODY_OMISSION_REASON, false);
+      value._networkPlus = { status: 'omitted', reason: body.reason };
+      return { value, summary: body.summary };
+    }
     if (typeof source.text !== 'string') {
       value._networkPlus = {
         status: 'omitted',
@@ -2800,7 +2809,13 @@ const _NetworkPlus = (function () {
         const requestCookies = sanitizeCookies(request.cookies);
         const responseCookies = sanitizeCookies(response.cookies);
         const queryString = sanitizeNamedValues(request.queryString);
-        const content = sanitizeResponseContent(response.content, response.headers, options);
+        const webSocketFramesOmitted = Array.isArray(entry._webSocketMessages)
+          ? entry._webSocketMessages.length
+          : entry._networkPlus?.webSocketFramesOmitted;
+        const omitWebSocketBody = isWebSocketRequest(request.method, request.url, response.status, response.headers) ||
+          webSocketFramesOmitted > 0 ||
+          entry._networkPlus?.webSocketExport?.mirrorFramesUnavailable === true;
+        const content = sanitizeResponseContent(response.content, response.headers, options, omitWebSocketBody);
         summary = mergeSanitizationSummaries(
           summary,
           url.summary,
@@ -2823,7 +2838,7 @@ const _NetworkPlus = (function () {
           bodySize: Number.isFinite(request.bodySize) ? request.bodySize : -1,
         };
         if (request.postData && typeof request.postData === 'object') {
-          const postData = sanitizeRequestPostData(request.postData, request.headers, options);
+          const postData = sanitizeRequestPostData(request.postData, request.headers, options, omitWebSocketBody);
           sanitizedRequest.postData = postData.value;
           summary = mergeSanitizationSummaries(summary, postData.summary);
         }
@@ -2865,9 +2880,9 @@ const _NetworkPlus = (function () {
         // Frame payloads are body-class data: the allowlist above already
         // keeps _webSocketMessages out of sanitized output, and this marker
         // makes the omission visible in the file instead of silent.
-        if (Array.isArray(entry._webSocketMessages) && entry._webSocketMessages.length > 0) {
+        if (Number.isSafeInteger(webSocketFramesOmitted) && webSocketFramesOmitted > 0) {
           sanitizedEntry._networkPlus = Object.assign({}, sanitizedEntry._networkPlus, {
-            webSocketFramesOmitted: entry._webSocketMessages.length,
+            webSocketFramesOmitted,
           });
         }
         return sanitizedEntry;
@@ -9232,6 +9247,7 @@ const _NetworkPlus = (function () {
     return {
       id: row.id,
       ...(row._pendingRequest ? { pending: true } : {}),
+      ...(row.method === 'WS' || row._wsFrames?.length > 0 ? { webSocket: true } : {}),
       startedDateTime: row.startedDateTime,
       time: row.duration,
       initiator: row.initiator || null,
@@ -9285,6 +9301,44 @@ const _NetworkPlus = (function () {
   const WS_FRAME_PREVIEW_CHARS = 2048;
   const WS_DIRECTION_TEXT_LIMIT_CHARS = 262144;
   const WS_POLL_INTERVAL_MS = 1000;
+  // Even with JSON escaping, a chunk of previews stays below the snapshot
+  // message budget. The host's existing per-conversation frame cap still applies.
+  const MIRROR_WS_EXPORT_CHUNK_SIZE = 64;
+
+  function isWebSocketRequest(method, url, status, responseHeaders) {
+    return method === 'WS' || /^wss?:/i.test(url) ||
+      (status === 101 && Array.isArray(responseHeaders) && responseHeaders.some((header) =>
+        header && /^upgrade$/i.test(header.name) && /^websocket$/i.test(String(header.value).trim()),
+      ));
+  }
+
+  function describeWebSocketExport(row) {
+    const frames = row._wsFrames || [];
+    return {
+      count: frames.length,
+      droppedFrames: row._wsFramesDropped || 0,
+      binaryFramesWithoutPayload: frames.filter((frame) => frame.binary).length,
+    };
+  }
+
+  function toHarWebSocketMessage(frame) {
+    // Chrome's HAR extension uses epoch seconds. Binary capture stores only
+    // placeholders, so preserve the opcode and omit its uncaptured payload.
+    const message = {
+      type: frame.type,
+      time: Number.isFinite(frame.time) ? frame.time / 1000 : 0,
+      opcode: frame.binary ? 2 : 1,
+    };
+    if (!frame.binary) message.data = String(frame.data ?? '').slice(0, WS_FRAME_PREVIEW_CHARS);
+    return message;
+  }
+
+  function isBoundedHarWebSocketMessage(message) {
+    return message && (message.type === 'send' || message.type === 'receive') &&
+      Number.isFinite(message.time) &&
+      (message.opcode === 2 && message.data === undefined ||
+        message.opcode === 1 && typeof message.data === 'string' && message.data.length <= WS_FRAME_PREVIEW_CHARS);
+  }
 
   function pageWebSocketWrapper(queueCap, previewChars) {
     if (window.__networkPlusWS__) {
@@ -9682,6 +9736,7 @@ const _NetworkPlus = (function () {
         session: sessionToken,
         total: rows.length,
         protocolVersion: MIRROR_PROTOCOL_VERSION,
+        webSocketExport: true,
       });
       let chunk = [];
       let chunkChars = 0;
@@ -9719,6 +9774,27 @@ const _NetworkPlus = (function () {
     const sendCommandResult = (commandId, error, viewer) => {
       postMessage({ type: 'command-result', commandId, viewer, ok: !error, error: error || '' });
     };
+    const sendWebSocketExport = ({ requestId, viewer, rowId, session, includeFrames }) => {
+      if (session !== sessionToken || typeof viewer !== 'string' || !viewer ||
+          !Number.isSafeInteger(requestId) || !Number.isSafeInteger(rowId) ||
+          typeof includeFrames !== 'boolean') return;
+      const result = { type: 'ws-export-result', requestId, viewer, rowId, session };
+      const row = getRows().find((candidate) => candidate.id === rowId && (pendingRowsEnabled || !candidate._pendingRequest));
+      if (!row) {
+        postMessage({ ...result, ok: false });
+        return;
+      }
+      Object.assign(result, { ok: true }, describeWebSocketExport(row));
+      if (!includeFrames) {
+        postMessage({ ...result, offset: 0, complete: true });
+        return;
+      }
+      const frames = row._wsFrames || [];
+      for (let offset = 0; offset === 0 || offset < frames.length; offset += MIRROR_WS_EXPORT_CHUNK_SIZE) {
+        const chunk = frames.slice(offset, offset + MIRROR_WS_EXPORT_CHUNK_SIZE).map(toHarWebSocketMessage);
+        postMessage({ ...result, offset, frames: chunk, complete: offset + chunk.length === frames.length });
+      }
+    };
     const handleMessage = (message) => {
       if (!message || typeof message !== 'object') return;
       if (message.type === 'hello' || message.type === 'snapshot-request') {
@@ -9751,6 +9827,10 @@ const _NetworkPlus = (function () {
                 error: error && error.message ? error.message : 'Response content is unavailable.',
               }),
           );
+        return;
+      }
+      if (message.type === 'ws-export-request') {
+        sendWebSocketExport(message);
         return;
       }
       if (message.type === 'command') {
@@ -9919,9 +9999,9 @@ const _NetworkPlus = (function () {
     onHostSync,
   }) {
     let pendingSnapshot = null;
-    let nextBodyRequestId = 1;
+    let nextExportRequestId = 1;
     let nextCommandId = 1;
-    const pendingBodyCallbacks = new Map();
+    const pendingExportCallbacks = new Map();
     const pendingCommandCallbacks = new Map();
     // chrome.runtime.connect fires onConnect in every extension context, so a
     // duplicated mirror tab shares the host's port. Every request carries this
@@ -9935,25 +10015,78 @@ const _NetworkPlus = (function () {
     // id within one session; a new token means the table must be rebuilt, not
     // reconciled.
     let hostSessionToken = null;
-    const requestBody = (rowId, callback) => {
-      const requestId = nextBodyRequestId;
-      nextBodyRequestId += 1;
+    let webSocketExportSupported = false;
+    const settleExport = (requestId, error, payload = null) => {
+      const pending = pendingExportCallbacks.get(requestId);
+      if (!pending) return;
+      pendingExportCallbacks.delete(requestId);
+      clearTimeout(pending.timer);
+      pending.callback(error, payload);
+    };
+    const requestExport = (type, rowId, callback, options) => {
+      const requestId = nextExportRequestId++;
       // Same discipline commands got: a host that drops the result must not
       // park this entry (and its closure) in the map until disconnect.
-      const pending = { callback, timer: null };
-      pendingBodyCallbacks.set(requestId, pending);
-      pending.timer = setTimeout(() => {
-        if (pendingBodyCallbacks.get(requestId) !== pending) return;
-        pendingBodyCallbacks.delete(requestId);
-        pending.callback(new Error('The DevTools session did not answer the body request in time.'), null);
-      }, RESPONSE_CONTENT_TIMEOUT_MS);
+      const pending = { type, rowId, callback, ...options };
+      pending.timer = setTimeout(() => settleExport(
+        requestId,
+        new Error(type === 'body-request'
+          ? 'The DevTools session did not answer the body request in time.'
+          : 'The DevTools session did not answer the WebSocket export request in time.'),
+      ), RESPONSE_CONTENT_TIMEOUT_MS);
+      pendingExportCallbacks.set(requestId, pending);
       if (pending.timer && typeof pending.timer.unref === 'function') pending.timer.unref();
       try {
-        postMessage({ type: 'body-request', requestId, rowId, viewer: viewerNonce });
+        postMessage({ type, requestId, rowId, viewer: viewerNonce, ...options });
       } catch (error) {
         clearTimeout(pending.timer);
-        pendingBodyCallbacks.delete(requestId);
+        pendingExportCallbacks.delete(requestId);
         throw error;
+      }
+    };
+    const requestBody = (rowId, callback) => requestExport('body-request', rowId, callback);
+    const requestWebSocketExport = (rowId, session, includeFrames, callback) => {
+      if (!webSocketExportSupported || pendingSnapshot || !session || session !== hostSessionToken) {
+        callback(new Error('WebSocket frames are unavailable from this DevTools session.'), null);
+        return;
+      }
+      requestExport('ws-export-request', rowId, callback, { session, includeFrames });
+    };
+    const receiveWebSocketExport = (message) => {
+      const { requestId, rowId, session, count, droppedFrames, binaryFramesWithoutPayload, offset, frames, complete } = message;
+      const pending = pendingExportCallbacks.get(requestId);
+      if (pending?.type !== 'ws-export-request' || rowId !== pending.rowId ||
+          session !== pending.session || message.viewer !== viewerNonce) return;
+      const fail = () => settleExport(requestId, new Error('WebSocket frames are unavailable from this DevTools session.'));
+      if (message.ok !== true ||
+          !Number.isSafeInteger(count) || count < 0 || count > HAR_WS_MESSAGE_IMPORT_LIMIT ||
+          !Number.isSafeInteger(droppedFrames) || droppedFrames < 0 ||
+          !Number.isSafeInteger(binaryFramesWithoutPayload) ||
+          binaryFramesWithoutPayload < 0 || binaryFramesWithoutPayload > count) {
+        fail();
+        return;
+      }
+      if (!pending.includeFrames) {
+        if (offset !== 0 || complete !== true || frames !== undefined) fail();
+        else settleExport(requestId, null, { count, droppedFrames, binaryFramesWithoutPayload });
+        return;
+      }
+      if (!pending.payload) pending.payload = { count, droppedFrames, binaryFramesWithoutPayload, frames: [] };
+      const payload = pending.payload;
+      if (count !== payload.count || droppedFrames !== payload.droppedFrames ||
+          binaryFramesWithoutPayload !== payload.binaryFramesWithoutPayload || offset !== payload.frames.length ||
+          !Array.isArray(frames) || frames.length > MIRROR_WS_EXPORT_CHUNK_SIZE || offset + frames.length > count ||
+          complete !== (offset + frames.length === count) || (!complete && frames.length === 0) ||
+          !frames.every(isBoundedHarWebSocketMessage)) {
+        fail();
+        return;
+      }
+      for (const { type, time, opcode, data } of frames) {
+        payload.frames.push(opcode === 2 ? { type, time, opcode } : { type, time, opcode, data });
+      }
+      if (complete) {
+        if (payload.frames.filter((frame) => frame.opcode === 2).length !== binaryFramesWithoutPayload) fail();
+        else settleExport(requestId, null, payload);
       }
     };
     const settleCommand = (commandId, error) => {
@@ -10059,14 +10192,25 @@ const _NetworkPlus = (function () {
     const handleMessage = (message) => {
       if (!message || typeof message !== 'object') return;
       switch (message.type) {
-        case 'snapshot-start':
+        case 'snapshot-start': {
+          const session = typeof message.session === 'string' && message.session ? message.session : null;
+          const sessionChanged = session !== hostSessionToken && (hostSessionToken !== null || getLocalCount() > 0);
           pendingSnapshot = {
             generation: message.generation,
             rows: [],
-            sessionChanged: message.session != null && hostSessionToken != null && message.session !== hostSessionToken,
-            session: message.session,
+            sessionChanged,
+            session,
+            webSocketExport: message.webSocketExport === true,
           };
+          if (sessionChanged || !message.webSocketExport) {
+            for (const [requestId, pending] of pendingExportCallbacks) {
+              if (pending.type === 'ws-export-request') {
+                settleExport(requestId, new Error('The DevTools session changed during the WebSocket export.'));
+              }
+            }
+          }
           break;
+        }
         case 'snapshot-rows':
           if (
             pendingSnapshot &&
@@ -10082,8 +10226,9 @@ const _NetworkPlus = (function () {
           if (pendingSnapshot && pendingSnapshot.generation === message.generation) {
             const snapshot = pendingSnapshot;
             pendingSnapshot = null;
-            if (snapshot.session != null) hostSessionToken = snapshot.session;
-            applyWireSnapshot(snapshot.rows, { sessionChanged: snapshot.sessionChanged });
+            hostSessionToken = snapshot.session;
+            webSocketExportSupported = snapshot.webSocketExport && Boolean(snapshot.session);
+            applyWireSnapshot(snapshot.rows, { sessionChanged: snapshot.sessionChanged, session: snapshot.session });
           }
           break;
         case 'row':
@@ -10091,7 +10236,7 @@ const _NetworkPlus = (function () {
           // matched by id; the sync heartbeat's mismatch triggers the rebuild.
           if (message.session != null && hostSessionToken != null && message.session !== hostSessionToken) break;
           if (message.session != null && hostSessionToken == null) hostSessionToken = message.session;
-          if (message.row && typeof message.row === 'object') appendWireRow(message.row);
+          if (message.row && typeof message.row === 'object') appendWireRow(message.row, message.session);
           break;
         case 'sync': {
           if (typeof onHostSync === 'function') onHostSync(message);
@@ -10111,12 +10256,14 @@ const _NetworkPlus = (function () {
         }
         case 'body-result': {
           if (resultIsForAnotherViewer(message)) return;
-          const pending = pendingBodyCallbacks.get(message.requestId);
-          if (!pending) return;
-          pendingBodyCallbacks.delete(message.requestId);
-          if (pending.timer) clearTimeout(pending.timer);
-          if (message.ok) pending.callback(null, { content: message.content, encoding: message.encoding });
-          else pending.callback(new Error(message.error || 'Response content is unavailable.'), null);
+          const pending = pendingExportCallbacks.get(message.requestId);
+          if (pending?.type !== 'body-request') return;
+          if (message.ok) settleExport(message.requestId, null, { content: message.content, encoding: message.encoding });
+          else settleExport(message.requestId, new Error(message.error || 'Response content is unavailable.'));
+          break;
+        }
+        case 'ws-export-result': {
+          receiveWebSocketExport(message);
           break;
         }
         case 'import-ack': {
@@ -10136,8 +10283,10 @@ const _NetworkPlus = (function () {
       }
     };
     const failPendingBodyRequests = (reason) => {
-      const failures = Array.from(pendingBodyCallbacks.values());
-      pendingBodyCallbacks.clear();
+      pendingSnapshot = null;
+      webSocketExportSupported = false;
+      const failures = Array.from(pendingExportCallbacks.values());
+      pendingExportCallbacks.clear();
       for (const pending of failures) {
         if (pending.timer) clearTimeout(pending.timer);
         pending.callback(new Error(reason), null);
@@ -10149,7 +10298,7 @@ const _NetworkPlus = (function () {
         pending.callback(new Error(reason));
       }
     };
-    return { handleMessage, requestBody, sendCommand, sendImportFile, sendHarStream, failPendingBodyRequests };
+    return { handleMessage, requestBody, requestWebSocketExport, sendCommand, sendImportFile, sendHarStream, failPendingBodyRequests };
   }
 
   function fetchResponsePayload(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
@@ -17050,7 +17199,7 @@ const _NetworkPlus = (function () {
     return planSelectedExportRows(state.rows, state.selectedRows, state.selectedRow);
   }
 
-  function buildHarLogFromRows(rows, responseContents) {
+  function buildHarLogFromRows(rows, responseContents, webSocketExports) {
     const pageref = 'page_1';
     const entries = [];
     for (const r of rows) {
@@ -17102,32 +17251,23 @@ const _NetworkPlus = (function () {
         timings,
       };
       if (postData) entry.request.postData = postData;
-      if (Array.isArray(r._wsFrames) && r._wsFrames.length > 0) {
-        // Chrome's WebSocket-entry extension key, written the way Chrome
-        // writes it (epoch seconds, opcode 1 text) so DevTools and other
-        // HAR tools read the conversation back. Binary frames were only
-        // captured as size placeholders, so they export as opcode 2
-        // without data, and every fidelity loss is declared on the entry.
-        entry._webSocketMessages = r._wsFrames.map((frame) => {
-          const message = {
-            type: frame.type,
-            time: Number.isFinite(frame.time) ? frame.time / 1000 : 0,
-            opcode: frame.binary ? 2 : 1,
-          };
-          if (!frame.binary) message.data = frame.data;
-          return message;
-        });
-        const droppedFrames = r._wsFramesDropped || 0;
-        const binaryFrames = r._wsFrames.filter((frame) => frame.binary).length;
-        if (droppedFrames > 0 || binaryFrames > 0) {
-          entry._networkPlus = {
-            webSocketExport: {
-              droppedFrames,
-              binaryFramesWithoutPayload: binaryFrames,
-              textPreviewLimit: WS_FRAME_PREVIEW_CHARS,
-            },
-          };
-        }
+      const webSocket = webSocketExports?.get(r) || (r._wsFrames?.length > 0 && {
+        ...describeWebSocketExport(r),
+        frames: r._wsFrames.map(toHarWebSocketMessage),
+      });
+      if (webSocket?.count > 0) {
+        if (webSocket.frames) entry._webSocketMessages = webSocket.frames;
+        else entry._networkPlus = { webSocketFramesOmitted: webSocket.count };
+      }
+      if (webSocket?.droppedFrames > 0 || webSocket?.binaryFramesWithoutPayload > 0 || webSocket?.unavailable) {
+        entry._networkPlus = {
+          ...entry._networkPlus,
+          webSocketExport: webSocket.unavailable ? { mirrorFramesUnavailable: true } : {
+            droppedFrames: webSocket.droppedFrames,
+            binaryFramesWithoutPayload: webSocket.binaryFramesWithoutPayload,
+            textPreviewLimit: WS_FRAME_PREVIEW_CHARS,
+          },
+        };
       }
       entries.push(entry);
     }
@@ -17189,6 +17329,8 @@ const _NetworkPlus = (function () {
     );
     try {
       const responseContents = new Map();
+      const webSocketExports = new Map();
+      const includeWebSocketFrames = outboundPolicy.mode === 'full';
       let unavailableCount = 0;
       // Bodies resolve with small bounded concurrency: a serial walk turns
       // thousands of uncached DevTools round-trips (10 s timeout each)
@@ -17199,13 +17341,20 @@ const _NetworkPlus = (function () {
         Array.from({ length: Math.min(HAR_EXPORT_BODY_CONCURRENCY, pendingRows.length) }, async () => {
           while (pendingRows.length > 0) {
             const row = pendingRows.shift();
-            const content = await resolveHarResponseContent(row);
+            // A sanitized mirror export needs only the count. Fetching the
+            // response as usual would also pull the raw transcript over the port.
+            const omitMirrorTranscript = !includeWebSocketFrames && Boolean(row._mirrorFetchWebSocketExport);
+            const [content, webSocket] = await Promise.all([
+              omitMirrorTranscript ? buildHarResponseContent(row) : resolveHarResponseContent(row),
+              row._mirrorFetchWebSocketExport?.(includeWebSocketFrames).catch(() => ({ unavailable: true })),
+            ]);
             responseContents.set(row, content);
-            if (content._networkPlus) unavailableCount += 1;
+            if (webSocket) webSocketExports.set(row, webSocket);
+            if (!omitMirrorTranscript && content._networkPlus) unavailableCount += 1;
           }
         }),
       );
-      const fullHar = buildHarLogFromRows(rows, responseContents);
+      const fullHar = buildHarLogFromRows(rows, responseContents, webSocketExports);
       const har = createOutboundPayload(
         outboundPolicy,
         () => sanitizeHar(fullHar),
@@ -20397,7 +20546,7 @@ const _NetworkPlus = (function () {
       const bumpNextId = (rowId) => {
         if (Number.isInteger(rowId) && rowId >= state.nextId) state.nextId = rowId + 1;
       };
-      const buildViewerRowFromWire = (wireRow) => {
+      const buildViewerRowFromWire = (wireRow, session) => {
         const row = buildRowFromRequest(buildMirrorEntryFromWire(wireRow), wireRow.id);
         if (wireRow.initiator && typeof wireRow.initiator === 'object') row.initiator = wireRow.initiator;
         // WebSocket rows claim no HTTP status; keep the blank instead of a 0.
@@ -20412,6 +20561,16 @@ const _NetworkPlus = (function () {
           new Promise((resolve, reject) => {
             viewerSession.requestBody(row.id, (error, payload) => (error ? reject(error) : resolve(payload)));
           });
+        if (wireRow.webSocket === true || isWebSocketRequest(row.method, row.url, row.status, row.responseHeaders)) {
+          row._mirrorFetchWebSocketExport = (includeFrames) => new Promise((resolve, reject) => {
+            viewerSession.requestWebSocketExport(
+              row.id,
+              session,
+              includeFrames,
+              (error, payload) => (error ? reject(error) : resolve(payload)),
+            );
+          });
+        }
         return row;
       };
       // Dedupe by id in O(1): every id ever admitted this session. Stale
@@ -20431,9 +20590,9 @@ const _NetworkPlus = (function () {
       };
       const mirrorChangedRows = new Set();
       let mirrorUpdateFrame = false;
-      const updatePendingMirrorRow = (row, wireRow) => {
+      const updatePendingMirrorRow = (row, wireRow, session) => {
         if (!row._pendingRequest || wireRow.pending === true) return false;
-        Object.assign(row, buildViewerRowFromWire(wireRow));
+        Object.assign(row, buildViewerRowFromWire(wireRow, session));
         pendingMirrorRows.delete(row.id);
         return true;
       };
@@ -20450,16 +20609,16 @@ const _NetworkPlus = (function () {
           refreshMirrorDetails(changed);
         });
       };
-      const appendWireRow = (wireRow) => {
+      const appendWireRow = (wireRow, session) => {
         if (!Number.isInteger(wireRow.id)) return;
         if (knownRowIds.has(wireRow.id)) {
           const existing = pendingMirrorRows.get(wireRow.id);
           if (existing && (state.activeRows.has(existing) || pendingLiveRows.includes(existing))) {
-            if (updatePendingMirrorRow(existing, wireRow)) scheduleMirrorRowUpdate(existing);
+            if (updatePendingMirrorRow(existing, wireRow, session)) scheduleMirrorRowUpdate(existing);
           } else pendingMirrorRows.delete(wireRow.id);
           return;
         }
-        const row = buildViewerRowFromWire(wireRow);
+        const row = buildViewerRowFromWire(wireRow, session);
         knownRowIds.add(row.id);
         if (row._pendingRequest) pendingMirrorRows.set(row.id, row);
         bumpNextId(row.id);
@@ -20489,11 +20648,11 @@ const _NetworkPlus = (function () {
           seenIds.add(wireRow.id);
           const existing = existingById.get(wireRow.id);
           if (existing) {
-            if (updatePendingMirrorRow(existing, wireRow)) changedRows.add(existing);
+            if (updatePendingMirrorRow(existing, wireRow, options?.session)) changedRows.add(existing);
             orderedRows.push(existing);
             continue;
           }
-          const row = buildViewerRowFromWire(wireRow);
+          const row = buildViewerRowFromWire(wireRow, options?.session);
           freshRows.push(row);
           orderedRows.push(row);
         }
@@ -20725,7 +20884,9 @@ const _NetworkPlus = (function () {
         activeMirrorPort = port;
         mirrorEverConnected = true;
         updateMirrorStatus();
-        port.onMessage.addListener((message) => viewerSession.handleMessage(message));
+        port.onMessage.addListener((message) => {
+          if (activeMirrorPort === port) viewerSession.handleMessage(message);
+        });
         port.onDisconnect.addListener(() => {
           if (activeMirrorPort !== port) return;
           activeMirrorPort = null;
@@ -20953,7 +21114,8 @@ const _NetworkPlus = (function () {
         mirroredPendingCaptureActive = false;
         hostSession.resetPeer();
         port.onMessage.addListener((message) => {
-          if (mirrorPort === port && !mirrorPortConfirmed) {
+          if (mirrorPort !== port) return;
+          if (!mirrorPortConfirmed) {
             mirrorPortConfirmed = true;
             if (!popoutWindow || popoutWindow.closed) {
               setStatus(uiText('statusMirrorTabReattached'));

@@ -4,6 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🐛 **Pop-out HAR export** — preserve captured WebSocket frames in full exports and report omitted frames in sanitized exports.
 - ⚡ **Large HAR import** — stream entries and pace pop-out transfers to avoid loading the entire file as one string.
 - ✨ **Pending requests** — show requests waiting for a response in DevTools and the pop-out, then update the same row on completion.
 - ✨ **Offline workspace** — open saved captures from the browser’s extension menu, including from New Tab.
