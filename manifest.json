@@ -6,6 +6,9 @@
   "background": {
     "service_worker": "background.js"
   },
+  "action": {
+    "default_title": "Open Network+ (offline)"
+  },
   "description": "Network analysis with sanitized HAR, retention limits, integrated search, accessible UI, and keyboard controls.",
   "permissions": ["storage"],
   "icons": {

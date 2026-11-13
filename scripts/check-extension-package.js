@@ -8,6 +8,7 @@ const EXPECTED_MANIFEST_NAME = 'Network+ for DevTools';
 const EXPECTED_CSP = "script-src 'self'; object-src 'self'";
 const EXPECTED_PERMISSIONS = Object.freeze(['storage']);
 const ALLOWED_MANIFEST_KEYS = Object.freeze([
+  'action',
   'background',
   'content_security_policy',
   'description',
@@ -319,8 +320,14 @@ const validateExtension = (root, archiveFiles = RUNTIME_FILES) => {
     errors.push(`manifest devtools_page is not in the archive allowlist: ${manifest.devtools_page}`);
   }
 
-  // The background surface is allowed for exactly one audited worker whose
-  // single job is minimizing the undocked DevTools window on pop-out.
+  // Only the audited toolbar action may launch the local offline workspace.
+  // A popup, alternate icon, or other action field requires a separate review.
+  if (JSON.stringify(manifest.action) !== JSON.stringify({ default_title: 'Open Network+ (offline)' })) {
+    errors.push('manifest action must be exactly: { "default_title": "Open Network+ (offline)" }');
+  }
+
+  // The audited worker opens the offline workspace and minimizes undocked
+  // DevTools on pop-out. Neither operation needs additional permissions.
   if (JSON.stringify(manifest.background) !== JSON.stringify({ service_worker: 'background.js' })) {
     errors.push('manifest background must be exactly: { "service_worker": "background.js" }');
   } else if (!archiveFiles.includes(manifest.background.service_worker)) {

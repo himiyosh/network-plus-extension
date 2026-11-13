@@ -3770,6 +3770,229 @@ const _NetworkPlus = (function () {
     return data.log.entries;
   }
 
+  async function readHarEntries(byteStream, onEntry) {
+    const decoder = new TextDecoder();
+    const stack = [{ kind: 'root', state: 'value', role: '' }];
+    // JSON forbids all unescaped control characters in strings.
+    // eslint-disable-next-line no-control-regex
+    const stringBoundary = /["\\\u0000-\u001f]/g;
+    let token = '';
+    let stringIsKey = false;
+    let keyText = null;
+    let unicodeLeft = 0;
+    let numberState = '';
+    let literal = '';
+    let literalIndex = 0;
+    let sawLog = false;
+    let sawEntries = false;
+    let entryParts = null;
+    let entryStart = -1;
+    let count = 0;
+    let text = '';
+    let index = 0;
+
+    const invalidJson = () => { throw createImportError('HAR is not valid JSON.'); };
+    const invalidStructure = () => {
+      throw createImportError('HAR must contain a log.entries array.');
+    };
+    const invalidEntry = () => {
+      throw createImportError('HAR entries must contain request and response objects.');
+    };
+    const appendKey = (part) => {
+      // Even escaped "entries" fits in 44 characters including its quotes.
+      // Longer metadata keys cannot match and need not be kept in memory.
+      if (keyText !== null) keyText = keyText.length + part.length <= 44 ? keyText + part : null;
+    };
+    const completeValue = () => {
+      const parent = stack[stack.length - 1];
+      if (parent.role === 'entries') {
+        entryParts.push(text.slice(entryStart, index));
+        let entry;
+        try {
+          entry = JSON.parse(entryParts.join(''));
+        } catch (error) {
+          if (error instanceof RangeError) {
+            throw createImportError('A HAR entry is too large to parse.');
+          }
+          invalidJson();
+        }
+        entryParts = null;
+        entryStart = -1;
+        if (!isRecord(entry) || !isRecord(entry.request) || !isRecord(entry.response)) invalidEntry();
+        onEntry(entry);
+        count += 1;
+      }
+      parent.state = parent.kind === 'root' ? 'done' : 'commaOrEnd';
+    };
+    const startValue = (char) => {
+      const parent = stack[stack.length - 1];
+      let role = '';
+      if (parent.kind === 'root') {
+        if (char !== '{') invalidStructure();
+        role = 'root';
+      } else if (parent.role === 'root' && parent.key === 'log') {
+        if (sawLog) throw createImportError('HAR contains duplicate log properties.');
+        sawLog = true;
+        if (char !== '{') invalidStructure();
+        role = 'log';
+      } else if (parent.role === 'log' && parent.key === 'entries') {
+        if (sawEntries) throw createImportError('HAR contains duplicate log.entries properties.');
+        sawEntries = true;
+        if (char !== '[') invalidStructure();
+        role = 'entries';
+      } else if (parent.role === 'entries') {
+        if (char !== '{') invalidEntry();
+        entryParts = [];
+        entryStart = index;
+      }
+      if (char === '{' || char === '[') {
+        stack.push({
+          kind: char === '{' ? 'object' : 'array',
+          state: char === '{' ? 'keyOrEnd' : 'valueOrEnd',
+          role,
+          key: '',
+        });
+        index += 1;
+      } else if (char === '"') {
+        token = 'string';
+        stringIsKey = false;
+        keyText = null;
+        index += 1;
+      } else if (char === '-' || (char >= '0' && char <= '9')) {
+        token = 'number';
+        numberState = char === '-' ? 'minus' : char === '0' ? 'zero' : 'integer';
+        index += 1;
+      } else if (char === 't' || char === 'f' || char === 'n') {
+        token = 'literal';
+        literal = char === 't' ? 'true' : char === 'f' ? 'false' : 'null';
+        literalIndex = 1;
+        index += 1;
+      } else invalidJson();
+    };
+    const finishNumber = () => {
+      if (!['zero', 'integer', 'fraction', 'exponent'].includes(numberState)) invalidJson();
+      token = '';
+      completeValue();
+    };
+    const consume = (chunk) => {
+      text = chunk;
+      index = 0;
+      if (entryParts) entryStart = 0;
+      while (index < text.length) {
+        const char = text[index];
+        if (token === 'string') {
+          // Most HAR bytes are body text. Skip unescaped runs in native code
+          // instead of visiting each byte in JavaScript.
+          stringBoundary.lastIndex = index;
+          const boundary = stringBoundary.exec(text);
+          const end = boundary ? boundary.index + 1 : text.length;
+          if (keyText !== null) appendKey(text.slice(index, end));
+          index = end;
+          if (!boundary) continue;
+          if (boundary[0] === '\\') token = 'escape';
+          else if (boundary[0] === '"') {
+            token = '';
+            if (stringIsKey) {
+              const parent = stack[stack.length - 1];
+              parent.key = keyText === null ? '' : JSON.parse(keyText);
+              parent.state = 'colon';
+            } else completeValue();
+          } else invalidJson();
+          continue;
+        }
+        if (token === 'escape') {
+          appendKey(char);
+          index += 1;
+          if (char === 'u') {
+            token = 'unicode';
+            unicodeLeft = 4;
+          } else if ('"\\/bfnrt'.includes(char)) token = 'string';
+          else invalidJson();
+          continue;
+        }
+        if (token === 'unicode') {
+          if (!/[0-9a-fA-F]/.test(char)) invalidJson();
+          appendKey(char);
+          index += 1;
+          unicodeLeft -= 1;
+          if (!unicodeLeft) token = 'string';
+          continue;
+        }
+        if (token === 'literal') {
+          if (char !== literal[literalIndex]) invalidJson();
+          index += 1;
+          literalIndex += 1;
+          if (literalIndex === literal.length) {
+            token = '';
+            completeValue();
+          }
+          continue;
+        }
+        if (token === 'number') {
+          const digit = char >= '0' && char <= '9';
+          if (numberState === 'minus' && digit) numberState = char === '0' ? 'zero' : 'integer';
+          else if (['integer', 'fraction', 'exponent'].includes(numberState) && digit) { /* same state */ }
+          else if (['zero', 'integer'].includes(numberState) && char === '.') numberState = 'dot';
+          else if (numberState === 'dot' && digit) numberState = 'fraction';
+          else if (['zero', 'integer', 'fraction'].includes(numberState) && /[eE]/.test(char)) numberState = 'e';
+          else if (numberState === 'e' && (char === '+' || char === '-')) numberState = 'sign';
+          else if ((numberState === 'e' || numberState === 'sign') && digit) numberState = 'exponent';
+          else {
+            finishNumber();
+            continue;
+          }
+          index += 1;
+          continue;
+        }
+        if (char === ' ' || char === '\t' || char === '\r' || char === '\n') {
+          index += 1;
+          continue;
+        }
+        const parent = stack[stack.length - 1];
+        if (parent.state === 'keyOrEnd' || parent.state === 'key') {
+          if (char === '}' && parent.state === 'keyOrEnd') {
+            index += 1;
+            stack.pop();
+            completeValue();
+          } else if (char === '"') {
+            token = 'string';
+            stringIsKey = true;
+            keyText = parent.role === 'root' || parent.role === 'log' ? '"' : null;
+            index += 1;
+          } else invalidJson();
+        } else if (parent.state === 'colon') {
+          if (char !== ':') invalidJson();
+          parent.state = 'value';
+          index += 1;
+        } else if (parent.state === 'value' || parent.state === 'valueOrEnd') {
+          if (char === ']' && parent.state === 'valueOrEnd') {
+            index += 1;
+            stack.pop();
+            completeValue();
+          } else startValue(char);
+        } else if (parent.state === 'commaOrEnd') {
+          if (char === ',') {
+            parent.state = parent.kind === 'object' ? 'key' : 'value';
+            index += 1;
+          } else if (char === (parent.kind === 'object' ? '}' : ']')) {
+            index += 1;
+            stack.pop();
+            completeValue();
+          } else invalidJson();
+        } else invalidJson();
+      }
+      if (entryParts) entryParts.push(text.slice(entryStart));
+      text = '';
+    };
+
+    for await (const chunk of byteStream) consume(decoder.decode(chunk, { stream: true }));
+    consume(decoder.decode());
+    if (token === 'number') finishNumber();
+    if (token || stack.length !== 1 || stack[0].state !== 'done') invalidJson();
+    if (!sawLog || !sawEntries) invalidStructure();
+    return count;
+  }
+
   function normalizeHarEntry(entry) {
     if (!isRecord(entry) || !isRecord(entry.request) || !isRecord(entry.response)) {
       throw createImportError('HAR entries must contain request and response objects.');
@@ -4469,7 +4692,18 @@ const _NetworkPlus = (function () {
   }
 
   function escapeCsvField(value) {
-    const text = value == null ? '' : String(value);
+    let text = value == null ? '' : String(value);
+    // Spreadsheet importers may skip whitespace/control prefixes and accept
+    // fullwidth formula markers. Keep text literal; actual measurements stay
+    // numeric, including negative values used for unavailable timing data.
+    if (!Number.isFinite(value)) {
+      for (const character of text) {
+        const code = character.charCodeAt(0);
+        if (/\s/.test(character) || code <= 31 || (code >= 127 && code <= 159)) continue;
+        if ('=+-@＝＋－＠'.includes(character)) text = "'" + text;
+        break;
+      }
+    }
     return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
   }
 
@@ -6590,6 +6824,18 @@ const _NetworkPlus = (function () {
       en: 'Recording is paused.',
       ja: '記録は一時停止中です。',
     },
+    emptyOfflineTitle: {
+      en: 'Inspect a saved capture.',
+      ja: '保存済みキャプチャを調べます。',
+    },
+    statusOfflineReady: {
+      en: 'Import HAR or SAZ to inspect saved requests. For live capture, open Network+ in DevTools on the page you want to inspect.',
+      ja: 'HAR または SAZ をインポートして保存済みリクエストを調べられます。ライブキャプチャには、調べたいページで DevTools の Network+ を開いてください。',
+    },
+    offlineViewScope: {
+      en: 'Offline · no live capture',
+      ja: 'オフライン · ライブキャプチャなし',
+    },
     emptyCaptureRecordingTitle: {
       en: 'Recording network activity...',
       ja: 'ネットワークアクティビティを記録しています...',
@@ -7967,6 +8213,14 @@ const _NetworkPlus = (function () {
       en: 'Stream capture: Off',
       ja: 'ストリームキャプチャ: オフ',
     },
+    statusPendingRequest: {
+      en: 'Pending',
+      ja: '応答待ち',
+    },
+    statusPendingResponse: {
+      en: 'Waiting for the response to finish.',
+      ja: 'レスポンスの完了を待っています。',
+    },
     statusCapturing: {
       en: 'Capturing...',
       ja: 'キャプチャ中...',
@@ -8066,6 +8320,7 @@ const _NetworkPlus = (function () {
     [IMPORT_BODY_MISSING_REASON, 'reasonImportNoContent'],
     [BODY_RETRIEVAL_FAILED_REASON, 'reasonBodyRetrievalFailed'],
     [BODY_UNAVAILABLE_REASON, 'reasonBodyUnavailable'],
+    [UI_TEXT.statusPendingResponse.en, 'statusPendingResponse'],
   ]);
 
   function localizeBodyReason(reason) {
@@ -8968,9 +9223,15 @@ const _NetworkPlus = (function () {
     };
   }
 
+  function isOfflinePanelView() {
+    return typeof window !== 'undefined' && window.location &&
+      new URLSearchParams(window.location.search || '').get('view') === 'offline';
+  }
+
   function serializeRowForMirror(row) {
     return {
       id: row.id,
+      ...(row._pendingRequest ? { pending: true } : {}),
       startedDateTime: row.startedDateTime,
       time: row.duration,
       initiator: row.initiator || null,
@@ -9392,8 +9653,11 @@ const _NetworkPlus = (function () {
     getControlState,
     executeCommand,
     receiveImportFile,
+    receiveHarStream,
   }) {
     let snapshotGeneration = 0;
+    let pendingRowsEnabled = false;
+    const getMirroredRows = () => getRows().filter((row) => pendingRowsEnabled || !row._pendingRequest);
     const importTransfers = new Map();
     // Row ids restart at 1 in every DevTools session, and a mirror tab keeps
     // its rows after a disconnect. Without a session identity, a reattached
@@ -9402,10 +9666,16 @@ const _NetworkPlus = (function () {
     // carries or reconciles rows.
     const sessionToken = mirrorSessionToken();
     const transferKey = (message) => String(message.viewer || '') + ':' + message.commandId;
+    const failImport = (key, transfer, error) => {
+      if (importTransfers.get(key) !== transfer) return;
+      importTransfers.delete(key);
+      if (transfer.writer) transfer.writer.abort(new Error(error)).catch(() => {});
+      sendCommandResult(transfer.commandId, error, transfer.viewer);
+    };
     const sendSnapshot = () => {
       snapshotGeneration += 1;
       const generation = snapshotGeneration;
-      const rows = getRows();
+      const rows = getMirroredRows();
       postMessage({
         type: 'snapshot-start',
         generation,
@@ -9434,7 +9704,7 @@ const _NetworkPlus = (function () {
       postMessage({ type: 'snapshot-end', generation });
     };
     const sendSync = () => {
-      const rows = getRows();
+      const rows = getMirroredRows();
       let maxId = 0;
       for (const row of rows) if (row.id > maxId) maxId = row.id;
       postMessage({
@@ -9452,6 +9722,7 @@ const _NetworkPlus = (function () {
     const handleMessage = (message) => {
       if (!message || typeof message !== 'object') return;
       if (message.type === 'hello' || message.type === 'snapshot-request') {
+        if (message.type === 'hello') pendingRowsEnabled = message.pendingRows === true;
         sendSnapshot();
         sendSync();
         return;
@@ -9507,23 +9778,54 @@ const _NetworkPlus = (function () {
         const viewerPrefix = String(message.viewer || '') + ':';
         for (const [key, existing] of Array.from(importTransfers)) {
           if (key.startsWith(viewerPrefix)) {
-            importTransfers.delete(key);
-            sendCommandResult(existing.commandId, 'The import transfer was superseded by a newer one.', existing.viewer);
+            failImport(key, existing, 'The import transfer was superseded by a newer one.');
           }
         }
-        importTransfers.set(transferKey(message), {
+        const key = transferKey(message);
+        const transfer = {
           commandId: message.commandId,
           viewer: message.viewer,
           fileName: message.fileName,
           size: message.size,
           parts: [],
           receivedBytes: 0,
-        });
+          writer: null,
+          writing: false,
+        };
+        importTransfers.set(key, transfer);
+        if (message.stream === true) {
+          if (getImportFormat(message.fileName) !== 'har' || typeof receiveHarStream !== 'function') {
+            failImport(key, transfer, 'Reload both Network+ views to stream this HAR.');
+            return;
+          }
+          const channel = new TransformStream();
+          transfer.writer = channel.writable.getWriter();
+          receiveHarStream(message.fileName, channel.readable, (error) => {
+            if (error) {
+              failImport(key, transfer, error);
+            } else if (importTransfers.get(key) === transfer) {
+              importTransfers.delete(key);
+              sendCommandResult(transfer.commandId, '', transfer.viewer);
+              sendSync();
+            }
+          });
+        }
+        return;
+      }
+      if (message.type === 'import-cancel') {
+        const key = transferKey(message);
+        const transfer = importTransfers.get(key);
+        if (transfer) failImport(key, transfer, 'The import transfer was cancelled.');
         return;
       }
       if (message.type === 'import-chunk') {
-        const transfer = importTransfers.get(transferKey(message));
+        const key = transferKey(message);
+        const transfer = importTransfers.get(key);
         if (!transfer) return;
+        if (transfer.writing || transfer.ending) {
+          failImport(key, transfer, 'The import transfer sent a chunk out of order.');
+          return;
+        }
         let bytes;
         try {
           if (typeof message.data !== 'string' || !message.data || message.data.length > MIRROR_IMPORT_CHUNK_CHARS) {
@@ -9532,30 +9834,47 @@ const _NetworkPlus = (function () {
           bytes = base64ToBytes(message.data);
           if (bytes.length === 0) throw new Error('Empty transfer chunk.');
         } catch (_error) {
-          importTransfers.delete(transferKey(message));
-          sendCommandResult(message.commandId, 'The transferred file could not be decoded.', message.viewer);
+          failImport(key, transfer, 'The transferred file could not be decoded.');
           return;
         }
         if (bytes.length > transfer.size - transfer.receivedBytes) {
-          importTransfers.delete(transferKey(message));
-          sendCommandResult(message.commandId, 'The transfer exceeded its declared size and was refused.', message.viewer);
+          failImport(key, transfer, 'The transfer exceeded its declared size and was refused.');
           return;
         }
         transfer.receivedBytes += bytes.length;
-        transfer.parts.push(bytes);
+        if (transfer.writer) {
+          transfer.writing = true;
+          transfer.writer.write(bytes).then(() => {
+            if (importTransfers.get(key) !== transfer) return;
+            transfer.writing = false;
+            postMessage({ type: 'import-ack', commandId: transfer.commandId, viewer: transfer.viewer });
+          }, () => failImport(key, transfer, 'The transferred file could not be imported.'));
+        } else {
+          transfer.parts.push(bytes);
+        }
         return;
       }
       if (message.type === 'import-end') {
-        const transfer = importTransfers.get(transferKey(message));
-        importTransfers.delete(transferKey(message));
+        const key = transferKey(message);
+        const transfer = importTransfers.get(key);
         if (!transfer) {
           sendCommandResult(message.commandId, 'The import transfer was interrupted.', message.viewer);
           return;
         }
         if (transfer.receivedBytes !== transfer.size) {
-          sendCommandResult(message.commandId, 'The transfer ended before its declared size was received.', message.viewer);
+          failImport(key, transfer, 'The transfer ended before its declared size was received.');
           return;
         }
+        if (transfer.writer) {
+          if (transfer.writing || transfer.ending) {
+            failImport(key, transfer, 'The import transfer ended out of order.');
+            return;
+          }
+          transfer.ending = true;
+          transfer.writer.close().catch(() => failImport(key, transfer, 'The transferred file could not be imported.'));
+          return;
+        }
+        importTransfers.delete(key);
         if (typeof receiveImportFile !== 'function') {
           sendCommandResult(message.commandId, 'This DevTools session does not accept mirror imports.', message.viewer);
           return;
@@ -9570,10 +9889,24 @@ const _NetworkPlus = (function () {
       sendSnapshot,
       sendSync,
       handleMessage,
-      pushRow: (row) => postMessage({ type: 'row', session: sessionToken, row: serializeRowForMirror(row) }),
+      pushRow: (row, completedPending = false) => {
+        if (!pendingRowsEnabled) {
+          if (row._pendingRequest) return;
+          // Older viewers never saw this row's earlier ID. Send the ordered
+          // table instead of appending an out-of-order completion.
+          if (completedPending) {
+            sendSnapshot();
+            return;
+          }
+        }
+        postMessage({ type: 'row', session: sessionToken, row: serializeRowForMirror(row) });
+      },
+      resetPeer: () => { pendingRowsEnabled = false; },
       // A viewer that disconnects mid-transfer would otherwise leave its
       // accumulated chunks parked in this map forever.
-      dropImportTransfers: () => importTransfers.clear(),
+      dropImportTransfers: () => {
+        for (const [key, transfer] of importTransfers) failImport(key, transfer, 'The import transfer was interrupted.');
+      },
     };
   }
 
@@ -9641,14 +9974,17 @@ const _NetworkPlus = (function () {
       nextCommandId += 1;
       const pending = { callback: typeof callback === 'function' ? callback : () => {}, timer: null };
       pendingCommandCallbacks.set(commandId, pending);
-      pending.timer = setTimeout(() => {
-        settleCommand(
-          commandId,
-          new Error('The DevTools session did not answer in time; the command may still have applied.'),
-        );
-      }, timeoutMs);
-      // Node timers would otherwise hold the jest process open.
-      if (pending.timer && typeof pending.timer.unref === 'function') pending.timer.unref();
+      pending.restartTimer = () => {
+        clearTimeout(pending.timer);
+        pending.timer = setTimeout(() => {
+          settleCommand(
+            commandId,
+            new Error('The DevTools session did not answer in time; the command may still have applied.'),
+          );
+        }, timeoutMs);
+        if (typeof pending.timer.unref === 'function') pending.timer.unref();
+      };
+      pending.restartTimer();
       return commandId;
     };
     const sendCommand = (name, args, callback) => {
@@ -9676,6 +10012,48 @@ const _NetworkPlus = (function () {
       } catch (error) {
         discardCommand(commandId);
         throw error;
+      }
+    };
+    const sendHarStream = async (file, callback) => {
+      let finishAck;
+      let completed = false;
+      const commandId = trackCommand((error) => {
+        completed = true;
+        if (finishAck) finishAck();
+        if (error) {
+          try {
+            postMessage({ type: 'import-cancel', commandId, viewer: viewerNonce });
+          } catch (_error) {
+            // The port already disconnected.
+          }
+        }
+        callback(error);
+      }, MIRROR_IMPORT_RESULT_TIMEOUT_MS);
+      const pending = pendingCommandCallbacks.get(commandId);
+      try {
+        postMessage({ type: 'import-begin', commandId, viewer: viewerNonce, fileName: file.name, size: file.size, stream: true });
+        for await (const bytes of file.stream()) {
+          for (let offset = 0; offset < bytes.length && !completed; offset += MIRROR_IMPORT_CHUNK_BYTES) {
+            const acknowledged = new Promise((resolve) => { finishAck = resolve; });
+            pending.acknowledge = () => {
+              pending.restartTimer();
+              finishAck();
+            };
+            postMessage({
+              type: 'import-chunk',
+              commandId,
+              viewer: viewerNonce,
+              data: bytesToBase64(bytes.subarray(offset, offset + MIRROR_IMPORT_CHUNK_BYTES)),
+            });
+            await acknowledged;
+            pending.acknowledge = null;
+            finishAck = null;
+          }
+          if (completed) return;
+        }
+        if (!completed) postMessage({ type: 'import-end', commandId, viewer: viewerNonce });
+      } catch (error) {
+        settleCommand(commandId, error);
       }
     };
     const handleMessage = (message) => {
@@ -9741,6 +10119,12 @@ const _NetworkPlus = (function () {
           else pending.callback(new Error(message.error || 'Response content is unavailable.'), null);
           break;
         }
+        case 'import-ack': {
+          if (resultIsForAnotherViewer(message)) return;
+          const pending = pendingCommandCallbacks.get(message.commandId);
+          if (pending && pending.acknowledge) pending.acknowledge();
+          break;
+        }
         case 'command-result': {
           if (resultIsForAnotherViewer(message)) return;
           settleCommand(
@@ -9765,7 +10149,7 @@ const _NetworkPlus = (function () {
         pending.callback(new Error(reason));
       }
     };
-    return { handleMessage, requestBody, sendCommand, sendImportFile, failPendingBodyRequests };
+    return { handleMessage, requestBody, sendCommand, sendImportFile, sendHarStream, failPendingBodyRequests };
   }
 
   function fetchResponsePayload(row, timeoutMs = RESPONSE_CONTENT_TIMEOUT_MS) {
@@ -10322,7 +10706,7 @@ const _NetworkPlus = (function () {
       var init = {
         method: spec.method,
         headers: headers,
-        credentials: spec.credentials ? 'include' : 'same-origin',
+        credentials: spec.credentials ? 'include' : 'omit',
       };
       if (spec.body && spec.method !== 'GET' && spec.method !== 'HEAD') init.body = spec.body;
       fetch(spec.url, init).catch(function () {});
@@ -11756,6 +12140,9 @@ const _NetworkPlus = (function () {
           }
           if (txt) td.title = txt;
         }
+      } else if (c.id === 'status' && row._pendingRequest) {
+        td.setAttribute('data-i18n', 'statusPendingRequest');
+        td.textContent = uiText('statusPendingRequest');
       } else if (c.id === 'waterfall') {
         td.classList.add('waterfall-cell');
         // Use the range cached once per render by renderBody() — O(1) per row.
@@ -13370,6 +13757,13 @@ const _NetworkPlus = (function () {
     const pauseBtn = $('#pauseBtn');
     const topbar = $('.topbar');
     if (!pauseBtn || !topbar) return;
+    if (isOfflinePanelView()) {
+      pauseBtn.hidden = true;
+      pauseBtn.disabled = true;
+      topbar.classList.remove('paused', 'recording');
+      if (announceStatus !== false) setStatus(uiText('statusOfflineReady'));
+      return;
+    }
     pauseBtn.innerHTML = state.paused ? PLAY_ICON_SVG : PAUSE_ICON_SVG;
     pauseBtn.disabled = state.sampleCaptureActive;
     const actionLabel = state.sampleCaptureActive
@@ -13518,6 +13912,10 @@ const _NetworkPlus = (function () {
         icon.textContent = '🔎';
         title.textContent = uiText('emptyFilteredTitle');
         description.textContent = uiText('emptyFilteredDesc');
+      } else if (isOfflinePanelView()) {
+        icon.textContent = '📂';
+        title.textContent = uiText('emptyOfflineTitle');
+        description.textContent = uiText('statusOfflineReady');
       } else {
         icon.textContent = '📡';
         title.textContent = state.paused
@@ -13548,9 +13946,14 @@ const _NetworkPlus = (function () {
         const action = document.createElement('button');
         action.type = 'button';
         action.className = 'empty-state-action';
-        action.textContent = uiText('emptyCaptureAction');
         action.setAttribute('aria-describedby', description.id);
-        action.addEventListener('click', activateSampleCapture);
+        if (isOfflinePanelView()) {
+          action.textContent = uiText('ariaImportBtn');
+          action.addEventListener('click', () => $('#importBtn').click());
+        } else {
+          action.textContent = uiText('emptyCaptureAction');
+          action.addEventListener('click', activateSampleCapture);
+        }
         emptyState.appendChild(action);
       }
     }
@@ -13594,15 +13997,29 @@ const _NetworkPlus = (function () {
     }
   }
 
-  // Rows actually on screen: column filters first, then the search when it is
-  // narrowing the grid. Sorting cannot change the count, so it is skipped.
-  function countVisibleRows() {
+  // Rendering, keyboard navigation, and range selection share the same rows
+  // and order, including the optional Matches only search restriction.
+  function getVisibleSortedRows() {
+    return planVisibleSearchRows(
+      getSortedRows(state.filteredRows),
+      state.search.rowColors,
+      state.search.matchesOnly,
+      hasActiveSearchKeywords(state.search.keywords, state.search.options),
+    );
+  }
+
+  // Sorting cannot change the visible set or its statistics.
+  function getVisibleRows() {
     return planVisibleSearchRows(
       state.filteredRows,
       state.search.rowColors,
       state.search.matchesOnly,
       hasActiveSearchKeywords(state.search.keywords, state.search.options),
-    ).length;
+    );
+  }
+
+  function countVisibleRows() {
+    return getVisibleRows().length;
   }
 
   function updateTableSummary(visibleRowCount, visibleBytes) {
@@ -13674,8 +14091,9 @@ const _NetworkPlus = (function () {
     }
     const statsEl = $('#statsSummary');
     if (statsEl) {
-      if (state.filteredRows.length > 0) {
-        const stats = computeStats(state.filteredRows);
+      const visibleRows = getVisibleRows();
+      if (visibleRows.length > 0) {
+        const stats = computeStats(visibleRows);
         renderStatsSummary(statsEl, stats, inspectFirstStatusClassRequest);
       } else {
         clearStatsSummary(statsEl);
@@ -13762,7 +14180,6 @@ const _NetworkPlus = (function () {
         ? document.activeElement.closest('tr[data-row-id]')
         : null;
     const focusRowId = state.pendingRowFocusId || (activeRow ? activeRow.dataset.rowId : null);
-    state.pendingRowFocusId = null;
     const affectedRows = Array.from(new Set(rows.filter(Boolean)));
     // Clicking away from a large multi-selection routes every previously
     // selected row through here; per-row tbody.querySelector plus
@@ -13789,6 +14206,8 @@ const _NetworkPlus = (function () {
       renderedRow.replaceWith(replacement);
       rowElementById.set(String(row.id), replacement);
     }
+    // A full-render fallback must still receive the requested keyboard focus.
+    state.pendingRowFocusId = null;
     const nextTabStop = (tabStopRow && rowElementById.get(String(tabStopRow.id))) || null;
     if (previousTabStop && previousTabStop !== nextTabStop && previousTabStop.isConnected !== false) {
       previousTabStop.tabIndex = -1;
@@ -13810,12 +14229,7 @@ const _NetworkPlus = (function () {
     filterRows();
     state.renderedActiveFilterCount = countActiveColumnFilters(state.columnFilterRules);
     refreshSearchMatches();
-    const rows = planVisibleSearchRows(
-      getSortedRows(state.filteredRows),
-      state.search.rowColors,
-      state.search.matchesOnly,
-      hasActiveSearchKeywords(state.search.keywords, state.search.options),
-    );
+    const rows = getVisibleSortedRows();
     const visibleBytes = rows.reduce((total, row) => total + (row.size || 0), 0);
     updateEmptyState(rows.length);
     // Cache waterfall range once per render — createTableRow reads state.waterfallRange
@@ -13866,7 +14280,7 @@ const _NetworkPlus = (function () {
   }
 
   function inspectFirstStatusClassRequest(statusClass) {
-    const targetRow = findFirstStatusClassRow(getSortedRows(state.filteredRows), statusClass);
+    const targetRow = findFirstStatusClassRow(getVisibleSortedRows(), statusClass);
     if (!targetRow) return;
     selectRow(targetRow, null, true);
     scrollToSelectedRow();
@@ -14214,7 +14628,9 @@ const _NetworkPlus = (function () {
       if (titleText) item.title = titleText;
       strip.appendChild(item);
     };
-    if (plan.status) {
+    if (row._pendingRequest) {
+      addItem(uiText('statusPendingRequest'), 'details-summary-status details-summary-status--other');
+    } else if (plan.status) {
       addItem(plan.status.text, 'details-summary-status details-summary-status--' + plan.status.statusClass);
     }
     if (plan.contentType) addItem(plan.contentType, 'details-summary-type');
@@ -15770,8 +16186,9 @@ const _NetworkPlus = (function () {
     return bodyPre;
   }
 
-  // Captured HTML is untrusted content, so it renders in a frame with an empty
-  // sandbox: no scripts, no same-origin access, no navigation.
+  // A trusted outer document supplies the CSP inherited by the sandboxed
+  // preview. Resource hints need an additional inert parsing pass: preconnect
+  // can open sockets even when CSP blocks the eventual resource request.
   function buildHtmlBodyFrame(text) {
     const iframe = document.createElement('iframe');
     iframe.sandbox = '';
@@ -15783,7 +16200,44 @@ const _NetworkPlus = (function () {
     iframe.style.width = '100%';
     iframe.style.height = '300px';
     iframe.style.border = '1px solid var(--border)';
-    iframe.srcdoc = text;
+    const preview = document.createElement('iframe');
+    preview.sandbox = '';
+    preview.title = iframe.title;
+    preview.style.cssText = 'display:block;width:100%;height:100%;border:0';
+    const inert = document.createElement('template');
+    const content = document.createElement('html');
+    inert.content.appendChild(content);
+    let markup = String(text == null ? '' : text);
+    let stable = false;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      content.innerHTML = markup;
+      // Nested documents and dormant markup could reveal another resource
+      // hint when activated. noscript is also parsed differently in a live
+      // script-enabled document and the script-disabled preview sandbox.
+      content.querySelectorAll('link,iframe,frame,frameset,object,embed,template,noscript,script')
+        .forEach((element) => element.remove());
+      const serialized = content.outerHTML;
+      if (serialized === markup) {
+        stable = true;
+        break;
+      }
+      markup = serialized;
+    }
+    if (!stable) {
+      // Malformed markup that changes on reparsing stays readable as text.
+      const fallback = document.createElement('pre');
+      fallback.textContent = String(text == null ? '' : text);
+      markup = fallback.outerHTML;
+    }
+    preview.srcdoc = '<!doctype html>' + markup;
+    // Serialize the detached element so captured quotes/markup remain inside
+    // its srcdoc attribute and cannot replace the trusted wrapper or policy.
+    iframe.srcdoc = '<!doctype html><html><head><meta http-equiv="x-dns-prefetch-control" content="off">' +
+      '<meta http-equiv="Content-Security-Policy" ' +
+      'content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:; ' +
+      'media-src data:; frame-src \'none\'; base-uri \'none\'; form-action \'none\'">' +
+      '<style>html,body{margin:0;width:100%;height:100%}</style></head><body>' +
+      preview.outerHTML + '</body></html>';
     return iframe;
   }
 
@@ -15932,7 +16386,7 @@ const _NetworkPlus = (function () {
     }
     if (event && event.shiftKey && state.selectedRow) {
       // Shift+Click may update many rows, so use the safe full render.
-      const filtered = getSortedRows(state.filteredRows);
+      const filtered = getVisibleSortedRows();
       const lastIdx = filtered.indexOf(state.selectedRow);
       const currentIdx = filtered.indexOf(row);
       if (lastIdx !== -1 && currentIdx !== -1) {
@@ -16158,7 +16612,8 @@ const _NetworkPlus = (function () {
     // The summary strip under the title already states status, protocol,
     // size, and duration; only a value the strip could not show keeps a row.
     const resInfoItems = [];
-    if (!summaryPlan.status) resInfoItems.push({ key: uiText('detailsInfoStatus'), value: row.status + ' ' + (row.statusText || '') });
+    if (row._pendingRequest) resInfoItems.push({ key: uiText('detailsInfoStatus'), value: uiText('statusPendingResponse') });
+    else if (!summaryPlan.status) resInfoItems.push({ key: uiText('detailsInfoStatus'), value: row.status + ' ' + (row.statusText || '') });
     if (!summaryPlan.protocol) resInfoItems.push({ key: uiText('detailsInfoProtocol'), value: row.protocol || '' });
     if (!summaryPlan.size) resInfoItems.push({ key: uiText('detailsInfoSize'), value: fmtBytes(row.size) });
     if (!summaryPlan.duration) resInfoItems.push({ key: uiText('detailsInfoDuration'), value: fmtTime(row.duration) });
@@ -16812,6 +17267,12 @@ const _NetworkPlus = (function () {
   // Section 15: Initialization [U4][U5][U6][U7]
   // ============================================================
   function init() {
+    const offlineView = isOfflinePanelView();
+    if (offlineView) {
+      document.documentElement.setAttribute('data-view', 'offline');
+      const offlineScope = $('#offlineViewStatus');
+      if (offlineScope) offlineScope.hidden = false;
+    }
     loadColumnPrefs();
     loadColumnPins();
     loadCustomHeaderColumnName();
@@ -16835,6 +17296,8 @@ const _NetworkPlus = (function () {
     const pendingLiveRows = state.pendingLiveRows;
     let pendingLiveFrame = false;
     let pendingScrollToBottom = false;
+    let pendingCaptureCutoff = 0;
+    let mirroredPendingCaptureActive = false;
     let pendingResponseSearchFrame = false;
     const resetPendingLiveRows = () => {
       pendingLiveRows.length = 0;
@@ -17102,6 +17565,7 @@ const _NetworkPlus = (function () {
 
     // [U4] Clear — reset visible working state and retain one bounded Undo snapshot.
     clearButton.addEventListener('click', () => {
+      pendingCaptureCutoff = Date.now();
       commitPendingLiveRows();
       disposeClearUndoSnapshot('clear');
       const snapshot = createClearUndoSnapshot(searchPanelVisible);
@@ -17187,6 +17651,7 @@ const _NetworkPlus = (function () {
     // Pause/Resume
     const pauseBtn = $('#pauseBtn');
     pauseBtn.addEventListener('click', () => {
+      if (offlineView) return;
       if (state.sampleCaptureActive) {
         setStatus(uiText('statusSampleCaptureBlocksResume'));
         return;
@@ -18362,9 +18827,8 @@ const _NetworkPlus = (function () {
       const focusedRowId = parseInt(focusedTr.dataset.rowId, 10);
       const focusedRow = state.rows.find((candidate) => candidate.id === focusedRowId);
       if (!focusedRow) return;
-      const displayedRows = getSortedRows(state.filteredRows);
-      const currentRow = state.focusedRow || state.selectedRow;
-      const currentIndex = currentRow ? displayedRows.indexOf(currentRow) : -1;
+      const displayedRows = getVisibleSortedRows();
+      const currentIndex = displayedRows.indexOf(focusedRow);
 
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
@@ -19373,23 +19837,25 @@ const _NetworkPlus = (function () {
       };
 
       const stageHarImport = async (file) => {
-        const text = await file.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (_error) {
-          throw createImportError('HAR is not valid JSON.');
-        }
-        const entries = validateHarDocument(data);
-        const importPlan = planImportRetention(
-          entries.length,
-          state.retention.requestLimit,
-          state.retention.unlimited,
-        );
+        const rowLimit = state.retention.unlimited ? Infinity : state.retention.requestLimit;
         const rows = [];
-        for (let index = importPlan.startIndex; index < entries.length; index++) {
-          const entry = normalizeHarEntry(entries[index]);
+        const bodies = new Map();
+        let stagedBytes = 0;
+        let omittedBodies = 0;
+        let evictedBodies = 0;
+        const dropBody = (row, status, reason) => {
+          stagedBytes -= bodies.get(row) || 0;
+          bodies.delete(row);
+          row.responseContent = null;
+          row.responseContentEncoding = '';
+          row.responseContentState = status;
+          row.responseContentReason = reason;
+        };
+        let index = 0;
+        const totalCount = await readHarEntries(file.stream(), (rawEntry) => {
+          const entry = normalizeHarEntry(rawEntry);
           const row = buildRowFromRequest(entry, 0);
+          row._reqObj = null;
           const availability = classifyImportedResponseContent(entry);
           if (availability.state === 'empty') {
             row.responseContent = '';
@@ -19398,14 +19864,43 @@ const _NetworkPlus = (function () {
             row.responseContentState = 'unavailable';
             row.responseContentReason = availability.reason;
           }
-          applyHarWebSocketMessages(row, entries[index] ? entries[index]._webSocketMessages : null);
-          rows.push(row);
-        }
+          applyHarWebSocketMessages(row, rawEntry._webSocketMessages);
+          if (index >= rowLimit) {
+            const displaced = rows[index % rowLimit];
+            stagedBytes -= bodies.get(displaced) || 0;
+            bodies.delete(displaced);
+            if (displaced.responseContentState === 'omitted') omittedBodies -= 1;
+            if (displaced.responseContentState === 'evicted') evictedBodies -= 1;
+          }
+          rows[index % rowLimit] = row;
+          index += 1;
+          if (typeof row.responseContent !== 'string') return;
+          const payload = measureResponsePayload(
+            row.responseContent, row.responseContentEncoding, resolveRowResponseCharset(row), isHtmlLikeMime(row.type),
+          );
+          if (payload.bytes > MAX_RESPONSE_BODY_BYTES) {
+            dropBody(row, 'omitted',
+              'Body is ' + fmtBytes(payload.bytes) + '; the per-body cache limit is ' + fmtBytes(MAX_RESPONSE_BODY_BYTES) + '.');
+            omittedBodies += 1;
+            return;
+          }
+          while (stagedBytes + payload.bytes > MAX_RESPONSE_CACHE_BYTES) {
+            dropBody(bodies.keys().next().value, 'evicted', BODY_EVICTED_REASON);
+            evictedBodies += 1;
+          }
+          if (payload.bytes > 0) {
+            bodies.set(row, payload.bytes);
+            stagedBytes += payload.bytes;
+          }
+        });
+        const start = totalCount > rowLimit ? totalCount % rowLimit : 0;
         return {
           format: 'HAR',
-          totalCount: entries.length,
-          skippedCount: importPlan.skippedCount,
-          rows,
+          totalCount,
+          skippedCount: totalCount - rows.length,
+          omittedBodies,
+          evictedBodies,
+          rows: rows.slice(start).concat(rows.slice(0, start)),
         };
       };
 
@@ -19469,6 +19964,14 @@ const _NetworkPlus = (function () {
         recordSkippedImportRows(stagedImport.skippedCount);
         for (const row of stagedImport.rows) row.id = state.nextId++;
         const retainedRows = addRowsWithRetention(stagedImport.rows, 'import');
+        const stagedOmissions = stagedImport.omittedBodies || 0;
+        const stagedEvictions = stagedImport.evictedBodies || 0;
+        if (stagedOmissions || stagedEvictions) {
+          state.retention.omittedBodies += stagedOmissions;
+          state.retention.evictedBodies += stagedEvictions;
+          updateRetentionStatus();
+          queueRetentionSummary(stagedOmissions + ' response bodies omitted, ' + stagedEvictions + ' evicted during import');
+        }
         renderBody();
         return retainedRows.length;
       };
@@ -19644,8 +20147,136 @@ const _NetworkPlus = (function () {
       });
     };
 
-    if (chrome && chrome.devtools && chrome.devtools.network && chrome.devtools.network.onRequestFinished) {
+    if (chrome && chrome.devtools && chrome.devtools.network && chrome.devtools.network.onRequestFinished && !offlineView) {
+      const network = chrome.devtools.network;
+      // Public HAR entries do not expose DevTools' request ID. Only match
+      // entries with the same start time, method and URL; ambiguous duplicates
+      // stay provisional instead of attaching another request's response.
+      const pendingByKey = new Map();
+      const finishedKeys = new Set();
+      let finishedDuringPoll = null;
+      const requestKey = (entry) => JSON.stringify([
+        entry.startedDateTime, entry.request && entry.request.method, entry.request && entry.request.url,
+      ]);
+      const isCurrentPending = (row) => state.retainedRows.has(row) || pendingLiveRows.includes(row);
+      const completedRows = new Set();
+      let completionFrame = false;
+      const repaintCompletedRows = () => {
+        if (completionFrame) return;
+        completionFrame = true;
+        window.requestAnimationFrame(() => {
+          completionFrame = false;
+          commitPendingLiveRows();
+          const changed = new Set(completedRows);
+          completedRows.clear();
+          renderBody();
+          if (state.comparedRows && state.comparedRows.some((row) => changed.has(row))) {
+            const comparison = $('#comparePanel');
+            const restoreFocus = comparison.contains(document.activeElement);
+            renderComparisonPanel(...state.comparedRows);
+            if (restoreFocus) comparison.querySelector('.compare-close-btn')?.focus({ preventScroll: true });
+          } else if (changed.has(state.selectedRow) && !state.comparedRows && !$('#details').hidden) {
+            renderRowDetails(state.selectedRow);
+          }
+        });
+      };
+      const rememberFinished = (key) => {
+        if (finishedDuringPoll) finishedDuringPoll.add(key);
+        finishedKeys.add(key);
+        if (finishedKeys.size > 4096) finishedKeys.delete(finishedKeys.values().next().value);
+      };
+      const removePendingRow = (row) => {
+        const queuedIndex = pendingLiveRows.indexOf(row);
+        if (queuedIndex >= 0) pendingLiveRows.splice(queuedIndex, 1);
+        else removeRowsFromState([row], false);
+      };
+      const renderPendingChanges = () => {
+        commitPendingLiveRows();
+        renderBody();
+      };
+      const samplePendingRequests = (log, recentCompletions) => {
+        if (state.paused || state.sampleCaptureActive || !log || !Array.isArray(log.entries)) return;
+        const observed = new Map();
+        for (const entry of log.entries) {
+          if (!entry || !entry.request || !entry.response || !entry.startedDateTime) continue;
+          const key = requestKey(entry);
+          if (finishedKeys.has(key) || recentCompletions.has(key)) continue;
+          if (observed.has(key)) observed.set(key, null);
+          else if (entry.response.status === 0 && entry.time === 0 && !entry._error && !entry.response._error) observed.set(key, entry);
+          else observed.set(key, false);
+        }
+        let removed = false;
+        for (const [key, row] of pendingByKey) {
+          if (!isCurrentPending(row)) {
+            pendingByKey.delete(key);
+            continue;
+          }
+          if (state.activeRows.has(row) && (!observed.has(key) || observed.get(key) === null)) {
+            pendingByKey.delete(key);
+            removePendingRow(row);
+            removed = true;
+          }
+        }
+        let added = false;
+        for (const [key, entry] of observed) {
+          if (!entry || pendingByKey.has(key) || Date.parse(entry.startedDateTime) <= pendingCaptureCutoff) continue;
+          const row = buildRowFromRequest(entry);
+          row._pendingRequest = true;
+          row.responseContentState = 'unavailable';
+          row.responseContentReason = UI_TEXT.statusPendingResponse.en;
+          pendingByKey.set(key, row);
+          pendingLiveRows.push(row);
+          notifyMirrorRowCaptured(row);
+          added = true;
+        }
+        if (removed) renderPendingChanges();
+        if (added) scheduleLiveRows(false);
+      };
+      if (typeof network.getHAR === 'function') {
+        let pollInFlight = false;
+        const poll = () => {
+          if (pollInFlight || state.paused || state.sampleCaptureActive ||
+              (document.hidden && !mirroredPendingCaptureActive)) return;
+          pollInFlight = true;
+          const cutoff = pendingCaptureCutoff;
+          const recentCompletions = new Set();
+          finishedDuringPoll = recentCompletions;
+          try {
+            network.getHAR((log) => {
+              pollInFlight = false;
+              finishedDuringPoll = null;
+              if (chrome.runtime && chrome.runtime.lastError) return;
+              if (cutoff === pendingCaptureCutoff) samplePendingRequests(log, recentCompletions);
+            });
+          } catch (_error) {
+            pollInFlight = false;
+            finishedDuringPoll = null;
+          }
+        };
+        const timer = setInterval(poll, 1000);
+        window.addEventListener('pagehide', () => clearInterval(timer), { once: true });
+        poll();
+      }
       chrome.devtools.network.onRequestFinished.addListener((request) => {
+        const key = requestKey(request);
+        rememberFinished(key);
+        const provisional = pendingByKey.get(key);
+        pendingByKey.delete(key);
+        // Finish rows that were already captured before Pause or Clear.
+        // Only newly encountered requests are suppressed while paused.
+        if (provisional && isCurrentPending(provisional)) {
+          const replacement = buildRowFromRequest(request, provisional.id);
+          Object.assign(provisional, replacement, { _pendingRequest: false });
+          if (state.activeRows.has(provisional) || pendingLiveRows.includes(provisional)) {
+            completedRows.add(provisional);
+            repaintCompletedRows();
+            if (state.activeRows.has(provisional) && state.automaticResponsePrefetchScheduler) {
+              state.automaticResponsePrefetchScheduler.enqueue(provisional);
+            }
+            notifyMirrorRowCaptured(provisional, true);
+          }
+          return;
+        }
         if (state.paused || state.sampleCaptureActive) return;
         disposeClearUndoSnapshot(
           'live',
@@ -19673,6 +20304,15 @@ const _NetworkPlus = (function () {
           // otherwise restore them into the prefetch queue, where each grinds
           // through a 10-second timeout before landing on 'error' instead of
           // the honest navigation state.
+          pendingCaptureCutoff = Date.now();
+          let removedPending = false;
+          for (const [key, row] of pendingByKey) {
+            if (!state.activeRows.has(row) && !pendingLiveRows.includes(row)) continue;
+            pendingByKey.delete(key);
+            removePendingRow(row);
+            removedPending = true;
+          }
+          if (removedPending) renderPendingChanges();
           const heldSnapshotRows = state.clearUndoSnapshot ? state.clearUndoSnapshot.rows : [];
           const navigatedBodyRows = markUnfetchedRowsForNavigation(
             pendingLiveRows.concat(state.rows, heldSnapshotRows),
@@ -19690,7 +20330,7 @@ const _NetworkPlus = (function () {
       }
       setStatus(uiText('statusCapturing'));
     } else {
-      setStatus(uiText('statusNetworkApiUnavailable'));
+      setStatus(uiText(offlineView ? 'statusOfflineReady' : 'statusNetworkApiUnavailable'));
     }
 
     // Error handlers
@@ -19712,10 +20352,7 @@ const _NetworkPlus = (function () {
           state.comparedRows = null;
           state.comparisonInvokingRowId = null;
           hideComparisonPanel();
-          if (invokingRowId) {
-            const tr = tableWrap.querySelector('tbody tr[data-row-id="' + invokingRowId + '"]');
-            if (tr) tr.focus({ preventScroll: false });
-          }
+          focusRowOrGridFallback(invokingRowId);
         }
       });
     }
@@ -19766,6 +20403,11 @@ const _NetworkPlus = (function () {
         // WebSocket rows claim no HTTP status; keep the blank instead of a 0.
         if (wireRow.response && wireRow.response.status === '') row.status = '';
         row._reqObj = null;
+        row._pendingRequest = wireRow.pending === true;
+        if (row._pendingRequest) {
+          row.responseContentState = 'unavailable';
+          row.responseContentReason = UI_TEXT.statusPendingResponse.en;
+        }
         row._mirrorFetchBody = () =>
           new Promise((resolve, reject) => {
             viewerSession.requestBody(row.id, (error, payload) => (error ? reject(error) : resolve(payload)));
@@ -19776,11 +20418,50 @@ const _NetworkPlus = (function () {
       // entries after eviction are harmless — the host never reuses an id
       // within a session, and a session change rebuilds the set below.
       const knownRowIds = new Set();
+      const pendingMirrorRows = new Map();
+      const refreshMirrorDetails = (changed) => {
+        if (state.comparedRows && state.comparedRows.some((row) => changed.has(row))) {
+          const comparison = $('#comparePanel');
+          const restoreFocus = comparison.contains(document.activeElement);
+          renderComparisonPanel(...state.comparedRows);
+          if (restoreFocus) comparison.querySelector('.compare-close-btn')?.focus({ preventScroll: true });
+        } else if (changed.has(state.selectedRow) && !state.comparedRows && !$('#details').hidden) {
+          renderRowDetails(state.selectedRow);
+        }
+      };
+      const mirrorChangedRows = new Set();
+      let mirrorUpdateFrame = false;
+      const updatePendingMirrorRow = (row, wireRow) => {
+        if (!row._pendingRequest || wireRow.pending === true) return false;
+        Object.assign(row, buildViewerRowFromWire(wireRow));
+        pendingMirrorRows.delete(row.id);
+        return true;
+      };
+      const scheduleMirrorRowUpdate = (row) => {
+        mirrorChangedRows.add(row);
+        if (mirrorUpdateFrame) return;
+        mirrorUpdateFrame = true;
+        window.requestAnimationFrame(() => {
+          mirrorUpdateFrame = false;
+          commitPendingLiveRows();
+          const changed = new Set(mirrorChangedRows);
+          mirrorChangedRows.clear();
+          renderBody();
+          refreshMirrorDetails(changed);
+        });
+      };
       const appendWireRow = (wireRow) => {
         if (!Number.isInteger(wireRow.id)) return;
-        if (knownRowIds.has(wireRow.id)) return;
+        if (knownRowIds.has(wireRow.id)) {
+          const existing = pendingMirrorRows.get(wireRow.id);
+          if (existing && (state.activeRows.has(existing) || pendingLiveRows.includes(existing))) {
+            if (updatePendingMirrorRow(existing, wireRow)) scheduleMirrorRowUpdate(existing);
+          } else pendingMirrorRows.delete(wireRow.id);
+          return;
+        }
         const row = buildViewerRowFromWire(wireRow);
         knownRowIds.add(row.id);
+        if (row._pendingRequest) pendingMirrorRows.set(row.id, row);
         bumpNextId(row.id);
         const wasAtBottom =
           state.autoScroll &&
@@ -19799,6 +20480,7 @@ const _NetworkPlus = (function () {
           setStatus(uiText('statusNewDevtoolsSession'));
         }
         const existingById = new Map(state.rows.map((row) => [row.id, row]));
+        const changedRows = new Set();
         const orderedRows = [];
         const freshRows = [];
         const seenIds = new Set();
@@ -19807,6 +20489,7 @@ const _NetworkPlus = (function () {
           seenIds.add(wireRow.id);
           const existing = existingById.get(wireRow.id);
           if (existing) {
+            if (updatePendingMirrorRow(existing, wireRow)) changedRows.add(existing);
             orderedRows.push(existing);
             continue;
           }
@@ -19825,9 +20508,14 @@ const _NetworkPlus = (function () {
         );
         for (const row of state.rows) bumpNextId(row.id);
         knownRowIds.clear();
-        for (const row of state.rows) knownRowIds.add(row.id);
+        pendingMirrorRows.clear();
+        for (const row of state.rows) {
+          knownRowIds.add(row.id);
+          if (row._pendingRequest) pendingMirrorRows.set(row.id, row);
+        }
         for (const row of pendingLiveRows) knownRowIds.add(row.id);
         render();
+        refreshMirrorDetails(changedRows);
         if (state.autoScroll) scrollGridToNewest();
         updateRetentionStatus();
       };
@@ -19994,6 +20682,14 @@ const _NetworkPlus = (function () {
         }
         setViewerImportBusy(true);
         setStatus(uiTextFormat('statusSendingImportToDevtools', { file: file.name }));
+        const reportImportResult = (error) => {
+          setViewerImportBusy(false);
+          setStatus(error ? uiTextFormat('statusImportFailed', { reason: error.message }) : uiText('statusImportFinished'));
+        };
+        if (getImportFormat(file.name) === 'har' && file.size > MAX_SAZ_SOURCE_BYTES) {
+          await viewerSession.sendHarStream(file, reportImportResult);
+          return;
+        }
         let importBytes;
         try {
           importBytes = new Uint8Array(await file.arrayBuffer());
@@ -20003,14 +20699,7 @@ const _NetworkPlus = (function () {
           return;
         }
         try {
-          viewerSession.sendImportFile(file.name, importBytes, (error) => {
-            setViewerImportBusy(false);
-            setStatus(
-              error
-                ? uiTextFormat('statusImportFailed', { reason: error.message })
-                : uiText('statusImportFinished'),
-            );
-          });
+          viewerSession.sendImportFile(file.name, importBytes, reportImportResult);
         } catch (error) {
           setViewerImportBusy(false);
           setStatus(
@@ -20046,7 +20735,7 @@ const _NetworkPlus = (function () {
           updateMirrorStatus();
         });
         try {
-          port.postMessage({ type: 'hello', protocolVersion: MIRROR_PROTOCOL_VERSION });
+          port.postMessage({ type: 'hello', protocolVersion: MIRROR_PROTOCOL_VERSION, pendingRows: true });
         } catch (_error) {
           // The disconnect listener recovers from a port that died mid-handshake.
         }
@@ -20055,6 +20744,7 @@ const _NetworkPlus = (function () {
     }
 
     const canHostMirror =
+      !offlineView &&
       !mirrorViewerActive &&
       !!(
         popoutBtn &&
@@ -20209,6 +20899,13 @@ const _NetworkPlus = (function () {
             done(error && error.message ? error.message : 'The command failed in the DevTools session.');
           }
         },
+        receiveHarStream: (fileName, stream, done) => {
+          if (typeof importCapturedFile !== 'function') {
+            done('Import is not available in this DevTools session.');
+            return;
+          }
+          importCapturedFile({ name: fileName, size: 0, stream: () => stream }).then(done);
+        },
         receiveImportFile: (fileName, parts, done) => {
           if (typeof importCapturedFile !== 'function') {
             done('Import is not available in this DevTools session.');
@@ -20253,6 +20950,8 @@ const _NetworkPlus = (function () {
         }
         mirrorPort = port;
         mirrorPortConfirmed = false;
+        mirroredPendingCaptureActive = false;
+        hostSession.resetPeer();
         port.onMessage.addListener((message) => {
           if (mirrorPort === port && !mirrorPortConfirmed) {
             mirrorPortConfirmed = true;
@@ -20260,7 +20959,10 @@ const _NetworkPlus = (function () {
               setStatus(uiText('statusMirrorTabReattached'));
             }
           }
-          if (message && message.type === 'hello') startMirrorSync();
+          if (message && message.type === 'hello') {
+            mirroredPendingCaptureActive = message.pendingRows === true;
+            startMirrorSync();
+          }
           hostSession.handleMessage(message);
         });
         port.onDisconnect.addListener(() => {
@@ -20271,6 +20973,7 @@ const _NetworkPlus = (function () {
           const wasConfirmed = mirrorPortConfirmed;
           mirrorPort = null;
           mirrorPortConfirmed = false;
+          mirroredPendingCaptureActive = false;
           stopMirrorSync();
           hostSession.dropImportTransfers();
           if (wasConfirmed && (!popoutWindow || popoutWindow.closed)) {
@@ -20287,8 +20990,8 @@ const _NetworkPlus = (function () {
         }
         tryMirrorConnect();
       };
-      notifyMirrorRowCaptured = (row) => {
-        if (mirrorPort) hostSession.pushRow(row);
+      notifyMirrorRowCaptured = (row, completedPending) => {
+        if (mirrorPort) hostSession.pushRow(row, completedPending);
       };
       popoutBtn.addEventListener('click', () => {
         if (mirrorPort && mirrorPortConfirmed && (!popoutWindow || popoutWindow.closed)) {
@@ -20363,7 +21066,7 @@ const _NetworkPlus = (function () {
       typeof chrome.devtools.inspectedWindow.eval === 'function'
         ? chrome.devtools.inspectedWindow.eval.bind(chrome.devtools.inspectedWindow)
         : null;
-    if (wsCaptureBtn && inspectedEval && !mirrorViewerActive) {
+    if (wsCaptureBtn && inspectedEval && !mirrorViewerActive && !offlineView) {
       wsCaptureBtn.hidden = false;
       const streamCapture = { enabled: false, timer: null, socketRows: new Map(), sseRows: new Map() };
       // Retention eviction disposes rows the socket maps may still hold; the
@@ -20836,6 +21539,7 @@ const _NetworkPlus = (function () {
     normalizeImportNumber,
     normalizeHarHeaders,
     validateHarDocument,
+    readHarEntries,
     normalizeHarEntry,
     parseSazEntryPath,
     validateSazArchiveEntryBudget,

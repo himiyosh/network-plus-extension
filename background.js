@@ -1,5 +1,12 @@
 'use strict';
-// Minimal background worker with a single job: when the Network+ panel
+// The toolbar action opens a local workspace for saved HAR/SAZ files,
+// including from the browser's New Tab page. Creating this extension tab
+// requires no tabs permission and never reads or replaces the current tab.
+chrome.action.onClicked.addListener(() => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('panel.html?view=offline') });
+});
+
+// When the Network+ panel
 // opens its pop-out mirror tab, minimize the undocked DevTools window so
 // capture keeps running out of the way. chrome.windows needs no manifest
 // permission, and the window is located by its devtools type alone — no

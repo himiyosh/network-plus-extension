@@ -7159,6 +7159,297 @@ const LIVE_CAPTURE_INIT_SCRIPT = `(() => {
 })();`;
 
 browserTest(
+  'matches-only grid navigation and range selection exclude hidden rows and comparison Escape restores focus',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      width: 1280,
+      height: 800,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT + CLIPBOARD_CAPTURE_INIT_SCRIPT,
+    });
+    try {
+      await waitForLiveNetworkListener(page.cdp);
+      const observed = await evaluate(page.cdp, `(async () => {${WAIT_FOR_IN_PAGE}
+        for (const path of ['/hidden-first', '/match-a', '/hidden-middle', '/match-b', '/hidden-last']) {
+          globalThis.__networkPlusLiveListener({
+            startedDateTime: '2026-01-15T12:00:00.000Z', time: 20,
+            request: { method: 'GET', url: 'https://example.test' + path, headers: [] },
+            response: { status: 200, headers: [], content: { size: 0, mimeType: 'text/plain' } },
+            getContent(callback) { callback('', ''); },
+          });
+        }
+        if (!await waitFor(() => document.querySelectorAll('#tbody tr[data-row-id]').length === 5, 1200)) {
+          throw new Error('The five-row navigation fixture did not render.');
+        }
+        const rows = () => Array.from(document.querySelectorAll('#tbody tr[data-row-id]'));
+        const row = (id) => document.querySelector('#tbody tr[data-row-id="' + id + '"]');
+        document.querySelector('#searchToggleBtn').click();
+        const input = document.querySelector('.search-keyword-input');
+        const search = async (query, visibleIds) => {
+          input.value = query;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          if (!await waitFor(() => rows().map((tr) => tr.dataset.rowId).join(',') === visibleIds, 1200)) {
+            throw new Error('Search did not show rows ' + visibleIds);
+          }
+        };
+        document.querySelector('#searchMatchesOnlyToggle').click();
+        await search('match', '2,4');
+        const navigate = (from, key, select = true) => {
+          if (select) row(from).click();
+          row(from).focus();
+          row(from).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+          return {
+            key,
+            focused: document.activeElement?.dataset?.rowId || null,
+            selected: rows().filter((tr) => tr.getAttribute('aria-selected') === 'true').map((tr) => tr.dataset.rowId),
+          };
+        };
+        const navigation = [
+          [2, 'ArrowDown'], [4, 'ArrowUp'], [2, 'End'], [4, 'Home'],
+          [2, 'PageDown'], [4, 'PageUp'], [2, 'ArrowUp'], [4, 'ArrowDown'],
+        ].map(([from, key]) => navigate(from, key));
+        document.querySelector('#searchMatchesOnlyToggle').click();
+        const unfilteredNavigation = navigate(2, 'ArrowDown');
+        document.querySelector('#searchMatchesOnlyToggle').click();
+        // The selected third row is now hidden. Navigation must start from
+        // the visible row receiving focus, not from that stale selection.
+        const restoredNavigation = navigate(2, 'ArrowDown', false);
+        document.querySelector('th[data-col-id="id"]').click();
+        const sortedRows = rows().map((tr) => tr.dataset.rowId);
+        const sortedNavigation = navigate(4, 'ArrowDown');
+
+        row(4).click();
+        row(2).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+        const rangeCount = document.querySelector('#selectedSize').textContent;
+        row(2).dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }));
+        if (!await waitFor(() => globalThis.__networkPlusCopied.length === 1, 1000)) {
+          throw new Error('Selected-row copy did not finish.');
+        }
+        const copied = globalThis.__networkPlusCopied[0];
+        document.querySelector('#exportHarBtn').click();
+        const selectedExportCount = document.querySelector('#dataSafetyScopeSelectedCount').textContent;
+        document.querySelector('#dataSafetyCancelBtn').click();
+        if (!await waitFor(() => document.activeElement?.id === 'exportHarBtn', 1000)) {
+          throw new Error('The export dialog did not restore focus.');
+        }
+
+        const openComparison = async () => {
+          row(2).click();
+          for (const id of [2, 4]) {
+            row(id).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+          }
+          row(2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 100 }));
+          const compare = Array.from(document.querySelectorAll('.context-menu-item'))
+            .find((item) => item.textContent === 'Compare 2 selected requests');
+          if (!compare) throw new Error('The two-row comparison action is missing.');
+          compare.click();
+          if (!await waitFor(() => document.activeElement?.classList.contains('compare-close-btn'), 1000)) {
+            throw new Error('Comparison did not receive focus: ' + document.activeElement?.tagName);
+          }
+        };
+        const escapeComparison = () => {
+          const close = document.querySelector('.compare-close-btn');
+          close.focus();
+          close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          return {
+            hidden: document.querySelector('#comparePanel').hidden,
+            focusedRow: document.activeElement?.dataset?.rowId || null,
+            fallback: document.activeElement?.matches('.empty-state-action, #clearBtn') || false,
+          };
+        };
+        await openComparison();
+        const originalInvoker = escapeComparison();
+        await openComparison();
+        await search('match-b', '4');
+        const filteredInvoker = escapeComparison();
+        await search('match', '4,2');
+        await openComparison();
+        await search('absent', '');
+        const emptyGrid = escapeComparison();
+        await search('', '5,4,3,2,1');
+        const emptyQueryNavigation = navigate(4, 'ArrowDown');
+        return {
+          navigation, unfilteredNavigation, restoredNavigation, sortedRows, sortedNavigation,
+          rangeCount, copied, selectedExportCount, originalInvoker, filteredInvoker, emptyGrid,
+          emptyQueryNavigation,
+        };
+      })()`, true);
+
+      const expectedRows = ['4', '2', '4', '2', '4', '2', '2', '4'];
+      expect(observed).toMatchObject({
+        navigation: expectedRows.map((id) => ({ focused: id, selected: [id] })),
+        unfilteredNavigation: { focused: '3', selected: ['3'] },
+        restoredNavigation: { focused: '4', selected: ['4'] },
+        sortedRows: ['4', '2'],
+        sortedNavigation: { focused: '2', selected: ['2'] },
+        rangeCount: expect.stringContaining('2 selected'),
+        selectedExportCount: '2',
+        originalInvoker: { hidden: true, focusedRow: '2', fallback: false },
+        filteredInvoker: { hidden: true, focusedRow: '4', fallback: false },
+        emptyGrid: { hidden: true, focusedRow: null, fallback: true },
+        emptyQueryNavigation: { focused: '3', selected: ['3'] },
+      });
+      expect(observed.copied).toContain('/match-a');
+      expect(observed.copied).toContain('/match-b');
+      expect(observed.copied).not.toContain('/hidden-');
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'the explicit offline workspace imports and inspects saved requests with localized scope and no capture controls',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      query: '?view=offline',
+      initScript: LIVE_CAPTURE_INIT_SCRIPT + "localStorage.setItem('networkPlus.lang', 'en');",
+    });
+    try {
+      const observed = await evaluate(page.cdp, `(async () => {${WAIT_FOR_IN_PAGE}
+        const snapshot = () => ({
+          view: document.documentElement.getAttribute('data-view'),
+          scope: document.querySelector('#offlineViewStatus').textContent,
+          scopeVisible: !document.querySelector('#offlineViewStatus').hidden,
+          title: document.querySelector('.empty-state-title')?.textContent,
+          description: document.querySelector('#empty-state-description')?.textContent,
+          action: document.querySelector('.empty-state-action')?.textContent,
+          pauseHidden: document.querySelector('#pauseBtn').hidden,
+          pauseDisabled: document.querySelector('#pauseBtn').disabled,
+          recording: document.querySelector('.topbar').classList.contains('recording'),
+          streamHidden: document.querySelector('#wsCaptureBtn').hidden,
+          popoutHidden: document.querySelector('#popoutBtn').hidden,
+          liveListener: typeof globalThis.__networkPlusLiveListener,
+        });
+        const english = snapshot();
+        const fileInput = document.querySelector('#importFile');
+        let pickerOpened = 0;
+        fileInput.click = () => { pickerOpened += 1; };
+        document.querySelector('.empty-state-action').click();
+        const language = document.querySelector('#langSelect');
+        language.value = 'ja';
+        language.dispatchEvent(new Event('change', { bubbles: true }));
+        const japanese = snapshot();
+        const entry = {
+          startedDateTime: '2026-01-15T12:00:00.000Z', time: 1,
+          request: { method: 'GET', url: 'https://offline.example.test/saved', headers: [] },
+          response: { status: 200, headers: [], content: { size: 12, mimeType: 'text/plain', text: 'offline body' } },
+          timings: { send: 0, wait: 1, receive: 0 },
+        };
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([JSON.stringify({ log: { version: '1.2', entries: [entry] } })], 'offline.har'));
+        fileInput.files = transfer.files;
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        if (!await waitFor(() => document.querySelectorAll('#tbody tr[data-row-id]').length === 1, 2000)) {
+          throw new Error('Offline HAR import did not complete: ' + document.querySelector('#statusText').textContent);
+        }
+        document.querySelector('#tbody tr[data-row-id]').click();
+        document.querySelector('#res-tab-body').click();
+        if (!await waitFor(() => document.querySelector('#res-body').textContent.includes('offline body'), 2000)) {
+          throw new Error('The imported response body did not render offline.');
+        }
+        document.querySelector('#exportHarBtn').click();
+        const imported = {
+          body: document.querySelector('#res-body').textContent,
+          exportCount: document.querySelector('#dataSafetyScopeDisplayedCount').textContent,
+          scope: document.querySelector('#offlineViewStatus').textContent,
+          pauseHidden: document.querySelector('#pauseBtn').hidden,
+          recording: document.querySelector('.topbar').classList.contains('recording'),
+        };
+        return { english, japanese, pickerOpened, imported };
+      })()`, true);
+      expect(observed.english).toMatchObject({
+        view: 'offline', scope: 'Offline · no live capture', scopeVisible: true,
+        title: 'Inspect a saved capture.', action: 'Import HAR or SAZ',
+        description: expect.stringContaining('For live capture, open Network+ in DevTools'),
+        pauseHidden: true, pauseDisabled: true, recording: false,
+        streamHidden: true, popoutHidden: true, liveListener: 'undefined',
+      });
+      expect(observed.japanese).toMatchObject({
+        scope: 'オフライン · ライブキャプチャなし', title: '保存済みキャプチャを調べます。',
+        action: 'HAR または SAZ をインポート',
+        description: expect.stringContaining('調べたいページで DevTools の Network+'),
+      });
+      expect(observed.pickerOpened).toBe(1);
+      expect(observed.imported).toMatchObject({
+        body: expect.stringContaining('offline body'), exportCount: '1',
+        scope: 'オフライン · ライブキャプチャなし', pauseHidden: true, recording: false,
+      });
+      await page.navigate('');
+      await waitForLiveNetworkListener(page.cdp);
+      expect(await evaluate(page.cdp, `({
+        offlineScopeHidden: document.querySelector('#offlineViewStatus').hidden,
+        pauseHidden: document.querySelector('#pauseBtn').hidden,
+        recording: document.querySelector('.topbar').classList.contains('recording'),
+      })`)).toEqual({ offlineScopeHidden: true, pauseHidden: false, recording: true });
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'pending requests update the same row and remain consistent across Clear and Undo',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: LIVE_CAPTURE_INIT_SCRIPT + `
+        window.__harEntries = [];
+        window.__harPolls = 0;
+        chrome.devtools.network.getHAR = (callback) => {
+          window.__harPolls += 1;
+          callback({ entries: window.__harEntries });
+        };
+      `,
+    });
+    try {
+      const result = await evaluate(page.cdp, `(async () => {${WAIT_FOR_IN_PAGE}
+        const first = {
+          startedDateTime: new Date().toISOString(), time: 0,
+          request: { method: 'GET', url: 'https://example.test/delayed', headers: [] },
+          response: { status: 0, headers: [], content: {} }, timings: {},
+        };
+        window.__harEntries = [first];
+        const rows = () => Array.from(document.querySelectorAll('#tbody tr[data-row-id]'));
+        const values = () => rows().map((row) => [row.dataset.rowId, row.querySelector('[data-col-id="status"]').textContent]);
+        await waitFor(() => values()[0]?.[1] === 'Pending', 2400);
+        const pending = values();
+        rows()[0]?.click();
+        document.getElementById('clearBtn').click();
+        const nextPoll = window.__harPolls + 1;
+        await waitFor(() => window.__harPolls >= nextPoll, 2400);
+        const afterClear = values();
+        document.getElementById('undoClearBtn').click();
+        const afterUndoPoll = window.__harPolls + 1;
+        await waitFor(() => window.__harPolls >= afterUndoPoll, 2400);
+        const pendingAfterUndo = values();
+        document.getElementById('clearBtn').click();
+        const done = {
+          ...first, time: 1500,
+          response: { status: 200, statusText: 'OK', headers: [], content: { size: 2, text: 'ok', mimeType: 'text/plain' } },
+        };
+        window.__harEntries = [done];
+        window.__networkPlusLiveListener(done);
+        const clearedAfterCompletion = values();
+        document.getElementById('undoClearBtn').click();
+        return { pending, afterClear, pendingAfterUndo, clearedAfterCompletion, undone: values() };
+      })()`, true);
+      expect(result.pending).toEqual([['1', 'Pending']]);
+      expect(result.afterClear).toEqual([]);
+      expect(result.pendingAfterUndo).toEqual([['1', 'Pending']]);
+      expect(result.clearedAfterCompletion).toEqual([]);
+      expect(result.undone).toEqual([['1', '200']]);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'the details header names the request in parts and the summary strip survives tab changes',
   async () => {
     const page = await launchPanelPage({

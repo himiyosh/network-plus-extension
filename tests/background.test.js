@@ -1,6 +1,6 @@
 'use strict';
-// Direct unit coverage for the background service worker's single job:
-// minimizing the undocked DevTools window on pop-out. The worker source is
+// Direct unit coverage for the background worker's toolbar action and
+// undocked DevTools minimize behavior. The worker source is
 // executed against a scripted chrome.windows so every response branch —
 // focused pick, single-window fallback, ambiguous decline, error paths —
 // can fail a gate instead of only being reachable in a real browser.
@@ -11,9 +11,14 @@ const workerSource = fs.readFileSync(path.resolve(__dirname, '..', 'background.j
 
 function runWorker({ windows, getAllError = null, updateError = null } = {}) {
   const updates = [];
+  const createdTabs = [];
   let listener = null;
+  let actionListener = null;
   const chromeMock = {
+    action: { onClicked: { addListener: (fn) => { actionListener = fn; } } },
+    tabs: { create: (options) => { createdTabs.push(options); } },
     runtime: {
+      getURL: (relativePath) => 'chrome-extension://network-plus-test/' + relativePath,
       lastError: null,
       onMessage: {
         addListener: (fn) => {
@@ -38,7 +43,7 @@ function runWorker({ windows, getAllError = null, updateError = null } = {}) {
   };
   new Function('chrome', workerSource)(chromeMock);
   if (typeof listener !== 'function') throw new Error('The worker registered no onMessage listener.');
-  return { listener, updates };
+  return { listener, updates, actionListener, createdTabs };
 }
 
 function ask(listener, message) {
@@ -50,6 +55,16 @@ function ask(listener, message) {
 }
 
 describe('background worker minimize handshake', () => {
+  test('the toolbar action opens only the local offline panel and ignores current-tab data', () => {
+    const { actionListener, createdTabs, updates } = runWorker();
+    expect(typeof actionListener).toBe('function');
+    expect(createdTabs).toEqual([]);
+    const currentTab = new Proxy({}, { get() { throw new Error('Current-tab data must not be read'); } });
+    actionListener(currentTab);
+    expect(createdTabs).toEqual([{ url: 'chrome-extension://network-plus-test/panel.html?view=offline' }]);
+    expect(updates).toEqual([]);
+  });
+
   test('minimizes the focused DevTools window among several', () => {
     const { listener, updates } = runWorker({
       windows: [
@@ -111,6 +126,7 @@ describe('background worker minimize handshake', () => {
   test('unrelated messages are ignored without touching windows', () => {
     let touched = false;
     const chromeMock = {
+      action: { onClicked: { addListener: () => {} } },
       runtime: { lastError: null, onMessage: { addListener: () => {} } },
       windows: {
         getAll: () => {
