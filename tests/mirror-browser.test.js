@@ -205,6 +205,132 @@ const answerCommand = (cdp, commandId, control) =>
   );
 
 browserTest(
+  'WebSocket and SSE keep their row IDs through lifecycle updates and mirror reconnection',
+  async () => {
+    const host = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: HOST_STUB + `
+        window.__streamQueues = { ws: [], sse: [] };
+        const nativeEval = chrome.devtools.inspectedWindow.eval;
+        chrome.devtools.inspectedWindow.eval = (source, callback) => {
+          if (source.includes('.drain() : []')) {
+            const queue = source.includes('__networkPlusSSE__') ? 'sse' : 'ws';
+            callback(window.__streamQueues[queue].splice(0));
+          } else nativeEval(source, callback);
+        };
+        chrome.devtools.network.onNavigated.addListener = (callback) => { window.__navigateStreamHost = callback; };
+      `,
+    });
+    let viewer;
+    const readRows = `Array.from(document.querySelectorAll('#tbody tr[data-row-id]')).map((row) => ({
+      id: row.dataset.rowId,
+      status: row.querySelector('[data-col-id=status]').textContent,
+      method: row.querySelector('[data-col-id=method]').textContent,
+    }))`;
+    const drive = (message) => evaluate(host.cdp, `window.__hostPortListener(${JSON.stringify(message)}); true`);
+    const collect = () => evaluate(host.cdp, 'window.__fromHost.splice(0)');
+    const forward = (messages) => evaluate(viewer.cdp, `${JSON.stringify(messages)}.forEach(window.__send); true`);
+    const handshake = async () => {
+      await attachScriptedHostPort(viewer.cdp);
+      const hello = await evaluate(viewer.cdp, 'window.__sentToHost.splice(0).find((message) => message.type === "hello")');
+      await drive(hello);
+      await forward(await collect());
+    };
+    const add = (ws, sse) => evaluate(host.cdp, `(() => {
+      const append = (queue, events) => {
+        for (const event of events) window.__streamQueues[queue].push({ socketId: 1, at: Date.now(), ...event });
+      };
+      append('ws', ${JSON.stringify(ws)}); append('sse', ${JSON.stringify(sse)}); return true;
+    })()`);
+    const awaitStates = (page, statuses) => waitForImportResult(page.cdp,
+      `(() => { const rows = ${readRows}; return rows.map((row) => row.status).join(',') === ${JSON.stringify(statuses.join(','))} && rows; })()`);
+    const openAttempt = (url) => ({ kind: 'ws-open-attempt', url });
+    const close = { kind: 'ws-closed' };
+    try {
+      viewer = await launchPanelPage({ executable: browserExecutable, query: '?view=window&src=7', initScript: VIEWER_STUB });
+      await viewer.cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+      await handshake();
+      await drive({ type: 'command', commandId: 1, name: 'stream-toggle', args: {} });
+      await add([openAttempt('wss://capture.example.test/ws')], [openAttempt('https://capture.example.test/sse')]);
+      const initial = await awaitStates(host, ['Connecting', 'Connecting']);
+      expect(initial?.map((row) => row.method)).toEqual(['WS', 'SSE']);
+      await forward(await collect());
+      expect(await awaitStates(viewer, ['Connecting', 'Connecting'])).toEqual(initial);
+
+      const open = { kind: 'ws-open' };
+      const receive = { kind: 'ws-received', preview: 'synthetic frame' };
+      await add([open, receive, receive], [open, receive]);
+      const opened = await awaitStates(host, ['Open', 'Open']);
+      const updates = (await collect()).filter((message) => message.type === 'row');
+      expect(updates.map((message) => String(message.row.id))).toEqual(initial.map((row) => row.id));
+      await forward(updates);
+      expect(await awaitStates(viewer, ['Open', 'Open'])).toEqual(opened);
+      await forward(updates);
+      expect(await evaluate(viewer.cdp, readRows)).toEqual(opened);
+
+      const answerBody = async (request, content) => forward([{
+        type: 'body-result', requestId: request.requestId, viewer: request.viewer, ok: true, content, encoding: '',
+      }]);
+      const lastBodyRequest = () => evaluate(viewer.cdp, `window.__sentToHost.filter((m) => m.type === 'body-request').at(-1)`);
+      await evaluate(viewer.cdp, "document.querySelector('#tbody tr').click();document.querySelector('#res-tab-raw').click();true");
+      const firstBody = await waitForImportResult(viewer.cdp, `window.__sentToHost.find((m) => m.type === 'body-request')`);
+      expect(firstBody).toBeTruthy();
+      await answerBody(firstBody, 'synthetic frame');
+      expect(await waitForImportResult(viewer.cdp, "document.querySelector('#res-raw .pane-search-input') != null")).toBe(true);
+      await evaluate(viewer.cdp, `(() => {
+        const tab = document.querySelector('#res-tab-raw');
+        tab.focus();
+        tab.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }));
+        const input = document.activeElement;
+        input.value = 'synthetic'; input.setSelectionRange(2, 5); return true;
+      })()`);
+      await add([receive], []);
+      expect(await waitForImportResult(host.cdp, "window.__fromHost.some((message) => message.type === 'row')")).toBe(true);
+      const changedTranscript = (await collect()).find((message) => message.type === 'row');
+      expect(changedTranscript.row.streamRevision).toBeGreaterThan(updates[0].row.streamRevision);
+      await forward([changedTranscript]);
+      await evaluate(viewer.cdp, 'new Promise(requestAnimationFrame).then(() => true)', true);
+      expect(await evaluate(viewer.cdp, `[
+        document.activeElement.matches('#res-raw .pane-search-input'),
+        document.activeElement.value, document.activeElement.selectionStart, document.activeElement.selectionEnd,
+      ]`)).toEqual([true, 'synthetic', 2, 5]);
+      expect((await lastBodyRequest()).requestId).toBe(firstBody.requestId);
+      await evaluate(viewer.cdp, "document.querySelector('#res-raw .pane-search-nav').focus();true");
+      await evaluate(viewer.cdp, 'new Promise(requestAnimationFrame).then(() => true)', true);
+      expect(await evaluate(viewer.cdp, "document.activeElement.matches('#res-raw .pane-search-nav')")).toBe(true);
+      await evaluate(viewer.cdp, "document.querySelector('#res-tab-raw').focus();true");
+      const refreshedBody = await waitForImportResult(viewer.cdp, `window.__sentToHost.filter((m) => m.type === 'body-request').find((m) => m.requestId > ${firstBody.requestId})`);
+      expect(refreshedBody).not.toBeNull();
+      await answerBody(refreshedBody, 'updated transcript');
+      expect(await waitForImportResult(viewer.cdp, "document.querySelector('#res-raw').textContent.includes('updated transcript')")).toBe(true);
+
+      // Close while recording is paused and while the mirror is disconnected.
+      await evaluate(viewer.cdp, `window.__oldStreamPort = window.__hostListeners.message[0];
+        window.__hostListeners.disconnect.forEach((fn) => fn()); true`);
+      await evaluate(host.cdp, 'window.__hostPortDisconnect(); true');
+      await evaluate(host.cdp, "document.querySelector('#pauseBtn').click();true");
+      await add([close], []);
+      const closed = await awaitStates(host, ['Closed', 'Open']);
+      await evaluate(host.cdp, 'window.__navigateStreamHost(); true');
+      const navigated = await awaitStates(host, ['Closed', 'Navigated']);
+      expect(navigated?.map((row) => row.id)).toEqual(initial.map((row) => row.id));
+      expect(closed?.map((row) => row.id)).toEqual(initial.map((row) => row.id));
+      expect(await evaluate(viewer.cdp, readRows)).toEqual(opened);
+      await handshake();
+      expect(await awaitStates(viewer, ['Closed', 'Navigated'])).toEqual(navigated);
+      await evaluate(viewer.cdp, `${JSON.stringify(updates.map((message) => ({ ...message,
+        row: { ...message.row, streamRevision: message.row.streamRevision + 100 },
+      })))}.forEach(window.__oldStreamPort); true`);
+      expect(await evaluate(viewer.cdp, readRows)).toEqual(navigated);
+    } finally {
+      if (viewer) await viewer.close();
+      await host.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'pending mirror rows update in place through pushes and snapshots without reopening closed details',
   async () => {
     const page = await launchPanelPage({

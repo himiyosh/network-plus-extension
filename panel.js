@@ -9232,6 +9232,7 @@ const _NetworkPlus = (function () {
     return {
       id: row.id,
       ...(row._pendingRequest ? { pending: true } : {}),
+      ...(isLiveStreamRow(row) ? { streamRevision: row._streamRevision || 0 } : {}),
       startedDateTime: row.startedDateTime,
       time: row.duration,
       initiator: row.initiator || null,
@@ -10288,8 +10289,10 @@ const _NetworkPlus = (function () {
     }
 
     row.responseContentState = 'loading';
+    const streamRevision = row._mirrorStreamRevision;
     const pending = fetchResponsePayload(row, timeoutMs)
       .then((payload) => {
+        if (streamRevision !== row._mirrorStreamRevision) return row;
         if (row._managedRetention) {
           if (!isRetainedRow(row, state.retainedRows)) throw new Error('Response content arrived after its request was evicted');
           return admitResponsePayload(row, payload);
@@ -10307,6 +10310,7 @@ const _NetworkPlus = (function () {
         return row;
       })
       .catch((error) => {
+        if (streamRevision !== row._mirrorStreamRevision) return row;
         row.responseContentError = error;
         if (
           row.responseContentState !== 'omitted' &&
@@ -12143,6 +12147,8 @@ const _NetworkPlus = (function () {
       } else if (c.id === 'status' && row._pendingRequest) {
         td.setAttribute('data-i18n', 'statusPendingRequest');
         td.textContent = uiText('statusPendingRequest');
+      } else if (c.id === 'status' && (isLiveStreamRow(row) || row._mirrorStreamRevision != null)) {
+        td.textContent = row.statusText;
       } else if (c.id === 'waterfall') {
         td.classList.add('waterfall-cell');
         // Use the range cached once per render by renderBody() — O(1) per row.
@@ -14630,6 +14636,8 @@ const _NetworkPlus = (function () {
     };
     if (row._pendingRequest) {
       addItem(uiText('statusPendingRequest'), 'details-summary-status details-summary-status--other');
+    } else if (isLiveStreamRow(row) || row._mirrorStreamRevision != null) {
+      addItem(row.statusText, 'details-summary-status details-summary-status--other');
     } else if (plan.status) {
       addItem(plan.status.text, 'details-summary-status details-summary-status--' + plan.status.statusClass);
     }
@@ -16417,6 +16425,25 @@ const _NetworkPlus = (function () {
     renderRowDetails(row);
   }
 
+  function refreshSelectedStreamDetails() {
+    const row = state.selectedRow;
+    if (!row || state.comparedRows || $('#details').hidden ||
+        (!isLiveStreamRow(row) && row._mirrorStreamRevision == null)) return;
+    const focused = document.activeElement;
+    if (focused?.closest('#details .pane-search-bar')) {
+      // Keep the toolbar interactive while the transcript is being searched.
+      // Paint the latest contents once focus leaves the toolbar.
+      renderDetailsSummary(row);
+      focused.addEventListener('blur', refreshStreamDetailsAfterSearch, { once: true });
+      return;
+    }
+    renderRowDetails(row);
+  }
+
+  function refreshStreamDetailsAfterSearch() {
+    setTimeout(refreshSelectedStreamDetails, 0);
+  }
+
   // Paints the details pane for one row. Split out of selectRow so a language
   // change can repaint the open pane in place (see applyLanguage) without
   // going back through selection, which would clear a multi-row selection and
@@ -16643,13 +16670,14 @@ const _NetworkPlus = (function () {
     }
     // Response > Body and Raw — populated from the shared response cache
     setResponsePaneMessage(uiText('bodyPaneLoading'));
+    const streamRevision = row._mirrorStreamRevision;
     cacheResponseContent(row)
       .then((cachedRow) => {
-        if (!shouldRenderSelectedRow(state.selectedRow, cachedRow)) return;
+        if (!shouldRenderSelectedRow(state.selectedRow, cachedRow) || streamRevision !== row._mirrorStreamRevision) return;
         renderCachedResponseContent(cachedRow);
       })
       .catch((error) => {
-        if (!shouldRenderSelectedRow(state.selectedRow, row)) return;
+        if (!shouldRenderSelectedRow(state.selectedRow, row) || streamRevision !== row._mirrorStreamRevision) return;
         const display = describeResponseContentState(row, error);
         setResponsePaneMessage(formatBodyPaneMessage(display));
         applyResponseTabSignals({ 'res-body': 0, 'res-raw': 0 });
@@ -20404,6 +20432,7 @@ const _NetworkPlus = (function () {
         if (wireRow.response && wireRow.response.status === '') row.status = '';
         row._reqObj = null;
         row._pendingRequest = wireRow.pending === true;
+        if (Number.isSafeInteger(wireRow.streamRevision)) row._mirrorStreamRevision = wireRow.streamRevision;
         if (row._pendingRequest) {
           row.responseContentState = 'unavailable';
           row.responseContentReason = UI_TEXT.statusPendingResponse.en;
@@ -20418,7 +20447,10 @@ const _NetworkPlus = (function () {
       // entries after eviction are harmless — the host never reuses an id
       // within a session, and a session change rebuilds the set below.
       const knownRowIds = new Set();
-      const pendingMirrorRows = new Map();
+      const mutableMirrorRows = new Map();
+      state.streamRowEvictionSweep = (evicted) => {
+        for (const row of evicted) mutableMirrorRows.delete(row.id);
+      };
       const refreshMirrorDetails = (changed) => {
         if (state.comparedRows && state.comparedRows.some((row) => changed.has(row))) {
           const comparison = $('#comparePanel');
@@ -20426,15 +20458,31 @@ const _NetworkPlus = (function () {
           renderComparisonPanel(...state.comparedRows);
           if (restoreFocus) comparison.querySelector('.compare-close-btn')?.focus({ preventScroll: true });
         } else if (changed.has(state.selectedRow) && !state.comparedRows && !$('#details').hidden) {
-          renderRowDetails(state.selectedRow);
+          if (state.selectedRow._mirrorStreamRevision != null) refreshSelectedStreamDetails();
+          else renderRowDetails(state.selectedRow);
         }
       };
       const mirrorChangedRows = new Set();
       let mirrorUpdateFrame = false;
-      const updatePendingMirrorRow = (row, wireRow) => {
-        if (!row._pendingRequest || wireRow.pending === true) return false;
-        Object.assign(row, buildViewerRowFromWire(wireRow));
-        pendingMirrorRows.delete(row.id);
+      const updateExistingMirrorRow = (row, wireRow) => {
+        if (row._pendingRequest && wireRow.pending !== true) {
+          Object.assign(row, buildViewerRowFromWire(wireRow));
+          mutableMirrorRows.delete(row.id);
+          return true;
+        }
+        if (row._mirrorStreamRevision == null || !Number.isSafeInteger(wireRow.streamRevision) ||
+            wireRow.streamRevision <= row._mirrorStreamRevision) return false;
+        const next = buildViewerRowFromWire(wireRow);
+        // Response transcripts still travel on demand. A fetch started before
+        // this revision cannot fill the cache with an earlier transcript.
+        row._mirrorStreamRevision = next._mirrorStreamRevision;
+        releaseResponseContent(row, 'not-loaded', false);
+        row._responseContentPromise = null;
+        row._responsePayloadPromise = null;
+        row.responseContentReason = '';
+        row.responseContentError = null;
+        for (const key of ['statusText', 'duration', 'size', 'requestPostData', 'requestBodySize', 'responseBodySize',
+          'serverDone', 'serverDoneEpoch', 'serverDoneFilter']) row[key] = next[key];
         return true;
       };
       const scheduleMirrorRowUpdate = (row) => {
@@ -20453,15 +20501,15 @@ const _NetworkPlus = (function () {
       const appendWireRow = (wireRow) => {
         if (!Number.isInteger(wireRow.id)) return;
         if (knownRowIds.has(wireRow.id)) {
-          const existing = pendingMirrorRows.get(wireRow.id);
+          const existing = mutableMirrorRows.get(wireRow.id);
           if (existing && (state.activeRows.has(existing) || pendingLiveRows.includes(existing))) {
-            if (updatePendingMirrorRow(existing, wireRow)) scheduleMirrorRowUpdate(existing);
-          } else pendingMirrorRows.delete(wireRow.id);
+            if (updateExistingMirrorRow(existing, wireRow)) scheduleMirrorRowUpdate(existing);
+          } else mutableMirrorRows.delete(wireRow.id);
           return;
         }
         const row = buildViewerRowFromWire(wireRow);
         knownRowIds.add(row.id);
-        if (row._pendingRequest) pendingMirrorRows.set(row.id, row);
+        if (row._pendingRequest || row._mirrorStreamRevision != null) mutableMirrorRows.set(row.id, row);
         bumpNextId(row.id);
         const wasAtBottom =
           state.autoScroll &&
@@ -20489,7 +20537,7 @@ const _NetworkPlus = (function () {
           seenIds.add(wireRow.id);
           const existing = existingById.get(wireRow.id);
           if (existing) {
-            if (updatePendingMirrorRow(existing, wireRow)) changedRows.add(existing);
+            if (updateExistingMirrorRow(existing, wireRow)) changedRows.add(existing);
             orderedRows.push(existing);
             continue;
           }
@@ -20508,10 +20556,10 @@ const _NetworkPlus = (function () {
         );
         for (const row of state.rows) bumpNextId(row.id);
         knownRowIds.clear();
-        pendingMirrorRows.clear();
+        mutableMirrorRows.clear();
         for (const row of state.rows) {
           knownRowIds.add(row.id);
-          if (row._pendingRequest) pendingMirrorRows.set(row.id, row);
+          if (row._pendingRequest || row._mirrorStreamRevision != null) mutableMirrorRows.set(row.id, row);
         }
         for (const row of pendingLiveRows) knownRowIds.add(row.id);
         render();
@@ -20725,7 +20773,9 @@ const _NetworkPlus = (function () {
         activeMirrorPort = port;
         mirrorEverConnected = true;
         updateMirrorStatus();
-        port.onMessage.addListener((message) => viewerSession.handleMessage(message));
+        port.onMessage.addListener((message) => {
+          if (activeMirrorPort === port) viewerSession.handleMessage(message);
+        });
         port.onDisconnect.addListener(() => {
           if (activeMirrorPort !== port) return;
           activeMirrorPort = null;
@@ -20953,7 +21003,8 @@ const _NetworkPlus = (function () {
         mirroredPendingCaptureActive = false;
         hostSession.resetPeer();
         port.onMessage.addListener((message) => {
-          if (mirrorPort === port && !mirrorPortConfirmed) {
+          if (mirrorPort !== port) return;
+          if (!mirrorPortConfirmed) {
             mirrorPortConfirmed = true;
             if (!popoutWindow || popoutWindow.closed) {
               setStatus(uiText('statusMirrorTabReattached'));
@@ -21117,6 +21168,23 @@ const _NetworkPlus = (function () {
         pendingLiveRows.push(row);
         return row;
       };
+      const publishStreamRows = (rows) => {
+        let hasActiveRows = false;
+        let selectedChanged = false;
+        const queuedRows = new Set(pendingLiveRows);
+        for (const row of rows) {
+          row._streamRevision = (row._streamRevision || 0) + 1;
+          const active = state.activeRows.has(row);
+          if (active) {
+            hasActiveRows = true;
+            if (row === state.selectedRow) selectedChanged = true;
+          }
+          if (active || queuedRows.has(row)) notifyMirrorRowCaptured(row);
+        }
+        if (!hasActiveRows) return;
+        renderBody();
+        if (selectedChanged) refreshSelectedStreamDetails();
+      };
       const ingestDrainedStream = (result, variant) => {
         if (!Array.isArray(result) || result.length === 0) return;
         const rowsByVariant = variant === 'sse' ? streamCapture.sseRows : streamCapture.socketRows;
@@ -21161,21 +21229,20 @@ const _NetworkPlus = (function () {
             }
             closedRows.push(row);
           }
-          const renderedClosed = closedRows.filter((row) => state.activeRows.has(row));
-          if (renderedClosed.length > 0 && !replaceRenderedRowStates(renderedClosed)) renderBody();
+          publishStreamRows(closedRows);
           return;
         }
-        let createdCount = 0;
+        const createdRows = new Set();
         const changedRows = ingestWsEvents(result, {
           createRow: (event) => {
-            if (createdCount === 0) {
+            if (createdRows.size === 0) {
               disposeClearUndoSnapshot(
                 'live',
                 'Undo for the cleared local sample was closed before live capture to keep sample and live traffic separate.',
               );
             }
-            createdCount += 1;
             const created = createStreamRow(event, variant);
+            createdRows.add(created);
             pendingSet.add(created);
             return created;
           },
@@ -21194,9 +21261,8 @@ const _NetworkPlus = (function () {
             return row;
           },
         });
-        if (createdCount > 0) scheduleLiveRows(false);
-        const renderedRows = changedRows.filter((row) => state.activeRows.has(row));
-        if (renderedRows.length > 0 && !replaceRenderedRowStates(renderedRows)) renderBody();
+        publishStreamRows(new Set([...createdRows, ...changedRows]));
+        if (createdRows.size > 0) scheduleLiveRows(false);
       };
       // Swallowing every eval failure left the toggle claiming capture was on
       // while nothing could reach the page; a short streak surfaces it once.
@@ -21245,12 +21311,16 @@ const _NetworkPlus = (function () {
       ) {
         chrome.devtools.network.onNavigated.addListener(() => {
           // The old document took the wrappers and their connections with it.
+          const navigatedRows = [];
           for (const rowsByVariant of [streamCapture.socketRows, streamCapture.sseRows]) {
             for (const row of rowsByVariant.values()) {
-              if (row.statusText !== 'Closed') row.statusText = 'Navigated';
+              if (row.statusText === 'Closed') continue;
+              row.statusText = 'Navigated';
+              navigatedRows.push(row);
             }
             rowsByVariant.clear();
           }
+          publishStreamRows(navigatedRows);
           if (streamCapture.enabled) injectStreamWrappers();
         });
       }
