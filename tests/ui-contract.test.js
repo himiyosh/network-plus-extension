@@ -1944,12 +1944,13 @@ describe('scale trust static contracts', () => {
     const listenerEnd = js.indexOf('// Error handlers', listenerStart);
     const frameBlock = js.slice(scheduleStart, listenerStart);
     const listenerBlock = js.slice(listenerStart, listenerEnd);
+    const newFinishedRowBlock = listenerBlock.slice(listenerBlock.indexOf('const row = buildRowFromRequest(request);'));
     const commitStart = js.indexOf('function commitPendingLiveRows');
     const commitEnd = js.indexOf('function recordSkippedImportRows', commitStart);
     const commitBlock = js.slice(commitStart, commitEnd);
-    expect(listenerBlock).toContain('pendingLiveRows.push(row);');
     expect(listenerBlock).not.toContain('addRowsWithRetention(');
-    expect(listenerBlock).not.toContain('automaticResponsePrefetchScheduler.enqueue(');
+    expect(newFinishedRowBlock).toContain('pendingLiveRows.push(row);');
+    expect(newFinishedRowBlock).not.toContain('automaticResponsePrefetchScheduler.enqueue(');
     expect(commitBlock).toContain("const liveRows = addRowsWithRetention(queuedRows, 'live');");
     expect(commitBlock.match(/addRowsWithRetention\(/g)).toHaveLength(1);
     expect(commitBlock).toContain('for (const row of liveRows)');
@@ -2266,7 +2267,9 @@ describe('outbound data-safety static contracts', () => {
 
   test('keeps user-derived rendering out of innerHTML while adding safety controls', () => {
     const innerHtmlAssignments = js.match(/\.innerHTML\s*=/g) || [];
-    expect(innerHtmlAssignments).toHaveLength(1);
+    expect(innerHtmlAssignments).toHaveLength(2);
+    expect(js).toContain('inert.content.appendChild(content);');
+    expect(js).toContain('content.innerHTML = markup;');
     expect(js).toContain('pauseBtn.innerHTML = state.paused ? PLAY_ICON_SVG : PAUSE_ICON_SVG;');
     expect(js).not.toMatch(/dataSafety[^\n]*innerHTML|innerHTML[^\n]*dataSafety/);
     // The copy action's label lives in its own span (a narrow pane hides it and
@@ -2497,7 +2500,7 @@ describe('waterfall and stats topology', () => {
     const triageStart = js.indexOf('function inspectFirstStatusClassRequest(');
     const triageEnd = js.indexOf('\n  function ', triageStart + 1);
     const triage = js.slice(triageStart, triageEnd);
-    expect(triage).toContain('getSortedRows(state.filteredRows)');
+    expect(triage).toContain('getVisibleSortedRows()');
     expect(triage).toContain('findFirstStatusClassRow(');
     expect(triage).toContain('selectRow(targetRow, null, true)');
     expect(triage).toContain('scrollToSelectedRow()');
@@ -3765,7 +3768,7 @@ describe('devtools-session mirror contracts', () => {
     expect(js).toContain("undoClearBtn: () => sendViewerCommand('undo-clear', {}, 'Undo clear'),");
     expect(js).toContain("wsCaptureBtn: () => sendViewerCommand('stream-toggle', {}, 'Stream capture'),");
     expect(js).toContain('retentionSaveBtn: () =>');
-    expect(js).toContain("viewerSession.sendImportFile(file.name, importBytes, (error) => {");
+    expect(js).toContain("viewerSession.sendImportFile(file.name, importBytes, reportImportResult);");
     expect(js).toContain("mirrorViewerResendDispatch = (spec, done) => viewerSession.sendCommand('resend', { spec }, done);");
     // Same-element listeners fire in registration order, so remote control
     // must intercept at the document capture phase, ahead of any target
@@ -3814,7 +3817,9 @@ describe('devtools-session mirror contracts', () => {
     expect(backgroundJs).toContain('devtoolsWindows.find((candidate) => candidate.focused === true)');
     expect(backgroundJs).toContain("(devtoolsWindows.length === 1 ? devtoolsWindows[0] : null)");
     expect(backgroundJs).toContain("chrome.windows.update(target.id, { state: 'minimized' }");
-    expect(backgroundJs).not.toContain('tabs');
+    // Opening the fixed offline workspace is the worker's only Tabs API use;
+    // tab inspection, navigation, and capture still require a separate review.
+    expect(backgroundJs).not.toMatch(/chrome\.tabs\.(?!create\b)/);
     const manifestJson = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
     expect(manifestJson.background).toEqual({ service_worker: 'background.js' });
     expect(manifestJson.permissions).toEqual(['storage']);
@@ -4240,7 +4245,7 @@ describe('markdown copy and HAR websocket import contracts', () => {
   });
 
   test('HAR imports thread _webSocketMessages through the shared frame pipeline', () => {
-    expect(js).toContain('applyHarWebSocketMessages(row, entries[index] ? entries[index]._webSocketMessages : null);');
+    expect(js).toContain('applyHarWebSocketMessages(row, rawEntry._webSocketMessages);');
     expect(js).toContain('const HAR_WS_MESSAGE_IMPORT_LIMIT = 1000;');
   });
 });

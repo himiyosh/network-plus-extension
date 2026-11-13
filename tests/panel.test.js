@@ -9,6 +9,127 @@ const np = require('../panel.js');
 
 const PANEL_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'panel.js'), 'utf8');
 
+describe('incremental HAR reader', () => {
+  const encoder = new TextEncoder();
+  const entry = {
+    request: { method: 'POST', url: 'https://example.test/日本語', postData: { text: '🌍' } },
+    response: { status: 201, content: { text: 'braces } ] {, quote " and slash \\ \n' } },
+    _webSocketMessages: [{ type: 'send', data: 'frame' }],
+  };
+  const source = JSON.stringify({ before: [true, null, -2.3e+40], log: { entries: [entry] }, after: {} });
+  async function* chunks(value, size = 13) {
+    const bytes = typeof value === 'string' ? encoder.encode(value) : value;
+    for (let offset = 0; offset < bytes.length; offset += size) yield bytes.subarray(offset, offset + size);
+  }
+
+  test('preserves raw entries and frames across every byte boundary, including split UTF-8', async () => {
+    const bytes = encoder.encode(source);
+    for (let split = 0; split <= bytes.length; split += 1) {
+      const rows = [];
+      const count = await np.readHarEntries([bytes.subarray(0, split), bytes.subarray(split)], (row) => rows.push(row));
+      expect(count).toBe(1);
+      expect(rows).toEqual([entry]);
+    }
+    const rows = [];
+    await expect(np.readHarEntries(chunks(source, 1), (row) => rows.push(row))).resolves.toBe(1);
+    expect(rows).toEqual([entry]);
+  });
+
+  test('handles escaped structural keys, BOM, metadata, numbers, and duplicate nonstructural keys', async () => {
+    const value = '\ufeff{"ignored":{"entries":[false]},"l\\u006fg":{"pages":[],"entr\\u0069es":[' +
+      '{"request":null,"request":{},"response":{},"number":1e400}],"tail":[-0,0.12,1e2,1E-2,1E+2]},' +
+      '"duplicate":1,"duplicate":2,"' + 'x'.repeat(100) + '":"discarded"} \r\n\t';
+    const rows = [];
+    await expect(np.readHarEntries(chunks(value, 1), (row) => rows.push(row))).resolves.toBe(1);
+    expect(rows).toEqual([{ request: {}, response: {}, number: Infinity }]);
+    await expect(np.readHarEntries(chunks('{"log":{"entries":[]}}'), () => {})).resolves.toBe(0);
+  });
+
+  test.each([
+    '', ' ', '{}', '[]', 'null', '{"log":[]}', '{"log":{}}', '{"log":{"entries":{}}}',
+    '{"log":{"entries":[null]}}', '{"log":{"entries":[{}]}}',
+    '{"log":{"entries":[{"request":[],"response":{}}]}}',
+    '{"log":{"entries":[{"request":{},"response":null}]}}',
+    '{"log":{"entries":[]},"log":{"entries":[]}}',
+    '{"log":{"entries":[],"entr\\u0069es":[]}}',
+    '{"log":{"entries":[]},"l\\u006fg":{"entries":[]}}',
+  ])('rejects malformed or ambiguous HAR structure: %s', async (value) => {
+    await expect(np.readHarEntries(chunks(value, 1), () => {})).rejects.toMatchObject({ name: 'ImportError' });
+  });
+
+  test.each([
+    '01', '-01', '-', '1.', '1e', '1e+', '.1', '+1', 'NaN', 'Infinity', 'TRUE',
+    'nul', 'truefalse', '[1,]', '[,1]', '{"a":1,}', '{a:1}', '{"a" 1}',
+    '"\\x20"', '"\\u12xz"', '"\\u123"', '"unterminated', '"raw\nline"',
+    '[}', '{]', 'false true', '\u00a0null', 'null/*comment*/',
+  ])('validates ignored metadata after entries rather than accepting malformed JSON: %s', async (metadata) => {
+    const value = '{"log":{"entries":[' + JSON.stringify(entry) + ']},"ignored":' + metadata + '}';
+    const staged = [];
+    await expect(np.readHarEntries(chunks(value, 3), (row) => staged.push(row))).rejects.toMatchObject({ name: 'ImportError' });
+    expect(staged).toEqual([entry]);
+  });
+
+  test('rejects all truncated documents and non-whitespace trailing data', async () => {
+    for (let end = 0; end < source.length; end += 1) {
+      await expect(np.readHarEntries(chunks(source.slice(0, end), 7), () => {})).rejects.toMatchObject({ name: 'ImportError' });
+    }
+    for (const suffix of ['{}', 'false', ',', '\u0000', '\ufeff']) {
+      await expect(np.readHarEntries(chunks(source + suffix), () => {})).rejects.toThrow('not valid JSON');
+    }
+  });
+
+  test('emits before EOF, propagates stream failures, and closes the source on callback failure', async () => {
+    const rows = [];
+    const failure = new Error('source disconnected');
+    async function* interrupted() {
+      yield encoder.encode('{"log":{"entries":[' + JSON.stringify(entry));
+      expect(rows).toEqual([entry]);
+      throw failure;
+    }
+    await expect(np.readHarEntries(interrupted(), (row) => rows.push(row))).rejects.toBe(failure);
+    let closed = false;
+    async function* cancellable() {
+      try {
+        yield encoder.encode(source);
+        throw new Error('must not read again');
+      } finally {
+        closed = true;
+      }
+    }
+    await expect(np.readHarEntries(cancellable(), () => { throw failure; })).rejects.toBe(failure);
+    expect(closed).toBe(true);
+  });
+
+  test('reads more than the V8 string limit as 4096 meaningful entries without collecting the document', async () => {
+    const body = '0123456789abcdef'.repeat(8274);
+    let bytesRead = 0;
+    async function* largeHar() {
+      yield encoder.encode('{"log":{"version":"1.2","entries":[');
+      for (let id = 0; id < 4096; id += 1) {
+        const bytes = encoder.encode((id ? ',' : '') + JSON.stringify({
+          startedDateTime: '2026-11-14T00:00:00.000Z',
+          time: id + 1,
+          request: { method: id % 2 ? 'POST' : 'GET', url: 'https://large.test/request/' + id },
+          response: { status: id % 3 ? 200 : 404, content: { text: id + ':' + body + ':' + id } },
+        }));
+        bytesRead += bytes.byteLength;
+        yield bytes;
+      }
+      yield encoder.encode(']}}');
+    }
+    let received = 0;
+    const count = await np.readHarEntries(largeHar(), (row) => {
+      const id = received++;
+      expect(row.request.url).toBe('https://large.test/request/' + id);
+      expect(row.time).toBe(id + 1);
+      expect(row.response.content.text).toBe(id + ':' + body + ':' + id);
+    });
+    expect(count).toBe(4096);
+    expect(received).toBe(4096);
+    expect(bytesRead).toBeGreaterThan(542000000);
+  }, 30000);
+});
+
 // Every uiTextFormat() call site in panel.js whose slot is filled from the
 // dictionary, read out of the source rather than remembered. A frame that
 // composes a translated noun into a translated sentence is exactly where an
@@ -7599,6 +7720,21 @@ describe('devtools-session mirror', () => {
     host.sendSync();
     expect(viewerReceived.snapshots).toHaveLength(1);
     expect(viewerReceived.snapshots[0].map((wireRow) => wireRow.id)).toEqual([1, 2]);
+  });
+
+  test('an older viewer receives an ordered snapshot when an unseen pending row completes', () => {
+    const first = { ...buildHostRow(1), _pendingRequest: true };
+    const second = buildHostRow(2);
+    const { host, viewerReceived } = createLinkedSessions({ rows: [first, second] });
+    host.handleMessage({ type: 'hello', protocolVersion: np.MIRROR_PROTOCOL_VERSION });
+    expect(viewerReceived.snapshots[0].map((row) => row.id)).toEqual([2]);
+    host.pushRow(first);
+    expect(viewerReceived.appended).toEqual([]);
+
+    first._pendingRequest = false;
+    host.pushRow(first, true);
+    expect(viewerReceived.appended).toEqual([]);
+    expect(viewerReceived.snapshots[1].map((row) => row.id)).toEqual([1, 2]);
   });
 
   test('paused state changes reach the viewer through sync', () => {

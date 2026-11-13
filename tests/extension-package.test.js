@@ -308,6 +308,30 @@ describe('extension source integrity', () => {
     expect(fs.readFileSync(path.join(repositoryRoot, 'panel.js'), 'utf8')).not.toContain('chrome.downloads');
   });
 
+  test.each([
+    undefined,
+    {},
+    { default_title: 'Another action' },
+    { default_title: 'Open Network+ (offline)', default_popup: 'panel.html' },
+    { default_title: 'Open Network+ (offline)', default_icon: 'https://example.test/icon.png' },
+  ])('rejects unaudited toolbar action declarations: %p', (action) => {
+    const root = createFixture();
+    const manifest = readManifest(root);
+    manifest.action = action;
+    writeManifest(root, manifest);
+    expect(validateExtension(root)).toContain(
+      'manifest action must be exactly: { "default_title": "Open Network+ (offline)" }',
+    );
+  });
+
+  test('rejects overriding the browser New Tab page', () => {
+    const root = createFixture();
+    const manifest = readManifest(root);
+    manifest.chrome_url_overrides = { newtab: 'panel.html' };
+    writeManifest(root, manifest);
+    expect(validateExtension(root)).toContain('manifest contains unapproved top-level key: chrome_url_overrides');
+  });
+
   test('rejects missing, extra, and unused permissions', () => {
     const root = createFixture();
     const manifest = readManifest(root);

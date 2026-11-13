@@ -4,6 +4,13 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- ⚡ **Large HAR import** — stream entries and pace pop-out transfers to avoid loading the entire file as one string.
+- ✨ **Pending requests** — show requests waiting for a response in DevTools and the pop-out, then update the same row on completion.
+- ✨ **Offline workspace** — open saved captures from the browser’s extension menu, including from New Tab.
+- 🐛 **Visible requests** — keep keyboard navigation, range selection, and status summaries aligned with displayed search results.
+- 🔒 **Preview and resend privacy** — block captured HTML from loading external content and omit cookies when resend cookies are off.
+- 🔒 **Spreadsheet export** — keep untrusted CSV text from being interpreted as a formula.
+
 - 🔧 **HAR import** — remove fixed file size limits in DevTools and the pop-out mirror.
 
 - 🐛 **Pane search reset** — clear invalid-regex feedback when closing Body or Raw search, including its accessible error state.

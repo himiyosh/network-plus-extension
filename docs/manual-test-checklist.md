@@ -4,6 +4,14 @@ DOM behavior, export contents, and theme switching are verified by loading the e
 
 Automated coverage lives in [tests/](../tests); see the test table in the [README](../README.md#tests).
 
+## Offline workspace from the browser toolbar
+
+- [ ] From Chrome or Edge **New Tab**, open Network+ through the Extensions menu or its pinned toolbar icon. A separate offline workspace opens; the original New Tab stays unchanged.
+- [ ] With DevTools and its pop-out open, hold an HTTP response for several seconds. Both tables show **Pending** and update the same row after the response.
+- [ ] The persistent offline scope and empty-state import guidance appear in English and Japanese. Pause/Resume, live recording styling, Stream capture, and pop-out controls stay hidden.
+- [ ] The empty-state import action opens the HAR/SAZ picker. Import a synthetic saved capture, inspect its response, filter and compare requests, then export sanitized HAR. The offline scope remains visible throughout.
+- [ ] Opening Network+ inside DevTools still records the inspected page, and the existing pop-out mirrors that session. The manifest still requests only `storage`.
+
 ## Guided local sample
 
 - [ ] `Explore sample capture` appears only when there are zero requests, and stays readable at 320 / 375 / 414 / 768 px without scrolling the toolbar horizontally.
@@ -44,7 +52,7 @@ Automated coverage lives in [tests/](../tests); see the test table in the [READM
 - [ ] With DevTools docked, clicking 🪟 opens the mirror tab and the browser window does not minimize or move.
 - [ ] In that docked case the mirror tab shows the "Keep DevTools open" dialog exactly once per load: it warns that closing DevTools stops capture and freezes the tab, and lists the undock steps. Plain "Got it" lets it return on the next pop-out; "Don't show this again" keeps it away for good. An undocked pop-out (window minimized) never shows it.
 - [ ] In the mirror tab, pause/resume, Clear (and the Undo that then appears), the Settings dialog's Retention section (opens with the session's current values), and the Stream capture toggle all act on the DevTools session, and the tab's buttons match the session state within a second. Language and Theme in that same dialog act on the tab itself, not the DevTools session.
-- [ ] Importing a HAR or SAZ from the mirror tab replaces the session's capture exactly like a DevTools-side import, and both windows show the imported rows. Check a valid HAR above 64 MiB and an oversized SAZ, which should report its 32 MiB file limit.
+- [ ] Importing a HAR or SAZ from the mirror tab replaces the session's capture exactly like a DevTools-side import, and both windows show the imported rows. Check a valid HAR above 500 MB and an oversized SAZ, which should report its 32 MiB file limit.
 - [ ] `Resend unchanged` / `Edit and resend...` from the mirror tab execute in the DevTools session (status names the session) and the result row appears in both windows; while disconnected, every remote control reports a failure status instead of acting locally, and Send inside the resend dialog shows the failure in the dialog itself while keeping it open with the edited request.
 - [ ] Closing DevTools and reopening it reattaches the surviving mirror tab automatically within a few seconds (DevTools status reports the reattach; the tab resyncs); clicking 🪟 while that tab is mirroring reports "already mirroring" instead of opening a duplicate, and reloading the mirror tab (F5) also reattaches on its own.
 - [ ] The mirror tab's empty state never offers `Explore sample capture` (its description points at the DevTools session instead).

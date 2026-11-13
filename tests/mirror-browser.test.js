@@ -111,7 +111,7 @@ const HOST_STUB = `
   const fakePort = {
     name: 'networkplus-mirror:42',
     onMessage: { addListener: (fn) => (window.__hostPortListener = fn) },
-    onDisconnect: { addListener: () => {} },
+    onDisconnect: { addListener: (fn) => (window.__hostPortDisconnect = fn) },
     postMessage: (msg) => window.__fromHost.push(msg),
     disconnect: () => {},
   };
@@ -203,6 +203,125 @@ const answerCommand = (cdp, commandId, control) =>
       return true;
     })()`,
   );
+
+browserTest(
+  'pending mirror rows update in place through pushes and snapshots without reopening closed details',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable, query: '?view=window&src=7', initScript: VIEWER_STUB,
+    });
+    const pending = (id) => ({ ...wireRow(id), pending: true, time: 0, response: { status: 0, headers: [], content: {} } });
+    const done = (id, status) => ({ ...wireRow(id), response: { ...wireRow(id).response, status } });
+    const states = () => evaluate(page.cdp, `Array.from(document.querySelectorAll('#tbody tr[data-row-id]'))
+      .map((row) => [row.dataset.rowId, row.querySelector('[data-col-id="status"]').textContent])`);
+    try {
+      await attachScriptedHostPort(page.cdp);
+      expect(await evaluate(page.cdp, "window.__sentToHost.find((m) => m.type === 'hello').pendingRows")).toBe(true);
+      await sendSnapshot(page.cdp, [pending(1), wireRow(2)], syncControl());
+      expect(await waitForImportResult(page.cdp, "document.querySelector('#tbody tr[data-row-id=\"1\"] [data-col-id=status]')?.textContent === 'Pending'")).toBe(true);
+      await evaluate(page.cdp, "document.querySelector('#tbody tr[data-row-id=\"1\"]').click(); true");
+      expect(await evaluate(page.cdp, "window.__sentToHost.filter((m) => m.type === 'body-request').length")).toBe(0);
+      await evaluate(page.cdp, `window.__send({ type: 'row', row: ${JSON.stringify(done(1, 201))} }); true`);
+      expect(await waitForImportResult(page.cdp, "document.querySelector('.details-summary-status')?.textContent.includes('201')")).toBe(true);
+      expect(await states()).toEqual([['1', '201'], ['2', '200']]);
+      expect(await evaluate(page.cdp, "document.querySelector('#tbody tr[data-row-id=\"1\"]').getAttribute('aria-selected')")).toBe('true');
+      // A delayed provisional push must never regress a finished row.
+      await evaluate(page.cdp, `window.__send({ type: 'row', row: ${JSON.stringify(pending(1))} }); true`);
+      expect(await states()).toEqual([['1', '201'], ['2', '200']]);
+
+      await sendSnapshot(page.cdp, [done(1, 201), wireRow(2), pending(3)], syncControl({ paused: true }));
+      await evaluate(page.cdp, `(() => {
+        document.querySelector('#tbody tr[data-row-id="3"]').click();
+        document.querySelector('#tbody tr[data-row-id="3"]').focus();
+        const language = document.querySelector('#langSelect');
+        language.value = 'ja'; language.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()`);
+      expect((await states()).at(-1)).toEqual(['3', '応答待ち']);
+      expect(await waitForImportResult(page.cdp, "document.querySelector('#res-body').textContent.includes('レスポンスの完了を待っています。')")).toBe(true);
+      expect(await evaluate(page.cdp, 'document.activeElement.dataset.rowId')).toBe('3');
+      await evaluate(page.cdp, 'document.querySelector("#detailsCloseBtn").click(); true');
+      await sendSnapshot(page.cdp, [done(1, 201), wireRow(2), done(3, 204)], syncControl({ paused: true }));
+      expect(await states()).toEqual([['1', '201'], ['2', '200'], ['3', '204']]);
+      expect(await evaluate(page.cdp, 'document.querySelector("#details").hidden')).toBe(true);
+      expect(await evaluate(page.cdp, 'document.documentElement.lang')).toBe('ja');
+      // Host Clear/Undo snapshots retain the host's IDs and capture order.
+      await sendSnapshot(page.cdp, [], syncControl({ undoAvailable: true }));
+      expect(await states()).toEqual([]);
+      await sendSnapshot(page.cdp, [done(1, 201), wireRow(2), done(3, 204)], syncControl());
+      expect(await states()).toEqual([['1', '201'], ['2', '200'], ['3', '204']]);
+      await evaluate(page.cdp, 'window.__hostListeners.disconnect.forEach((fn) => fn()); true');
+      expect(await states()).toEqual([['1', '201'], ['2', '200'], ['3', '204']]);
+      expect(await evaluate(page.cdp, 'document.querySelector("#statusText").textContent')).toContain('disconnected');
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
+  'the host negotiates pending mirror rows and polls while hidden only for a connected capable viewer',
+  async () => {
+    const page = await launchPanelPage({
+      executable: browserExecutable,
+      initScript: HOST_STUB + `
+        window.__testHidden = true;
+        window.__harEntries = [];
+        window.__harPolls = 0;
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.__testHidden });
+        chrome.devtools.network.getHAR = (callback) => {
+          window.__harPolls += 1; callback({ entries: window.__harEntries });
+        };
+      `,
+    });
+    const drive = (message) => evaluate(page.cdp, `window.__hostPortListener(${JSON.stringify(message)}); true`);
+    const snapshotRows = async () => {
+      await evaluate(page.cdp, 'window.__fromHost.length = 0; true');
+      await drive({ type: 'snapshot-request' });
+      return evaluate(page.cdp, "window.__fromHost.filter((m) => m.type === 'snapshot-rows').flatMap((m) => m.rows)");
+    };
+    try {
+      await drive({ type: 'hello', protocolVersion: 2 });
+      await delay(1100);
+      expect(await evaluate(page.cdp, 'window.__harPolls')).toBe(0);
+      await evaluate(page.cdp, `(() => {
+        window.__first = {
+          startedDateTime: new Date().toISOString(), time: 0,
+          request: { method: 'GET', url: 'https://mirror.example.test/first', headers: [] },
+          response: { status: 0, headers: [], content: {} },
+        };
+        window.__harEntries = [window.__first]; return true;
+      })()`);
+      await drive({ type: 'hello', protocolVersion: 2, pendingRows: true });
+      expect(await waitForImportResult(page.cdp, "window.__fromHost.some((m) => m.type === 'row' && m.row.pending === true)")).toBe(true);
+      expect((await snapshotRows()).map((row) => [row.id, row.pending])).toEqual([[1, true]]);
+      await drive({ type: 'hello', protocolVersion: 2 });
+      expect(await snapshotRows()).toEqual([]);
+      await drive({ type: 'hello', protocolVersion: 2, pendingRows: true });
+      await drive({ type: 'command', commandId: 1, name: 'clear', args: {} });
+      expect(await snapshotRows()).toEqual([]);
+      await evaluate(page.cdp, `(() => {
+        const done = { ...window.__first, time: 900,
+          response: { status: 200, headers: [], content: { size: 0, mimeType: 'text/plain' } },
+          getContent: (callback) => callback('', ''),
+        };
+        window.__harEntries = [done];
+        window.__requestListeners.forEach((fn) => fn(done)); return true;
+      })()`);
+      expect(await snapshotRows()).toEqual([]);
+      await drive({ type: 'command', commandId: 2, name: 'undo-clear', args: {} });
+      expect((await snapshotRows()).map((row) => [row.id, row.pending, row.response.status])).toEqual([[1, undefined, 200]]);
+      await evaluate(page.cdp, 'window.__hostPortDisconnect(); true');
+      const polls = await evaluate(page.cdp, 'window.__harPolls');
+      await delay(1100);
+      expect(await evaluate(page.cdp, 'window.__harPolls')).toBe(polls);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
 
 browserTest(
   'mirror auto-scroll survives host Clear resync and follows new requests',
@@ -643,21 +762,33 @@ browserTest(
       expect(await evaluate(host.cdp, "document.querySelector('#tbody tr').textContent")).toContain('imported.example.test');
       expect(await evaluate(host.cdp, "document.getElementById('importBtn').disabled")).toBe(false);
 
-      await evaluate(host.cdp, `(() => {
+      await evaluate(host.cdp, `(async () => {
         const send = window.__hostPortListener;
         const header = ${JSON.stringify(MINI_HAR.replace('imported.example.test', 'mirror-large.example.test'))};
         const commandId = 31;
-        send({ type: 'import-begin', commandId, fileName: 'mirror-large.har', size: header.length + ${size} });
-        send({ type: 'import-chunk', commandId, data: btoa(header) });
+        send({ type: 'import-begin', commandId, fileName: 'mirror-large.har', size: header.length + ${size}, stream: true });
+        const sendChunk = async (data) => {
+          const replies = window.__fromHost;
+          const offset = replies.length;
+          send({ type: 'import-chunk', commandId, data });
+          for (let attempt = 0; attempt < 100; attempt++) {
+            const reply = replies.slice(offset).find((m) => m.commandId === commandId);
+            if (reply?.type === 'import-ack') return;
+            if (reply?.type === 'command-result') throw Error(reply.error);
+            await new Promise((resolve) => setTimeout(resolve, 1));
+          }
+          throw Error('Missing import acknowledgment');
+        };
+        await sendChunk(btoa(header));
         const chunk = 384 * 1024;
         const padding = btoa(' '.repeat(chunk));
         for (let offset = 0; offset < ${size}; offset += chunk) {
           const length = Math.min(chunk, ${size} - offset);
-          send({ type: 'import-chunk', commandId, data: length === chunk ? padding : btoa(' '.repeat(length)) });
+          await sendChunk(length === chunk ? padding : btoa(' '.repeat(length)));
         }
         send({ type: 'import-end', commandId });
         return true;
-      })()`);
+      })()`, true);
       expect(await waitForImportResult(host.cdp, "window.__fromHost.find((msg) => msg.type === 'command-result' && msg.commandId === 31)"))
         .toMatchObject({ ok: true });
       expect(await evaluate(host.cdp, "document.querySelector('#tbody tr').textContent")).toContain('mirror-large.example.test');
@@ -673,6 +804,15 @@ browserTest(
     try {
       await attachScriptedHostPort(viewer.cdp);
       const declared = await evaluate(viewer.cdp, `(() => {
+        const messages = window.__sentToHost;
+        const push = messages.push.bind(messages);
+        messages.push = (message) => {
+          const length = push(message);
+          if (message.type === 'import-chunk') {
+            queueMicrotask(() => window.__send({ type: 'import-ack', commandId: message.commandId, viewer: message.viewer }));
+          }
+          return length;
+        };
         const input = document.getElementById('viewerImportFile');
         const dt = new DataTransfer();
         const file = new File([${JSON.stringify(MINI_HAR)}, ' '.repeat(${size})], 'large.har');
@@ -692,12 +832,13 @@ browserTest(
         return {
           commandId: end.commandId,
           declared: begin.size,
+          streamed: begin.stream,
           decodedBytes,
           bounded: chunks.every(({ data }) => data.length <= 512 * 1024),
           busy: document.getElementById('importBtn').disabled,
         };
       })()`);
-      expect(sent).toMatchObject({ declared, decodedBytes: declared, bounded: true, busy: true });
+      expect(sent).toMatchObject({ declared, streamed: true, decodedBytes: declared, bounded: true, busy: true });
       await evaluate(viewer.cdp, `window.__send({ type: 'command-result', commandId: ${sent.commandId}, ok: true }); true`);
       expect(await evaluate(viewer.cdp, "document.getElementById('importBtn').disabled")).toBe(false);
     } finally {

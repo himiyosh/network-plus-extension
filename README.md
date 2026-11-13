@@ -68,6 +68,12 @@ The stock Network panel is great at showing you traffic. Network+ is built for t
 
 Open the listing for your browser, add the extension, then open DevTools (<kbd>F12</kbd>) — a **Network+** tab is now available. The store build updates itself, so this is the route to take unless you need a specific build.
 
+The DevTools panel and its pop-out can show a request as **Pending** while it waits for a response, then update the same row when it finishes. Requests that finish between checks can appear directly as completed.
+
+### Open saved captures from a New Tab
+
+Click **Network+** in the browser’s Extensions menu (or pin it to the toolbar) from any page, including **New Tab**. It opens an offline workspace in a separate tab for importing HAR/SAZ, filtering, inspecting, comparing, and exporting saved requests. The offline label remains visible and recording controls are hidden. For live capture, open DevTools → **Network+** on the page you want to inspect. Your New Tab page stays unchanged.
+
 ### Install from the release ZIP
 
 1. Download the ZIP from the [latest release](https://github.com/himiyosh/network-plus-extension/releases/latest) — the release notes there list what changed.
@@ -245,7 +251,7 @@ Edge / Chrome DevTools
 |---|---|
 | Request rows | unlimited by default · capped 100–100,000 when Unlimited is turned off in Settings |
 | Response body | 1 MiB per body · 32 MiB across the shared cache |
-| HAR file | No fixed file size limit · import capacity depends on browser memory |
+| HAR file | Streamed without a fixed file size limit · individual entries and retained data still depend on browser memory |
 | SAZ archive | 32 MiB per file · 20,000 entries · 4 MiB per expanded entry · 64 MiB expanded in total |
 
 The status bar continuously shows body cache usage, with the active retention policy and the cumulative row-eviction, body-omission, body-eviction, and preview-omission counts in its tooltip; the retention limit itself is set from the 🎛️ Settings dialog. See [docs/architecture.md](docs/architecture.md) for the rendering pipeline, eviction rules, import validation, and UI stability rules.
@@ -319,10 +325,10 @@ Repository conventions, the panel's section layout, XSS rules, and the review to
 
 ## 🔐 Security
 
-- User-controlled values in the panel are rendered via `textContent` or DOM APIs. The only `innerHTML` assignment swaps predefined Pause/Resume SVG icons, never user data.
+- The panel renders user-controlled values with `textContent` or DOM APIs. HTML response previews first parse into a detached template, then remove resource hints and nested documents before rendering in a sandbox with network access blocked.
 - The Content Security Policy is declared explicitly in [manifest.json](manifest.json): `script-src 'self'; object-src 'self'`.
 - The extension requests exactly one permission, `storage`, used to persist the theme and search preferences (scope, match options, and the Matches only state — never search keywords or captured traffic). HAR downloads use a local Blob URL and a temporary `<a download>` element, so the `downloads` permission is not needed.
-- The manifest is limited to nine audited top-level keys. Its sole permitted background worker, `background.js`, minimizes undocked DevTools on pop-out without extra permissions; host permissions, content scripts, and other workers are rejected by the validator.
+- The manifest is limited to audited top-level keys and one fixed toolbar action. Its sole permitted background worker, `background.js`, opens the local offline workspace and minimizes undocked DevTools on pop-out without extra permissions; New Tab overrides, host permissions, content scripts, and other workers are rejected by the validator.
 - `npm run extension:check` verifies exact permission parity and real usage, runtime path symlink and root boundaries, resource locality, the inline-script ban, the CSP, and the distribution allowlist.
 
 ## 🚧 Limitations

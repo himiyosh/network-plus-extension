@@ -1186,6 +1186,18 @@ test('retains the local-only skip when no browser executable is discoverable', (
     },
     {
       skipped: true,
+      title: 'matches-only grid navigation and range selection exclude hidden rows and comparison Escape restores focus',
+    },
+    {
+      skipped: true,
+      title: 'the explicit offline workspace imports and inspects saved requests with localized scope and no capture controls',
+    },
+    {
+      skipped: true,
+      title: 'pending requests update the same row and remain consistent across Clear and Undo',
+    },
+    {
+      skipped: true,
       title: 'the details header names the request in parts and the summary strip survives tab changes',
     },
     {
