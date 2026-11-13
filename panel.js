@@ -3409,6 +3409,37 @@ const _NetworkPlus = (function () {
     return highlights;
   }
 
+  // A pane searches one query, so its global regex already visits disjoint
+  // matches in order. Counts need no ranges and rendering needs only a prefix.
+  function scanPaneSearchMatches(text, regex, limit, ranges) {
+    let count = 0;
+    regex.lastIndex = 0;
+    let match;
+    while (count < limit && (match = regex.exec(text)) !== null) {
+      if (match[0].length === 0) {
+        regex.lastIndex += 1;
+        continue;
+      }
+      count += 1;
+      if (ranges) ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+    regex.lastIndex = 0;
+    return count;
+  }
+
+  function planPaneSearchRanges(text, query, options, limit) {
+    const ranges = [];
+    const { regex } = compileSearchQuery(query, options);
+    // One extra match distinguishes hitting the cap from exceeding it.
+    if (regex) scanPaneSearchMatches(text, regex, limit + 1, ranges);
+    return ranges;
+  }
+
+  function countPaneSearchHits(text, query, options) {
+    const { regex } = compileSearchQuery(query, options);
+    return regex ? scanPaneSearchMatches(text, regex, Infinity) : 0;
+  }
+
   // Rows to render given the matches-only toggle: with an active search and the
   // toggle on, only rows present in matchedRows (a Map or Set keyed by row) stay
   // visible; otherwise the full sorted list is returned unchanged.
@@ -14943,14 +14974,13 @@ const _NetworkPlus = (function () {
 
     const marks = [];
     let truncated = false;
-    const keywords = [{ query, colorIdx: 0 }];
     for (const textNode of textNodes) {
+      const ranges = planPaneSearchRanges(textNode.nodeValue, query, options, PANE_SEARCH_MAX_HITS - marks.length);
+      if (ranges.length === 0) continue;
       if (marks.length >= PANE_SEARCH_MAX_HITS) {
         truncated = true;
         break;
       }
-      const ranges = planKeywordHighlights(textNode.nodeValue, keywords, options);
-      if (ranges.length === 0) continue;
       const source = textNode.nodeValue;
       const fragment = document.createDocumentFragment();
       let cursor = 0;
@@ -14973,6 +15003,7 @@ const _NetworkPlus = (function () {
         fragment.appendChild(document.createTextNode(source.slice(cursor)));
       }
       textNode.parentNode.replaceChild(fragment, textNode);
+      if (truncated) break;
     }
     return { marks, truncated };
   }
@@ -15334,7 +15365,7 @@ const _NetworkPlus = (function () {
           !truncated &&
           (hiddenSource || hasCollapsedPaneContent(pane, bar))
         ) {
-          const totalHits = planKeywordHighlights(fullText, [{ query, colorIdx: 0 }], searchOptions).length;
+          const totalHits = countPaneSearchHits(fullText, query, searchOptions);
           collapsedHits = Math.max(0, totalHits - marks.length);
         }
       }
@@ -21515,6 +21546,8 @@ const _NetworkPlus = (function () {
     preserveMatchingRowIndex,
     planKeywordSearchNavigation,
     planKeywordHighlights,
+    planPaneSearchRanges,
+    countPaneSearchHits,
     shouldRenderSelectedRow,
     isIncrementalAppendEligible,
     getIncrementalAppendBatch,
