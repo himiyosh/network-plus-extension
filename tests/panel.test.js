@@ -2769,7 +2769,7 @@ describe('HAR body-size fidelity', () => {
   });
 
   test.each([
-    ['missing', {}, {}, 0],
+    ['missing', {}, {}, -1],
     ['declared unknown', { bodySize: -1, postData: { mimeType: 'text/plain', text: 'data' } },
       { bodySize: -1, content: { mimeType: 'text/plain', size: 9 } }, 9],
   ])('does not invent body sizes for %s source metadata', (_label, requestFields, responseFields, contentSize) => {
@@ -6467,6 +6467,7 @@ describe('WebSocket frame HAR export', () => {
       const entry = np.buildHarLogFromRows([exportedRow]).log.entries[0];
       expect(entry.request.bodySize).toBe(row.requestPostData.text.length);
       expect(entry.response.bodySize).toBe(row.size);
+      expect(entry.response.content.size).toBe(row.size);
     }
   });
 

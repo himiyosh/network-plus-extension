@@ -732,6 +732,65 @@ browserTest(
 );
 
 browserTest(
+  'full HAR import and export preserve encoded payload metadata and distinct byte sizes',
+  async () => {
+    const page = await launchPanelPage({ executable: browserExecutable, query: '?view=offline', initScript: HOST_STUB });
+    try {
+      const result = await evaluate(page.cdp, `(async () => {
+        const input = document.querySelector('#importFile');
+        const source = ${MINI_HAR};
+        const entry = source.log.entries[0];
+        entry.request.bodySize = 0;
+        entry.request.postData = { mimeType: 'multipart/form-data', params: [{ name: 'tag', value: 'private-tag' }] };
+        entry.response.bodySize = 20;
+        entry.response.content = { size: 90, compression: 70, mimeType: 'text/plain', text: 'sample' };
+        source.log.entries.push({
+          ...entry,
+          request: { ...entry.request, bodySize: undefined, postData: { mimeType: 'application/octet-stream', text: 'AP8=', encoding: 'base64' } },
+          response: { ...entry.response, bodySize: -1, content: { size: -1, mimeType: 'text/plain' } },
+        });
+        const files = new DataTransfer();
+        files.items.add(new File([JSON.stringify(source)], 'metadata.har'));
+        input.files = files.files;
+        input.dispatchEvent(new Event('change'));
+        const waitFor = async (predicate) => {
+          for (let i = 0; i < 160; i++) {
+            if (predicate()) return;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          throw new Error('HAR round-trip fixture timed out');
+        };
+        await waitFor(() => document.querySelectorAll('#tbody tr[data-row-id]').length === 2);
+        const blobs = [];
+        URL.createObjectURL = (blob) => { blobs.push(blob); return 'blob:synthetic-har'; };
+        HTMLAnchorElement.prototype.click = () => {};
+        const exportBtn = document.querySelector('#exportHarBtn');
+        exportBtn.click();
+        document.querySelector('#dataSafetyFullBtn').click();
+        document.querySelector('#dataSafetyConfirmBtn').click();
+        await waitFor(() => blobs.length === 1 && !exportBtn.disabled);
+        exportBtn.click();
+        document.querySelector('#dataSafetySanitizedBtn').click();
+        await waitFor(() => blobs.length === 2 && !exportBtn.disabled);
+        const [full, sanitized] = await Promise.all(blobs.map(async (blob) => JSON.parse(await blob.text())));
+        return { full: full.log.entries, sanitized: sanitized.log.entries };
+      })()`, true);
+      expect(result.full[0].request).toMatchObject({ bodySize: 0, postData: {
+        mimeType: 'multipart/form-data', params: [{ name: 'tag', value: 'private-tag' }],
+      } });
+      expect(result.full[0].request.postData.text).toBeUndefined();
+      expect(result.full[0].response).toMatchObject({ bodySize: 20, content: { size: 90, compression: 70 } });
+      expect(result.full[1].request).toMatchObject({ bodySize: 2, postData: { text: 'AP8=', encoding: 'base64' } });
+      expect(result.full[1].response).toMatchObject({ bodySize: -1, content: { size: -1 } });
+      expect(JSON.stringify(result.sanitized)).not.toMatch(/private-tag|AP8=/);
+    } finally {
+      await page.close();
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+browserTest(
   'a HAR above both old source limits imports locally and over the mirror',
   async () => {
     const size = 65 * 1024 * 1024;

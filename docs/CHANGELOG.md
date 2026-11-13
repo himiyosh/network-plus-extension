@@ -4,6 +4,7 @@ All notable changes to Network+ for DevTools. Versions follow [Semantic Versioni
 
 ## Unreleased
 
+- 🐛 **HAR round-trip** — preserve form parameters, request encoding, and distinct response byte counts and compression.
 - ⚡ **Large HAR import** — stream entries and pace pop-out transfers to avoid loading the entire file as one string.
 - ✨ **Pending requests** — show requests waiting for a response in DevTools and the pop-out, then update the same row on completion.
 - ✨ **Offline workspace** — open saved captures from the browser’s extension menu, including from New Tab.
