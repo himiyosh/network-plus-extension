@@ -143,6 +143,8 @@ const DICTIONARY_LOOKUPS = [
   'searchColorLabel',
   'menuColumnLabel',
   'localizeBodyReason',
+  'localizeImportReason',
+  'localizeImportRetentionAction',
 ];
 const DICTIONARY_CALL = new RegExp('\\b(?:' + DICTIONARY_LOOKUPS.join('|') + ')\\s*\\(');
 
@@ -6374,6 +6376,8 @@ describe('details reopen status', () => {
       { key: 'bodyViewButtonTitle', slot: 'view', values: BODY_VIEW_KEYS },
       { key: 'bodyPaneFrame', slot: 'label', values: BODY_STATE_KEYS, others: { reason: np.uiText('reasonBodyEvicted') } },
       { key: 'bodyPaneFrame', slot: 'reason', values: BODY_REASON_KEYS, others: { label: np.uiText('bodyStateEvicted') } },
+      { key: 'statusImportFailed', slot: 'reason', values: ['importReasonHarEntriesMissing', 'importReasonSessionTimeout'] },
+      { key: 'importRetentionSummary', slot: 'action', values: ['importRetentionBodyOmitted'] },
     ];
     for (const frame of COMPOSED_JAPANESE_FRAMES) {
       // A row names either the dictionary keys whose text can land in the slot
